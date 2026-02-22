@@ -1,0 +1,9 @@
+runs/
+tmp/
+*.log
+*.tar.gz
+*.zip
+*.deb
+__pycache__/
+*.pyc
+.DS_Store
