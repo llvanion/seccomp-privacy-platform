@@ -55,7 +55,7 @@ trap cleanup EXIT
 
 echo "[info] starting server..."
 # Use bazel-bin to avoid extra bazel output in stdout; assumes you've built once.
-bazel-bin/private_join_and_compute/server --server_data_file="$SERVER_CSV" >"$SERVER_LOG" 2>&1 &
+$(bazel info bazel-bin)/private_join_and_compute/server --server_data_file="$SERVER_CSV" >"$SERVER_LOG" 2>&1 &
 SERVER_PID=$!
 
 # Wait until server listens
@@ -75,7 +75,7 @@ fi
 # ---- Run client ----
 echo "[info] running client..."
 set +e
-bazel-bin/private_join_and_compute/client \
+$(bazel info bazel-bin)/private_join_and_compute/client \
   --client_data_file="$CLIENT_CSV" \
   --port="$SERVER_ADDR" \
   >"$CLIENT_LOG" 2>&1

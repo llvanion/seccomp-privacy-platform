@@ -7,3 +7,7 @@ tmp/
 __pycache__/
 *.pyc
 .DS_Store
+data/raw/
+data/extracted/
+runs/
+logs/
