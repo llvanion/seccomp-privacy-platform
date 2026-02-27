@@ -6,8 +6,23 @@ import json
 import os
 from datetime import datetime
 from typing import Optional, Iterable, Dict, Tuple
-
+from decimal import Decimal, ROUND_HALF_UP
 import pandas as pd
+
+def euro_to_cents_int(x) -> int:
+    """
+    Convert euro amount to integer cents safely.
+    x can be -1, int/float/str.
+    """
+    if x is None:
+        return 0
+    # missing indicator in dataset is -1
+    if str(x).strip() == "-1":
+        return 0
+    d = Decimal(str(x))
+    # cents, standard rounding half up
+    cents = (d * Decimal("100")).quantize(Decimal("1"), rounding=ROUND_HALF_UP)
+    return int(cents)
 
 
 def hmac_sha256_hex(secret: str, msg: str) -> str:
@@ -37,7 +52,7 @@ def write_server_csv(path: str, keys: Iterable[str]) -> None:
             w.writerow([k])
 
 
-def write_client_csv(path: str, rows: Iterable[Tuple[str, float]]) -> None:
+def write_client_csv(path: str, rows: Iterable[Tuple[str, int]]) -> None:
     with open(path, "w", newline="", encoding="utf-8") as f:
         w = csv.writer(f)
         for k, v in rows:
@@ -75,12 +90,12 @@ def build_from_criteo_tsv(
     # We'll store exposure keys and purchase rows (key, value) in sets/dicts to dedup.
     # Dedup rule: within window, keep at most one per user (exposure and purchase separately).
     exposure_keys = set()
-    purchase_map: Dict[str, float] = {}
+    purchase_map: Dict[str, int] = {}
 
     # Bucket support: simplest implementation -> write separate subfolders per bucket
     # If bucket_field is provided, we build per-bucket structures.
     bucket_exposure: Dict[str, set] = {}
-    bucket_purchase: Dict[str, Dict[str, float]] = {}
+    bucket_purchase: Dict[str, Dict[str, int]] = {}
 
     def normalize_key(uid: str) -> str:
         uid = str(uid)
@@ -188,11 +203,8 @@ def build_from_criteo_tsv(
                 if value_mode == "count":
                     v = 1
                 elif value_mode == "amount":
-                    v_raw = float(amount.loc[idx])
-                    if v_raw < 0:
-                        # Shouldn't happen for Sale=1, but keep robust
-                        v_raw = 0.0
-                    v = v_raw
+                    # Convert euros (possibly float-like) to integer cents to satisfy PJC integer-only requirement
+                    v = euro_to_cents_int(amount.loc[idx])
                 else:
                     raise ValueError(f"Unsupported value_mode: {value_mode}")
 
