@@ -5,6 +5,8 @@ set -euo pipefail
 PJC_DIR="${PJC_DIR:-$HOME/Desktop/private-join-and-compute}"
 JOB_ID="${JOB_ID:-$(date +%Y%m%d-%H%M%S)}"
 OUT_DIR="${OUT_DIR:-$PWD/runs/$JOB_ID}"
+# In pipeline mode, these are expected to be injected by run_pipeline.sh.
+# Fallbacks below are only for standalone/demo usage.
 SERVER_CSV="${SERVER_CSV:-/tmp/server.csv}"
 CLIENT_CSV="${CLIENT_CSV:-/tmp/client.csv}"
 SERVER_ADDR="${SERVER_ADDR:-127.0.0.1:10501}"

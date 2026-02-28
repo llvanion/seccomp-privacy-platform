@@ -1,0 +1,7 @@
+{
+  "demo-key-001": {
+    "caller": "judge_demo",
+    "secret": "replace_with_long_random_secret",
+    "enabled": true
+  }
+}

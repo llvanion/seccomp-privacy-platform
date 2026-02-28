@@ -4,45 +4,27 @@ import hashlib
 import hmac
 import json
 import os
-from datetime import datetime
-from typing import Optional, Iterable, Dict, Tuple
+from datetime import datetime, timezone
 from decimal import Decimal, ROUND_HALF_UP
-import pandas as pd
+from typing import Dict, Iterable, Optional, Tuple
 
-def euro_to_cents_int(x) -> int:
-    """
-    Convert euro amount to integer cents safely.
-    x can be -1, int/float/str.
-    """
-    if x is None:
-        return 0
-    # missing indicator in dataset is -1
-    if str(x).strip() == "-1":
-        return 0
-    d = Decimal(str(x))
-    # cents, standard rounding half up
-    cents = (d * Decimal("100")).quantize(Decimal("1"), rounding=ROUND_HALF_UP)
-    return int(cents)
+import pandas as pd
 
 
 def hmac_sha256_hex(secret: str, msg: str) -> str:
     return hmac.new(secret.encode("utf-8"), msg.encode("utf-8"), hashlib.sha256).hexdigest()
 
 
-def parse_ts(ts) -> Optional[int]:
-    """Return int timestamp (seconds) if possible, else None."""
-    if ts is None:
-        return None
-    try:
-        # Some datasets store as int already
-        v = int(ts)
-        return v
-    except Exception:
-        return None
+def sha256_hex_str(s: str) -> str:
+    return hashlib.sha256(s.encode("utf-8")).hexdigest()
 
 
 def ensure_dir(path: str) -> None:
     os.makedirs(path, exist_ok=True)
+
+
+def utc_now_iso() -> str:
+    return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
 
 
 def write_server_csv(path: str, keys: Iterable[str]) -> None:
@@ -56,17 +38,26 @@ def write_client_csv(path: str, rows: Iterable[Tuple[str, int]]) -> None:
     with open(path, "w", newline="", encoding="utf-8") as f:
         w = csv.writer(f)
         for k, v in rows:
-            w.writerow([k, v])
+            w.writerow([k, int(v)])
 
 
 def in_window(ts: Optional[int], start_ts: Optional[int], end_ts: Optional[int]) -> bool:
     if ts is None:
-        return True  # if no ts, don't filter
+        return True
     if start_ts is not None and ts < start_ts:
         return False
     if end_ts is not None and ts >= end_ts:
         return False
     return True
+
+
+def euro_to_cents(v: float) -> int:
+    dec = Decimal(str(v)).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+    return int(dec * 100)
+
+
+def canonical_query_signature(payload: Dict) -> str:
+    return sha256_hex_str(json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False))
 
 
 def build_from_criteo_tsv(
@@ -78,68 +69,34 @@ def build_from_criteo_tsv(
     hmac_secret: Optional[str],
     bucket_field: Optional[str],
     use_conversion_ts_for_purchase: bool,
+    job_id: Optional[str],
     chunksize: int = 2_000_000,
 ) -> Dict:
-    """
-    Criteo Sponsored Search Conversion Log Dataset:
-    Tab-separated with header:
-    Sale, SalesAmountInEuro, time_delay_for_conversion, click_timestamp, ..., partner_id, user_id
-    """
     ensure_dir(out_dir)
 
-    # We'll store exposure keys and purchase rows (key, value) in sets/dicts to dedup.
-    # Dedup rule: within window, keep at most one per user (exposure and purchase separately).
     exposure_keys = set()
     purchase_map: Dict[str, int] = {}
-
-    # Bucket support: simplest implementation -> write separate subfolders per bucket
-    # If bucket_field is provided, we build per-bucket structures.
     bucket_exposure: Dict[str, set] = {}
     bucket_purchase: Dict[str, Dict[str, int]] = {}
 
     def normalize_key(uid: str) -> str:
         uid = str(uid)
-        if hmac_secret:
-            return hmac_sha256_hex(hmac_secret, uid)
-        return uid
+        return hmac_sha256_hex(hmac_secret, uid) if hmac_secret else uid
 
-    # CriteoSearchData is tab-separated WITHOUT a header row.
-    # Columns are documented as:
-    # Sale, SalesAmountInEuro, time_delay_for_conversion, click_timestamp,
-    # nb_clicks_1week, product_price, product_age_group, device_type,
-    # audience_id, product_gender, product_brand, product_category(1-7),
-    # product_country, product_id, product_title, partner_id, user_id
     colnames = [
-        "Sale",
-        "SalesAmountInEuro",
-        "time_delay_for_conversion",
-        "click_timestamp",
-        "nb_clicks_1week",
-        "product_price",
-        "product_age_group",
-        "device_type",
-        "audience_id",
-        "product_gender",
-        "product_brand",
-        "product_category1",
-        "product_category2",
-        "product_category3",
-        "product_category4",
-        "product_category5",
-        "product_category6",
-        "product_category7",
-        "product_country",
-        "product_id",
-        "product_title",
-        "partner_id",
-        "user_id",
+        "Sale", "SalesAmountInEuro", "time_delay_for_conversion", "click_timestamp",
+        "nb_clicks_1week", "product_price", "product_age_group", "device_type",
+        "audience_id", "product_gender", "product_brand", "product_category1",
+        "product_category2", "product_category3", "product_category4", "product_category5",
+        "product_category6", "product_category7", "product_country", "product_id",
+        "product_title", "partner_id", "user_id",
     ]
 
     reader = pd.read_csv(
         infile,
         sep="\t",
-        header=None,          # IMPORTANT: no header row
-        names=colnames,       # assign names manually
+        header=None,
+        names=colnames,
         dtype=str,
         chunksize=chunksize,
         engine="c",
@@ -151,86 +108,67 @@ def build_from_criteo_tsv(
 
     for chunk in reader:
         total_rows += len(chunk)
-
-        # Required columns
-        # user_id, click_timestamp, Sale, SalesAmountInEuro, time_delay_for_conversion
-        for col in ["user_id", "click_timestamp", "Sale", "SalesAmountInEuro", "time_delay_for_conversion"]:
-            if col not in chunk.columns:
-                raise ValueError(f"Missing required column '{col}'. Found: {list(chunk.columns)[:20]}...")
-
-        # Parse timestamps to int
         click_ts = pd.to_numeric(chunk["click_timestamp"], errors="coerce").astype("Int64")
         sale = pd.to_numeric(chunk["Sale"], errors="coerce").fillna(0).astype(int)
         delay = pd.to_numeric(chunk["time_delay_for_conversion"], errors="coerce").fillna(-1).astype(int)
         amount = pd.to_numeric(chunk["SalesAmountInEuro"], errors="coerce").fillna(-1)
 
-        # Exposure window filter (by click_timestamp)
-        # IMPORTANT: mask must be a boolean Series, not a python bool.
-        in_win_mask = pd.Series(True, index=chunk.index)
-
+        mask = pd.Series(True, index=chunk.index)
         if start_ts is not None:
-            in_win_mask &= (click_ts >= start_ts)
+            mask &= (click_ts >= start_ts)
         if end_ts is not None:
-            in_win_mask &= (click_ts < end_ts)
+            mask &= (click_ts < end_ts)
 
-        chunk = chunk.loc[in_win_mask]
-        click_ts = click_ts.loc[in_win_mask]
-        sale = sale.loc[in_win_mask]
-        delay = delay.loc[in_win_mask]
-        amount = amount.loc[in_win_mask]
+        chunk = chunk.loc[mask]
+        click_ts = click_ts.loc[mask]
+        sale = sale.loc[mask]
+        delay = delay.loc[mask]
+        amount = amount.loc[mask]
 
-        # Iterate rows (vectorize would be faster but this is simpler + still ok with chunks)
         for idx, row in chunk.iterrows():
             uid = row["user_id"]
             if uid is None or uid == "" or uid == "-1":
                 continue
             key = normalize_key(uid)
 
-            # Exposure dedup: keep one per key
             if key not in exposure_keys:
                 exposure_keys.add(key)
                 kept_exposure_rows += 1
 
-            # Purchase side: only Sale==1
+            v: Optional[int] = None
             if int(sale.loc[idx]) == 1:
-                # Optional purchase timestamp filter can be based on conversion_ts
                 if use_conversion_ts_for_purchase:
                     cts = int(click_ts.loc[idx]) + int(delay.loc[idx]) if int(delay.loc[idx]) >= 0 else int(click_ts.loc[idx])
                     if not in_window(cts, start_ts, end_ts):
                         continue
 
-                # value_mode
                 if value_mode == "count":
                     v = 1
                 elif value_mode == "amount":
-                    # Convert euros (possibly float-like) to integer cents to satisfy PJC integer-only requirement
-                    v = euro_to_cents_int(amount.loc[idx])
+                    v_raw = float(amount.loc[idx])
+                    if v_raw < 0:
+                        v_raw = 0.0
+                    v = euro_to_cents(v_raw)
                 else:
                     raise ValueError(f"Unsupported value_mode: {value_mode}")
 
-                # Purchase dedup: one per key; if multiple, keep max (or sum). Here choose max.
-                # (You can switch to sum if you want "total order amount per user".)
                 old = purchase_map.get(key)
                 if old is None or v > old:
                     purchase_map[key] = v
                 kept_purchase_rows += 1
 
-            # Bucket handling
             if bucket_field:
                 b = row.get(bucket_field, None)
                 if b is None or b == "" or b == "-1":
                     b = "__MISSING__"
                 b = str(b)
-
                 bucket_exposure.setdefault(b, set()).add(key)
-
-                if int(sale.loc[idx]) == 1:
+                if v is not None:
                     bm = bucket_purchase.setdefault(b, {})
                     oldb = bm.get(key)
                     if oldb is None or v > oldb:
                         bm[key] = v
 
-    # If bucket_field provided, write per bucket subdir; else write single pair
     outputs = []
     if bucket_field:
         for b, exp_set in bucket_exposure.items():
@@ -238,23 +176,49 @@ def build_from_criteo_tsv(
             ensure_dir(sub)
             server_path = os.path.join(sub, "server.csv")
             client_path = os.path.join(sub, "client.csv")
-            write_server_csv(server_path, sorted(exp_set))
             pur_map = bucket_purchase.get(b, {})
+            write_server_csv(server_path, sorted(exp_set))
             write_client_csv(client_path, sorted(pur_map.items()))
-            outputs.append({"bucket": b, "server_csv": server_path, "client_csv": client_path,
-                            "exposure_n": len(exp_set), "purchase_n": len(pur_map)})
+            outputs.append({
+                "bucket": b,
+                "server_csv": server_path,
+                "client_csv": client_path,
+                "exposure_n": len(exp_set),
+                "purchase_n": len(pur_map),
+            })
     else:
         server_path = os.path.join(out_dir, "server.csv")
         client_path = os.path.join(out_dir, "client.csv")
         write_server_csv(server_path, sorted(exposure_keys))
         write_client_csv(client_path, sorted(purchase_map.items()))
-        outputs.append({"bucket": None, "server_csv": server_path, "client_csv": client_path,
-                        "exposure_n": len(exposure_keys), "purchase_n": len(purchase_map)})
+        outputs.append({
+            "bucket": None,
+            "server_csv": server_path,
+            "client_csv": client_path,
+            "exposure_n": len(exposure_keys),
+            "purchase_n": len(purchase_map),
+        })
+
+    resolved_job_id = job_id or os.path.basename(os.path.abspath(out_dir))
+    sig_payload = {
+        "dataset": "criteo_sponsored_search_conversion_log",
+        "input_file": os.path.abspath(infile),
+        "window_start": start_ts,
+        "window_end": end_ts,
+        "value_mode": value_mode,
+        "bucket_field": bucket_field,
+        "purchase_use_conversion_ts": use_conversion_ts_for_purchase,
+        "dedup_exposure": "one_per_user_per_window",
+        "dedup_purchase": "one_per_user_per_window_keep_max_value",
+    }
 
     meta = {
+        "job_id": resolved_job_id,
         "dataset": "criteo_sponsored_search_conversion_log",
         "input_file": os.path.abspath(infile),
         "window": {"start_ts": start_ts, "end_ts": end_ts},
+        "window_start": start_ts,
+        "window_end": end_ts,
         "window_semantics": {
             "exposure_ts": "click_timestamp",
             "purchase_ts": "conversion_ts(click_timestamp + time_delay_for_conversion)" if use_conversion_ts_for_purchase else "click_timestamp",
@@ -264,14 +228,24 @@ def build_from_criteo_tsv(
             "purchase": "one_per_user_per_window_keep_max_value",
         },
         "value_mode": value_mode,
+        "value_unit": "count" if value_mode == "count" else "euro_cent",
         "hmac": {"enabled": bool(hmac_secret)},
+        "bucket_field": bucket_field,
+        "bucket_count": len(outputs),
         "bucket": {"field": bucket_field, "outputs": outputs},
+        "input_sizes": {
+            "exposure_n": len(exposure_keys),
+            "purchase_n": len(purchase_map),
+        },
         "counts": {
             "total_rows_read": total_rows,
+            "kept_exposure_rows": kept_exposure_rows,
+            "kept_purchase_rows": kept_purchase_rows,
             "unique_exposure_users": len(exposure_keys),
             "unique_purchase_users": len(purchase_map),
         },
-        "generated_at_utc": datetime.utcnow().isoformat() + "Z",
+        "canonical_query_signature": canonical_query_signature(sig_payload),
+        "generated_at_utc": utc_now_iso(),
     }
 
     with open(os.path.join(out_dir, "job_meta.json"), "w", encoding="utf-8") as f:
@@ -282,15 +256,16 @@ def build_from_criteo_tsv(
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--criteo-tsv", required=True, help="Path to CriteoSearchData (tab-separated) file.")
+    ap.add_argument("--criteo-tsv", required=True, help="Path to CriteoSearchData TSV file.")
     ap.add_argument("--out", required=True, help="Output directory, e.g. runs/<job_id>")
     ap.add_argument("--start-ts", type=int, default=None, help="Window start timestamp (seconds).")
     ap.add_argument("--end-ts", type=int, default=None, help="Window end timestamp (seconds), exclusive.")
     ap.add_argument("--value-mode", choices=["count", "amount"], default="count")
-    ap.add_argument("--hmac-secret", default=None, help="If set, HMAC-SHA256 anonymization applied to user_id.")
-    ap.add_argument("--bucket-field", default=None, help="Optional bucket field, e.g. partner_id or product_category(1-7).")
+    ap.add_argument("--hmac-secret", default=None, help="If set, HMAC-SHA256 anonymization is applied to user_id.")
+    ap.add_argument("--bucket-field", default=None, help="Optional bucket field, e.g. partner_id.")
     ap.add_argument("--purchase-use-conversion-ts", action="store_true",
-                    help="If set, purchase window filtering uses conversion_ts = click_timestamp + delay.")
+                    help="Use conversion_ts = click_timestamp + delay for purchase window filtering.")
+    ap.add_argument("--job-id", default=None, help="Optional job identifier for metadata.")
     args = ap.parse_args()
 
     ensure_dir(args.out)
@@ -303,9 +278,10 @@ def main():
         hmac_secret=args.hmac_secret,
         bucket_field=args.bucket_field,
         use_conversion_ts_for_purchase=args.purchase_use_conversion_ts,
+        job_id=args.job_id,
     )
     print("OK. Wrote job_meta.json and PJC inputs under:", args.out)
-    print("Summary:", json.dumps(meta["counts"], indent=2))
+    print("Summary:", json.dumps(meta["counts"], indent=2, ensure_ascii=False))
 
 
 if __name__ == "__main__":

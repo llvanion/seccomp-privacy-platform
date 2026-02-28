@@ -1,44 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# ---------------- helpers ----------------
 die() { echo "[ERROR] $*" >&2; exit 1; }
 log() { echo "[INFO] $*"; }
 
-usage() {
-  cat <<'EOF'
-W3 One-click Pipeline (Prep -> Run PJC -> Policy Release)
-
-Usage:
-  bash run_pipeline.sh --criteo-tsv <path> --start-ts <sec> --end-ts <sec> [options]
-
-Required:
-  --criteo-tsv <file>     Input Criteo TSV
-  --start-ts <int>        Window start timestamp (seconds)
-  --end-ts <int>          Window end timestamp (seconds)
-
-Options:
-  --out <dir>             Output job directory (default: <repo>/runs/<job_id>)
-  --job-id <id>           Job id (default: UTC timestamp like 20260227T123000Z)
-  --value-mode <mode>     count|amount (default: count)
-  --bucket-field <field>  Optional bucket field name (passed to prep_inputs.py)
-  --hmac-secret <secret>  Optional HMAC secret (passed to prep_inputs.py)
-  --purchase-use-conversion-ts
-                          Optional flag (passed to prep_inputs.py)
-
-  --k <int>               Threshold k for policy release (default: 20)
-  --round-sum-to <int>    Optional rounding for sum fields in policy release (default: 0 / disabled)
-  --audit-log <file>      Audit log jsonl path (default: <repo>/runs/audit_log.jsonl)
-
-Examples:
-  bash run_pipeline.sh --criteo-tsv data/CriteoSearchData.tsv --start-ts 1700000000 --end-ts 1700600000 --k 20
-
-Outputs (under <out>):
-  server.csv, client.csv, job_meta.json, attribution_result.json, public_report.json
-EOF
-}
-
-# ---------------- locate repo paths ----------------
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 
@@ -47,146 +12,151 @@ RUN_PJC_SH="$REPO_ROOT/moduleA_psi/scripts/run_pjc.sh"
 POLICY_PY="$REPO_ROOT/moduleA_psi/scripts/policy_release.py"
 RUNS_DIR="$REPO_ROOT/runs"
 
-# ---------------- defaults ----------------
 CRITEO_TSV=""
+OUT_DIR=""
+JOB_ID=""
 START_TS=""
 END_TS=""
-
-JOB_ID="$(date -u +%Y%m%dT%H%M%SZ)"
-OUT_DIR=""               # default computed after parsing
 VALUE_MODE="count"
-
 BUCKET_FIELD=""
 HMAC_SECRET=""
-USE_CONV_TS=0
-
+USE_CONVERSION_TS=0
 K_THRESHOLD="20"
-ROUND_SUM_TO=""          # empty means "do not pass flag"
-AUDIT_LOG="$RUNS_DIR/audit_log.jsonl"
+RATE_N="5"
+CALLER="demo"
 
-# ---------------- parse args ----------------
+AUTH_CONFIG=""
+AUTH_REQUIRED=0
+KEY_ID=""
+TIMESTAMP=""
+NONCE=""
+SIGNATURE=""
+
+usage() {
+  cat <<EOF
+Usage:
+  $0 --criteo-tsv <path> --start-ts <unix_ts> --end-ts <unix_ts> --out <runs/job_id> [options]
+
+Options:
+  --job-id <id>              Optional job id (default: basename of --out)
+  --value-mode <mode>        count|amount (default: count)
+  --bucket-field <field>     Optional bucket field (e.g. partner_id)
+  --hmac-secret <secret>     Optional anonymization secret for W1
+  --purchase-use-conversion-ts  Filter purchases by conversion_ts
+  --k <int>                  k-threshold for W2 (default: 20)
+  --n <int>                  rate limit N for W2 (default: 5)
+  --caller <id>              caller id for W2 (default: demo)
+
+  --auth-config <file>       Optional auth config for W2
+  --auth-required            Require HMAC auth in W2
+  --key-id <id>              HMAC key id
+  --timestamp <iso8601>      Request timestamp
+  --nonce <str>              Request nonce
+  --signature <hex>          HMAC signature
+EOF
+}
+
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    --criteo-tsv) CRITEO_TSV="$2"; shift 2;;
-    --start-ts) START_TS="$2"; shift 2;;
-    --end-ts) END_TS="$2"; shift 2;;
-
-    --out) OUT_DIR="$2"; shift 2;;
-    --job-id) JOB_ID="$2"; shift 2;;
-    --value-mode) VALUE_MODE="$2"; shift 2;;
-
-    --bucket-field) BUCKET_FIELD="$2"; shift 2;;
-    --hmac-secret) HMAC_SECRET="$2"; shift 2;;
-    --purchase-use-conversion-ts) USE_CONV_TS=1; shift 1;;
-
-    --k) K_THRESHOLD="$2"; shift 2;;
-    --round-sum-to) ROUND_SUM_TO="$2"; shift 2;;
-    --audit-log) AUDIT_LOG="$2"; shift 2;;
-
-    -h|--help) usage; exit 0;;
-    *) die "Unknown arg: $1 (try --help)";;
+    --criteo-tsv) CRITEO_TSV="$2"; shift 2 ;;
+    --out) OUT_DIR="$2"; shift 2 ;;
+    --job-id) JOB_ID="$2"; shift 2 ;;
+    --start-ts) START_TS="$2"; shift 2 ;;
+    --end-ts) END_TS="$2"; shift 2 ;;
+    --value-mode) VALUE_MODE="$2"; shift 2 ;;
+    --bucket-field) BUCKET_FIELD="$2"; shift 2 ;;
+    --hmac-secret) HMAC_SECRET="$2"; shift 2 ;;
+    --purchase-use-conversion-ts) USE_CONVERSION_TS=1; shift 1 ;;
+    --k) K_THRESHOLD="$2"; shift 2 ;;
+    --n) RATE_N="$2"; shift 2 ;;
+    --caller) CALLER="$2"; shift 2 ;;
+    --auth-config) AUTH_CONFIG="$2"; shift 2 ;;
+    --auth-required) AUTH_REQUIRED=1; shift 1 ;;
+    --key-id) KEY_ID="$2"; shift 2 ;;
+    --timestamp) TIMESTAMP="$2"; shift 2 ;;
+    --nonce) NONCE="$2"; shift 2 ;;
+    --signature) SIGNATURE="$2"; shift 2 ;;
+    -h|--help) usage; exit 0 ;;
+    *) die "Unknown arg: $1" ;;
   esac
 done
 
-# ---------------- validate required ----------------
 [[ -n "$CRITEO_TSV" ]] || { usage; die "missing --criteo-tsv"; }
 [[ -n "$START_TS" ]] || { usage; die "missing --start-ts"; }
 [[ -n "$END_TS" ]] || { usage; die "missing --end-ts"; }
-
-[[ -f "$CRITEO_TSV" ]] || die "criteo tsv not found: $CRITEO_TSV"
-[[ -f "$PREP_PY" ]] || die "prep_inputs.py not found: $PREP_PY"
-[[ -f "$POLICY_PY" ]] || die "policy_release.py not found: $POLICY_PY"
-[[ -f "$RUN_PJC_SH" ]] || die "run_pjc.sh not found: $RUN_PJC_SH"
+[[ -n "$OUT_DIR" ]] || { usage; die "missing --out"; }
+[[ -f "$CRITEO_TSV" ]] || die "criteo file not found: $CRITEO_TSV"
 
 mkdir -p "$RUNS_DIR"
-
-if [[ -z "$OUT_DIR" ]]; then
-  OUT_DIR="$RUNS_DIR/$JOB_ID"
-else
-  # allow relative path
-  if [[ "$OUT_DIR" != /* ]]; then
-    OUT_DIR="$REPO_ROOT/$OUT_DIR"
-  fi
+if [[ "$OUT_DIR" != /* ]]; then
+  OUT_DIR="$REPO_ROOT/$OUT_DIR"
 fi
-
 mkdir -p "$OUT_DIR"
 
-# audit log can be anywhere; make parent dir
-AUDIT_DIR="$(cd "$(dirname "$AUDIT_LOG")" && pwd 2>/dev/null || true)"
-if [[ -z "$AUDIT_DIR" ]]; then
-  mkdir -p "$(dirname "$AUDIT_LOG")"
-else
-  mkdir -p "$AUDIT_DIR"
+if [[ -z "$JOB_ID" ]]; then
+  JOB_ID="$(basename "$OUT_DIR")"
 fi
+AUDIT_LOG="$OUT_DIR/audit_log.jsonl"
+
+[[ -f "$PREP_PY" ]] || die "prep_inputs.py not found: $PREP_PY"
+[[ -f "$RUN_PJC_SH" ]] || die "run_pjc.sh not found: $RUN_PJC_SH"
+[[ -f "$POLICY_PY" ]] || die "policy_release.py not found: $POLICY_PY"
 
 log "job_id=$JOB_ID"
 log "out_dir=$OUT_DIR"
-log "audit_log=$AUDIT_LOG"
 
-# ---------------- stage 1: Prep ----------------
-log "Stage 1/3: Prep inputs -> server.csv / client.csv / job_meta.json"
-
+log "Stage1 Prep: generating server.csv/client.csv/job_meta.json"
 PREP_CMD=(python3 "$PREP_PY"
   --criteo-tsv "$CRITEO_TSV"
   --out "$OUT_DIR"
   --start-ts "$START_TS"
   --end-ts "$END_TS"
   --value-mode "$VALUE_MODE"
+  --job-id "$JOB_ID"
 )
-
-if [[ -n "$HMAC_SECRET" ]]; then
-  PREP_CMD+=(--hmac-secret "$HMAC_SECRET")
-fi
-if [[ -n "$BUCKET_FIELD" ]]; then
-  PREP_CMD+=(--bucket-field "$BUCKET_FIELD")
-fi
-if [[ "$USE_CONV_TS" -eq 1 ]]; then
-  PREP_CMD+=(--purchase-use-conversion-ts)
-fi
-
+if [[ -n "$BUCKET_FIELD" ]]; then PREP_CMD+=(--bucket-field "$BUCKET_FIELD"); fi
+if [[ -n "$HMAC_SECRET" ]]; then PREP_CMD+=(--hmac-secret "$HMAC_SECRET"); fi
+if [[ "$USE_CONVERSION_TS" == "1" ]]; then PREP_CMD+=(--purchase-use-conversion-ts); fi
 "${PREP_CMD[@]}"
 
-[[ -f "$OUT_DIR/server.csv" ]] || die "missing $OUT_DIR/server.csv after prep"
-[[ -f "$OUT_DIR/client.csv" ]] || die "missing $OUT_DIR/client.csv after prep"
 [[ -f "$OUT_DIR/job_meta.json" ]] || die "missing $OUT_DIR/job_meta.json after prep"
+if [[ ! -f "$OUT_DIR/server.csv" && ! -d "$OUT_DIR" ]]; then
+  die "prep stage did not produce expected output under $OUT_DIR"
+fi
 
-# ---------------- stage 2: Run PJC ----------------
-log "Stage 2/3: Run PJC -> attribution_result.json"
+log "Stage2 Run: executing PJC PSI"
 
-# run_pjc.sh uses SERVER_CSV/CLIENT_CSV and OUT_DIR env vars; override them here
-SERVER_CSV="$OUT_DIR/server.csv" \
-CLIENT_CSV="$OUT_DIR/client.csv" \
-OUT_DIR="$OUT_DIR" \
-JOB_ID="$JOB_ID" \
+export SERVER_CSV="$OUT_DIR/server.csv"
+export CLIENT_CSV="$OUT_DIR/client.csv"
+export OUT_DIR="$OUT_DIR"
+export JOB_ID="$JOB_ID"
+
 bash "$RUN_PJC_SH"
 
 [[ -f "$OUT_DIR/attribution_result.json" ]] || die "missing $OUT_DIR/attribution_result.json after PJC"
 
-# ---------------- stage 3: Policy ----------------
-log "Stage 3/3: Policy release -> public_report.json"
-
+log "Stage3 Policy: applying threshold/rate/audit and producing public_report.json"
 POLICY_CMD=(python3 "$POLICY_PY"
-  --input "$OUT_DIR/attribution_result.json"
-  --out "$OUT_DIR/public_report.json"
-  --threshold-k "$K_THRESHOLD"
+  --job-dir "$OUT_DIR"
+  --caller "$CALLER"
+  --k "$K_THRESHOLD"
+  --n "$RATE_N"
   --audit-log "$AUDIT_LOG"
-  --query-id "$JOB_ID"
 )
-
-if [[ -n "$ROUND_SUM_TO" ]]; then
-  POLICY_CMD+=(--round-sum-to "$ROUND_SUM_TO")
-fi
-
+if [[ -n "$AUTH_CONFIG" ]]; then POLICY_CMD+=(--auth-config "$AUTH_CONFIG"); fi
+if [[ "$AUTH_REQUIRED" == "1" ]]; then POLICY_CMD+=(--auth-required); fi
+if [[ -n "$KEY_ID" ]]; then POLICY_CMD+=(--key-id "$KEY_ID"); fi
+if [[ -n "$TIMESTAMP" ]]; then POLICY_CMD+=(--timestamp "$TIMESTAMP"); fi
+if [[ -n "$NONCE" ]]; then POLICY_CMD+=(--nonce "$NONCE"); fi
+if [[ -n "$SIGNATURE" ]]; then POLICY_CMD+=(--signature "$SIGNATURE"); fi
 "${POLICY_CMD[@]}"
 
-[[ -f "$OUT_DIR/public_report.json" ]] || die "missing $OUT_DIR/public_report.json after policy release"
+[[ -f "$OUT_DIR/public_report.json" ]] || die "missing $OUT_DIR/public_report.json after policy"
 
-log "DONE ✅"
-log "Artifacts:"
-log "  - $OUT_DIR/server.csv"
-log "  - $OUT_DIR/client.csv"
-log "  - $OUT_DIR/job_meta.json"
-log "  - $OUT_DIR/attribution_result.json"
-log "  - $OUT_DIR/public_report.json"
-log "Audit:"
-log "  - $AUDIT_LOG"
+log "DONE."
+log "server.csv:        $OUT_DIR/server.csv"
+log "client.csv:        $OUT_DIR/client.csv"
+log "job_meta.json:     $OUT_DIR/job_meta.json"
+log "attribution_result:$OUT_DIR/attribution_result.json"
+log "public_report:     $OUT_DIR/public_report.json"
+log "audit_log:         $AUDIT_LOG"
