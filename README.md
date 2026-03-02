@@ -257,13 +257,17 @@ PSI/PJC 的直接协议输出。
 - `JOB_ID`
 
 例如：
+    cd ~/Desktop/seccomp-privacy-platform
 
+    export PJC_DIR="$PWD/private-join-and-compute"
     export SERVER_CSV="runs/w3_criteo_count_day/server.csv"
     export CLIENT_CSV="runs/w3_criteo_count_day/client.csv"
     export OUT_DIR="runs/w3_criteo_count_day"
     export JOB_ID="w3_criteo_count_day"
+    export GRPC_MAX_MESSAGE_MB="512"
 
     bash moduleA_psi/scripts/run_pjc.sh
+
 
 ## 6.2 说明
 `run_pjc.sh` 的旧版默认值可能仍然指向：
@@ -695,3 +699,5 @@ A 模块的核心价值不只是“跑出 PSI/PJC 结果”，而是：
 - Release
 - Audit
 - Optional Auth
+
+Todo: benchmark(对于过大的数据要进行分块流处理?)

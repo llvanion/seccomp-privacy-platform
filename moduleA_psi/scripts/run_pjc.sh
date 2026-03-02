@@ -2,7 +2,7 @@
 set -euo pipefail
 
 # ---- Config (can override via env vars) ----
-PJC_DIR="${PJC_DIR:-$HOME/Desktop/private-join-and-compute}"
+PJC_DIR="${PJC_DIR:-$PWD/private-join-and-compute}"
 JOB_ID="${JOB_ID:-$(date +%Y%m%d-%H%M%S)}"
 OUT_DIR="${OUT_DIR:-$PWD/runs/$JOB_ID}"
 # In pipeline mode, these are expected to be injected by run_pipeline.sh.
@@ -10,6 +10,19 @@ OUT_DIR="${OUT_DIR:-$PWD/runs/$JOB_ID}"
 SERVER_CSV="${SERVER_CSV:-/tmp/server.csv}"
 CLIENT_CSV="${CLIENT_CSV:-/tmp/client.csv}"
 SERVER_ADDR="${SERVER_ADDR:-127.0.0.1:10501}"
+GRPC_MAX_MESSAGE_MB="${GRPC_MAX_MESSAGE_MB:-512}"
+
+# Keep original path rules, but normalize relative paths before cd "$PJC_DIR"
+resolve_path() {
+  case "$1" in
+    /*) printf '%s\n' "$1" ;;
+    *)  printf '%s\n' "$PWD/$1" ;;
+  esac
+}
+
+OUT_DIR="$(resolve_path "$OUT_DIR")"
+SERVER_CSV="$(resolve_path "$SERVER_CSV")"
+CLIENT_CSV="$(resolve_path "$CLIENT_CSV")"
 
 mkdir -p "$OUT_DIR"
 
@@ -42,6 +55,7 @@ echo "[info] PJC_DIR=$PJC_DIR"
 echo "[info] SERVER_CSV=$SERVER_CSV"
 echo "[info] CLIENT_CSV=$CLIENT_CSV"
 echo "[info] SERVER_ADDR=$SERVER_ADDR"
+echo "[info] GRPC_MAX_MESSAGE_MB=$GRPC_MAX_MESSAGE_MB"
 
 # ---- Start server (background) ----
 cd "$PJC_DIR"
@@ -57,7 +71,10 @@ trap cleanup EXIT
 
 echo "[info] starting server..."
 # Use bazel-bin to avoid extra bazel output in stdout; assumes you've built once.
-$(bazel info bazel-bin)/private_join_and_compute/server --server_data_file="$SERVER_CSV" >"$SERVER_LOG" 2>&1 &
+"$(bazel info bazel-bin)/private_join_and_compute/server" \
+  --server_data_file="$SERVER_CSV" \
+  --grpc_max_message_mb="$GRPC_MAX_MESSAGE_MB" \
+  >"$SERVER_LOG" 2>&1 &
 SERVER_PID=$!
 
 # Wait until server listens
@@ -77,9 +94,10 @@ fi
 # ---- Run client ----
 echo "[info] running client..."
 set +e
-$(bazel info bazel-bin)/private_join_and_compute/client \
+"$(bazel info bazel-bin)/private_join_and_compute/client" \
   --client_data_file="$CLIENT_CSV" \
   --port="$SERVER_ADDR" \
+  --grpc_max_message_mb="$GRPC_MAX_MESSAGE_MB" \
   >"$CLIENT_LOG" 2>&1
 CLIENT_RC=$?
 set -e
@@ -109,6 +127,7 @@ cat > "$RESULT_JSON" <<JSON
   "server_addr": "$SERVER_ADDR",
   "server_csv": "$SERVER_CSV",
   "client_csv": "$CLIENT_CSV",
+  "grpc_max_message_mb": $GRPC_MAX_MESSAGE_MB,
   "intersection_size": $INTERSECTION_SIZE,
   "intersection_sum": $INTERSECTION_SUM
 }
