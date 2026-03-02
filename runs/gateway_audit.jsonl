@@ -1,0 +1,12 @@
+{"ts_utc": "2026-03-02T15:39:56.864685+00:00", "action": "se_index_build", "actor": "system", "payload": {"index_name": "demo", "indexed_count": 4}}
+{"ts_utc": "2026-03-02T15:39:56.865131+00:00", "action": "se_search", "actor": "system", "payload": {"index_name": "demo", "keyword": "apple", "result_count": 2, "latency_ms": 0.0034330005291849375}}
+{"ts_utc": "2026-03-02T15:39:56.866335+00:00", "action": "psi_run", "actor": "demo", "payload": {"job_id": "job-linux-4", "released": true, "reason_code": "allow"}}
+{"ts_utc": "2026-03-02T15:40:23.790179+00:00", "action": "se_index_build", "actor": "system", "payload": {"index_name": "demo", "indexed_count": 1}}
+{"ts_utc": "2026-03-02T15:40:23.790294+00:00", "action": "se_search", "actor": "system", "payload": {"index_name": "demo", "keyword": "k", "result_count": 1, "latency_ms": 0.001353000698145479}}
+{"ts_utc": "2026-03-02T15:40:23.791027+00:00", "action": "psi_run", "actor": "demo", "payload": {"job_id": "job-linux-5", "released": true, "reason_code": "allow"}}
+{"ts_utc": "2026-03-02T15:46:19.266893+00:00", "action": "se_index_build", "actor": "system", "payload": {"index_name": "demo", "indexed_count": 4}}
+{"ts_utc": "2026-03-02T15:46:19.278824+00:00", "action": "se_search", "actor": "system", "payload": {"index_name": "demo", "keyword": "apple", "result_count": 2, "latency_ms": 0.0046590002966695465}}
+{"ts_utc": "2026-03-02T15:46:19.291093+00:00", "action": "psi_run", "actor": "demo", "payload": {"job_id": "job-linux-8", "released": true, "reason_code": "allow"}}
+{"ts_utc": "2026-03-02T15:47:04.284554+00:00", "action": "se_index_build", "actor": "system", "payload": {"index_name": "demo_index", "indexed_count": 8}}
+{"ts_utc": "2026-03-02T15:47:04.286619+00:00", "action": "se_search", "actor": "system", "payload": {"index_name": "demo_index", "keyword": "中国", "result_count": 2, "latency_ms": 0.0038010002754162997}}
+{"ts_utc": "2026-03-02T15:47:04.290135+00:00", "action": "psi_run", "actor": "member_c_demo", "payload": {"job_id": "demo_job_001", "released": true, "reason_code": "allow"}}

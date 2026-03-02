@@ -1,0 +1,16 @@
+{
+  "job_id": "job-linux-4",
+  "released": true,
+  "reason": "ok",
+  "reason_code": "allow",
+  "conversions": 12,
+  "value_sum": 12,
+  "aov": 1,
+  "window": {
+    "start_ts": 1700000000,
+    "end_ts": 1700003600
+  },
+  "k_threshold": 10,
+  "rate_limit_used": 1,
+  "rate_limit_max": 100
+}

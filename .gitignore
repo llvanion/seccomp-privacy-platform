@@ -1,0 +1,25 @@
+﻿  # Python
+  __pycache__/
+  *.py[cod]
+  *.pyo
+
+  # Virtual env
+  .venv/
+
+  # Tool caches
+  .pytest_cache/
+  .mypy_cache/
+
+  # Local runtime/output
+  runs/
+  .tmp/
+  .deps/
+  *.log
+
+  # Env files
+  .env
+
+  # IDE/OS
+  .vscode/
+  .idea/
+  .DS_Store
