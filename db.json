@@ -1,0 +1,42 @@
+{
+  "users": {
+    "U10001": {
+      "user_id": "U10001",
+      "username": "userName1",
+      "email": "user1@example.com",
+      "phone": "13800000000",
+      "register_time": "2026-01-01T10:00:00Z",
+      "level": "VIP1",
+      "points": 320,
+      "behaviors": {
+        "purchase": [
+          {
+            "order_id": "O30001",
+            "time": "2026-02-01T12:30:00Z"
+          }
+        ],
+        "view": [
+          {
+            "product_id": "P20001",
+            "time": "2026-02-01T11:00:00Z",
+            "duration_seconds": 45
+          }
+        ],
+        "likes": [
+          {
+            "product_id": "P20001",
+            "time": "2026-02-01T11:05:00Z"
+          }
+        ],
+        "cart": [
+          {
+            "product_id": "P20001",
+            "quantity": 1,
+            "time": "2026-02-01T11:10:00Z"
+          }
+        ]
+      }
+    }
+  }
+
+}
