@@ -371,6 +371,26 @@ class ServerConfig:
 - Delete/Update availability depends on the selected SSE construction and encrypted DB capabilities.
 - If a scheme does not implement corresponding operations, server may return a clear "not support" reason.
 
+---
+
+## Benchmark Results
+
+Sample benchmark artifacts generated in `benchmark_results/`:
+
+- JSON result: [benchmark_results/benchmark_20260303_143616.json](benchmark_results/benchmark_20260303_143616.json)
+
+### Time Comparison
+
+![Time Comparison](benchmark_results/time_comparison_20260303_143616.png)
+
+### Overhead Comparison
+
+![Overhead Comparison](benchmark_results/overhead_comparison_20260303_143616.png)
+
+### Operation Breakdown
+
+![Operation Breakdown](benchmark_results/operation_breakdown_20260303_143616.png)
+
 ## Implemented schemes
 
 ### Single-keyword Static SSE Schemes
@@ -380,7 +400,3 @@ class ServerConfig:
 - (Completed) Scheme Pi in \[CT14\]: Cash, David, and Stefano Tessaro. "The locality of searchable symmetric encryption." Annual international conference on the theory and applications of cryptographic techniques. Springer, Berlin, Heidelberg, 2014.
 - (Completed) Scheme 3 (Section 5, Construction 5.1) in \[ANSS16\]: Asharov, Gilad, et al. "Searchable symmetric encryption: optimal locality in linear space via two-dimensional balanced allocations." Proceedings of the forty-eighth annual ACM symposium on Theory of Computing. 2016.
 - (Completed) Scheme in \[DP17\]: Demertzis, Ioannis, and Charalampos Papamanthou. "Fast searchable encryption with tunable locality." Proceedings of the 2017 ACM International Conference on Management of Data. 2017.
-
-
-TODO:
-性能测试
