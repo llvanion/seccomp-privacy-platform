@@ -26,7 +26,7 @@ def run_demo() -> None:
         print("[3] se search")
         print(c.post("/se/search", json={"index_name": "demo_index", "keyword": "中国"}).json())
 
-        print("[4] attribution run (mock fallback before merge)")
+        print("[4] attribution run (mock fallback when A env is not configured)")
         payload = {
             "job_id": "demo_job_001",
             "start_ts": 1596439471,
@@ -38,6 +38,9 @@ def run_demo() -> None:
         }
         resp = c.post("/attribution/run", json=payload).json()
         print(resp)
+
+        print("[5] audit query")
+        print(c.get("/audit/query", params={"limit": 10}).json())
 
         report_path = Path("runs/demo_job_001/public_report.json")
         if report_path.exists():

@@ -46,6 +46,7 @@ class SeBuildRequest(BaseModel):
 class SeBuildData(BaseModel):
     index_name: str
     indexed_count: int
+    backend_used: str
 
 
 class SeSearchRequest(BaseModel):
@@ -58,3 +59,16 @@ class SeSearchData(BaseModel):
     keyword: str
     result_count: int
     encrypted_results: list[str]
+    backend_used: str
+
+
+class AuditRow(BaseModel):
+    ts_utc: str
+    action: str
+    actor: str
+    payload: dict[str, Any]
+
+
+class AuditQueryData(BaseModel):
+    total: int
+    rows: list[AuditRow]

@@ -1,49 +1,140 @@
-# Member C Gateway (W1-W3 demo)
+# Member C Gateway
 
-This folder contains the first deliverable for member C:
+Member C gateway provides a unified REST access layer for:
 
-- W1: FastAPI gateway skeleton + unified response
-- W2: Adapter for module A pipeline (`run_pipeline.sh`) with local mock fallback
-- W3: Adapter for module B (Python-side local index demo)
+- Module A (PSI / attribution pipeline)
+- Module B (SSE / searchable encryption)
 
-## Endpoints
+It also provides:
+
+- Unified response and error shape
+- Rate limiting (Redis or in-memory fallback)
+- Audit logging (SQLite or JSONL fallback)
+- Local demo and verification scripts
+
+## 1) API Overview
+
+### Endpoints
 
 - `GET /health`
 - `POST /attribution/run`
 - `POST /se/index/build`
 - `POST /se/search`
+- `GET /audit/query`
 
-All endpoints return unified structure:
+### Unified success response
 
 ```json
 {
   "code": 0,
   "message": "ok",
   "data": {},
-  "timestamp": "2026-03-02T00:00:00+00:00"
+  "timestamp": "2026-03-03T00:00:00+00:00"
 }
 ```
 
-## Quick start
+### Unified error response
 
-```bash
-pip install -r requirements.txt
-uvicorn app.main:app --host 0.0.0.0 --port 8080
-python scripts/run_local_demo.py
+```json
+{
+  "code": 429,
+  "message": "rate limit exceeded",
+  "data": {
+    "reason_code": "rate_limit_exceeded",
+    "details": {}
+  },
+  "timestamp": "2026-03-03T00:00:00+00:00"
+}
 ```
 
-## A adapter behavior
+## 2) Module Integration
 
-If env vars are set and script exists:
+### Module A integration
+
+If both env vars are set, `/attribution/run` executes A pipeline and reads `public_report.json`:
 
 - `A_PIPELINE_SCRIPT`
 - `A_CRITEO_TSV`
 
-then `/attribution/run` executes A pipeline script and reads `public_report.json` from `RUNS_ROOT/<job_id>`.
+If missing, gateway uses local mock report for demo.
 
-Otherwise it generates a local mock `public_report.json` for demo.
+### Module B integration
 
-## B adapter behavior
+`B_BACKEND`:
 
-Current W3 demo uses an in-process Python index (same multi-key semantics as B README examples) so member C can demo before merge.
-When branch merge happens, we will replace this adapter implementation with direct B Python API calls.
+- `auto` (default): try `python_api`, fallback to `local`
+- `python_api`: strict B Python API integration
+- `local`: in-process fallback index (demo mode)
+
+For `python_api` mode:
+
+- `B_SSE_ROOT`: path to B repo/worktree
+- `B_SERVER_URI`: B WebSocket server URI (default `ws://127.0.0.1:8001`)
+- `B_SCHEME`: SSE scheme (default `CJJ14.PiBas`)
+
+## 3) Security and Observability
+
+### Rate limit
+
+- Backend: `RATE_LIMIT_BACKEND=auto|redis|memory`
+- Redis URL: `REDIS_URL`
+- Limit/window:
+  - `RATE_LIMIT_MAX_PER_ACTOR_ACTION`
+  - `RATE_LIMIT_WINDOW_SECONDS`
+
+### Audit
+
+- Backend: `AUDIT_BACKEND=sqlite|jsonl`
+- SQLite path: `AUDIT_DB_PATH`
+- JSONL path: `AUDIT_JSONL_PATH`
+- Query endpoint: `GET /audit/query?action=&actor=&start_ts=&end_ts=&limit=`
+
+## 4) Configuration
+
+Copy and edit env file:
+
+```bash
+cp .env.example .env
+```
+
+See `.env.example` for all options.
+
+## 5) Quick Start
+
+```bash
+python3 -m venv .venv
+. .venv/bin/activate
+pip install -r requirements.txt
+cp .env.example .env
+uvicorn app.main:app --host 0.0.0.0 --port 8080
+```
+
+Run demo:
+
+```bash
+python scripts/run_local_demo.py
+```
+
+Run checks:
+
+```bash
+python scripts/verify_local_stack.py
+```
+
+## 6) Local Validation Scope
+
+`scripts/verify_local_stack.py` validates:
+
+- health endpoint
+- SSE index build/search flow
+- attribution run flow
+- audit query availability
+
+## 7) Notes
+
+- This branch does not modify A/B source code.
+- B integration is implemented on C side only.
+
+---
+
+Chinese README will be added in a follow-up update.

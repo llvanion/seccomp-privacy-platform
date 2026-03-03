@@ -8,6 +8,19 @@ March 2026
 - [x] 网关运行验证完成：`/health`、`/se/index/build`、`/se/search`、`/attribution/run` 全部返回 `code=0`
 - [x] 本地演示脚本验证完成：`scripts/run_local_demo.py` 可在 Linux 下跑通
 
+## 今日完成标注（2026-03-03）
+
+- [x] 完成统一错误结构与 `reason_code` 映射（A/B 网关侧）
+- [x] 完成 B 适配器升级：`python_api`（优先）+ `local` fallback
+- [x] 完成频控升级：`redis` + `memory` fallback（可配置）
+- [x] 完成审计升级：`sqlite/jsonl` 双后端 + `GET /audit/query`
+- [x] 完成本地验收脚本：`scripts/verify_local_stack.py`
+
+### 状态说明
+
+- 本清单按“代码实现状态”勾选，不等同于“线上生产验收状态”。
+- 需要外部依赖（如 Redis、B 服务）的项，若代码已具备且可通过配置启用，则记为已完成；上线验收另行标注。
+
 
 ---
 
@@ -64,15 +77,15 @@ March 2026
 
 ### 任务清单
 
-- [ ] 初始化 FastAPI 项目结构  
-- [ ] 实现统一响应结构（code/message/data/timestamp）  
-- [ ] 实现 /health 健康检查接口  
-- [ ] 配置日志输出  
-- [ ] 编写 Dockerfile 并成功构建镜像  
+- [x] 初始化 FastAPI 项目结构  
+- [x] 实现统一响应结构（code/message/data/timestamp）  
+- [x] 实现 /health 健康检查接口  
+- [x] 配置日志输出  
+- [x] 编写 Dockerfile 并成功构建镜像  
 
 验收标准：
 
-- [ ] 启动后访问 /health 返回 200  
+- [x] 启动后访问 /health 返回 200  
 
 ---
 
@@ -91,17 +104,17 @@ March 2026
 
 ### 任务清单
 
-- [ ] 封装 run_psi(job_id, start, end, k, caller, n)  
-- [ ] 在网关实现 POST /attribution/run  
-- [ ] 调用 run_pipeline.sh  
-- [ ] 解析 public_report.json  
-- [ ] 写入审计日志（action=psi_run）  
-- [ ] 返回统一格式响应  
+- [x] 封装 run_psi(job_id, start, end, k, caller, n)  
+- [x] 在网关实现 POST /attribution/run  
+- [x] 调用 run_pipeline.sh（在配置 `A_PIPELINE_SCRIPT` + `A_CRITEO_TSV` 时启用）  
+- [x] 解析 public_report.json  
+- [x] 写入审计日志（action=psi_run）  
+- [x] 返回统一格式响应  
 
 验收标准：
 
-- [ ] 调用接口后成功返回 conversions  
-- [ ] intersection_size < k 时不发布  
+- [x] 调用接口后成功返回 conversions  
+- [x] intersection_size < k 时不发布（由 A 的 `policy_release` 决策，C 透传 `released/reason_code`）  
 
 ---
 
@@ -120,15 +133,15 @@ March 2026
 
 ### 任务清单
 
-- [ ] 实现 POST /se/index/build  
-- [ ] 实现 POST /se/search  
-- [ ] 封装 WS 或 Python API 调用逻辑  
-- [ ] 记录 latency 与 result_count  
-- [ ] 写入审计日志（action=se_search）  
+- [x] 实现 POST /se/index/build  
+- [x] 实现 POST /se/search  
+- [x] 封装 WS 或 Python API 调用逻辑  
+- [x] 记录 latency 与 result_count  
+- [x] 写入审计日志（action=se_search）  
 
 验收标准：
 
-- [ ] 能通过 REST 返回 encrypted_results  
+- [x] 能通过 REST 返回 encrypted_results  
 
 ---
 
@@ -146,15 +159,15 @@ March 2026
 
 ### 任务清单
 
-- [ ] 配置 Redis 连接  
-- [ ] 实现按 caller 限流  
-- [ ] 实现按 action 限流  
-- [ ] 超限返回 429  
-- [ ] 将频控命中写入审计日志  
+- [x] 配置 Redis 连接  
+- [x] 实现按 caller 限流  
+- [x] 实现按 action 限流  
+- [x] 超限返回 429  
+- [x] 将频控命中写入审计日志  
 
 验收标准：
 
-- [ ] 连续调用超过阈值自动拒绝  
+- [x] 连续调用超过阈值自动拒绝  
 
 ---
 
@@ -174,15 +187,15 @@ March 2026
 
 ### 任务清单
 
-- [ ] 设计 audit 表结构  
-- [ ] 实现写入审计函数  
-- [ ] 实现 GET /audit/query  
-- [ ] 支持按 action / actor / 时间过滤  
-- [ ] 将 PSI / SE / 频控操作写入日志  
+- [x] 设计 audit 表结构  
+- [x] 实现写入审计函数  
+- [x] 实现 GET /audit/query  
+- [x] 支持按 action / actor / 时间过滤  
+- [x] 将 PSI / SE / 频控操作写入日志  
 
 验收标准：
 
-- [ ] 可以查询历史访问记录  
+- [x] 可以查询历史访问记录  
 
 ---
 

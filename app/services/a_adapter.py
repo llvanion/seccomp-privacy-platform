@@ -6,6 +6,7 @@ import subprocess
 from pathlib import Path
 
 from app.config import settings
+from app.errors import GatewayError
 
 logger = logging.getLogger(__name__)
 
@@ -55,6 +56,11 @@ class AAdapter:
             report_path = job_dir / "public_report.json"
             if report_path.exists():
                 return json.loads(report_path.read_text(encoding="utf-8"))
+            raise GatewayError(
+                "a_report_missing",
+                f"A pipeline completed but report not found: {report_path}",
+                status_code=502,
+            )
 
         # Fallback mock report for local C demo before A/B merge.
         mock_report = {
