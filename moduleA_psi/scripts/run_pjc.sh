@@ -1,18 +1,32 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# ---- Config (can override via env vars) ----
+# -----------------------------------------------------------------------------
+# run_pjc.sh
+# - Runs Google PJC (private-join-and-compute) server+client locally.
+# - Writes logs + attribution_result.json into OUT_DIR
+#
+# Improvements vs demo:
+#   - Port readiness check matches SERVER_ADDR (no hardcoded 10501)
+#   - Better errors & optional build step
+#   - Optional per-run isolation via SERVER_PORT env (if you want many buckets)
+# -----------------------------------------------------------------------------
+
+# ---- Config (override via env vars) ----
 PJC_DIR="${PJC_DIR:-$PWD/private-join-and-compute}"
 JOB_ID="${JOB_ID:-$(date +%Y%m%d-%H%M%S)}"
 OUT_DIR="${OUT_DIR:-$PWD/runs/$JOB_ID}"
-# In pipeline mode, these are expected to be injected by run_pipeline.sh.
-# Fallbacks below are only for standalone/demo usage.
+
 SERVER_CSV="${SERVER_CSV:-/tmp/server.csv}"
 CLIENT_CSV="${CLIENT_CSV:-/tmp/client.csv}"
+
+# SERVER_ADDR format: host:port
 SERVER_ADDR="${SERVER_ADDR:-127.0.0.1:10501}"
 GRPC_MAX_MESSAGE_MB="${GRPC_MAX_MESSAGE_MB:-512}"
 
-# Keep original path rules, but normalize relative paths before cd "$PJC_DIR"
+# If 1, build server/client before running (useful in CI or fresh env)
+PJC_BUILD="${PJC_BUILD:-0}"
+
 resolve_path() {
   case "$1" in
     /*) printf '%s\n' "$1" ;;
@@ -26,26 +40,21 @@ CLIENT_CSV="$(resolve_path "$CLIENT_CSV")"
 
 mkdir -p "$OUT_DIR"
 
-# ---- Ensure we don't route localhost gRPC through proxy ----
+# ---- Ensure localhost gRPC isn't routed through proxies ----
 unset http_proxy https_proxy all_proxy HTTP_PROXY HTTPS_PROXY ALL_PROXY || true
 export no_proxy="localhost,127.0.0.1,0.0.0.0"
 export NO_PROXY="$no_proxy"
 
 # ---- Quick sanity checks ----
-if [[ ! -d "$PJC_DIR" ]]; then
-  echo "[error] PJC_DIR not found: $PJC_DIR" >&2
-  exit 1
-fi
+[[ -d "$PJC_DIR" ]] || { echo "[error] PJC_DIR not found: $PJC_DIR" >&2; exit 1; }
+[[ -f "$SERVER_CSV" ]] || { echo "[error] SERVER_CSV not found: $SERVER_CSV" >&2; exit 1; }
+[[ -f "$CLIENT_CSV" ]] || { echo "[error] CLIENT_CSV not found: $CLIENT_CSV" >&2; exit 1; }
 
-if [[ ! -f "$SERVER_CSV" ]]; then
-  echo "[error] SERVER_CSV not found: $SERVER_CSV" >&2
-  echo "Tip: generate dummy data first:" >&2
-  echo "  cd $PJC_DIR && bazel run //private_join_and_compute:generate_dummy_data -- --server_data_file=/tmp/server.csv --client_data_file=/tmp/client.csv" >&2
-  exit 1
-fi
-
-if [[ ! -f "$CLIENT_CSV" ]]; then
-  echo "[error] CLIENT_CSV not found: $CLIENT_CSV" >&2
+# Parse port
+SERVER_HOST="${SERVER_ADDR%:*}"
+SERVER_PORT="${SERVER_ADDR##*:}"
+if ! [[ "$SERVER_PORT" =~ ^[0-9]+$ ]]; then
+  echo "[error] SERVER_ADDR must be host:port, got: $SERVER_ADDR" >&2
   exit 1
 fi
 
@@ -57,8 +66,8 @@ echo "[info] CLIENT_CSV=$CLIENT_CSV"
 echo "[info] SERVER_ADDR=$SERVER_ADDR"
 echo "[info] GRPC_MAX_MESSAGE_MB=$GRPC_MAX_MESSAGE_MB"
 
-# ---- Start server (background) ----
 cd "$PJC_DIR"
+
 SERVER_LOG="$OUT_DIR/server.log"
 CLIENT_LOG="$OUT_DIR/client.log"
 
@@ -69,32 +78,41 @@ cleanup() {
 }
 trap cleanup EXIT
 
+if [[ "$PJC_BUILD" == "1" ]]; then
+  echo "[info] building PJC binaries..."
+  bazel build -c opt //private_join_and_compute:server //private_join_and_compute:client >/dev/null
+fi
+
+BIN_DIR="$(bazel info bazel-bin)"
+SERVER_BIN="$BIN_DIR/private_join_and_compute/server"
+CLIENT_BIN="$BIN_DIR/private_join_and_compute/client"
+
+[[ -x "$SERVER_BIN" ]] || { echo "[error] server binary not found/executable: $SERVER_BIN" >&2; exit 1; }
+[[ -x "$CLIENT_BIN" ]] || { echo "[error] client binary not found/executable: $CLIENT_BIN" >&2; exit 1; }
+
 echo "[info] starting server..."
-# Use bazel-bin to avoid extra bazel output in stdout; assumes you've built once.
-"$(bazel info bazel-bin)/private_join_and_compute/server" \
+"$SERVER_BIN" \
   --server_data_file="$SERVER_CSV" \
   --grpc_max_message_mb="$GRPC_MAX_MESSAGE_MB" \
+  --port="$SERVER_ADDR" \
   >"$SERVER_LOG" 2>&1 &
 SERVER_PID=$!
 
-# Wait until server listens
-echo "[info] waiting for server to listen..."
-for i in {1..60}; do
-  if ss -lntp 2>/dev/null | grep -q ":10501"; then
+echo "[info] waiting for server to listen on port $SERVER_PORT..."
+for i in {1..80}; do
+  if ss -lnt 2>/dev/null | awk '{print $4}' | grep -qE "[:.]${SERVER_PORT}$"; then
     break
   fi
   sleep 0.2
 done
-
-if ! ss -lntp 2>/dev/null | grep -q ":10501"; then
-  echo "[error] server did not start listening on 10501. Check $SERVER_LOG" >&2
+if ! ss -lnt 2>/dev/null | awk '{print $4}' | grep -qE "[:.]${SERVER_PORT}$"; then
+  echo "[error] server did not start listening on $SERVER_ADDR. Check $SERVER_LOG" >&2
   exit 1
 fi
 
-# ---- Run client ----
 echo "[info] running client..."
 set +e
-"$(bazel info bazel-bin)/private_join_and_compute/client" \
+"$CLIENT_BIN" \
   --client_data_file="$CLIENT_CSV" \
   --port="$SERVER_ADDR" \
   --grpc_max_message_mb="$GRPC_MAX_MESSAGE_MB" \
@@ -107,8 +125,6 @@ if [[ $CLIENT_RC -ne 0 ]]; then
   exit $CLIENT_RC
 fi
 
-# ---- Parse results ----
-# Expected line: "Client: The intersection size is 50 and the intersection-sum is 2837"
 RESULT_LINE="$(grep -E 'intersection size is [0-9]+.*intersection-sum is [0-9]+' "$CLIENT_LOG" | tail -n 1 || true)"
 if [[ -z "$RESULT_LINE" ]]; then
   echo "[error] could not find result line in $CLIENT_LOG" >&2

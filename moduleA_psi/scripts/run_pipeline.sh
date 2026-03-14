@@ -5,12 +5,19 @@ die() { echo "[ERROR] $*" >&2; exit 1; }
 log() { echo "[INFO] $*"; }
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
+# Keep original repo root inference but allow override
+REPO_ROOT="${REPO_ROOT:-$(cd "$SCRIPT_DIR/../.." && pwd)}"
 
-PREP_PY="$REPO_ROOT/moduleA_psi/scripts/prep_inputs.py"
-RUN_PJC_SH="$REPO_ROOT/moduleA_psi/scripts/run_pjc.sh"
-POLICY_PY="$REPO_ROOT/moduleA_psi/scripts/policy_release.py"
-RUNS_DIR="$REPO_ROOT/runs"
+PREP_PY="${PREP_PY:-$REPO_ROOT/moduleA_psi/scripts/prep_inputs.py}"
+RUN_PJC_SH="${RUN_PJC_SH:-$REPO_ROOT/moduleA_psi/scripts/run_pjc.sh}"
+POLICY_PY="${POLICY_PY:-$REPO_ROOT/moduleA_psi/scripts/policy_release.py}"
+
+# New helpers (recommended)
+RUN_PJC_PATCHED_SH="${RUN_PJC_PATCHED_SH:-$SCRIPT_DIR/run_pjc_patched.sh}"
+RUN_PJC_BUCKETED_SH="${RUN_PJC_BUCKETED_SH:-$SCRIPT_DIR/run_pjc_bucketed.sh}"
+MERGE_PY="${MERGE_PY:-$SCRIPT_DIR/merge_bucket_results.py}"
+
+RUNS_DIR="${RUNS_DIR:-$REPO_ROOT/runs}"
 
 CRITEO_TSV=""
 OUT_DIR=""
@@ -21,16 +28,15 @@ VALUE_MODE="count"
 BUCKET_FIELD=""
 HMAC_SECRET=""
 USE_CONVERSION_TS=0
+
 K_THRESHOLD="20"
 RATE_N="5"
 CALLER="demo"
 
-AUTH_CONFIG=""
-AUTH_REQUIRED=0
-KEY_ID=""
-TIMESTAMP=""
-NONCE=""
-SIGNATURE=""
+# Parallel bucket execution
+BUCKET_PARALLEL=0
+BUCKET_MAX_JOBS=4
+BUCKET_BASE_PORT=10501
 
 usage() {
   cat <<EOF
@@ -40,19 +46,26 @@ Usage:
 Options:
   --job-id <id>              Optional job id (default: basename of --out)
   --value-mode <mode>        count|amount (default: count)
-  --bucket-field <field>     Optional bucket field (e.g. partner_id)
+  --bucket-field <field>     Optional business bucket field (e.g. device_type)
   --hmac-secret <secret>     Optional anonymization secret for W1
   --purchase-use-conversion-ts  Filter purchases by conversion_ts
-  --k <int>                  k-threshold for W2 (default: 20)
-  --n <int>                  rate limit N for W2 (default: 5)
-  --caller <id>              caller id for W2 (default: demo)
 
-  --auth-config <file>       Optional auth config for W2
-  --auth-required            Require HMAC auth in W2
-  --key-id <id>              HMAC key id
-  --timestamp <iso8601>      Request timestamp
-  --nonce <str>              Request nonce
-  --signature <hex>          HMAC signature
+  # W2 policy release
+  --k <int>                  k-threshold (default: 20)
+  --n <int>                  rate limit N (default: 5)
+  --caller <id>              caller id (default: demo)
+
+  # Bucket compute controls (when --bucket-field is set)
+  --bucket-parallel          Run buckets in parallel (default: sequential)
+  --bucket-max-jobs <int>    Max parallel workers (default: 4)
+  --bucket-base-port <int>   Base port for bucket workers (default: 10501)
+
+Examples:
+  $0 --criteo-tsv data/CriteoSearchData --start-ts 1596439471 --end-ts 1597845871 --out runs/w3_demo
+
+  # Business bucket + parallel compute
+  $0 --criteo-tsv data/CriteoSearchData --start-ts 1596439471 --end-ts 1597845871 --out runs/w3_b \
+     --bucket-field device_type --bucket-parallel --bucket-max-jobs 8
 EOF
 }
 
@@ -66,46 +79,36 @@ while [[ $# -gt 0 ]]; do
     --value-mode) VALUE_MODE="$2"; shift 2 ;;
     --bucket-field) BUCKET_FIELD="$2"; shift 2 ;;
     --hmac-secret) HMAC_SECRET="$2"; shift 2 ;;
-    --purchase-use-conversion-ts) USE_CONVERSION_TS=1; shift 1 ;;
+    --purchase-use-conversion-ts) USE_CONVERSION_TS=1; shift ;;
     --k) K_THRESHOLD="$2"; shift 2 ;;
     --n) RATE_N="$2"; shift 2 ;;
     --caller) CALLER="$2"; shift 2 ;;
-    --auth-config) AUTH_CONFIG="$2"; shift 2 ;;
-    --auth-required) AUTH_REQUIRED=1; shift 1 ;;
-    --key-id) KEY_ID="$2"; shift 2 ;;
-    --timestamp) TIMESTAMP="$2"; shift 2 ;;
-    --nonce) NONCE="$2"; shift 2 ;;
-    --signature) SIGNATURE="$2"; shift 2 ;;
+    --bucket-parallel) BUCKET_PARALLEL=1; shift ;;
+    --bucket-max-jobs) BUCKET_MAX_JOBS="$2"; shift 2 ;;
+    --bucket-base-port) BUCKET_BASE_PORT="$2"; shift 2 ;;
     -h|--help) usage; exit 0 ;;
-    *) die "Unknown arg: $1" ;;
+    *) die "unknown arg: $1" ;;
   esac
 done
 
-[[ -n "$CRITEO_TSV" ]] || { usage; die "missing --criteo-tsv"; }
-[[ -n "$START_TS" ]] || { usage; die "missing --start-ts"; }
-[[ -n "$END_TS" ]] || { usage; die "missing --end-ts"; }
-[[ -n "$OUT_DIR" ]] || { usage; die "missing --out"; }
-[[ -f "$CRITEO_TSV" ]] || die "criteo file not found: $CRITEO_TSV"
+[[ -n "$CRITEO_TSV" ]] || die "--criteo-tsv required"
+[[ -n "$OUT_DIR" ]] || die "--out required"
+[[ -n "$START_TS" ]] || die "--start-ts required"
+[[ -n "$END_TS" ]] || die "--end-ts required"
 
 mkdir -p "$RUNS_DIR"
-if [[ "$OUT_DIR" != /* ]]; then
-  OUT_DIR="$REPO_ROOT/$OUT_DIR"
-fi
+OUT_DIR="$(cd "$(dirname "$OUT_DIR")" && pwd)/$(basename "$OUT_DIR")"
+JOB_ID="${JOB_ID:-$(basename "$OUT_DIR")}"
 mkdir -p "$OUT_DIR"
 
-if [[ -z "$JOB_ID" ]]; then
-  JOB_ID="$(basename "$OUT_DIR")"
-fi
-AUDIT_LOG="$OUT_DIR/audit_log.jsonl"
-
-[[ -f "$PREP_PY" ]] || die "prep_inputs.py not found: $PREP_PY"
-[[ -f "$RUN_PJC_SH" ]] || die "run_pjc.sh not found: $RUN_PJC_SH"
-[[ -f "$POLICY_PY" ]] || die "policy_release.py not found: $POLICY_PY"
+# sanity
+[[ -f "$PREP_PY" ]] || die "PREP_PY not found: $PREP_PY"
+[[ -f "$POLICY_PY" ]] || die "POLICY_PY not found: $POLICY_PY"
 
 log "job_id=$JOB_ID"
 log "out_dir=$OUT_DIR"
 
-log "Stage1 Prep: generating server.csv/client.csv/job_meta.json"
+log "Stage1 Prep: generating PJC inputs + job_meta.json"
 PREP_CMD=(python3 "$PREP_PY"
   --criteo-tsv "$CRITEO_TSV"
   --out "$OUT_DIR"
@@ -120,43 +123,39 @@ if [[ "$USE_CONVERSION_TS" == "1" ]]; then PREP_CMD+=(--purchase-use-conversion-
 "${PREP_CMD[@]}"
 
 [[ -f "$OUT_DIR/job_meta.json" ]] || die "missing $OUT_DIR/job_meta.json after prep"
-if [[ ! -f "$OUT_DIR/server.csv" && ! -d "$OUT_DIR" ]]; then
-  die "prep stage did not produce expected output under $OUT_DIR"
-fi
 
 log "Stage2 Run: executing PJC PSI"
-
-export SERVER_CSV="$OUT_DIR/server.csv"
-export CLIENT_CSV="$OUT_DIR/client.csv"
-export OUT_DIR="$OUT_DIR"
-export JOB_ID="$JOB_ID"
-
-bash "$RUN_PJC_SH"
+if [[ -z "$BUCKET_FIELD" ]]; then
+  # Non-bucketed job: run once
+  export SERVER_CSV="$OUT_DIR/server.csv"
+  export CLIENT_CSV="$OUT_DIR/client.csv"
+  export OUT_DIR="$OUT_DIR"
+  export JOB_ID="$JOB_ID"
+  bash "$RUN_PJC_SH"
+else
+  # Bucketed job: recommend patched runner + merge
+  export JOB_DIR="$OUT_DIR"
+  export MERGE_PY="$MERGE_PY"
+  export RUN_PJC_SH="$RUN_PJC_PATCHED_SH"
+  export BASE_PORT="$BUCKET_BASE_PORT"
+  export MAX_JOBS="$BUCKET_MAX_JOBS"
+  export PARALLEL="$BUCKET_PARALLEL"
+  bash "$RUN_PJC_BUCKETED_SH"
+fi
 
 [[ -f "$OUT_DIR/attribution_result.json" ]] || die "missing $OUT_DIR/attribution_result.json after PJC"
 
 log "Stage3 Policy: applying threshold/rate/audit and producing public_report.json"
-POLICY_CMD=(python3 "$POLICY_PY"
-  --job-dir "$OUT_DIR"
-  --caller "$CALLER"
-  --k "$K_THRESHOLD"
-  --n "$RATE_N"
+AUDIT_LOG="$OUT_DIR/audit_log.jsonl"
+python3 "$POLICY_PY" \
+  --job-dir "$OUT_DIR" \
+  --caller "$CALLER" \
+  --k "$K_THRESHOLD" \
+  --n "$RATE_N" \
   --audit-log "$AUDIT_LOG"
-)
-if [[ -n "$AUTH_CONFIG" ]]; then POLICY_CMD+=(--auth-config "$AUTH_CONFIG"); fi
-if [[ "$AUTH_REQUIRED" == "1" ]]; then POLICY_CMD+=(--auth-required); fi
-if [[ -n "$KEY_ID" ]]; then POLICY_CMD+=(--key-id "$KEY_ID"); fi
-if [[ -n "$TIMESTAMP" ]]; then POLICY_CMD+=(--timestamp "$TIMESTAMP"); fi
-if [[ -n "$NONCE" ]]; then POLICY_CMD+=(--nonce "$NONCE"); fi
-if [[ -n "$SIGNATURE" ]]; then POLICY_CMD+=(--signature "$SIGNATURE"); fi
-"${POLICY_CMD[@]}"
 
-[[ -f "$OUT_DIR/public_report.json" ]] || die "missing $OUT_DIR/public_report.json after policy"
-
-log "DONE."
-log "server.csv:        $OUT_DIR/server.csv"
-log "client.csv:        $OUT_DIR/client.csv"
-log "job_meta.json:     $OUT_DIR/job_meta.json"
-log "attribution_result:$OUT_DIR/attribution_result.json"
-log "public_report:     $OUT_DIR/public_report.json"
-log "audit_log:         $AUDIT_LOG"
+log "OK. Outputs:"
+log "  $OUT_DIR/job_meta.json"
+log "  $OUT_DIR/attribution_result.json"
+log "  $OUT_DIR/public_report.json"
+log "  $AUDIT_LOG"
