@@ -1,0 +1,1 @@
+# Benchmark Report\n\n| case_id | elapsed_s | max_rss_mb | num_shards | max_jobs | bucket_field | exposure_n | purchase_n | intersection_size |\n|---|---:|---:|---:|---:|---|---:|---:|---:|\n| small_s8_j4 | 719.14 | 1708.11328125 | 8 | 4 |  | 10289 | 838 | 0 |\n\n## Plots\n\n![elapsed_vs_exposure](benchmark/plots/elapsed_vs_exposure.png)\n\n
