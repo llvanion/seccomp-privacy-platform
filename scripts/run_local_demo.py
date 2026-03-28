@@ -42,6 +42,35 @@ def run_demo() -> None:
         print("[5] audit query")
         print(c.get("/audit/query", params={"limit": 10}).json())
 
+        print("[6] issue capability token")
+        token_resp = c.post(
+            "/access/token/issue",
+            json={
+                "actor": "member_c_demo",
+                "scopes": ["orders:sensitive:read"],
+                "resource_id": "demo-1001",
+                "expire_seconds": 600,
+            },
+        ).json()
+        print(token_resp)
+
+        token = token_resp["data"]["access_token"]
+
+        print("[7] read masked sensitive order")
+        print(c.get("/orders/demo-1001/sensitive", headers={"Authorization": f"Bearer {token}"}).json())
+
+        print("[8] revoke token")
+        print(
+            c.post(
+                "/access/token/revoke",
+                json={
+                    "jti": token_resp["data"]["jti"],
+                    "revoked_by": "member_c_demo",
+                    "reason": "demo_done",
+                },
+            ).json()
+        )
+
         report_path = Path("runs/demo_job_001/public_report.json")
         if report_path.exists():
             print("public_report.json:")

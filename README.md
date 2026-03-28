@@ -10,6 +10,7 @@ It also provides:
 - Unified response and error shape
 - Rate limiting (Redis or in-memory fallback)
 - Audit logging (SQLite or JSONL fallback)
+- Capability token issue/revoke and controlled sensitive-data access
 - Local demo and verification scripts
 
 ## 1) API Overview
@@ -21,6 +22,9 @@ It also provides:
 - `POST /se/index/build`
 - `POST /se/search`
 - `GET /audit/query`
+- `POST /access/token/issue`
+- `POST /access/token/revoke`
+- `GET /orders/{id}/sensitive`
 
 ### Unified success response
 
@@ -89,6 +93,32 @@ For `python_api` mode:
 - JSONL path: `AUDIT_JSONL_PATH`
 - Query endpoint: `GET /audit/query?action=&actor=&start_ts=&end_ts=&limit=`
 
+### Capability token
+
+- Secret/issuer:
+  - `TOKEN_SECRET`
+  - `TOKEN_ISSUER`
+- Default TTL:
+  - `TOKEN_DEFAULT_EXPIRE_SECONDS`
+- Revocation store:
+  - `TOKEN_DB_PATH`
+  - `TOKEN_JSONL_PATH`
+
+Example flow:
+
+```bash
+curl -X POST http://127.0.0.1:8080/access/token/issue \
+  -H 'Content-Type: application/json' \
+  -d '{"actor":"demo","scopes":["orders:sensitive:read"],"resource_id":"demo-1001"}'
+```
+
+Use the returned bearer token to access the sensitive endpoint:
+
+```bash
+curl http://127.0.0.1:8080/orders/demo-1001/sensitive \
+  -H "Authorization: Bearer <token>"
+```
+
 ## 4) Configuration
 
 Copy and edit env file:
@@ -129,6 +159,8 @@ python scripts/verify_local_stack.py
 - SSE index build/search flow
 - attribution run flow
 - audit query availability
+- token issue / revoke flow
+- sensitive endpoint authorization
 
 ## 7) Notes
 

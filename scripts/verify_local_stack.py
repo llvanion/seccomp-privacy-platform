@@ -64,6 +64,50 @@ def run() -> None:
             raise RuntimeError("audit/query failed: expected non-empty rows")
         print("[ok] audit total:", audit["data"]["total"])
 
+        token_issue = assert_ok(
+            c.post(
+                "/access/token/issue",
+                json={
+                    "actor": "verify_client",
+                    "scopes": ["orders:sensitive:read"],
+                    "resource_id": "demo-1001",
+                    "expire_seconds": 600,
+                },
+            ),
+            "access/token/issue",
+        )
+        print("[ok] token issue:", token_issue["data"]["jti"])
+
+        masked_read = assert_ok(
+            c.get(
+                "/orders/demo-1001/sensitive",
+                headers={"Authorization": f"Bearer {token_issue['data']['access_token']}"},
+            ),
+            "orders sensitive read",
+        )
+        print("[ok] sensitive read masked:", masked_read["data"]["masked"])
+
+        revoke = assert_ok(
+            c.post(
+                "/access/token/revoke",
+                json={
+                    "jti": token_issue["data"]["jti"],
+                    "revoked_by": "verify_client",
+                    "reason": "verify_revoke",
+                },
+            ),
+            "access/token/revoke",
+        )
+        print("[ok] token revoke:", revoke["data"]["revoked"])
+
+        revoked = c.get(
+            "/orders/demo-1001/sensitive",
+            headers={"Authorization": f"Bearer {token_issue['data']['access_token']}"},
+        )
+        if revoked.status_code != 401:
+            raise RuntimeError(f"revoked token should fail with 401, got {revoked.status_code}, body={revoked.text}")
+        print("[ok] revoked token rejected")
+
     print("ALL CHECKS PASSED")
 
 

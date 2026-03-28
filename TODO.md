@@ -213,17 +213,17 @@ March 2026
 
 ### 任务清单
 
-- [ ] 实现 POST /access/token/issue  
-- [ ] 实现 POST /access/token/revoke  
-- [ ] 实现 GET /orders/{id}/sensitive  
-- [ ] 校验 token 有效期  
-- [ ] 校验 scope 权限  
-- [ ] 实现字段脱敏  
-- [ ] 撤销后拒绝访问  
+- [x] 实现 POST /access/token/issue  
+- [x] 实现 POST /access/token/revoke  
+- [x] 实现 GET /orders/{id}/sensitive  
+- [x] 校验 token 有效期  
+- [x] 校验 scope 权限  
+- [x] 实现字段脱敏  
+- [x] 撤销后拒绝访问  
 
 验收标准：
 
-- [ ] token 撤销后立即失效  
+- [x] token 撤销后立即失效  
 
 ---
 

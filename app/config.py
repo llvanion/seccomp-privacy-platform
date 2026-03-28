@@ -26,6 +26,11 @@ class Settings:
     audit_backend: str = os.getenv("AUDIT_BACKEND", "sqlite")  # sqlite | jsonl
     audit_db_path: Path = Path(os.getenv("AUDIT_DB_PATH", "./runs/gateway_audit.db"))
     audit_jsonl_path: Path = Path(os.getenv("AUDIT_JSONL_PATH", "./runs/gateway_audit.jsonl"))
+    token_secret: str = os.getenv("TOKEN_SECRET", "change-me-in-production")
+    token_issuer: str = os.getenv("TOKEN_ISSUER", "member-c-access-gateway")
+    token_default_expire_seconds: int = int(os.getenv("TOKEN_DEFAULT_EXPIRE_SECONDS", "900"))
+    token_db_path: Path = Path(os.getenv("TOKEN_DB_PATH", "./runs/gateway_tokens.db"))
+    token_jsonl_path: Path = Path(os.getenv("TOKEN_JSONL_PATH", "./runs/gateway_tokens.jsonl"))
 
     runs_root: Path = Path(os.getenv("RUNS_ROOT", "./runs"))
 
@@ -34,3 +39,5 @@ settings = Settings()
 settings.runs_root.mkdir(parents=True, exist_ok=True)
 settings.audit_db_path.parent.mkdir(parents=True, exist_ok=True)
 settings.audit_jsonl_path.parent.mkdir(parents=True, exist_ok=True)
+settings.token_db_path.parent.mkdir(parents=True, exist_ok=True)
+settings.token_jsonl_path.parent.mkdir(parents=True, exist_ok=True)
