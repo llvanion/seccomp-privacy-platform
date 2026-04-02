@@ -1,703 +1,390 @@
-# Module A 使用说明
-
-本文档描述项目中 **A 模块（PSI 归因流水线）** 的职责、接口、调用方式、输出文件含义，以及可选的认证与防重放机制。
-
-A 模块的目标是：从原始点击 / 转化数据中构造 PSI/PJC 输入，运行隐私保护计算协议，并对结果进行带治理的发布（阈值、频控、审计、可选认证）。
-
----
-
-# 1. 模块结构
-
-A 模块当前由以下四个脚本组成：
-
-- `moduleA_psi/scripts/prep_inputs.py`
-- `moduleA_psi/scripts/run_pjc.sh`
-- `moduleA_psi/scripts/policy_release.py`
-- `moduleA_psi/scripts/run_pipeline.sh`
-
-四个脚本的职责如下：
-
-## 1.1 `prep_inputs.py`
-负责输入准备（W1）：
-
-- 从原始 Criteo TSV 中读取数据
-- 根据时间窗口过滤
-- 根据配置做去重
-- 构造 `server.csv` / `client.csv`
-- 输出 `job_meta.json`
-
-## 1.2 `run_pjc.sh`
-负责协议执行：
-
-- 读取 `server.csv` / `client.csv`
-- 调用 PJC / PSI 执行程序
-- 生成 `attribution_result.json`
-
-## 1.3 `policy_release.py`
-负责发布层治理（W2）：
-
-- 读取 `attribution_result.json`
-- 读取 `job_meta.json`
-- 应用阈值发布
-- 应用频控
-- 记录审计日志
-- 可选支持 API key / HMAC / timestamp / nonce 防重放
-- 输出 `public_report.json`
-- 输出 / 追加 `audit_log.jsonl`
-
-## 1.4 `run_pipeline.sh`
-负责端到端总控（W3）：
-
-- 先调用 `prep_inputs.py`
-- 再调用 `run_pjc.sh`
-- 最后调用 `policy_release.py`
-
----
-
-# 2. 角色说明
-
-本模块中有三类不同角色，必须区分：
-
-## 2.1 server / client
-这是 **协议执行层** 的角色，不是 API 调用身份。
-
-在本模块里推荐的业务解释为：
-
-- `server`：曝光 / 点击侧输入
-- `client`：购买 / 转化侧输入
-
-对应文件：
-
-- `server.csv`
-- `client.csv`
-
-## 2.2 caller
-这是 **发布治理层** 的调用者身份。
-
-caller 用于：
-
-- 频控（rate limit）
-- 审计（audit）
-- 可选认证（API key / HMAC）
-- 记录“谁请求释放结果”
-
-caller 不等于 PSI/PJC 协议中的 server 或 client。
-
-## 2.3 key_id
-这是 **认证层** 的身份索引。
-
-典型关系为：
-
-- `key_id -> caller -> secret`
-
----
-
-# 3. 输出目录结构
-
-每次任务统一组织在一个 `job_dir` 下，例如：
-
-    runs/<job_id>/
-      server.csv
-      client.csv
-      job_meta.json
-      attribution_result.json
-      public_report.json
-      audit_log.jsonl
-
-说明如下：
-
-## 3.1 `server.csv`
-协议 server 侧输入文件。
-
-通常表示曝光 / 点击侧集合。
-
-## 3.2 `client.csv`
-协议 client 侧输入文件。
-
-通常表示购买 / 转化侧集合。
-
-## 3.3 `job_meta.json`
-任务元信息文件，记录本次任务的上下文。推荐至少包含：
-
-- `job_id`
-- `window_start`
-- `window_end`
-- `value_mode`
-- `value_unit`
-- `input_sizes`
-- `bucket_field`
-- `bucket_count`
-- `dedup`
-- `window_semantics`
-- `canonical_query_signature`
-- `generated_at_utc`
-
-## 3.4 `attribution_result.json`
-PSI/PJC 的直接协议输出。
-
-注意：该文件不是最终对外发布结果。
-
-## 3.5 `public_report.json`
-最终对外发布结果。
-
-该文件经过发布层治理控制，不会直接等于协议原始输出。
-
-## 3.6 `audit_log.jsonl`
-审计日志，每次发布尝试都应追加一条记录。
-
----
-
-# 4. 数据语义与处理规则
-
-## 4.1 输入数据来源
-当前 `prep_inputs.py` 支持从 Criteo TSV 输入构造任务。
-
-## 4.2 时间窗口
-任务使用：
-
-- `--start-ts`
-- `--end-ts`
-
-指定窗口范围。
-
-## 4.3 value mode
-当前支持两种模式：
-
-- `count`
-- `amount`
-
-### `count`
-表示按次数统计。
-
-### `amount`
-表示按金额统计。
-
-内部实现中，金额以 **整数 euro_cent** 表示，最终在发布层中再格式化为欧元显示。
-
-## 4.4 去重规则
-当前实现中，推荐固定为：
-
-- exposure：窗口内每用户最多记一次
-- purchase：窗口内每用户最多记一次，金额模式下保留最大值
-
-具体规则会写入 `job_meta.json` 的 `dedup` 字段。
-
-## 4.5 conversion 时间
-如果启用：
-
-- `--purchase-use-conversion-ts`
-
-则购买时间使用：
-
-- `click_timestamp + time_delay_for_conversion`
-
-否则默认使用 click timestamp 语义。
-
----
-
-# 5. Stage 1：输入准备（W1）
-
-## 5.1 调用方式
-
-    python3 moduleA_psi/scripts/prep_inputs.py \
-      --criteo-tsv data/extracted/criteo/latest/Criteo_Conversion_Search/CriteoSearchData \
-      --out runs/w3_criteo_count_day \
-      --start-ts 1596439471 \
-      --end-ts 1596445871 \
-      --value-mode count \
-      --job-id w3_criteo_count_day
-
-## 5.2 主要参数
-
-- `--criteo-tsv`
-  - 原始输入 TSV 路径
-
-- `--out`
-  - 输出目录（job_dir）
-
-- `--start-ts`
-  - 窗口开始时间（Unix timestamp）
-
-- `--end-ts`
-  - 窗口结束时间（Unix timestamp）
-
-- `--value-mode`
-  - `count` 或 `amount`
-
-- `--job-id`
-  - 任务 ID（建议显式提供）
+# seccomp-privacy-platform
+
+本项目基于 Google `private-join-and-compute` 实现广告平台与电商平台之间的隐私保护归因实验，当前仓库主要包含：
+
+- 原始数据到 `server.csv` / `client.csv` 的输入准备
+- 单机 PJC/PSI 实验流水线
+- 双机 `server` / `client` 拆分执行
+- 结果同步与发布治理
+- 分桶执行与结果合并
+- 运行时容器化骨架
+
+当前工作分支为 `a-psi`。
+
+## 1. 目录概览
+
+- [moduleA_psi/scripts/prep_inputs.py](/home/llvanion/Desktop/seccomp-privacy-platform/moduleA_psi/scripts/prep_inputs.py)
+  从 Criteo TSV 生成 `server.csv`、`client.csv` 和 `job_meta.json`
+- [moduleA_psi/scripts/run_pjc.sh](/home/llvanion/Desktop/seccomp-privacy-platform/moduleA_psi/scripts/run_pjc.sh)
+  单机模式下本地同时运行 PJC `server` 和 `client`
+- [moduleA_psi/scripts/run_pipeline.sh](/home/llvanion/Desktop/seccomp-privacy-platform/moduleA_psi/scripts/run_pipeline.sh)
+  单机端到端流程：Prepare -> PJC -> Policy
+- [moduleA_psi/scripts/policy_release.py](/home/llvanion/Desktop/seccomp-privacy-platform/moduleA_psi/scripts/policy_release.py)
+  阈值发布、频控、审计、可选认证与防重放
+- [moduleA_psi/scripts/init_pjc_job.py](/home/llvanion/Desktop/seccomp-privacy-platform/moduleA_psi/scripts/init_pjc_job.py)
+  从已经准备好的 CSV 初始化双机标准 job 目录
+- [moduleA_psi/scripts/run_pjc_job_server.sh](/home/llvanion/Desktop/seccomp-privacy-platform/moduleA_psi/scripts/run_pjc_job_server.sh)
+  按 job 目录运行服务端，自动识别单桶或分桶
+- [moduleA_psi/scripts/run_pjc_job_client.sh](/home/llvanion/Desktop/seccomp-privacy-platform/moduleA_psi/scripts/run_pjc_job_client.sh)
+  按 job 目录运行客户端，自动识别单桶或分桶
+- [moduleA_psi/scripts/run_pjc_server.sh](/home/llvanion/Desktop/seccomp-privacy-platform/moduleA_psi/scripts/run_pjc_server.sh)
+  双机模式下只运行 PJC `server`
+- [moduleA_psi/scripts/run_pjc_client.sh](/home/llvanion/Desktop/seccomp-privacy-platform/moduleA_psi/scripts/run_pjc_client.sh)
+  双机模式下只运行 PJC `client`
+- [moduleA_psi/scripts/run_pjc_bucketed_server.sh](/home/llvanion/Desktop/seccomp-privacy-platform/moduleA_psi/scripts/run_pjc_bucketed_server.sh)
+  双机模式下按桶顺序运行服务端
+- [moduleA_psi/scripts/run_pjc_bucketed_client.sh](/home/llvanion/Desktop/seccomp-privacy-platform/moduleA_psi/scripts/run_pjc_bucketed_client.sh)
+  双机模式下按桶顺序运行客户端并合并结果
+- [moduleA_psi/scripts/merge_bucket_results.py](/home/llvanion/Desktop/seccomp-privacy-platform/moduleA_psi/scripts/merge_bucket_results.py)
+  合并各桶 `attribution_result.json`
+- [moduleA_psi/scripts/result_sink_server.py](/home/llvanion/Desktop/seccomp-privacy-platform/moduleA_psi/scripts/result_sink_server.py)
+  接收客户端回传结果的轻量 HTTP 服务
+- [moduleA_psi/scripts/push_result.py](/home/llvanion/Desktop/seccomp-privacy-platform/moduleA_psi/scripts/push_result.py)
+  将客户端结果 POST 到回调地址
+- [moduleA_psi/docs/pjc_split_deployment_plan.md](/home/llvanion/Desktop/seccomp-privacy-platform/moduleA_psi/docs/pjc_split_deployment_plan.md)
+  双机拆分、结果同步、分桶和容器化说明
+- [deploy/docker/README.md](/home/llvanion/Desktop/seccomp-privacy-platform/deploy/docker/README.md)
+  运行时 Docker 骨架说明
+
+## 2. 角色说明
+
+协议层角色：
+
+- `server`：通常表示广告平台或曝光侧，持有 `server.csv`
+- `client`：通常表示电商平台或转化侧，持有 `client.csv`
+
+治理层角色：
+
+- `caller`：发起结果发布请求的业务身份
+- `key_id`：认证时使用的密钥标识
+
+注意：
+
+- `server/client` 是 PJC 协议角色，不等于 `caller`
+- 当前开源库默认由 `client` 获得最终 `intersection_size` 和 `intersection_sum`
+
+## 3. 构建依赖
+
+底层 PJC 子项目位于 [private-join-and-compute](/home/llvanion/Desktop/seccomp-privacy-platform/private-join-and-compute)，使用 Bazel 构建。
+
+推荐先在 `private-join-and-compute` 下编译：
+
+```bash
+cd /home/llvanion/Desktop/seccomp-privacy-platform/private-join-and-compute
+bazel build -c opt //private_join_and_compute:server //private_join_and_compute:client
+```
+
+如果目标机器不想安装 Bazel，可以：
+
+- 在一台机器上预编译二进制
+- 将 `private_join_and_compute/server` 和 `private_join_and_compute/client` 所在目录分发到目标机器
+- 运行时设置 `PJC_BIN_DIR`
+
+## 4. 标准输出目录
+
+一个标准 job 目录通常为：
+
+```text
+runs/<job_id>/
+  server.csv
+  client.csv
+  job_meta.json
+  attribution_result.json
+  public_report.json
+  audit_log.jsonl
+```
+
+分桶 job 目录通常为：
+
+```text
+runs/<job_id>/
+  job_meta.json
+  bucket_<field>=<value>/
+    server.csv
+    client.csv
+    attribution_result.json
+  attribution_result.json
+```
+
+关键文件：
+
+- `server.csv`：PJC 服务端输入
+- `client.csv`：PJC 客户端输入
+- `job_meta.json`：任务元信息
+- `attribution_result.json`：协议执行直接输出
+- `public_report.json`：治理后的公开结果
+- `audit_log.jsonl`：审计日志
+
+## 5. 单机实验流程
+
+适合：
+
+- 本地功能验证
+- 单机 benchmark
+- 原始 Criteo TSV 端到端实验
+
+### 5.1 从 Criteo TSV 生成输入
+
+```bash
+cd /home/llvanion/Desktop/seccomp-privacy-platform
+python3 moduleA_psi/scripts/prep_inputs.py \
+  --criteo-tsv data/extracted/criteo/latest/Criteo_Conversion_Search/CriteoSearchData \
+  --out runs/w3_criteo_count_day \
+  --start-ts 1596439471 \
+  --end-ts 1596445871 \
+  --value-mode count \
+  --job-id w3_criteo_count_day
+```
+
+可选参数：
 
 - `--bucket-field`
-  - 可选分桶字段
-
 - `--hmac-secret`
-  - 可选，对用户 ID 做 HMAC 匿名化
-
 - `--purchase-use-conversion-ts`
-  - 可选，是否使用 conversion 时间语义
 
-## 5.3 主要输出
-- `server.csv`
-- `client.csv`
-- `job_meta.json`
+### 5.2 单机运行 PJC
+
+```bash
+cd /home/llvanion/Desktop/seccomp-privacy-platform
+export PJC_DIR="$PWD/private-join-and-compute"
+export SERVER_CSV="runs/w3_criteo_count_day/server.csv"
+export CLIENT_CSV="runs/w3_criteo_count_day/client.csv"
+export OUT_DIR="runs/w3_criteo_count_day"
+export JOB_ID="w3_criteo_count_day"
+export GRPC_MAX_MESSAGE_MB="512"
+bash moduleA_psi/scripts/run_pjc.sh
+```
+
+### 5.3 发布治理
 
----
+```bash
+cd /home/llvanion/Desktop/seccomp-privacy-platform
+python3 moduleA_psi/scripts/policy_release.py \
+  --job-dir runs/w3_criteo_count_day \
+  --caller demo \
+  --k 20 \
+  --n 5
+```
 
-# 6. Stage 2：协议执行（PJC / PSI）
+### 5.4 一键端到端
 
-## 6.1 调用方式
+```bash
+cd /home/llvanion/Desktop/seccomp-privacy-platform
+bash moduleA_psi/scripts/run_pipeline.sh \
+  --criteo-tsv data/extracted/criteo/latest/Criteo_Conversion_Search/CriteoSearchData \
+  --start-ts 1596439471 \
+  --end-ts 1596445871 \
+  --value-mode count \
+  --out runs/w3_criteo_count_day \
+  --job-id w3_criteo_count_day \
+  --k 20 \
+  --caller demo
+```
 
-在 pipeline 模式下，推荐由 `run_pipeline.sh` 自动调用。
+## 6. 双机流程
 
-单独运行时，当前 `run_pjc.sh` 依赖以下环境变量：
+双机场景下，不建议再把单机 pipeline 当正式入口。更推荐的流程是：
 
-- `SERVER_CSV`
-- `CLIENT_CSV`
-- `OUT_DIR`
-- `JOB_ID`
+1. 双方各自准备本方 CSV
+2. 使用 [init_pjc_job.py](/home/llvanion/Desktop/seccomp-privacy-platform/moduleA_psi/scripts/init_pjc_job.py) 初始化标准 job
+3. 服务端机器运行 [run_pjc_job_server.sh](/home/llvanion/Desktop/seccomp-privacy-platform/moduleA_psi/scripts/run_pjc_job_server.sh)
+4. 客户端机器运行 [run_pjc_job_client.sh](/home/llvanion/Desktop/seccomp-privacy-platform/moduleA_psi/scripts/run_pjc_job_client.sh)
+5. 如有需要，由客户端回传结果
 
-例如：
-    cd ~/Desktop/seccomp-privacy-platform
+### 6.1 初始化单桶 job
 
-    export PJC_DIR="$PWD/private-join-and-compute"
-    export SERVER_CSV="runs/w3_criteo_count_day/server.csv"
-    export CLIENT_CSV="runs/w3_criteo_count_day/client.csv"
-    export OUT_DIR="runs/w3_criteo_count_day"
-    export JOB_ID="w3_criteo_count_day"
-    export GRPC_MAX_MESSAGE_MB="512"
+```bash
+cd /home/llvanion/Desktop/seccomp-privacy-platform
+python3 moduleA_psi/scripts/init_pjc_job.py \
+  --out runs/job_csv_ready \
+  --server-csv /path/to/server.csv \
+  --client-csv /path/to/client.csv
+```
 
-    bash moduleA_psi/scripts/run_pjc.sh
+### 6.2 运行服务端
 
+```bash
+cd /home/llvanion/Desktop/seccomp-privacy-platform
+export SERVER_ADDR=0.0.0.0:10501
+bash moduleA_psi/scripts/run_pjc_job_server.sh runs/job_csv_ready
+```
 
-## 6.2 说明
-`run_pjc.sh` 的旧版默认值可能仍然指向：
+### 6.3 运行客户端
 
-- `/tmp/server.csv`
-- `/tmp/client.csv`
+```bash
+cd /home/llvanion/Desktop/seccomp-privacy-platform
+export SERVER_ADDR=<server_ip>:10501
+bash moduleA_psi/scripts/run_pjc_job_client.sh runs/job_csv_ready
+```
 
-因此在 pipeline 模式下，必须由 `run_pipeline.sh` 通过环境变量覆盖。
+### 6.4 预编译二进制运行
 
-## 6.3 输出
-- `attribution_result.json`
+如果不依赖 Bazel，额外设置：
 
----
+```bash
+export PJC_BIN_DIR=/path/to/runtime_bin
+```
 
-# 7. Stage 3：发布治理（W2）
+要求：
 
-## 7.1 基础调用方式
+- `$PJC_BIN_DIR/private_join_and_compute/server`
+- `$PJC_BIN_DIR/private_join_and_compute/client`
 
-    python3 moduleA_psi/scripts/policy_release.py \
-      --job-dir runs/w3_criteo_count_day \
-      --caller demo \
-      --k 20 \
-      --n 5
+## 7. 结果同步
 
-## 7.2 主要参数
+由于当前开源库默认由 `client` 获得结果，若双方都需要同样结果，可使用以下方式。
 
-- `--job-dir`
-  - 任务目录，里面应包含：
-    - `job_meta.json`
-    - `attribution_result.json`
+### 7.1 回调到结果接收服务
 
-- `--caller`
-  - 发布层调用者身份
+先在服务端或协调端启动接收服务：
 
-- `--k`
-  - 阈值发布门槛
+```bash
+cd /home/llvanion/Desktop/seccomp-privacy-platform
+mkdir -p runs/result_sink
+python3 moduleA_psi/scripts/result_sink_server.py \
+  --host 0.0.0.0 \
+  --port 18080 \
+  --out-dir runs/result_sink
+```
 
-- `--n`
-  - 同一 `caller + window` 允许的最大请求次数
+客户端执行时添加：
 
-## 7.3 功能
-W2 当前负责：
+```bash
+export RESULT_CALLBACK_URL=http://<result_sink_host>:18080/results
+export RESULT_CALLBACK_TOKEN=<optional_token>
+```
 
-- 阈值发布（threshold release）
-- 频控（rate limiting）
-- 审计（audit logging）
-- 可选认证（API key / HMAC）
-- 可选防重放（timestamp + nonce）
+### 7.2 共享结果目录
 
-## 7.4 输出
-- `public_report.json`
-- `audit_log.jsonl`
+客户端执行时添加：
 
----
+```bash
+export SHARED_RESULT_DIR=/path/to/shared_results
+```
 
-# 8. `public_report.json` 含义
+执行完成后会额外生成：
 
-## 8.1 allow 时
-若请求被允许发布，则 `public_report.json` 应包含完整结果，例如：
+```text
+$SHARED_RESULT_DIR/<job_id>.json
+```
 
-- `released`
-- `reason`
-- `reason_code`
-- `conversions`
-- `value_sum`
-- `aov`
-- `window`
-- `k_threshold`
-- `rate_limit_used`
-- `rate_limit_max`
-- 可选 `bucket`
-- 可选 `input_sizes`
-- `details`
+## 8. 分桶执行
 
-## 8.2 deny 时
-若请求被拒绝（例如 `below_k`、`bad_signature`、`replay_detected`），则推荐使用瘦身版 `public_report.json`，只保留：
-
-- `schema`
-- `generated_at_utc`
-- `policy_version`
-- `job_id`
-- `caller`
-- `released`
-- `reason`
-- `reason_code`
-- 可选 `window`
-- 可选 `k_threshold`
+现有单机分桶脚本：
 
-敏感统计值应置空或不返回：
+- [run_pjc_bucketed.sh](/home/llvanion/Desktop/seccomp-privacy-platform/moduleA_psi/scripts/run_pjc_bucketed.sh)
+- [run_pjc_sharded_parallel.sh](/home/llvanion/Desktop/seccomp-privacy-platform/moduleA_psi/scripts/run_pjc_sharded_parallel.sh)
 
-- `conversions`
-- `value_sum`
-- `aov`
-- `details`
+主要仍面向单机本地并发实验。
 
----
+双机分桶推荐使用：
 
-# 9. `audit_log.jsonl` 含义
+- [run_pjc_bucketed_server.sh](/home/llvanion/Desktop/seccomp-privacy-platform/moduleA_psi/scripts/run_pjc_bucketed_server.sh)
+- [run_pjc_bucketed_client.sh](/home/llvanion/Desktop/seccomp-privacy-platform/moduleA_psi/scripts/run_pjc_bucketed_client.sh)
+- [run_pjc_job_server.sh](/home/llvanion/Desktop/seccomp-privacy-platform/moduleA_psi/scripts/run_pjc_job_server.sh)
+- [run_pjc_job_client.sh](/home/llvanion/Desktop/seccomp-privacy-platform/moduleA_psi/scripts/run_pjc_job_client.sh)
 
-`audit_log.jsonl` 用于内部审计，应保留比 `public_report.json` 更完整的记录。
+### 8.1 bucket manifest
 
-推荐每条记录包含：
+示例见：
 
-- `ts_utc`
-- `job_id`
-- `caller`
-- `window`
-- `input_sizes`
-- `decision`
-- `reason`
-- `reason_code`
-- `k_threshold`
-- `rate_limit_used`
-- `rate_limit_max`
-- `canonical_query_signature`
+- [bucket_manifest.example.json](/home/llvanion/Desktop/seccomp-privacy-platform/moduleA_psi/examples/bucket_manifest.example.json)
 
-如果开启认证，还建议记录：
+### 8.2 初始化分桶 job
 
-- `key_id`
-- `timestamp`
-- `nonce`
+```bash
+cd /home/llvanion/Desktop/seccomp-privacy-platform
+python3 moduleA_psi/scripts/init_pjc_job.py \
+  --out runs/job_bucketed_ready \
+  --bucket-manifest moduleA_psi/examples/bucket_manifest.example.json
+```
 
-注意：
+### 8.3 双机执行分桶 job
 
-- 审计日志是内部日志
-- 对外响应可以瘦身
-- 审计日志不应跟着对外响应一起裁剪
+服务端机器：
 
----
+```bash
+cd /home/llvanion/Desktop/seccomp-privacy-platform
+export SERVER_ADDR=0.0.0.0:10501
+bash moduleA_psi/scripts/run_pjc_job_server.sh runs/job_bucketed_ready
+```
 
-# 10. 一键全流程调用（W3）
+客户端机器：
 
-## 10.1 调用方式
+```bash
+cd /home/llvanion/Desktop/seccomp-privacy-platform
+export SERVER_ADDR=<server_ip>:10501
+bash moduleA_psi/scripts/run_pjc_job_client.sh runs/job_bucketed_ready
+```
 
-    bash moduleA_psi/scripts/run_pipeline.sh \
-      --criteo-tsv data/extracted/criteo/latest/Criteo_Conversion_Search/CriteoSearchData \
-      --start-ts 1596439471 \
-      --end-ts 1596445871 \
-      --value-mode count \
-      --out runs/w3_criteo_count_day \
-      --job-id w3_criteo_count_day \
-      --k 20 \
-      --caller demo
+客户端完成后会自动调用 [merge_bucket_results.py](/home/llvanion/Desktop/seccomp-privacy-platform/moduleA_psi/scripts/merge_bucket_results.py) 合并结果。
 
-## 10.2 说明
-该脚本负责：
+## 9. 发布治理
 
-1. 调用 `prep_inputs.py`
-2. 调用 `run_pjc.sh`
-3. 调用 `policy_release.py`
+[policy_release.py](/home/llvanion/Desktop/seccomp-privacy-platform/moduleA_psi/scripts/policy_release.py) 负责：
 
-因此适合：
+- 阈值发布
+- 频控
+- 审计
+- 可选认证
+- 可选防重放
 
-- 新任务
-- 新窗口
-- 新参数
-- 端到端 demo
+基础用法：
 
----
+```bash
+cd /home/llvanion/Desktop/seccomp-privacy-platform
+python3 moduleA_psi/scripts/policy_release.py \
+  --job-dir runs/w3_criteo_count_day \
+  --caller demo \
+  --k 20 \
+  --n 5
+```
 
-# 11. 为什么不是每次都要重新跑 `prep_inputs.py`
+认证模式示例：
 
-如果是以下情况，建议重新跑全流程：
+```bash
+cd /home/llvanion/Desktop/seccomp-privacy-platform
+python3 moduleA_psi/scripts/policy_release.py \
+  --job-dir runs/w3_criteo_count_day \
+  --caller judge_demo \
+  --k 20 \
+  --n 5 \
+  --auth-config moduleA_psi/config/auth_config.example.json \
+  --auth-required \
+  --key-id demo-key-001 \
+  --timestamp 2026-02-28T12:00:00Z \
+  --nonce nonce-demo-001 \
+  --signature <hex_hmac>
+```
 
-- 原始数据变化
-- 时间窗口变化
-- `value-mode` 变化
-- `bucket-field` 变化
-- `purchase-use-conversion-ts` 变化
-- 匿名化参数变化
+## 10. 建议的使用顺序
 
-如果只是对同一个 `job_dir` 做：
+当前建议按以下顺序推进：
 
-- 重复发布
-- 认证测试
-- 重放测试
-- 阈值测试
-- 频控测试
+1. 先用小规模 CSV 验证双机单桶
+2. 再验证结果同步
+3. 再验证双机分桶
+4. 再接入 `policy_release.py`
+5. 最后再做容器化和前端集成
 
-则不需要重新运行 `prep_inputs.py`，也不需要重新运行 PJC，只需要重新执行：
+当前不建议一开始就用百万级数据压测，也不建议先为了双机场景去重写一个新的单机总 pipeline。
 
-    python3 moduleA_psi/scripts/policy_release.py --job-dir ...
+## 11. 容器化
 
-这可以避免不必要的计算资源浪费。
+运行时 Docker 骨架位于：
 
----
+- [deploy/docker/server.Dockerfile](/home/llvanion/Desktop/seccomp-privacy-platform/deploy/docker/server.Dockerfile)
+- [deploy/docker/client.Dockerfile](/home/llvanion/Desktop/seccomp-privacy-platform/deploy/docker/client.Dockerfile)
+- [deploy/docker/README.md](/home/llvanion/Desktop/seccomp-privacy-platform/deploy/docker/README.md)
 
-# 12. 认证与防重放（可选增强）
+它们用于：
 
-## 12.1 认证配置文件
-推荐在仓库中提供示例文件：
+- 以预编译二进制运行 `server` / `client`
+- 固化运行环境
+- 为后续服务化和部署提供基础骨架
 
-    moduleA_psi/config/auth_config.example.json
+## 12. 进一步说明
 
-示例内容：
+更详细的双机拆分、风险、分桶和容器化说明见：
 
-    {
-      "demo-key-001": {
-        "caller": "judge_demo",
-        "secret": "replace_with_a_long_random_secret_value",
-        "enabled": true
-      }
-    }
-
-说明：
-
-- `key_id`
-  - 即 `demo-key-001`
-
-- `caller`
-  - 认证通过后映射得到的调用者身份
-
-- `secret`
-  - 用于 HMAC 验签
-
-- `enabled`
-  - 是否启用该 key
-
-## 12.2 启用认证时的调用方式
-
-    python3 moduleA_psi/scripts/policy_release.py \
-      --job-dir runs/w3_criteo_count_day \
-      --caller judge_demo \
-      --k 20 \
-      --n 5 \
-      --auth-config moduleA_psi/config/auth_config.example.json \
-      --auth-required \
-      --key-id demo-key-001 \
-      --timestamp 2026-02-28T12:00:00Z \
-      --nonce nonce-demo-001 \
-      --signature <hex_hmac>
-
-## 12.3 认证参数含义
-
-- `--auth-config`
-  - 认证配置文件路径
-
-- `--auth-required`
-  - 开启认证检查
-
-- `--key-id`
-  - 本次请求使用的 key 标识
-
-- `--timestamp`
-  - UTC 时间戳，用于防旧包重放
-
-- `--nonce`
-  - 一次性随机串，用于防重放
-
-- `--signature`
-  - HMAC 签名结果
-
----
-
-# 13. nonce / timestamp / rate limit 的区别
-
-## 13.1 nonce
-nonce 的作用是：
-
-- 防重放
-- 一次性使用
-
-同一个 `key_id + nonce` 不能重复使用。
-
-这并不表示“一个 secret 只能调用一次”，而是表示：
-
-- **每次请求必须使用新的 nonce**
-- **每次请求都应重新签名**
-
-## 13.2 timestamp
-timestamp 的作用是：
-
-- 限制请求有效时间窗口
-- 防止旧包被长期重放
-
-如果当前系统设置的是 300 秒容差，那么：
-
-- 当前时间与 timestamp 相差超过 300 秒
-- 请求会被拒绝
-
-## 13.3 rate limit
-rate limit 的作用是：
-
-- 控制同一 caller 在同一窗口上最多允许查看多少次
-
-例如：
-
-- `n = 5`
-
-则表示：
-
-- 同一 `caller + window` 最多允许 5 次独立请求
-
-注意：
-
-- 不是“一个签名可用 5 次”
-- 而是“最多允许 5 次重新签名、重新提交的独立请求”
-
----
-
-# 14. 推荐演示流程
-
-建议至少准备 3 类演示：
-
-## 14.1 正常发布
-目标：
-
-- 证明端到端 pipeline 可运行
-- 证明 `released = true`
-
-## 14.2 阈值拒绝
-方法：
-
-- 提高 `k`
-
-目标：
-
-- 演示 `below_k`
-
-## 14.3 认证 / 防重放拒绝
-方法：
-
-- 故意使用错误签名，触发 `bad_signature`
-- 或重复使用相同 nonce，触发 `replay_detected`
-
-目标：
-
-- 演示发布治理层不仅有 PSI/PJC，还有认证与重放防护
-
----
-
-# 15. 当前推荐的稳定接口
-
-## 15.1 推荐给开发同学的入口
-一键执行：
-
-    bash moduleA_psi/scripts/run_pipeline.sh ...
-
-## 15.2 推荐给平台 / 后续集成人员的分阶段入口
-
-### Stage 1
-    python3 moduleA_psi/scripts/prep_inputs.py ...
-
-### Stage 2
-    bash moduleA_psi/scripts/run_pjc.sh
-
-### Stage 3
-    python3 moduleA_psi/scripts/policy_release.py ...
-
-这种分阶段接口适合：
-
-- 单测某一层
-- 重用已有 job_dir
-- 避免重复运行输入准备和协议执行
-
----
-
-# 16. 建议稳定下来的 JSON 字段
-
-## 16.1 `job_meta.json`
-建议固定：
-
-- `job_id`
-- `window_start`
-- `window_end`
-- `value_mode`
-- `value_unit`
-- `input_sizes`
-- `bucket_field`
-- `bucket_count`
-- `dedup`
-- `window_semantics`
-- `canonical_query_signature`
-- `generated_at_utc`
-
-## 16.2 `public_report.json`
-建议固定：
-
-- `released`
-- `reason`
-- `reason_code`
-- `conversions`
-- `value_sum`
-- `aov`
-- `window`
-- `k_threshold`
-
-deny 时可裁剪为瘦身版。
-
-## 16.3 `audit_log.jsonl`
-建议固定：
-
-- `ts_utc`
-- `job_id`
-- `caller`
-- `window`
-- `input_sizes`
-- `decision`
-- `reason`
-- `reason_code`
-- `k_threshold`
-- `rate_limit_used`
-- `rate_limit_max`
-- `canonical_query_signature`
-
-认证开启时再补：
-
-- `key_id`
-- `timestamp`
-- `nonce`
-
----
-
-# 17. 总结
-
-A 模块的核心价值不只是“跑出 PSI/PJC 结果”，而是：
-
-- 标准化输入准备
-- 稳定 job_dir 目录约定
-- 端到端流水线
-- 结果发布治理
-- 可选认证与防重放
-- 可审计、可展示、可被其他模块调用
-
-因此，推荐将 A 模块视为一个具备以下能力的归因服务：
-
-- Prepare
-- Run
-- Release
-- Audit
-- Optional Auth
-
-Todo: benchmark(对于过大的数据要进行分块流处理?)
+- [pjc_split_deployment_plan.md](/home/llvanion/Desktop/seccomp-privacy-platform/moduleA_psi/docs/pjc_split_deployment_plan.md)

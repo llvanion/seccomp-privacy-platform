@@ -1,0 +1,15 @@
+{
+  "bucket_field": "device_type",
+  "buckets": [
+    {
+      "bucket": "mobile",
+      "server_csv": "mobile/server.csv",
+      "client_csv": "mobile/client.csv"
+    },
+    {
+      "bucket": "desktop",
+      "server_csv": "desktop/server.csv",
+      "client_csv": "desktop/client.csv"
+    }
+  ]
+}
