@@ -1,0 +1,549 @@
+     1	from __future__ import annotations
+     2	
+     3	from typing import Any, Optional
+     4	
+     5	from fastapi import FastAPI, Header, HTTPException
+     6	from fastapi.responses import HTMLResponse
+     7	from pydantic import BaseModel, Field
+     8	
+     9	from client.adapters.gateway.http_gateway_adapter import GatewayRequestError
+    10	from client.app.bootstrap import build_client_service
+    11	
+    12	_, service = build_client_service()
+    13	app = FastAPI(title="Privacy Platform Client WebUI", version="0.1.0")
+    14	
+    15	
+    16	class AttributionRunPayload(BaseModel):
+    17	    job_id: str
+    18	    start_ts: int
+    19	    end_ts: int
+    20	    caller: str
+    21	    k: int = 20
+    22	    n: int = 5
+    23	    value_mode: str = "count"
+    24	    out_dir: Optional[str] = None
+    25	
+    26	
+    27	class SeBuildPayload(BaseModel):
+    28	    index_name: str
+    29	    records: list[dict[str, Any]]
+    30	
+    31	
+    32	class SeSearchPayload(BaseModel):
+    33	    index_name: str
+    34	    keyword: str
+    35	
+    36	
+    37	class TokenIssuePayload(BaseModel):
+    38	    actor: str
+    39	    scopes: list[str]
+    40	    resource_id: Optional[str] = None
+    41	    expire_seconds: Optional[int] = None
+    42	
+    43	
+    44	class TokenRevokePayload(BaseModel):
+    45	    revoked_by: str
+    46	    reason: str
+    47	    jti: Optional[str] = None
+    48	    token: Optional[str] = None
+    49	
+    50	
+    51	class AuditQueryPayload(BaseModel):
+    52	    action: Optional[str] = None
+    53	    actor: Optional[str] = None
+    54	    start_ts: Optional[str] = None
+    55	    end_ts: Optional[str] = None
+    56	    limit: int = Field(default=100, ge=1, le=1000)
+    57	
+    58	
+    59	def _run(callable_fn):
+    60	    try:
+    61	        return callable_fn()
+    62	    except GatewayRequestError as exc:
+    63	        raise HTTPException(status_code=502, detail=str(exc)) from exc
+    64	
+    65	
+    66	@app.get("/", response_class=HTMLResponse)
+    67	def index() -> str:
+    68	    return """
+    69	<!DOCTYPE html>
+    70	<html lang="zh-CN">
+    71	<head>
+    72	  <meta charset="UTF-8">
+    73	  <title>SecComp 闅愮璁＄畻涓庢暟鎹畨鍏ㄦ帶鍒跺彴</title>
+    74	  <!-- 寮曞叆 vue -->
+    75	  <script src="https://unpkg.com/vue@3/dist/vue.global.js"></script>
+    76	  <!-- 寮曞叆 Element Plus -->
+    77	  <link rel="stylesheet" href="https://unpkg.com/element-plus/dist/index.css">
+    78	  <script src="https://unpkg.com/element-plus"></script>
+    79	  <!-- 寮曞叆鍥炬爣搴?-->
+    80	  <script src="https://unpkg.com/@element-plus/icons-vue"></script>
+    81	  <!-- 寮曞叆 axios -->
+    82	  <script src="https://unpkg.com/axios/dist/axios.min.js"></script>
+    83	  <style>
+    84	    body { font-family: 'Helvetica Neue', Helvetica, 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', '寰蒋闆呴粦', Arial, sans-serif; margin: 0; background-color: #f0f2f5; }
+    85	    .header { background-color: #1a1a1a; color: white; padding: 0 24px; height: 60px; display: flex; align-items: center; justify-content: space-between; box-shadow: 0 2px 8px rgba(0,0,0,0.15); }
+    86	    .header h1 { margin: 0; font-size: 20px; font-weight: 500; letter-spacing: 1px; display: flex; align-items: center; gap: 10px; }
+    87	    .status-dot { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 6px; }
+    88	    .status-ok { background-color: #67c23a; box-shadow: 0 0 5px #67c23a; }
+    89	    .status-err { background-color: #f56c6c; box-shadow: 0 0 5px #f56c6c; }
+    90	    .main-container { padding: 24px; max-width: 1200px; margin: 0 auto; }
+    91	    .box-card { margin-bottom: 20px; border-radius: 8px; }
+    92	    .json-pre { background-color: #282c34; color: #abb2bf; padding: 16px; border-radius: 6px; overflow-x: auto; font-family: Consolas, monospace; font-size: 13.5px; line-height: 1.5; margin: 0; box-shadow: inset 0 0 10px rgba(0,0,0,0.5); }
+    93	    .section-title { font-size: 16px; font-weight: bold; margin-bottom: 20px; color: #303133; border-left: 4px solid #409EFF; padding-left: 12px; }
+    94	    .el-tabs__item { font-size: 15px; }
+    95	    [v-cloak] { display: none; }
+    96	  </style>
+    97	</head>
+    98	<body>
+    99	  <div id="app" v-cloak>
+   100	    <div class="header">
+   101	      <h1>
+   102	        <el-icon><Monitor /></el-icon> SecComp 闅愮璁＄畻涓庢暟鎹畨鍏ㄧ綉鍏?   103	      </h1>
+   104	      <div style="font-size: 14px; display: flex; align-items: center; background: rgba(255,255,255,0.1); padding: 4px 12px; border-radius: 20px;">
+   105	         <span class="status-dot" :class="healthStatus ? 'status-ok' : 'status-err'"></span>
+   106	         Gateway {{ healthStatus ? 'Online' : 'Offline' }}
+   107	      </div>
+   108	    </div>
+   109	    
+   110	    <div class="main-container">
+   111	      <el-tabs v-model="activeTab" type="border-card" style="border-radius: 8px; overflow: hidden; box-shadow: 0 2px 12px 0 rgba(0,0,0,0.05);">
+   112	        
+   113	        <!-- 闅愮褰掑洜 (PSI) -->
+   114	        <el-tab-pane name="psi">
+   115	          <template #label>
+   116	            <span><el-icon><Connection /></el-icon> 闅愮褰掑洜璁＄畻 (PSI)</span>
+   117	          </template>
+   118	          <div class="section-title">鍙戣捣澶氭柟瀹夊叏骞垮憡褰掑洜浠诲姟</div>
+   119	          <el-form label-width="130px" :model="psiForm" label-position="left">
+   120	             <el-row :gutter="30">
+   121	               <el-col :span="8">
+   122	                 <el-form-item label="浠诲姟杩借釜鏍囪瘑">
+   123	                   <el-input v-model="psiForm.job_id" placeholder="渚嬪: job-001"></el-input>
+   124	                 </el-form-item>
+   125	               </el-col>
+   126	               <el-col :span="8">
+   127	                 <el-form-item label="鏃堕棿绐?(Start)">
+   128	                   <el-input v-model.number="psiForm.start_ts" type="number"></el-input>
+   129	                 </el-form-item>
+   130	               </el-col>
+   131	               <el-col :span="8">
+   132	                 <el-form-item label="鏃堕棿绐?(End)">
+   133	                   <el-input v-model.number="psiForm.end_ts" type="number"></el-input>
+   134	                 </el-form-item>
+   135	               </el-col>
+   136	             </el-row>
+   137	             <el-row :gutter="30">
+   138	               <el-col :span="8">
+   139	                 <el-form-item label="搴旂敤璋冪敤鏂?>
+   140	                   <el-input v-model="psiForm.caller"></el-input>
+   141	                 </el-form-item>
+   142	               </el-col>
+   143	               <el-col :span="8">
+   144	                 <el-form-item label="瑙︾偣鍖归厤涓婇檺 (K)">
+   145	                   <el-input-number v-model="psiForm.k" :min="1" :max="100"></el-input-number>
+   146	                 </el-form-item>
+   147	               </el-col>
+   148	               <el-col :span="8">
+   149	                 <el-form-item label="杞寲鍖归厤涓婇檺 (N)">
+   150	                   <el-input-number v-model="psiForm.n" :min="1" :max="100"></el-input-number>
+   151	                 </el-form-item>
+   152	               </el-col>
+   153	             </el-row>
+   154	             <el-form-item>
+   155	               <el-button type="primary" :loading="psiLoading" @click="runPsi" size="large">
+   156	                 <el-icon><Cpu style="margin-right: 5px" /></el-icon> 涓嬪彂瀹夊叏璁＄畻浠诲姟鍒版矙绠?   157	               </el-button>
+   158	             </el-form-item>
+   159	          </el-form>
+   160	          
+   161	          <el-divider v-if="psiResult"></el-divider>
+   162	          <div v-if="psiResult">
+   163	             <div class="section-title" style="border-left-color: #67C23A;">璁＄畻缁撴灉杩斿洖</div>
+   164	             <pre class="json-pre">{{ JSON.stringify(psiResult, null, 2) }}</pre>
+   165	          </div>
+   166	        </el-tab-pane>
+   167	
+   168	        <!-- 瀵嗘€佹绱?(SSE) -->
+   169	        <el-tab-pane name="sse">
+   170	          <template #label>
+   171	            <span><el-icon><Search /></el-icon> 瀵嗘€佹绱笌姹備氦 (SSE)</span>
+   172	          </template>
+   173	          <el-row :gutter="24">
+   174	            <el-col :span="12">
+   175	              <el-card shadow="hover" class="box-card">
+   176	                <template #header>
+   177	                  <div style="font-weight: bold;">1. 鏋勫缓鍔犲瘑绱㈠紩 (Build Index)</div>
+   178	                </template>
+   179	                <el-form label-width="100px" :model="sseBuildForm" label-position="top">
+   180	                  <el-form-item label="鐩爣绱㈠紩鍚嶇О">
+   181	                    <el-input v-model="sseBuildForm.index_name" placeholder="渚嬪: user_records_secure"></el-input>
+   182	                  </el-form-item>
+   183	                  <el-form-item label="鏄庢枃涓氬姟鏁版嵁 (鑷姩鏈湴娣锋穯鍚庡彂鍑?">
+   184	                    <el-input type="textarea" :rows="6" v-model="sseBuildForm.recordsStr" style="font-family: monospace;"></el-input>
+   185	                  </el-form-item>
+   186	                  <el-form-item>
+   187	                    <el-button type="warning" :loading="sseBuildLoading" @click="runSseBuild" style="width: 100%;">
+   188	                      <el-icon><Lock style="margin-right: 5px" /></el-icon> 鍔犲瘑骞朵笂浼犲埌浜戠瀛樺偍
+   189	                    </el-button>
+   190	                  </el-form-item>
+   191	                </el-form>
+   192	                <div v-if="sseBuildResult" style="margin-top: 15px;">
+   193	                   <pre class="json-pre">{{ JSON.stringify(sseBuildResult, null, 2) }}</pre>
+   194	                </div>
+   195	              </el-card>
+   196	            </el-col>
+   197	            <el-col :span="12">
+   198	              <el-card shadow="hover" class="box-card">
+   199	                <template #header>
+   200	                  <div style="font-weight: bold;">2. 鎵ц瀹夊叏鏌ヨ (Generate Trapdoor)</div>
+   201	                </template>
+   202	                <el-form label-width="100px" :model="sseSearchForm" label-position="top">
+   203	                  <el-form-item label="妫€绱㈢洰鏍囩储寮?>
+   204	                    <el-input v-model="sseSearchForm.index_name" placeholder="闇€涓庢瀯寤烘椂涓€鑷?></el-input>
+   205	                  </el-form-item>
+   206	                  <el-form-item label="鍖归厤鍏抽敭瀛?>
+   207	                    <el-input v-model="sseSearchForm.keyword" placeholder="绯荤粺灏嗙敓鎴愭悳绱㈤櫡闂?(Trapdoor) 閬垮厤娉勯湶鍘熻瘝"></el-input>
+   208	                  </el-form-item>
+   209	                  <el-form-item>
+   210	                    <el-button type="success" :loading="sseSearchLoading" @click="runSseSearch" style="width: 100%;">
+   211	                      <el-icon><Key style="margin-right: 5px" /></el-icon> 娉ㄥ叆闄烽棬鍙戣捣瀵嗘枃妫€绱?   212	                    </el-button>
+   213	                  </el-form-item>
+   214	                </el-form>
+   215	                <div v-if="sseSearchResult" style="margin-top: 15px;">
+   216	                   <pre class="json-pre">{{ JSON.stringify(sseSearchResult, null, 2) }}</pre>
+   217	                </div>
+   218	              </el-card>
+   219	            </el-col>
+   220	          </el-row>
+   221	        </el-tab-pane>
+   222	
+   223	        <!-- 鍑瘉涓庢暟鎹闂?-->
+   224	        <el-tab-pane name="token">
+   225	          <template #label>
+   226	            <span><el-icon><Key /></el-icon> 鏁版嵁鎺堟潈涓庡嚟璇佺綉鍏?/span>
+   227	          </template>
+   228	          <el-row :gutter="24">
+   229	            <el-col :span="12">
+   230	              <el-card shadow="hover" class="box-card">
+   231	                <template #header><div style="font-weight: bold;">缃戝叧閴存潈: 鐢宠涓存椂鐭晥鍑瘉</div></template>
+   232	                <el-form label-width="110px" :model="tokenForm">
+   233	                  <el-form-item label="璋冪敤鏂?(Actor)">
+   234	                    <el-input v-model="tokenForm.actor"></el-input>
+   235	                  </el-form-item>
+   236	                  <el-form-item label="鎵€闇€鏉冮檺璁稿彲">
+   237	                    <el-input v-model="tokenForm.scopes" placeholder="閫楀彿鍒嗛殧锛屽 orders.read"></el-input>
+   238	                  </el-form-item>
+   239	                  <el-form-item label="鎸囧畾鍏宠仈璧勬簮">
+   240	                    <el-input v-model="tokenForm.resource_id" placeholder="閫夊～锛屽 order-xxx"></el-input>
+   241	                  </el-form-item>
+   242	                  <el-form-item label="鏈夋晥鐢熷懡鍛ㄦ湡">
+   243	                    <el-input-number v-model="tokenForm.expire_seconds" :min="60" :max="86400" :step="3600"></el-input-number>
+   244	                    <span style="margin-left: 10px; color: #909399; font-size: 13px;">绉?/span>
+   245	                  </el-form-item>
+   246	                  <el-form-item>
+   247	                    <el-button type="primary" :loading="tokenLoading" @click="issueToken">鍚?Auth 鏈嶅姟璇锋眰 Token</el-button>
+   248	                  </el-form-item>
+   249	                </el-form>
+   250	                <div v-if="tokenResult" style="margin-top: 15px;">
+   251	                   <el-alert v-if="tokenResult.token" type="success" title="Token 宸插畨鍏ㄧ鍙戯紝宸茶嚜鍔ㄥ～鍏ュ彸渚ц皟璇曞伐鍏? :closable="false" style="margin-bottom:10px"></el-alert>
+   252	                   <pre class="json-pre">{{ JSON.stringify(tokenResult, null, 2) }}</pre>
+   253	                </div>
+   254	              </el-card>
+   255	            </el-col>
+   256	            <el-col :span="12">
+   257	              <el-card shadow="hover" class="box-card">
+   258	                <template #header><div style="font-weight: bold;">鏁版嵁鎬荤嚎: 鏁忔劅鏁版嵁瀹夊叏鎻愬彇</div></template>
+   259	                <el-form label-width="110px" :model="dataForm" label-position="top">
+   260	                  <el-form-item label="鐩爣鏁版嵁璧勬簮鏍囪瘑 (Order ID)">
+   261	                    <el-input v-model="dataForm.order_id"></el-input>
+   262	                  </el-form-item>
+   263	                  <el-form-item label="Authorization 鏍囧ご (Bearer Token)">
+   264	                    <el-input type="textarea" :rows="5" v-model="dataForm.token" style="font-family: monospace;"></el-input>
+   265	                  </el-form-item>
+   266	                  <el-form-item>
+   267	                    <el-button color="#626aef" :loading="dataLoading" @click="fetchData" style="width: 100%;">
+   268	                      <el-icon><Document style="margin-right: 5px" /></el-icon> 绌块€忕綉鍏宠皟鍙栨槑鏂?   269	                    </el-button>
+   270	                  </el-form-item>
+   271	                </el-form>
+   272	                <div v-if="dataResult" style="margin-top: 15px;">
+   273	                   <pre class="json-pre">{{ JSON.stringify(dataResult, null, 2) }}</pre>
+   274	                </div>
+   275	              </el-card>
+   276	            </el-col>
+   277	          </el-row>
+   278	        </el-tab-pane>
+   279	
+   280	        <!-- 瀹¤鏃ュ織 -->
+   281	        <el-tab-pane name="audit">
+   282	          <template #label>
+   283	            <span><el-icon><DataLine /></el-icon> 鍏ㄩ摼璺璁″彴璐︽煡璇?/span>
+   284	          </template>
+   285	          <div class="section-title">鍒嗗竷寮忔棩蹇椾笌涓嶅彲绡℃敼瀛樿瘉杩芥函</div>
+   286	          <el-card shadow="never" style="margin-bottom: 20px;">
+   287	            <el-form :inline="true" :model="auditForm">
+   288	              <el-form-item label="鐩戞帶鍔ㄤ綔 (Action)">
+   289	                <el-input v-model="auditForm.action" placeholder="渚嬪 token.issue" clearable></el-input>
+   290	              </el-form-item>
+   291	              <el-form-item label="婧簮涓讳綋 (Actor)">
+   292	                <el-input v-model="auditForm.actor" placeholder="搴旂敤鏍囪瘑" clearable></el-input>
+   293	              </el-form-item>
+   294	              <el-form-item label="璁板綍鏉℃暟">
+   295	                <el-input-number v-model="auditForm.limit" :min="1" :max="500"></el-input-number>
+   296	              </el-form-item>
+   297	              <el-form-item>
+   298	                <el-button type="primary" :loading="auditLoading" @click="runAuditSearch">
+   299	                  <el-icon><Filter style="margin-right: 5px" /></el-icon> 鎶撳彇瀹¤璁板綍
+   300	                </el-button>
+   301	              </el-form-item>
+   302	            </el-form>
+   303	          </el-card>
+   304	          
+   305	          <div v-if="auditResult">
+   306	             <pre class="json-pre">{{ JSON.stringify(auditResult, null, 2) }}</pre>
+   307	          </div>
+   308	        </el-tab-pane>
+   309	
+   310	      </el-tabs>
+   311	    </div>
+   312	  </div>
+   313	
+   314	  <script>
+   315	    const { createApp, ref, reactive, onMounted } = Vue;
+   316	    const { ElMessage } = ElementPlus;
+   317	
+   318	    const app = createApp({
+   319	      setup() {
+   320	        const activeTab = ref('psi');
+   321	        const healthStatus = ref(true);
+   322	
+   323	        const checkHealth = async () => {
+   324	          try {
+   325	            const res = await axios.get('/api/health');
+   326	            healthStatus.value = res.data && res.data.status === 'ok';
+   327	          } catch(e) {
+   328	            healthStatus.value = false;
+   329	          }
+   330	        };
+   331	
+   332	        // PSI Tracker
+   333	        const psiForm = reactive({ job_id: 'job-demo-2024', start_ts: 1704067200, end_ts: 1706745600, caller: 'webapp-biz', k: 20, n: 5 });
+   334	        const psiLoading = ref(false);
+   335	        const psiResult = ref(null);
+   336	        const runPsi = async () => {
+   337	          psiLoading.value = true;
+   338	          try {
+   339	            const res = await axios.post('/api/attribution/run', psiForm);
+   340	            psiResult.value = res.data;
+   341	            ElMessage.success('瀹夊叏璁＄畻浠诲姟宸茶Е鍙?);
+   342	          } catch (e) {
+   343	            psiResult.value = e.response?.data || e.message;
+   344	            ElMessage.error('缃戝叧璇锋眰琚嫆缁濇垨澶辫触');
+   345	          }
+   346	          psiLoading.value = false;
+   347	        };
+   348	
+   349	        // SSE Build
+   350	        const sseBuildForm = reactive({ index_name: 'demo_idx', recordsStr: '[\\n  {"id":"1", "keyword":"alice"},\\n  {"id":"2", "keyword":"bob"}\\n]' });
+   351	        const sseBuildLoading = ref(false);
+   352	        const sseBuildResult = ref(null);
+   353	        const runSseBuild = async () => {
+   354	          sseBuildLoading.value = true;
+   355	          try {
+   356	            let records = JSON.parse(sseBuildForm.recordsStr);
+   357	            const res = await axios.post('/api/se/index/build', { index_name: sseBuildForm.index_name, records });
+   358	            sseBuildResult.value = res.data;
+   359	            ElMessage.success('鍔犲瘑绱㈠紩鎶曢€掓垚鍔?);
+   360	          } catch (e) {
+   361	            sseBuildResult.value = e.response?.data || e.message;
+   362	            ElMessage.error('鏁版嵁缁撴瀯寮傚父鎴栫綉鍏冲彈闃?);
+   363	          }
+   364	          sseBuildLoading.value = false;
+   365	        };
+   366	
+   367	        // SSE Search
+   368	        const sseSearchForm = reactive({ index_name: 'demo_idx', keyword: 'alice' });
+   369	        const sseSearchLoading = ref(false);
+   370	        const sseSearchResult = ref(null);
+   371	        const runSseSearch = async () => {
+   372	          sseSearchLoading.value = true;
+   373	          try {
+   374	            const res = await axios.post('/api/se/search', sseSearchForm);
+   375	            sseSearchResult.value = res.data;
+   376	            ElMessage.success('瀹夊叏妫€绱㈣姹傚畬姣?);
+   377	          } catch (e) {
+   378	            sseSearchResult.value = e.response?.data || e.message;
+   379	            ElMessage.error('鏌ヨ璇锋眰澶辫触');
+   380	          }
+   381	          sseSearchLoading.value = false;
+   382	        };
+   383	
+   384	        // Token
+   385	        const tokenForm = reactive({ actor: 'frontend-demo', scopes: 'orders.read', resource_id: 'order-123', expire_seconds: 3600 });
+   386	        const tokenLoading = ref(false);
+   387	        const tokenResult = ref(null);
+   388	        const issueToken = async () => {
+   389	          tokenLoading.value = true;
+   390	          try {
+   391	            const payload = { ...tokenForm, scopes: tokenForm.scopes.split(',') };
+   392	            const res = await axios.post('/api/token/issue', payload);
+   393	            tokenResult.value = res.data;
+   394	            if(res.data && res.data.token) {
+   395	              dataForm.token = res.data.token;
+   396	            }
+   397	            ElMessage.success('鍑瘉绛惧彂骞跺悓姝ヨ嚦鍓创鏉?鍙橀噺');
+   398	          } catch (e) {
+   399	            tokenResult.value = e.response?.data || e.message;
+   400	            ElMessage.error('閴存潈涓績鎷掔粷璁块棶');
+   401	          }
+   402	          tokenLoading.value = false;
+   403	        };
+   404	
+   405	        // Data Acccess
+   406	        const dataForm = reactive({ order_id: 'order-123', token: '' });
+   407	        const dataLoading = ref(false);
+   408	        const dataResult = ref(null);
+   409	        const fetchData = async () => {
+   410	          dataLoading.value = true;
+   411	          try {
+   412	            const res = await axios.get(`/api/orders/${dataForm.order_id}/sensitive`, {
+   413	              headers: { Authorization: `Bearer ${dataForm.token}` }
+   414	            });
+   415	            dataResult.value = res.data;
+   416	            ElMessage.success('鏁版嵁绌胯秺鎴愬姛');
+   417	          } catch (e) {
+   418	            dataResult.value = e.response?.data || e.message;
+   419	            ElMessage.error(e.response?.status === 401 ? '鏃犳潈闄愭垨 Token 杩囨湡' : '璇锋眰澶辫触');
+   420	          }
+   421	          dataLoading.value = false;
+   422	        };
+   423	
+   424	        // Audit
+   425	        const auditForm = reactive({ action: '', actor: '', limit: 10 });
+   426	        const auditLoading = ref(false);
+   427	        const auditResult = ref(null);
+   428	        const runAuditSearch = async () => {
+   429	          auditLoading.value = true;
+   430	          try {
+   431	            // Remove empty fields
+   432	            const payload = { limit: auditForm.limit };
+   433	            if(auditForm.action) payload.action = auditForm.action;
+   434	            if(auditForm.actor) payload.actor = auditForm.actor;
+   435	            const res = await axios.post('/api/audit/query', payload);
+   436	            auditResult.value = res.data;
+   437	            ElMessage.success('鍖哄潡閾惧嚟璇佷笌鏃ュ織鍔犺浇瀹屾瘯');
+   438	          } catch (e) {
+   439	            auditResult.value = e.response?.data || e.message;
+   440	            ElMessage.error('瀹¤鏁版嵁缃戝叧閿欒');
+   441	          }
+   442	          auditLoading.value = false;
+   443	        };
+   444	
+   445	        onMounted(() => {
+   446	          checkHealth();
+   447	          setInterval(checkHealth, 30000);
+   448	          
+   449	          sseBuildForm.recordsStr = JSON.stringify([
+   450	            {"id":"1", "keyword":"alice"},
+   451	            {"id":"2", "keyword":"bob"}
+   452	          ], null, 2);
+   453	        });
+   454	
+   455	        return {
+   456	          activeTab, healthStatus,
+   457	          psiForm, psiLoading, psiResult, runPsi,
+   458	          sseBuildForm, sseBuildLoading, sseBuildResult, runSseBuild,
+   459	          sseSearchForm, sseSearchLoading, sseSearchResult, runSseSearch,
+   460	          tokenForm, tokenLoading, tokenResult, issueToken,
+   461	          dataForm, dataLoading, dataResult, fetchData,
+   462	          auditForm, auditLoading, auditResult, runAuditSearch
+   463	        };
+   464	      }
+   465	    });
+   466	
+   467	    for (const [key, component] of Object.entries(ElementPlusIconsVue)) {
+   468	      app.component(key, component)
+   469	    }
+   470	    app.use(ElementPlus);
+   471	    app.mount('#app');
+   472	  </script>
+   473	</body>
+   474	</html>
+   475	"""
+   476	
+   477	
+   478	@app.get("/api/health")
+   479	def health() -> dict[str, Any]:
+   480	    return _run(lambda: service.health())
+   481	
+   482	
+   483	@app.post("/api/attribution/run")
+   484	def attribution_run(payload: AttributionRunPayload) -> dict[str, Any]:
+   485	    return _run(
+   486	        lambda: service.attribution_run(
+   487	            job_id=payload.job_id,
+   488	            start_ts=payload.start_ts,
+   489	            end_ts=payload.end_ts,
+   490	            caller=payload.caller,
+   491	            k=payload.k,
+   492	            n=payload.n,
+   493	            value_mode=payload.value_mode,
+   494	            out_dir=payload.out_dir,
+   495	        )
+   496	    )
+   497	
+   498	
+   499	@app.post("/api/se/index/build")
+   500	def se_build(payload: SeBuildPayload) -> dict[str, Any]:
+   501	    return _run(lambda: service.se_build_index(index_name=payload.index_name, records=payload.records))
+   502	
+   503	
+   504	@app.post("/api/se/search")
+   505	def se_search(payload: SeSearchPayload) -> dict[str, Any]:
+   506	    return _run(lambda: service.se_search(index_name=payload.index_name, keyword=payload.keyword))
+   507	
+   508	
+   509	@app.post("/api/token/issue")
+   510	def token_issue(payload: TokenIssuePayload) -> dict[str, Any]:
+   511	    return _run(
+   512	        lambda: service.token_issue(
+   513	            actor=payload.actor,
+   514	            scopes=payload.scopes,
+   515	            resource_id=payload.resource_id,
+   516	            expire_seconds=payload.expire_seconds,
+   517	        )
+   518	    )
+   519	
+   520	
+   521	@app.post("/api/token/revoke")
+   522	def token_revoke(payload: TokenRevokePayload) -> dict[str, Any]:
+   523	    return _run(
+   524	        lambda: service.token_revoke(
+   525	            revoked_by=payload.revoked_by,
+   526	            reason=payload.reason,
+   527	            jti=payload.jti,
+   528	            token=payload.token,
+   529	        )
+   530	    )
+   531	
+   532	
+   533	@app.post("/api/audit/query")
+   534	def audit_query(payload: AuditQueryPayload) -> dict[str, Any]:
+   535	    return _run(
+   536	        lambda: service.audit_query(
+   537	            action=payload.action,
+   538	            actor=payload.actor,
+   539	            start_ts=payload.start_ts,
+   540	            end_ts=payload.end_ts,
+   541	            limit=payload.limit,
+   542	        )
+   543	    )
+   544	
+   545	
+   546	@app.get("/api/orders/{order_id}/sensitive")
+   547	def sensitive_read(order_id: str, authorization: str | None = Header(default=None)) -> dict[str, Any]:
+   548	    if not authorization:
+   549	        raise HTTPException(status_code=401, detail="missing Authorization header")
+   550	    scheme, _, token = authorization.partition(" ")
+   551	    if scheme.lower() != "bearer" or not token.strip():
+   552	        raise HTTPException(status_code=401, detail="Authorization must be Bearer token")
+   553	    return _run(lambda: service.sensitive_read(order_id=order_id, bearer_token=token.strip()))
