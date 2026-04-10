@@ -9,14 +9,16 @@ This repository is a multi-module privacy computing workspace that integrates:
 The current end-to-end flow is:
 
 ```text
-SSE local export -> Rust bridge tokenization -> A-PSI/PJC execution -> policy release
+SSE search/export -> encrypted record recovery -> Rust bridge tokenization -> A-PSI/PJC execution -> policy release
 ```
 
 This layout keeps the three responsibilities separated:
 
-- `sse` owns encrypted/searchable storage and local filtering.
+- `sse` owns encrypted/searchable storage, SSE-backed candidate selection, controlled export, and encrypted record-store recovery.
 - `bridge` owns join-key normalization, scoped HMAC token generation, and job metadata.
 - `a-psi` owns PJC execution, result thresholding, audit logging, and public report generation.
+
+The current implementation is suitable for a works-competition prototype and local integration demo. It is not yet a production multi-tenant database platform; the remaining work is tracked in `review.md` and summarized in `CODEX_CONTEXT.md`.
 
 ## Repository Layout
 
@@ -95,6 +97,49 @@ intersection_size=2
 intersection_sum=425
 ```
 
+### 4. Optional SSE-backed encrypted record-store export
+
+For the stronger boundary, build an encrypted record store first. The passphrase is read from an environment variable so it is not placed on the command line:
+
+```bash
+cd sse
+export SSE_RECORD_STORE_PASSPHRASE=<passphrase>
+.venv/bin/python run_client.py create-encrypted-record-store \
+  --source-path examples/bridge_client_records.jsonl \
+  --out-path exports/client_records.enc.jsonl \
+  --source-format jsonl \
+  --record-id-field email_hex \
+  --key-env SSE_RECORD_STORE_PASSPHRASE
+cd ..
+```
+
+Then the SSE export can query the SSE service first and recover only matching candidate rows from the encrypted record store:
+
+```bash
+cd sse
+.venv/bin/python run_client.py export-bridge-records \
+  --record-store-path exports/client_records.enc.jsonl \
+  --record-store-key-env SSE_RECORD_STORE_PASSPHRASE \
+  --out-path exports/client_demo.csv \
+  --role client \
+  --source-format jsonl \
+  --out-format csv \
+  --join-key-field email \
+  --value-field amount \
+  --filter campaign=demo \
+  --caller auto_demo \
+  --policy-config config/export_policy.example.json \
+  --audit-log exports/export_audit.jsonl \
+  --job-id auto_demo_job \
+  --sse-keyword demo \
+  --record-id-field email_hex \
+  --record-id-format hex \
+  --sname bridge_sse_demo
+cd ..
+```
+
+The encrypted record store uses PBKDF2HMAC-SHA256, AES-256-GCM, and keyed HMAC-SHA256 record-id tags instead of raw record IDs.
+
 The pipeline writes:
 
 ```text
@@ -157,6 +202,8 @@ In bridge production mode, `--token-secret` is rejected and `--token-secret-env`
 Versioned JSON schema files live under `schemas/`:
 
 - `schemas/sse_export_policy.schema.json`
+- `schemas/sse_bridge_export_audit.schema.json`
+- `schemas/sse_encrypted_record_store.schema.json`
 - `schemas/bridge_job_meta.schema.json`
 - `schemas/bridge_audit.schema.json`
 
@@ -184,18 +231,24 @@ For bridge-generated jobs, `a-psi` validates bridge metadata before job executio
 
 Implemented and verified:
 
-- `sse` local bridge export command
+- `sse` controlled bridge export command with policy and audit
+- SSE-backed candidate export with `--sse-keyword`
+- encrypted record-store recovery with `create-encrypted-record-store`
 - Rust `bridge` CLI with `generate` and `prepare-job`
+- bridge production mode and env-based token secret handling
 - bridge metadata validation in `a-psi`
 - automatic `sse -> bridge -> a-psi -> policy` orchestrator
 - demo PJC run producing `intersection_size=2`, `intersection_sum=425`
 
-Still needed for production use:
+Still needed after the current prototype:
 
-- Replace example plaintext exports with real SSE-side candidate extraction.
-- Move bridge token secrets to a formal key-management path.
+- Move encrypted-store recovery into a service-side streaming boundary or controlled worker.
+- Add fine-grained permission and tenant isolation.
+- Add a SQL metadata/control-plane layer for jobs, policies, audits, services, and dataset metadata.
+- Move bridge token secrets to a formal key-management path with lifecycle and audit.
 - Finalize join-key normalization schemas and versioning policy.
-- Add stronger schema contracts for exported SSE records and bridge metadata.
+- Add stronger schema validation automation and cross-stage audit correlation.
+- Add benchmarks, deployment/ops packaging, threat model, and leakage-model documentation.
 - Decide whether to migrate security-sensitive SSE components from Python to Rust.
 
 ## Branching Recommendation
