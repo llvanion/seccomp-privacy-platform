@@ -7,7 +7,18 @@ tmp/
 __pycache__/
 *.pyc
 .DS_Store
-data/raw/
-data/extracted/
-runs/
-logs/
+
+# Shared workspace artifacts
+1.pdf
+
+# a-psi artifacts
+a-psi/data/raw/
+a-psi/data/extracted/
+a-psi/runs/
+a-psi/logs/
+
+# sse artifacts
+sse/.sse/
+sse/.pytest_cache/
+sse/__pycache__/
+sse/.venv/

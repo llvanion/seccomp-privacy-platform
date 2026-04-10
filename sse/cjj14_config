@@ -1,0 +1,1 @@
+{"scheme": "CJJ14.PiBas", "param_lambda": 32, "prf_f_output_length": 32, "prf_f": "HmacPRF", "ske": "AES-CBC"}

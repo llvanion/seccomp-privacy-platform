@@ -1,0 +1,46 @@
+{
+  "bridge": {
+    "client": {
+      "input_file": "/home/llvanion/Desktop/seccomp-privacy-platform/sse/exports/client_demo.csv",
+      "input_format": "csv",
+      "join_key_column": "email",
+      "normalizer": "email",
+      "value_column": "amount",
+      "value_mode": "raw_int"
+    },
+    "dedup_policy": "one_per_user_keep_max_value",
+    "normalize_version": "1",
+    "server": {
+      "input_file": "/home/llvanion/Desktop/seccomp-privacy-platform/sse/exports/server_demo.csv",
+      "input_format": "csv",
+      "join_key_column": "email",
+      "normalizer": "email"
+    },
+    "token_key_version": "1",
+    "token_scheme": "bridge-hmac-sha256-v1",
+    "token_scope": "sse-demo-job"
+  },
+  "bucket": {
+    "field": null,
+    "outputs": []
+  },
+  "bucket_count": 1,
+  "bucket_field": null,
+  "counts": {
+    "client_input_rows": 2,
+    "client_unique_join_tokens": 2,
+    "server_input_rows": 2,
+    "server_unique_join_tokens": 2
+  },
+  "generator": "bridge-rust-v0",
+  "input_sizes": {
+    "exposure_n": 2,
+    "purchase_n": 2
+  },
+  "inputs": {
+    "client_csv": "/home/llvanion/Desktop/seccomp-privacy-platform/bridge/out/sse_demo_job/client.csv",
+    "server_csv": "/home/llvanion/Desktop/seccomp-privacy-platform/bridge/out/sse_demo_job/server.csv"
+  },
+  "job_id": "sse_demo_job",
+  "job_type": "bridge_prepared_csv"
+}
