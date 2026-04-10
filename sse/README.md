@@ -172,6 +172,89 @@ python3 run_client.py search --keyword 中国 --sname pibas_s0 --output-format h
 python3 run_client.py search --keyword CN --sname pibas_s0 --output-format hex
 ```
 
+### Bridge export boundary
+
+`run_client.py export-bridge-records` is the controlled local export entrypoint used by the SSE -> bridge -> A-PSI pipeline. For non-ad-hoc runs, pass a caller, policy config, audit log, and job ID:
+
+```bash
+.venv/bin/python run_client.py export-bridge-records \
+  --source-path examples/bridge_client_records.jsonl \
+  --out-path exports/client_demo.csv \
+  --role client \
+  --source-format jsonl \
+  --out-format csv \
+  --join-key-field email \
+  --value-field amount \
+  --filter campaign=demo \
+  --caller auto_demo \
+  --policy-config config/export_policy.example.json \
+  --audit-log exports/export_audit.jsonl \
+  --job-id auto_demo_job
+```
+
+The policy file can restrict caller, role, join-key/value fields, required filters, allowed filter values, and export row counts. Policy config is required by default; local one-off exports must pass `--unsafe-allow-no-policy` explicitly. The audit log records hashes and row counts, not raw join-key values.
+
+For an SSE-backed candidate export, pass an SSE keyword and the source-record field that carries the SSE result identifier:
+
+```bash
+.venv/bin/python run_client.py export-bridge-records \
+  --source-path examples/bridge_client_records.jsonl \
+  --out-path exports/client_demo.csv \
+  --role client \
+  --source-format jsonl \
+  --out-format csv \
+  --join-key-field email \
+  --value-field amount \
+  --filter campaign=demo \
+  --caller auto_demo \
+  --policy-config config/export_policy.example.json \
+  --audit-log exports/export_audit.jsonl \
+  --job-id auto_demo_job \
+  --sse-keyword demo \
+  --record-id-field email_hex \
+  --record-id-format hex \
+  --sname bridge_sse_demo
+```
+
+In this mode the client queries the SSE service first, converts the returned identifiers with `--record-id-format`, then exports only local source rows whose `--record-id-field` is in that SSE candidate set. It keeps the same policy and audit checks and records `candidate_source=sse_query`, `record_id_field`, and `candidate_count`.
+
+To reduce plaintext source-file exposure, first build an encrypted record store. The passphrase is read from an environment variable and is not accepted on the command line:
+
+```bash
+export SSE_RECORD_STORE_PASSPHRASE=<passphrase>
+.venv/bin/python run_client.py create-encrypted-record-store \
+  --source-path examples/bridge_client_records.jsonl \
+  --out-path exports/client_records.enc.jsonl \
+  --source-format jsonl \
+  --record-id-field email_hex \
+  --key-env SSE_RECORD_STORE_PASSPHRASE
+```
+
+Then export from the encrypted store after SSE candidate search:
+
+```bash
+.venv/bin/python run_client.py export-bridge-records \
+  --record-store-path exports/client_records.enc.jsonl \
+  --record-store-key-env SSE_RECORD_STORE_PASSPHRASE \
+  --out-path exports/client_demo.csv \
+  --role client \
+  --source-format jsonl \
+  --out-format csv \
+  --join-key-field email \
+  --value-field amount \
+  --filter campaign=demo \
+  --caller auto_demo \
+  --policy-config config/export_policy.example.json \
+  --audit-log exports/export_audit.jsonl \
+  --job-id auto_demo_job \
+  --sse-keyword demo \
+  --record-id-field email_hex \
+  --record-id-format hex \
+  --sname bridge_sse_demo
+```
+
+The store uses PBKDF2HMAC-SHA256 and AES-256-GCM. Per-record lookup uses keyed HMAC tags instead of raw record IDs, so the store does not write raw email, phone, device ID, or their hex identifiers as row selectors.
+
 ### Step 8: Multi-keyword batch search
 
 一次性搜索多个keyword，返回每个keyword的独立结果：

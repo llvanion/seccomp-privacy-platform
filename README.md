@@ -2,7 +2,7 @@
 
 This repository is a multi-module privacy computing workspace that integrates:
 
-- `sse/`: searchable symmetric encryption storage and local candidate export
+- `sse/`: searchable symmetric encryption storage, SSE-backed candidate export, and encrypted record-store recovery
 - `bridge/`: Rust-based tokenization and PJC input generation layer
 - `a-psi/`: Private Join and Compute execution, result governance, and audit release
 
@@ -83,6 +83,7 @@ bash scripts/run_sse_bridge_pipeline.sh \
   --job-id auto_demo_job \
   --out-base "$PWD/tmp/sse_bridge_pipeline_demo" \
   --caller auto_demo \
+  --sse-export-policy-config "$PWD/sse/config/export_policy.example.json" \
   --k 1 \
   --n 5
 ```
@@ -105,9 +106,11 @@ tmp/sse_bridge_pipeline_demo/
 
 Key output files:
 
+- `sse_exports/export_audit.jsonl`
 - `bridge_job/server.csv`
 - `bridge_job/client.csv`
 - `bridge_job/job_meta.json`
+- `bridge_job/bridge_audit.jsonl`
 - `a_psi_run/attribution_result.json`
 - `a_psi_run/public_report.json`
 - `a_psi_run/audit_log.jsonl`
@@ -131,6 +134,9 @@ Bridge export command:
 ```
 
 This command performs local controlled export into a bridge-ready CSV/JSONL format.
+Use `--caller`, `--policy-config`, `--audit-log`, and `--job-id` to enforce caller-specific export policy and write an audit record before the Rust bridge sees join-key fields. Policy config is required by default; ad-hoc local exports must pass `--unsafe-allow-no-policy` explicitly.
+Use `--sse-keyword` with `--record-id-field` and optional `--record-id-format` / `--sid` / `--sname` when the export should first query SSE and then materialize only the matching candidate rows. This mode rejects `--unsafe-allow-no-policy`.
+Use `create-encrypted-record-store` plus `--record-store-path` / `--record-store-key-env` when those matching rows should be recovered from an encrypted local record store instead of a plaintext JSONL/CSV source.
 
 ### `bridge/`
 
@@ -144,6 +150,15 @@ cargo run -- prepare-job --help
 ```
 
 Use `--token-secret-env BRIDGE_TOKEN_SECRET` instead of `--token-secret` for non-demo runs.
+In bridge production mode, `--token-secret` is rejected and `--token-secret-env` is required.
+
+## Schemas
+
+Versioned JSON schema files live under `schemas/`:
+
+- `schemas/sse_export_policy.schema.json`
+- `schemas/bridge_job_meta.schema.json`
+- `schemas/bridge_audit.schema.json`
 
 ### `a-psi/`
 

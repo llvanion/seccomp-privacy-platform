@@ -1,0 +1,39 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "bridge_audit/v1",
+  "title": "Bridge audit JSONL record",
+  "type": "object",
+  "required": ["schema", "ts_unix_ms", "event", "job_id", "decision", "reason_code", "token_secret_source"],
+  "properties": {
+    "schema": {
+      "const": "bridge_audit/v1"
+    },
+    "ts_unix_ms": {
+      "type": "integer"
+    },
+    "event": {
+      "enum": ["bridge_generate", "bridge_prepare_job"]
+    },
+    "job_id": {
+      "type": "string"
+    },
+    "decision": {
+      "enum": ["allow", "deny"]
+    },
+    "reason_code": {
+      "type": "string"
+    },
+    "token_secret_source": {
+      "type": "object",
+      "required": ["kind"],
+      "properties": {
+        "kind": {
+          "enum": ["cli", "env", "unknown"]
+        },
+        "name": {
+          "type": "string"
+        }
+      }
+    }
+  }
+}

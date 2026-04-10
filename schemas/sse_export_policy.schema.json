@@ -1,0 +1,88 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "sse_export_policy/v1",
+  "title": "SSE export policy",
+  "type": "object",
+  "required": ["schema", "callers"],
+  "properties": {
+    "schema": {
+      "const": "sse_export_policy/v1"
+    },
+    "callers": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "required": ["enabled", "allowed_roles", "allowed_join_key_fields", "max_export_rows"],
+        "properties": {
+          "enabled": {
+            "type": "boolean"
+          },
+          "allowed_roles": {
+            "type": "array",
+            "items": {
+              "enum": ["server", "client"]
+            }
+          },
+          "allowed_fields": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "allowed_join_key_fields": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "allowed_value_fields": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "allowed_filter_fields": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "required_filters": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "allowed_filter_values": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          },
+          "max_export_rows": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "min_export_rows": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "can_run_bridge": {
+            "type": "boolean"
+          },
+          "can_run_pjc": {
+            "type": "boolean"
+          },
+          "can_release": {
+            "type": "boolean"
+          }
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  "additionalProperties": false
+}

@@ -1,0 +1,109 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "sse_bridge_export_audit/v1",
+  "title": "SSE bridge export audit JSONL record",
+  "type": "object",
+  "required": [
+    "schema",
+    "ts_utc",
+    "event",
+    "caller",
+    "role",
+    "decision",
+    "reason_code",
+    "candidate_source"
+  ],
+  "properties": {
+    "schema": {
+      "const": "sse_bridge_export_audit/v1"
+    },
+    "ts_utc": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "event": {
+      "const": "sse_bridge_export"
+    },
+    "caller": {
+      "type": "string"
+    },
+    "job_id": {
+      "type": ["string", "null"]
+    },
+    "role": {
+      "enum": ["server", "client", "unknown"]
+    },
+    "source_file": {
+      "type": ["string", "null"]
+    },
+    "source_sha256": {
+      "type": ["string", "null"]
+    },
+    "output_file": {
+      "type": "string"
+    },
+    "output_sha256": {
+      "type": ["string", "null"]
+    },
+    "source_format": {
+      "enum": ["jsonl", "csv"]
+    },
+    "out_format": {
+      "enum": ["jsonl", "csv"]
+    },
+    "join_key_field": {
+      "type": "string"
+    },
+    "value_field": {
+      "type": ["string", "null"]
+    },
+    "filters": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["field", "value_sha256"],
+        "properties": {
+          "field": {
+            "type": "string"
+          },
+          "value_sha256": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "input_rows": {
+      "type": ["integer", "null"]
+    },
+    "output_rows": {
+      "type": ["integer", "null"]
+    },
+    "policy_config": {
+      "type": ["string", "null"]
+    },
+    "candidate_source": {
+      "enum": ["local_filter", "sse_query"]
+    },
+    "record_id_field": {
+      "type": ["string", "null"]
+    },
+    "candidate_count": {
+      "type": ["integer", "null"]
+    },
+    "record_store_file": {
+      "type": ["string", "null"]
+    },
+    "record_store_sha256": {
+      "type": ["string", "null"]
+    },
+    "decision": {
+      "enum": ["allow", "deny"]
+    },
+    "reason_code": {
+      "type": "string"
+    },
+    "reason": {
+      "type": "string"
+    }
+  }
+}
