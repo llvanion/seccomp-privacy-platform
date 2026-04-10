@@ -1,6 +1,6 @@
 # bridge
 
-This directory is reserved for the SSE-to-PJC bridge layer.
+This directory contains the Rust SSE-to-PJC bridge layer.
 
 Current responsibilities:
 
