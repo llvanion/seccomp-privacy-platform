@@ -20,6 +20,13 @@ class HealthData(BaseModel):
     status: str
 
 
+class ExposureRecord(BaseModel):
+    user_id: str
+    timestamp: int | None = None
+    tag: str | None = None
+    labels: dict[str, Any] | None = None
+
+
 class AttributionRunRequest(BaseModel):
     job_id: str
     start_ts: int
@@ -29,9 +36,18 @@ class AttributionRunRequest(BaseModel):
     n: int = 5
     value_mode: str = "count"
     out_dir: str | None = None
+    bucket_by: str | None = None
+    exposure_records: list[ExposureRecord] = Field(default_factory=list)
 
 
 class AttributionRunData(BaseModel):
+    job_id: str
+    released: bool
+    reason_code: str
+    report: dict[str, Any]
+
+
+class AttributionReportData(BaseModel):
     job_id: str
     released: bool
     reason_code: str

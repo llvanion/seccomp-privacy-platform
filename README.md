@@ -129,6 +129,7 @@ C 模块当前对外提供以下接口：
 
 - `GET /health`
 - `POST /attribution/run`
+- `GET /attribution/report/{job_id}`
 - `POST /se/index/build`
 - `POST /se/search`
 - `GET /audit/query`
@@ -179,6 +180,16 @@ C 模块当前对外提供以下接口：
 则 `/attribution/run` 会执行 A 的真实 pipeline，并读取：
 
 - `runs/<job_id>/public_report.json`
+
+广告商场景下，`/attribution/run` 还支持直接接收 `exposure_records`，用于由广告商侧上传曝光集合后触发 PSI 归因。当前分支也新增了独立广告商客户端：
+
+- `ad_client/`
+- `ad_client_main.py`
+
+广告商客户端只聚焦 PSI，支持：
+
+- 上传曝光集合并发起任务
+- 查询 `job_id` 对应的可发布结果报告
 
 如果未配置，则 C 返回本地 mock report，便于独立验证和演示。
 
@@ -360,6 +371,7 @@ export NO_PROXY=127.0.0.1,localhost
 - `POST /se/index/build`
 - `POST /se/search`
 - `POST /attribution/run`
+- `GET /attribution/report/{job_id}`
 - `GET /audit/query`
 - `POST /access/token/issue`
 - `GET /orders/demo-1001/sensitive`
@@ -375,6 +387,7 @@ export NO_PROXY=127.0.0.1,localhost
 直接调用 C 的 REST 接口：
 
 - `POST /attribution/run`
+- `GET /attribution/report/{job_id}`
 - `POST /se/index/build`
 - `POST /se/search`
 

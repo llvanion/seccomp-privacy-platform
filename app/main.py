@@ -13,6 +13,7 @@ from app.errors import GatewayError
 from app.logging_setup import setup_logging
 from app.schemas import (
     ApiResponse,
+    AttributionReportData,
     AttributionRunData,
     AttributionRunRequest,
     AuditQueryData,
@@ -210,6 +211,8 @@ def attribution_run(req: AttributionRunRequest) -> ApiResponse[AttributionRunDat
             n=req.n,
             value_mode=req.value_mode,
             out_dir=req.out_dir,
+            exposure_records=[record.model_dump() for record in req.exposure_records],
+            bucket_by=req.bucket_by,
         )
     except subprocess.CalledProcessError as exc:
         logger.exception("A pipeline failed")
@@ -222,6 +225,17 @@ def attribution_run(req: AttributionRunRequest) -> ApiResponse[AttributionRunDat
 
     return ApiResponse(
         data=AttributionRunData(job_id=req.job_id, released=released, reason_code=reason_code, report=report)
+    )
+
+
+@app.get("/attribution/report/{job_id}", response_model=ApiResponse[AttributionReportData])
+def attribution_report(job_id: str, out_dir: str | None = None) -> ApiResponse[AttributionReportData]:
+    report = _a_adapter.read_report(job_id=job_id, out_dir=out_dir)
+    released = bool(report.get("released", False))
+    reason_code = str(report.get("reason_code", "unknown"))
+    _audit.log("psi_report_read", "system", {"job_id": job_id, "released": released, "reason_code": reason_code})
+    return ApiResponse(
+        data=AttributionReportData(job_id=job_id, released=released, reason_code=reason_code, report=report)
     )
 
 

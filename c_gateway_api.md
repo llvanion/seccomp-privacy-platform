@@ -44,7 +44,20 @@ C 对 A 模块的统一归因入口。
   "k": 20,
   "caller": "member_c_demo",
   "n": 5,
-  "value_mode": "count"
+  "value_mode": "count",
+  "bucket_by": "tag",
+  "exposure_records": [
+    {
+      "user_id": "u-1",
+      "timestamp": 1596439472,
+      "tag": "campaign-a"
+    },
+    {
+      "user_id": "u-2",
+      "timestamp": 1596439480,
+      "tag": "campaign-b"
+    }
+  ]
 }
 ```
 
@@ -57,6 +70,8 @@ C 对 A 模块的统一归因入口。
 - `n`: 查询频控上限
 - `value_mode`: 统计模式，当前常用 `count`
 - `out_dir`: 可选，输出目录
+- `bucket_by`: 可选，按指定字段生成分桶统计
+- `exposure_records`: 可选，广告商上传的曝光集合
 
 ### 返回示例
 ```json
@@ -72,16 +87,28 @@ C 对 A 模块的统一归因入口。
       "released": true,
       "reason": "ok",
       "reason_code": "allow",
-      "conversions": 12,
-      "value_sum": 12,
-      "aov": 1,
+      "summary": {
+        "exposure_record_count": 2,
+        "exposure_unique_users": 2,
+        "intersection_size": 0,
+        "value_mode": "count"
+      },
       "window": {
         "start_ts": 1596439471,
         "end_ts": 1596445871
       },
-      "k_threshold": 20,
-      "rate_limit_used": 1,
-      "rate_limit_max": 5
+      "policy": {
+        "k_threshold": 20,
+        "frequency_cap": 5,
+        "bucket_by": "tag"
+      },
+      "bucket_stats": [
+        {
+          "bucket": "campaign-a",
+          "exposure_count": 1,
+          "intersection_size": 0
+        }
+      ]
     }
   },
   "timestamp": "2026-03-28T07:05:08.641020+00:00"
@@ -92,6 +119,30 @@ C 对 A 模块的统一归因入口。
 - `released`: 是否允许发布结果
 - `reason_code`: 发布决策原因
 - `report`: 归因结果详情
+
+### `GET /attribution/report/{job_id}`
+
+### 说明
+读取指定 `job_id` 的已生成归因报告，便于广告商客户端在任务提交后再次查询结果。
+
+### 返回示例
+```json
+{
+  "code": 0,
+  "message": "ok",
+  "data": {
+    "job_id": "demo_job_001",
+    "released": false,
+    "reason_code": "below_threshold",
+    "report": {
+      "job_id": "demo_job_001",
+      "released": false,
+      "reason_code": "below_threshold"
+    }
+  },
+  "timestamp": "2026-03-28T07:05:08.641020+00:00"
+}
+```
 
 ---
 
