@@ -404,6 +404,27 @@ def apply_rate_limit(audit_log_path: str, caller: str, window: Dict[str, Optiona
     }
 
 
+def seen_query_signature(audit_log_path: str, caller: str, query_sig: str) -> bool:
+    if not os.path.exists(audit_log_path):
+        return False
+    with open(audit_log_path, "r", encoding="utf-8") as f:
+        for line in f:
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                rec = json.loads(line)
+            except Exception:
+                continue
+            if rec.get("event") != "policy_release":
+                continue
+            if rec.get("caller") != caller:
+                continue
+            if rec.get("canonical_query_signature") == query_sig:
+                return True
+    return False
+
+
 # ---------- release policy ----------
 
 def apply_threshold_policy(metrics: Dict[str, Optional[int]], threshold_k: int, round_sum_to: Optional[int]) -> Dict[str, Any]:
@@ -492,6 +513,7 @@ def build_public_report(
         "generated_at_utc": utc_now_iso(),
         "policy_version": policy_version,
         "job_id": job_id,
+        "correlation_id": job_id,
         "caller": caller,
         "window": window,
         "bucket": bucket,
@@ -520,6 +542,7 @@ def build_public_report(
         "generated_at_utc": full_report["generated_at_utc"],
         "policy_version": full_report["policy_version"],
         "job_id": full_report["job_id"],
+        "correlation_id": full_report["correlation_id"],
         "caller": full_report["caller"],
         "released": False,
         "reason": full_report["reason"],
@@ -552,11 +575,13 @@ def build_audit_record(
     policy_out: Dict[str, Any],
     auth_result: AuthResult,
 ) -> Dict[str, Any]:
+    input_sha256 = sha256_file(input_path)
     return {
         "ts_utc": utc_now_iso(),
         "event": "policy_release",
         "policy_version": policy_version,
         "job_id": job_id,
+        "correlation_id": job_id,
         "caller": caller,
         "window": window,
         "bucket": bucket,
@@ -564,8 +589,11 @@ def build_audit_record(
         "bridge": bridge_meta if bridge_meta.get("enabled") else None,
         "input_sizes": input_sizes,
         "input_file": os.path.abspath(input_path),
-        "input_sha256": sha256_file(input_path),
+        "input_sha256": input_sha256,
+        "pjc_result_file": os.path.abspath(input_path),
+        "pjc_result_sha256": input_sha256,
         "release_file": os.path.abspath(out_path),
+        "release_sha256": sha256_file(out_path) if os.path.exists(out_path) else None,
         "threshold_k": threshold_k,
         "round_sum_to": round_sum_to,
         "rate_limit_used": rate_limit_out["used"],
@@ -604,6 +632,7 @@ def main() -> None:
     ap.add_argument("--threshold-k", "--k", dest="threshold_k", type=int, default=20)
     ap.add_argument("--max-queries", "--n", dest="max_queries", type=int, default=5)
     ap.add_argument("--round-sum-to", type=int, default=None)
+    ap.add_argument("--deny-duplicate-query", action="store_true", help="Deny an exact repeated canonical query signature for the caller")
 
     # optional HMAC authn/authz
     ap.add_argument("--auth-config", default=None, help="JSON file: {key_id: {caller, secret, enabled}}")
@@ -732,7 +761,14 @@ def main() -> None:
     caller = auth_result.caller or args.caller or "local_demo"
     rate_limit_out = apply_rate_limit(audit_log_path, caller, window, args.max_queries)
 
-    if not rate_limit_out["allowed"]:
+    if args.deny_duplicate_query and seen_query_signature(audit_log_path, caller, query_sig):
+        policy_out = {
+            "decision": "deny",
+            "reason_code": "duplicate_query",
+            "reason": "duplicate canonical query signature for caller",
+            "released": None,
+        }
+    elif not rate_limit_out["allowed"]:
         policy_out = {
             "decision": "deny",
             "reason_code": "rate_limit_exceeded",

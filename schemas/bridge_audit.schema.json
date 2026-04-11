@@ -17,6 +17,27 @@
     "job_id": {
       "type": "string"
     },
+    "correlation_id": {
+      "type": "string"
+    },
+    "input_file_type": {
+      "enum": ["file", "fifo", "other"]
+    },
+    "input_sha256": {
+      "type": ["string", "null"]
+    },
+    "server_input_file_type": {
+      "enum": ["file", "fifo", "other"]
+    },
+    "server_input_sha256": {
+      "type": ["string", "null"]
+    },
+    "client_input_file_type": {
+      "enum": ["file", "fifo", "other"]
+    },
+    "client_input_sha256": {
+      "type": ["string", "null"]
+    },
     "decision": {
       "enum": ["allow", "deny"]
     },

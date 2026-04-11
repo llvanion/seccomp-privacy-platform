@@ -72,6 +72,9 @@ cargo run -- prepare-job \
 ## Notes
 
 - `--token-secret-env BRIDGE_TOKEN_SECRET` is preferred over passing secrets directly in shell history.
+- `--production-mode` rejects `--token-secret`; use `--token-secret-env` for production-like runs.
+- In the integrated pipeline, `--token-secret-key-id` plus `--key-manifest` can resolve a token-secret env var through `scripts/resolve_key_access.py` and write key access audit without exposing the secret.
+- Bridge writes `bridge_audit.jsonl` by default, or the file specified by `--audit-log`.
 - `--token-scope` should match across both parties for the same PJC job.
 - Current input support is `csv` and `jsonl`.
 - `prepare-job` writes `server.csv`, `client.csv`, and `job_meta.json` into a single directory that can be consumed by `a-psi`.

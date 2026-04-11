@@ -1,7 +1,10 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs::{self, File};
-use std::io::{BufRead, BufReader, Write};
+use std::io::{BufRead, BufReader, Read, Write};
+#[cfg(unix)]
+use std::os::unix::fs::FileTypeExt;
 use std::path::{Path, PathBuf};
+use std::time::{SystemTime, UNIX_EPOCH};
 
 use anyhow::{Context, Result, bail};
 use clap::{Parser, Subcommand, ValueEnum};
@@ -9,7 +12,7 @@ use csv::{ReaderBuilder, StringRecord, WriterBuilder};
 use hmac::{Hmac, Mac};
 use serde::Serialize;
 use serde_json::{Map, Value, json};
-use sha2::Sha256;
+use sha2::{Digest, Sha256};
 
 type HmacSha256 = Hmac<Sha256>;
 
@@ -76,6 +79,12 @@ struct GenerateArgs {
 
     #[arg(long, default_value = "one_per_user_keep_max_value")]
     dedup_policy: String,
+
+    #[arg(long)]
+    production_mode: bool,
+
+    #[arg(long)]
+    audit_log: Option<PathBuf>,
 }
 
 #[derive(Debug, Clone, Parser)]
@@ -136,6 +145,12 @@ struct PrepareJobArgs {
 
     #[arg(long, default_value = "one_per_user_keep_max_value")]
     dedup_policy: String,
+
+    #[arg(long)]
+    production_mode: bool,
+
+    #[arg(long)]
+    audit_log: Option<PathBuf>,
 }
 
 #[derive(Debug, Clone, Copy, ValueEnum)]
@@ -190,6 +205,7 @@ struct OutputInfo {
 
 #[derive(Debug, Serialize)]
 struct SingleJobMeta {
+    schema: String,
     job_id: String,
     generator: String,
     role: Role,
@@ -225,7 +241,9 @@ fn main() -> Result<()> {
 }
 
 fn run_generate(args: GenerateArgs) -> Result<()> {
-    let token_secret = resolve_token_secret(&args.token_secret, &args.token_secret_env)?;
+    let production_mode = production_mode_enabled(args.production_mode);
+    let token_secret =
+        resolve_token_secret(&args.token_secret, &args.token_secret_env, production_mode)?;
     let spec = InputSpec {
         input: args.input.clone(),
         input_format: args.input_format,
@@ -287,6 +305,7 @@ fn run_generate(args: GenerateArgs) -> Result<()> {
     };
 
     let meta = SingleJobMeta {
+        schema: "bridge_job_meta/v1".to_string(),
         job_id: args.job_id,
         generator: "bridge-rust-v0".to_string(),
         role: args.role,
@@ -306,6 +325,35 @@ fn run_generate(args: GenerateArgs) -> Result<()> {
     };
 
     write_json_pretty(&args.out_dir.join("job_meta.json"), &meta)?;
+    let audit_path = args
+        .audit_log
+        .clone()
+        .unwrap_or_else(|| args.out_dir.join("bridge_audit.jsonl"));
+    append_bridge_audit(
+        &audit_path,
+        json!({
+            "event": "bridge_generate",
+            "job_id": meta.job_id,
+            "correlation_id": meta.job_id,
+            "role": meta.role,
+            "input_file": meta.input_file,
+            "input_file_type": path_file_type_label(&spec.input)?,
+            "input_sha256": sha256_regular_file_json(&spec.input)?,
+            "output_dir": canonicalize_display(&args.out_dir)?,
+            "job_meta_sha256": sha256_file(&args.out_dir.join("job_meta.json"))?,
+            "outputs": meta.outputs,
+            "counts": meta.counts,
+            "token_scheme": meta.token_scheme,
+            "token_scope": meta.token_scope,
+            "token_key_version": meta.token_key_version,
+            "normalize_version": meta.normalize_version,
+            "dedup_policy": meta.dedup_policy,
+            "production_mode": production_mode,
+            "token_secret_source": token_secret_source(&args.token_secret, &args.token_secret_env),
+            "decision": "allow",
+            "reason_code": "ok"
+        }),
+    )?;
     println!(
         "[ok] wrote bridge outputs under {}",
         args.out_dir
@@ -318,7 +366,9 @@ fn run_generate(args: GenerateArgs) -> Result<()> {
 }
 
 fn run_prepare_job(args: PrepareJobArgs) -> Result<()> {
-    let token_secret = resolve_token_secret(&args.token_secret, &args.token_secret_env)?;
+    let production_mode = production_mode_enabled(args.production_mode);
+    let token_secret =
+        resolve_token_secret(&args.token_secret, &args.token_secret_env, production_mode)?;
     let server_spec = InputSpec {
         input: args.server_input.clone(),
         input_format: args.server_input_format,
@@ -362,6 +412,7 @@ fn run_prepare_job(args: PrepareJobArgs) -> Result<()> {
     write_client_csv(&args.out_dir.join("client.csv"), &client_values)?;
 
     let meta = json!({
+        "schema": "bridge_job_meta/v1",
         "job_id": args.job_id,
         "job_type": "bridge_prepared_csv",
         "generator": "bridge-rust-v0",
@@ -409,6 +460,40 @@ fn run_prepare_job(args: PrepareJobArgs) -> Result<()> {
     });
 
     write_json_pretty(&args.out_dir.join("job_meta.json"), &meta)?;
+    let audit_path = args
+        .audit_log
+        .clone()
+        .unwrap_or_else(|| args.out_dir.join("bridge_audit.jsonl"));
+    append_bridge_audit(
+        &audit_path,
+        json!({
+            "event": "bridge_prepare_job",
+            "job_id": meta.get("job_id").and_then(Value::as_str).unwrap_or(""),
+            "correlation_id": meta.get("job_id").and_then(Value::as_str).unwrap_or(""),
+            "server_input_file": canonicalize_display(&server_spec.input)?,
+            "server_input_file_type": path_file_type_label(&server_spec.input)?,
+            "server_input_sha256": sha256_regular_file_json(&server_spec.input)?,
+            "client_input_file": canonicalize_display(&client_spec.input)?,
+            "client_input_file_type": path_file_type_label(&client_spec.input)?,
+            "client_input_sha256": sha256_regular_file_json(&client_spec.input)?,
+            "server_csv": canonicalize_display(&args.out_dir.join("server.csv"))?,
+            "server_csv_sha256": sha256_file(&args.out_dir.join("server.csv"))?,
+            "client_csv": canonicalize_display(&args.out_dir.join("client.csv"))?,
+            "client_csv_sha256": sha256_file(&args.out_dir.join("client.csv"))?,
+            "job_meta_file": canonicalize_display(&args.out_dir.join("job_meta.json"))?,
+            "job_meta_sha256": sha256_file(&args.out_dir.join("job_meta.json"))?,
+            "counts": meta.get("counts").cloned().unwrap_or(Value::Null),
+            "token_scheme": meta.pointer("/bridge/token_scheme").and_then(Value::as_str).unwrap_or(""),
+            "token_scope": meta.pointer("/bridge/token_scope").and_then(Value::as_str).unwrap_or(""),
+            "token_key_version": meta.pointer("/bridge/token_key_version").and_then(Value::as_str).unwrap_or(""),
+            "normalize_version": meta.pointer("/bridge/normalize_version").and_then(Value::as_str).unwrap_or(""),
+            "dedup_policy": meta.pointer("/bridge/dedup_policy").and_then(Value::as_str).unwrap_or(""),
+            "production_mode": production_mode,
+            "token_secret_source": token_secret_source(&args.token_secret, &args.token_secret_env),
+            "decision": "allow",
+            "reason_code": "ok"
+        }),
+    )?;
     println!(
         "[ok] wrote paired job under {}",
         args.out_dir
@@ -420,13 +505,46 @@ fn run_prepare_job(args: PrepareJobArgs) -> Result<()> {
     Ok(())
 }
 
-fn resolve_token_secret(secret: &Option<String>, secret_env: &Option<String>) -> Result<String> {
+fn production_mode_enabled(flag: bool) -> bool {
+    flag || std::env::var("BRIDGE_PRODUCTION_MODE")
+        .map(|value| matches!(value.as_str(), "1" | "true" | "TRUE" | "yes" | "YES"))
+        .unwrap_or(false)
+}
+
+fn resolve_token_secret(
+    secret: &Option<String>,
+    secret_env: &Option<String>,
+    production_mode: bool,
+) -> Result<String> {
+    if production_mode && secret.is_some() {
+        bail!("--token-secret is forbidden in production mode; use --token-secret-env");
+    }
     match (secret, secret_env) {
-        (Some(secret), None) => Ok(secret.clone()),
-        (None, Some(env_name)) => std::env::var(env_name)
-            .with_context(|| format!("failed to read token secret from env var {}", env_name)),
+        (Some(secret), None) => {
+            if secret.is_empty() {
+                bail!("token secret cannot be empty");
+            }
+            Ok(secret.clone())
+        }
+        (None, Some(env_name)) => {
+            let value = std::env::var(env_name).with_context(|| {
+                format!("failed to read token secret from env var {}", env_name)
+            })?;
+            if value.is_empty() {
+                bail!("token secret from env var {} cannot be empty", env_name);
+            }
+            Ok(value)
+        }
         (Some(_), Some(_)) => bail!("use either --token-secret or --token-secret-env, not both"),
         (None, None) => bail!("missing token secret: set --token-secret or --token-secret-env"),
+    }
+}
+
+fn token_secret_source(secret: &Option<String>, secret_env: &Option<String>) -> Value {
+    match (secret, secret_env) {
+        (Some(_), None) => json!({"kind": "cli"}),
+        (None, Some(env_name)) => json!({"kind": "env", "name": env_name}),
+        _ => json!({"kind": "unknown"}),
     }
 }
 
@@ -609,6 +727,76 @@ fn write_json_pretty<T: Serialize>(path: &Path, value: &T) -> Result<()> {
     serde_json::to_writer_pretty(&mut file, value)?;
     file.write_all(b"\n")?;
     Ok(())
+}
+
+fn append_bridge_audit(path: &Path, mut record: Value) -> Result<()> {
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent)
+            .with_context(|| format!("failed to create audit directory {}", parent.display()))?;
+    }
+    let object = record
+        .as_object_mut()
+        .with_context(|| "bridge audit record must be a JSON object".to_string())?;
+    object.insert(
+        "schema".to_string(),
+        Value::String("bridge_audit/v1".to_string()),
+    );
+    object.insert("ts_unix_ms".to_string(), json!(unix_epoch_ms()?));
+    let mut file = fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(path)
+        .with_context(|| format!("failed to open bridge audit log {}", path.display()))?;
+    serde_json::to_writer(&mut file, &record)?;
+    file.write_all(b"\n")?;
+    Ok(())
+}
+
+fn unix_epoch_ms() -> Result<u128> {
+    Ok(SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .context("system clock is before UNIX_EPOCH")?
+        .as_millis())
+}
+
+fn sha256_file(path: &Path) -> Result<String> {
+    let mut file =
+        File::open(path).with_context(|| format!("failed to open {}", path.display()))?;
+    let mut hasher = Sha256::new();
+    let mut buf = [0_u8; 1024 * 64];
+    loop {
+        let n = file
+            .read(&mut buf)
+            .with_context(|| format!("failed to read {}", path.display()))?;
+        if n == 0 {
+            break;
+        }
+        hasher.update(&buf[..n]);
+    }
+    Ok(hex_encode(&hasher.finalize()))
+}
+
+fn sha256_regular_file_json(path: &Path) -> Result<Value> {
+    if path_file_type_label(path)? != "file" {
+        return Ok(Value::Null);
+    }
+    Ok(json!(sha256_file(path)?))
+}
+
+fn path_file_type_label(path: &Path) -> Result<&'static str> {
+    let file_type = fs::metadata(path)
+        .with_context(|| format!("failed to stat {}", path.display()))?
+        .file_type();
+    if file_type.is_file() {
+        return Ok("file");
+    }
+    #[cfg(unix)]
+    {
+        if file_type.is_fifo() {
+            return Ok("fifo");
+        }
+    }
+    Ok("other")
 }
 
 fn normalize_join_key(raw: &str, normalizer: Normalizer) -> Option<String> {

@@ -13,8 +13,8 @@ Implemented modules:
 - `sse/`: searchable symmetric encryption prototype plus a policy-guarded local bridge export command
 - `bridge/`: Rust CLI for join-key normalization, scoped HMAC token generation, PJC input generation, bridge metadata, and bridge audit
 - `a-psi/`: PJC execution, bridge metadata validation, policy release, and audit output
-- `scripts/run_sse_bridge_pipeline.sh`: cross-module orchestration with export policy checks and production-mode secret handling
-- `schemas/`: initial versioned JSON schema contracts for export policy, bridge job metadata, and bridge audit
+- `scripts/run_sse_bridge_pipeline.sh`: cross-module orchestration with export policy checks, local key-manifest resolution, audit-chain generation, and audit sealing
+- `schemas/`: versioned JSON schema contracts for export policy, bridge job metadata, audits, key access, and audit sealing
 
 Verified demo result:
 
@@ -23,7 +23,20 @@ intersection_size=2
 intersection_sum=425
 ```
 
-The modules can cooperate through a file-based interface, and the highest-risk local export/bridge boundary now has basic policy enforcement and audit. This is still not a production-grade multi-tenant database platform because the SSE export path is still local-file based rather than a true SSE-query-backed candidate extraction path.
+Latest verification:
+
+- file-mode integrated pipeline passed with local key-id resolution, production mode, HMAC audit seal, duplicate-query guard enabled, JSON contracts, and tabular contracts
+- FIFO handoff integrated pipeline passed without persisting `sse_exports/server.csv` or `sse_exports/client.csv`
+- Unix-socket record-recovery export smoke passed from encrypted record store to bridge-ready CSV with `record_recovery_boundary=service_socket`
+- Unix-socket record-recovery service audit smoke recorded both allow and service-side caller-deny outcomes
+- live SSE-backed integrated pipeline with auto-started record-recovery service passed with `intersection_size=2` and `intersection_sum=425`
+- `scripts/run_live_sse_bridge_demo.sh` now reproduces that live SSE-backed path in one command and writes a manifest with the exact `state_base`, `out_base`, `job_id`, `service_name`, and public result
+- `scripts/run_sse_bridge_pipeline.sh` now chooses a short `/tmp/seccomp_rr_<hash>.sock` path for auto-started recovery services when the caller does not provide one, fixing the `AF_UNIX path too long` failure mode surfaced by deep output directories
+- `run_client.py serve-record-recovery` now exposes service-lifecycle hooks (`--socket-mode`, `--pid-file`, `--ready-file`) and the auto-started pipeline path writes those lifecycle artifacts under `sse_exports/`
+- `scripts/run_sse_bridge_pipeline.sh` now actually uses `BRIDGE_BIN`, so the integrated flow can target a prebuilt bridge binary instead of assuming `cargo run --`
+- both modes produced `intersection_size=2` and `intersection_sum=425`
+
+The modules can cooperate through file/FIFO/Unix-socket interfaces, and the highest-risk local export/bridge boundary now has policy enforcement, SSE-backed candidate selection, encrypted record-store recovery, audit correlation, and schema validation. This is still not a production-grade multi-tenant database platform because the new recovery service is still a local process boundary rather than a separately deployed service with durable authn/authz and lifecycle controls.
 
 ## 2. Completed Capabilities
 
@@ -71,9 +84,10 @@ Current controls:
   - min/max exported row counts
 - writes SSE export audit records with:
   - caller
+  - correlation ID
   - job ID
   - role
-  - source/output paths and SHA-256 hashes
+  - source/output paths, output handoff type, and SHA-256 hashes
   - input/output row counts
   - requested field names
   - hashed filter values
@@ -99,7 +113,19 @@ The export path now has an optional SSE-backed candidate mode: `--sse-keyword` r
 
 It can now also read matching rows from an encrypted record store using `--record-store-path` and `--record-store-key-env`. The store uses PBKDF2HMAC-SHA256 and AES-256-GCM, and stores keyed HMAC tags instead of raw record IDs.
 
-The remaining issue is not candidate selection anymore; it is moving record recovery/materialization behind a service-side boundary rather than local file recovery.
+Encrypted record-store recovery now runs through two controlled boundaries:
+
+- `toolkit.record_recovery_worker` as a subprocess boundary. Candidate IDs and filters are passed over stdin, the worker enforces row-count limits, writes the bridge handoff directly, and returns only non-sensitive metadata such as input/output row counts and output SHA-256 to the parent export command. SSE export audit records `record_recovery_boundary=worker_subprocess` for this path.
+- `toolkit.record_recovery_service` as a long-running Unix-socket boundary. `run_client.py serve-record-recovery` starts the service, optional auth is enforced through an env-backed token, allowed callers plus output/store roots can be constrained, the service can append `sse_record_recovery_service_audit/v1` records, and `export-bridge-records` or `scripts/run_sse_bridge_pipeline.sh` can target it with `--record-recovery-socket` plus optional `--record-recovery-auth-env`. SSE export audit records `record_recovery_boundary=service_socket` for this path.
+- `scripts/run_sse_bridge_pipeline.sh` now supports `--record-recovery-service-mode auto|manual|subprocess`; `auto` can start and stop a local recovery service for encrypted record-store runs, wire caller allowlisting plus service audit logging, and keep the service-side boundary inside the integrated demo path.
+
+The integrated orchestrator can use `--sse-export-handoff-mode fifo` to stream bridge-ready plaintext through named pipes into the Rust bridge instead of persisting `sse_exports/server.csv` and `client.csv`. SSE audit records `output_file_type=fifo` plus a write-time `output_sha256`; bridge audit records FIFO input type and leaves input SHA-256 null rather than reopening the pipe.
+
+The remaining issue is not candidate selection anymore; it is operationalizing the new recovery service into a separately deployed/authenticated boundary and further reducing bridge-ready plaintext handling outside explicitly audited handoff paths.
+
+The bridge/pipeline alignment issue encountered during live verification has also been corrected: the current bridge build now matches the expected cross-module contract for `prepare-job`, including `--audit-log`, native `bridge_audit.jsonl` output, and `job_meta.json` carrying `schema=bridge_job_meta/v1`.
+
+The live SSE bootstrap gap has also narrowed: `scripts/run_live_sse_bridge_demo.sh` now captures the previously manual steps for local SSE server reuse/startup, demo-service creation, normalized `email_hex` materialization, encrypted record-store creation, full pipeline execution, and final result verification.
 
 ### 2.3 Rust Bridge
 
@@ -123,7 +149,7 @@ The Rust bridge currently supports:
 - bridge audit log:
   - default path: `bridge_job/bridge_audit.jsonl`
   - configurable with `--audit-log`
-  - includes input/output hashes, row counts, token metadata, timestamp, production-mode flag, and token-secret source
+  - includes input/output hashes for regular files, FIFO input type for streaming handoff, row counts, token metadata, timestamp, correlation ID, production-mode flag, and token-secret source
 - production-mode secret hardening:
   - `--production-mode` rejects `--token-secret`
   - `--token-secret-env` is required for production-mode runs
@@ -191,13 +217,19 @@ bash scripts/run_sse_bridge_pipeline.sh ... \
 
 ### 3.1 Move Record Recovery Behind a Service Boundary
 
-The current `sse export-bridge-records` command can now use SSE search results as the candidate set and can recover records from a local encrypted record store.
+The current `sse export-bridge-records` command can now use SSE search results as the candidate set and can recover records from a local encrypted record store. The integrated pipeline can also stream the bridge-ready handoff through FIFOs so those files are not persisted in `sse_exports`.
+
+Improved:
+
+- encrypted record-store recovery now runs in a controlled subprocess worker rather than in the parent export command
+- encrypted record-store recovery also has a long-running Unix-socket service option, and the orchestrator can route record-store exports through that socket
+- the Unix-socket service can now restrict callers, emit its own audit stream, and feed that stream into `audit_chain.json`
 
 Still needed:
 
-- ensure local recovery/export does not print sensitive join keys
-- move recovery into a service-side streaming boundary or controlled worker
-- avoid writing bridge-ready plaintext files except as explicitly audited handoff artifacts
+- separate the Unix-socket service into a durable service/user boundary with lifecycle management
+- strengthen authn/authz around recovery requests beyond env-backed local tokens
+- avoid writing bridge-ready plaintext files except as explicitly audited handoff artifacts; FIFO mode covers the local integrated script, not a production service boundary
 
 This is now the highest-priority technical gap for the SSE boundary.
 
@@ -243,6 +275,10 @@ Improved:
 - bridge forbids command-line secrets in production mode
 - bridge records `token_key_version`
 - bridge audit records secret source without logging the secret value
+- `scripts/resolve_key_access.py` resolves local key-manifest entries to env-var references without printing secrets
+- key manifest entries enforce enabled/active/purpose checks for the bridge token key
+- key access audit records `key_access_audit/v1` with key ID, key version, manifest hash, caller, job/correlation ID, and env-var secret source
+- the integrated pipeline can use `--token-secret-key-id` plus `--key-manifest` and validates the key manifest and key access audit schema
 
 Still needed:
 
@@ -251,23 +287,23 @@ Still needed:
 - key deactivation workflow
 - separation of `Kstore`, `Ktoken`, `Kauth`, and callback secrets
 - verification that PJC processes never access `Kstore` or raw join keys
-- key access audit and key-version lifecycle state
+- durable key-version lifecycle state outside the local manifest file
 
 ### 3.5 End-to-End Audit
 
 Improved:
 
-- SSE export audit now records caller, job ID, filters as hashes, input/output hashes, and row counts.
-- Bridge audit now records bridge input/output hashes, row counts, token metadata, production mode, and secret source.
-- A-PSI policy audit already records release decision and parsed metrics.
+- SSE export audit now records caller, job ID, correlation ID, filters as hashes, input/output hashes, handoff type, and row counts.
+- Bridge audit now records bridge input/output hashes for regular files, FIFO input type for streaming handoff, row counts, token metadata, production mode, correlation ID, and secret source.
+- A-PSI policy audit records release decision, parsed metrics, correlation ID, and PJC result hash.
+- `scripts/build_audit_chain.py` now writes a single `audit_chain.json` view across SSE export, bridge, bridge metadata, PJC result, public report, policy audit, and optional key access audit.
+- `scripts/seal_audit_artifact.py` writes `audit_chain.seal.json` with audit-chain SHA-256 and optional HMAC-SHA256 signature from `--audit-seal-key-env`.
 
 Still needed:
 
-- a single correlated audit view across SSE, bridge, PJC, and release
-- PJC result hash in the cross-stage audit chain
 - deny records for every failed bridge and PJC stage, not only successful bridge audit records
 - explicit audit-log access policy
-- audit integrity protection, such as append-only storage or signed audit records
+- durable append-only storage or externally anchored signatures for stronger tamper evidence
 
 Sensitive values that must remain out of logs:
 
@@ -282,9 +318,11 @@ Sensitive values that must remain out of logs:
 
 Current policy release supports thresholding, rate limiting, audit, and optional HMAC authentication.
 
+It now also supports `--deny-duplicate-query`, which rejects an exact repeated canonical query signature for the same caller when the prior decision is already present in the policy audit log.
+
 Still needed:
 
-- overlapping-query detection
+- overlapping-query detection beyond exact duplicate signatures
 - similar-query detection
 - differential attack mitigation
 - per-caller task quota
@@ -301,15 +339,35 @@ Initial schemas now exist for:
 - `schemas/sse_encrypted_record_store.schema.json`
 - `schemas/bridge_job_meta.schema.json`
 - `schemas/bridge_audit.schema.json`
+- `schemas/public_report.schema.json`
+- `schemas/policy_audit.schema.json`
+- `schemas/audit_chain.schema.json`
+- `schemas/key_manifest.schema.json`
+- `schemas/key_access_audit.schema.json`
+- `schemas/audit_seal.schema.json`
+
+Implemented automation:
+
+- `scripts/validate_json_contract.py` validates JSON and JSONL files against the schema subset used in this repo.
+- `scripts/check_json_contracts.sh` runs schema syntax checks, contract validation against sample records, tabular negative fixtures, and audit-chain validation.
+- `scripts/validate_tabular_contract.py` validates non-JSON CSV/JSONL handoff contracts for bridge input and PJC input files.
+- `.github/workflows/json-contracts.yml` runs the contract check script in GitHub Actions.
+- `scripts/run_sse_bridge_pipeline.sh` now validates:
+  - export policy config before permission checks
+  - file-mode SSE bridge handoff CSVs before bridge preparation
+  - SSE export audit JSONL after export
+  - bridge `job_meta.json` after bridge preparation
+  - bridge audit JSONL after bridge preparation
+  - generated PJC server/client CSV inputs after bridge preparation
+  - key access audit JSONL when key-id resolution is used
+  - policy public report JSON after release
+  - policy audit JSONL after release
+  - correlated audit chain JSON after chain generation
+  - audit-chain seal JSON after seal generation
 
 Still needed:
 
-- SSE export record schema
-- bridge input CSV/JSONL schema
-- PJC CSV input schema
-- policy public report schema
-- A-PSI audit log schema
-- automated schema validation in CI or pre-run checks
+- semantic schema checks for future optional bridge handoff formats
 
 ### 3.8 Deployment Isolation
 
@@ -337,38 +395,47 @@ This can be implemented through Linux users first, then hardened through contain
 
 ## 4. Recommended Next Tasks
 
-### Priority 1: Service-Side Record Recovery
+### Priority 1: Harden Service-Side Record Recovery
 
-Replace local encrypted-store recovery with:
+Next step is operationalizing the new local recovery service into a durable service-side worker:
 
 ```text
 SSE query -> candidate IDs -> controlled service-side recovery stream -> bridge input
 ```
 
-Keep the current policy config and audit behavior around the new path.
+Keep the current policy config, FIFO-style streaming semantics, and audit behavior around the new path.
 
 ### Priority 2: Cross-Stage Audit Correlation
 
-Add a consistent correlation ID and result hashes across:
+Implemented baseline: `correlation_id` now follows `job_id` across SSE export audit, bridge audit, PJC result, and policy release audit; policy release also records the PJC result hash. `scripts/build_audit_chain.py` now writes a single `audit_chain.json` view across the pipeline outputs, including key-access audit when present, and the integrated pipeline validates it with `schemas/audit_chain.schema.json`.
 
-- SSE export audit
-- bridge audit
-- PJC result
-- policy release audit
+Implemented integrity baseline: `scripts/seal_audit_artifact.py` writes `<out-base>/audit_chain.seal.json` with the audit-chain SHA-256 and an optional HMAC-SHA256 signature from `--audit-seal-key-env`; the integrated pipeline validates it with `schemas/audit_seal.schema.json`.
+
+Still needed:
+
+- durable storage/indexing for audit-chain views
+- append-only storage or externally anchored signatures for stronger tamper evidence
 
 ### Priority 3: Schema Validation Automation
 
-Add pre-run or test-time validation for:
+Implemented baseline:
 
 - export policy config
 - bridge `job_meta.json`
 - bridge audit records
-- public report
-- policy audit records
+- SSE export audit records
+- public report schema and validation
+- policy audit schema and validation
+- audit chain schema and validation
+- tabular bridge/PJC input contract validation
+- negative contract fixtures for malformed bridge/PJC tabular inputs
+- local/CI contract check via `scripts/check_json_contracts.sh` and `.github/workflows/json-contracts.yml`
 
 ### Priority 4: Key Management Service Boundary
 
-Move from env-var secret injection toward a key-agent or KMS-like interface with key lifecycle state and key access audit.
+Implemented baseline: `scripts/resolve_key_access.py` resolves `--token-secret-key-id` from `--key-manifest`, enforces enabled/active/purpose checks, returns only the env-var reference and key version, and writes `key_access_audit/v1` without exposing the secret. The integrated pipeline validates `schemas/key_manifest.schema.json` and `schemas/key_access_audit.schema.json`.
+
+Still needed: move from local manifest/env-var secret injection toward a key-agent or KMS-like interface with durable lifecycle operations, rotation, deactivation, and externalized key access policy.
 
 ### Priority 5: Deployment Isolation
 

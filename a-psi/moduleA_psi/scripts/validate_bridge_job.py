@@ -37,6 +37,10 @@ def ensure_file(path: str) -> None:
 
 
 def validate_bridge_meta(meta: Dict[str, Any], job_dir: str) -> None:
+    schema = meta.get("schema")
+    if schema is not None and schema != "bridge_job_meta/v1":
+        die(f"unsupported job_meta schema: {schema}")
+
     bridge = meta.get("bridge")
     if not isinstance(bridge, dict):
         die("job_meta.json missing bridge section")

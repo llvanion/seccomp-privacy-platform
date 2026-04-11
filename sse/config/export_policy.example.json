@@ -1,0 +1,22 @@
+{
+  "schema": "sse_export_policy/v1",
+  "callers": {
+    "auto_demo": {
+      "enabled": true,
+      "allowed_roles": ["server", "client"],
+      "allowed_fields": ["email", "amount"],
+      "allowed_join_key_fields": ["email"],
+      "allowed_value_fields": ["amount"],
+      "allowed_filter_fields": ["campaign"],
+      "required_filters": ["campaign"],
+      "allowed_filter_values": {
+        "campaign": ["demo"]
+      },
+      "max_export_rows": 100000,
+      "min_export_rows": 1,
+      "can_run_bridge": true,
+      "can_run_pjc": true,
+      "can_release": true
+    }
+  }
+}

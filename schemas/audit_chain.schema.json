@@ -1,0 +1,111 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "audit_chain/v1",
+  "title": "Cross-stage correlated audit chain",
+  "type": "object",
+  "required": [
+    "schema",
+    "generated_at_utc",
+    "job_id",
+    "correlation_id",
+    "paths",
+    "artifacts",
+    "counts",
+    "key_access_audit",
+    "sse_export_audit",
+    "record_recovery_service_audit",
+    "bridge_audit",
+    "bridge_job_meta",
+    "pjc_result",
+    "public_report",
+    "policy_audit"
+  ],
+  "properties": {
+    "schema": {
+      "const": "audit_chain/v1"
+    },
+    "generated_at_utc": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "job_id": {
+      "type": "string"
+    },
+    "correlation_id": {
+      "type": "string"
+    },
+    "paths": {
+      "type": "object"
+    },
+    "artifacts": {
+      "type": "object",
+      "properties": {
+        "bridge_job_meta_sha256": {
+          "type": ["string", "null"]
+        },
+        "pjc_result_sha256": {
+          "type": ["string", "null"]
+        },
+        "public_report_sha256": {
+          "type": ["string", "null"]
+        }
+      }
+    },
+    "counts": {
+      "type": "object",
+      "required": [
+        "sse_export_audit_records",
+        "record_recovery_service_audit_records",
+        "bridge_audit_records",
+        "policy_audit_records",
+        "key_access_audit_records"
+      ],
+      "properties": {
+        "sse_export_audit_records": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "record_recovery_service_audit_records": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "bridge_audit_records": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "policy_audit_records": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "key_access_audit_records": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    },
+    "key_access_audit": {
+      "type": "array"
+    },
+    "sse_export_audit": {
+      "type": "array"
+    },
+    "record_recovery_service_audit": {
+      "type": "array"
+    },
+    "bridge_audit": {
+      "type": "array"
+    },
+    "bridge_job_meta": {
+      "type": ["object", "null"]
+    },
+    "pjc_result": {
+      "type": ["object", "null"]
+    },
+    "public_report": {
+      "type": ["object", "null"]
+    },
+    "policy_audit": {
+      "type": "array"
+    }
+  }
+}

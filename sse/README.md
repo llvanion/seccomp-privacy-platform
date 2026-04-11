@@ -174,6 +174,8 @@ python3 run_client.py search --keyword CN --sname pibas_s0 --output-format hex
 
 ### Bridge export boundary
 
+For the fully bootstrapped repository-level live demo, run [scripts/run_live_sse_bridge_demo.sh](/home/llvanion/Desktop/seccomp-privacy-platform/scripts/run_live_sse_bridge_demo.sh) from the repo root. That wrapper starts or reuses the local SSE server, bootstraps a fresh SSE service, creates normalized demo sources plus encrypted record stores, and runs the end-to-end pipeline.
+
 `run_client.py export-bridge-records` is the controlled local export entrypoint used by the SSE -> bridge -> A-PSI pipeline. For non-ad-hoc runs, pass a caller, policy config, audit log, and job ID:
 
 ```bash
@@ -254,6 +256,50 @@ Then export from the encrypted store after SSE candidate search:
 ```
 
 The store uses PBKDF2HMAC-SHA256 and AES-256-GCM. Per-record lookup uses keyed HMAC tags instead of raw record IDs, so the store does not write raw email, phone, device ID, or their hex identifiers as row selectors.
+
+To move recovery behind a longer-lived local boundary, start the Unix-socket recovery service first:
+
+```bash
+export SSE_RECORD_RECOVERY_TOKEN=<token>
+.venv/bin/python run_client.py serve-record-recovery \
+  --socket-path /tmp/sse_record_recovery.sock \
+  --socket-mode 600 \
+  --auth-token-env SSE_RECORD_RECOVERY_TOKEN \
+  --allowed-caller auto_demo \
+  --allowed-output-root /tmp \
+  --allowed-record-store-root "$PWD/exports" \
+  --audit-log /tmp/sse_record_recovery_service_audit.jsonl \
+  --pid-file /tmp/sse_record_recovery_service.pid \
+  --ready-file /tmp/sse_record_recovery_service.ready
+```
+
+Then point `export-bridge-records` at that service:
+
+```bash
+export SSE_RECORD_RECOVERY_TOKEN=<token>
+.venv/bin/python run_client.py export-bridge-records \
+  --record-store-path exports/client_records.enc.jsonl \
+  --record-store-key-env SSE_RECORD_STORE_PASSPHRASE \
+  --record-recovery-socket /tmp/sse_record_recovery.sock \
+  --record-recovery-auth-env SSE_RECORD_RECOVERY_TOKEN \
+  --out-path exports/client_demo.csv \
+  --role client \
+  --source-format jsonl \
+  --out-format csv \
+  --join-key-field email \
+  --value-field amount \
+  --filter campaign=demo \
+  --caller auto_demo \
+  --policy-config config/export_policy.example.json \
+  --audit-log exports/export_audit.jsonl \
+  --job-id auto_demo_job \
+  --sse-keyword demo \
+  --record-id-field email_hex \
+  --record-id-format hex \
+  --sname bridge_sse_demo
+```
+
+This keeps the same policy and audit behavior while moving encrypted-store recovery out of the export process. SSE export audit records `record_recovery_boundary=service_socket` for this path. The service can also enforce a caller allowlist and emit `sse_record_recovery_service_audit/v1` records.
 
 ### Step 8: Multi-keyword batch search
 

@@ -1,0 +1,42 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "key_manifest/v1",
+  "title": "Local key manifest",
+  "type": "object",
+  "required": ["schema", "keys"],
+  "properties": {
+    "schema": {
+      "const": "key_manifest/v1"
+    },
+    "keys": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "required": ["enabled", "status", "version", "purposes", "env"],
+        "properties": {
+          "enabled": {
+            "type": "boolean"
+          },
+          "status": {
+            "enum": ["active", "inactive", "retired"]
+          },
+          "version": {
+            "type": "string"
+          },
+          "purposes": {
+            "type": "array",
+            "items": {
+              "enum": ["bridge_token", "record_store", "policy_auth", "audit_integrity"]
+            }
+          },
+          "env": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  "additionalProperties": false
+}

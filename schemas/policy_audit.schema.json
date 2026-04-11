@@ -1,0 +1,140 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "policy_audit/v1",
+  "title": "A-PSI policy release audit JSONL record",
+  "type": "object",
+  "required": [
+    "ts_utc",
+    "event",
+    "policy_version",
+    "job_id",
+    "correlation_id",
+    "caller",
+    "input_file",
+    "input_sha256",
+    "pjc_result_file",
+    "pjc_result_sha256",
+    "release_file",
+    "release_sha256",
+    "threshold_k",
+    "rate_limit_used",
+    "rate_limit_max",
+    "canonical_query_signature",
+    "parsed_metrics",
+    "decision",
+    "reason",
+    "reason_code",
+    "auth"
+  ],
+  "properties": {
+    "ts_utc": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "event": {
+      "const": "policy_release"
+    },
+    "policy_version": {
+      "type": "string"
+    },
+    "job_id": {
+      "type": ["string", "null"]
+    },
+    "correlation_id": {
+      "type": ["string", "null"]
+    },
+    "caller": {
+      "type": "string"
+    },
+    "window": {
+      "type": "object"
+    },
+    "bucket": {
+      "type": ["object", "string", "null"]
+    },
+    "value_mode": {
+      "type": ["string", "null"]
+    },
+    "bridge": {
+      "type": ["object", "null"]
+    },
+    "input_sizes": {
+      "type": "object"
+    },
+    "input_file": {
+      "type": "string"
+    },
+    "input_sha256": {
+      "type": "string"
+    },
+    "pjc_result_file": {
+      "type": "string"
+    },
+    "pjc_result_sha256": {
+      "type": "string"
+    },
+    "release_file": {
+      "type": "string"
+    },
+    "release_sha256": {
+      "type": ["string", "null"]
+    },
+    "threshold_k": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "round_sum_to": {
+      "type": ["integer", "null"]
+    },
+    "rate_limit_used": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "rate_limit_max": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "canonical_query_signature": {
+      "type": "string"
+    },
+    "parsed_metrics": {
+      "type": "object"
+    },
+    "decision": {
+      "enum": ["allow", "deny"]
+    },
+    "reason": {
+      "type": "string"
+    },
+    "reason_code": {
+      "type": "string"
+    },
+    "released": {
+      "type": ["object", "null"]
+    },
+    "auth": {
+      "type": "object",
+      "required": ["mode", "auth_ok", "auth_reason_code"],
+      "properties": {
+        "mode": {
+          "enum": ["hmac", "disabled_or_caller_only"]
+        },
+        "key_id": {
+          "type": ["string", "null"]
+        },
+        "timestamp": {
+          "type": ["string", "null"]
+        },
+        "nonce": {
+          "type": ["string", "null"]
+        },
+        "auth_ok": {
+          "type": "boolean"
+        },
+        "auth_reason_code": {
+          "type": "string"
+        }
+      }
+    }
+  }
+}

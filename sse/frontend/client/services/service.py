@@ -633,6 +633,7 @@ class Service:
 
         if wait:
             await asyncio.wait_for(fut, 60)
+            return fut.result()
 
     def handle_result(self, result_bytes: bytes):
         result = self.sse_module_loader.SSEResult.deserialize(result_bytes, self.config_object)

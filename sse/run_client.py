@@ -221,6 +221,29 @@ async def update_data(sid, sname, keyword, entries_json, encrypted_data_hex):
 
 @cli.command()
 @click.option("--source-path", help='plaintext local source path')
+@click.option("--out-path", help='encrypted record store path')
+@click.option("--source-format", type=click.Choice(["jsonl", "csv"]), default="jsonl")
+@click.option("--record-id-field", help='source record field used as encrypted store record id')
+@click.option("--key-env", help='environment variable containing the record-store passphrase')
+async def create_encrypted_record_store(source_path, out_path, source_format, record_id_field, key_env):
+    if source_path is None or out_path is None or record_id_field is None or key_env is None:
+        click.echo('Incomplete options')
+        return
+
+    try:
+        client_commands.create_encrypted_record_store(
+            source_path=source_path,
+            out_path=out_path,
+            source_format=source_format,
+            record_id_field=record_id_field,
+            key_env=key_env,
+        )
+    except Exception as e:
+        raise click.ClickException(str(e))
+
+
+@cli.command()
+@click.option("--source-path", help='plaintext local source path')
 @click.option("--out-path", help='bridge-ready export path')
 @click.option("--role", type=click.Choice(["server", "client"]), help='bridge side role')
 @click.option("--source-format", type=click.Choice(["jsonl", "csv"]), default="jsonl")
@@ -228,21 +251,110 @@ async def update_data(sid, sname, keyword, entries_json, encrypted_data_hex):
 @click.option("--join-key-field", help='field name containing the join key')
 @click.option("--value-field", help='field name containing the aggregate value', default='')
 @click.option("--filter", "filters", multiple=True, help='repeatable field=value filter')
-async def export_bridge_records(source_path, out_path, role, source_format, out_format, join_key_field, value_field, filters):
-    if source_path is None or out_path is None or role is None or join_key_field is None:
+@click.option("--caller", help='caller identity for export policy/audit', default='local_demo')
+@click.option("--policy-config", help='optional JSON export policy config', default='')
+@click.option("--audit-log", help='optional export audit jsonl path', default='')
+@click.option("--job-id", help='optional job id for export audit', default='')
+@click.option("--unsafe-allow-no-policy", is_flag=True, help='allow local ad-hoc export without a policy config')
+@click.option("--sse-keyword", help='optional SSE keyword used to derive candidate record IDs before export', default='')
+@click.option("--record-id-field", help='source record field matched against SSE result identifiers', default='')
+@click.option("--record-id-format", type=click.Choice(["int", "hex", "raw", "utf8"]), default="utf8")
+@click.option("--record-store-path", help='optional encrypted record store used with --sse-keyword', default='')
+@click.option("--record-store-key-env", help='environment variable containing the record-store passphrase', default='')
+@click.option("--record-recovery-socket", help='optional Unix socket for long-running record recovery service', default='')
+@click.option("--record-recovery-auth-env", help='optional env var containing the record recovery service auth token', default='')
+@click.option("--sid", help='SSE service id for --sse-keyword', default='')
+@click.option("--sname", help='SSE service name for --sse-keyword', default='')
+async def export_bridge_records(source_path, out_path, role, source_format, out_format, join_key_field, value_field, filters, caller, policy_config, audit_log, job_id, unsafe_allow_no_policy, sse_keyword, record_id_field, record_id_format, record_store_path, record_store_key_env, record_recovery_socket, record_recovery_auth_env, sid, sname):
+    if out_path is None or role is None or join_key_field is None:
         click.echo('Incomplete options')
         return
+    if not source_path and not record_store_path:
+        click.echo('Incomplete options: --source-path or --record-store-path')
+        return
 
-    client_commands.export_bridge_records(
-        source_path=source_path,
-        out_path=out_path,
-        role=role,
-        source_format=source_format,
-        out_format=out_format,
-        join_key_field=join_key_field,
-        value_field=value_field,
-        filters=list(filters),
-    )
+    try:
+        if sse_keyword:
+            if unsafe_allow_no_policy:
+                raise click.ClickException("--unsafe-allow-no-policy is not allowed with --sse-keyword")
+            await client_commands.export_bridge_records_from_sse(
+                source_path=source_path,
+                out_path=out_path,
+                role=role,
+                source_format=source_format,
+                out_format=out_format,
+                join_key_field=join_key_field,
+                value_field=value_field,
+                filters=list(filters),
+                caller=caller,
+                policy_config=policy_config,
+                audit_log=audit_log,
+                job_id=job_id,
+                sse_keyword=sse_keyword,
+                record_id_field=record_id_field,
+                record_id_format=record_id_format,
+                record_store_path=record_store_path,
+                record_store_key_env=record_store_key_env,
+                record_recovery_socket=record_recovery_socket,
+                record_recovery_auth_env=record_recovery_auth_env,
+                sid=sid,
+                sname=sname,
+            )
+        else:
+            client_commands.export_bridge_records(
+                source_path=source_path,
+                out_path=out_path,
+                role=role,
+                source_format=source_format,
+                out_format=out_format,
+                join_key_field=join_key_field,
+                value_field=value_field,
+                filters=list(filters),
+                caller=caller,
+                policy_config=policy_config,
+                audit_log=audit_log,
+                job_id=job_id,
+                unsafe_allow_no_policy=unsafe_allow_no_policy,
+                record_store_path=record_store_path,
+                record_store_key_env=record_store_key_env,
+                record_recovery_socket=record_recovery_socket,
+                record_recovery_auth_env=record_recovery_auth_env,
+            )
+    except Exception as e:
+        raise click.ClickException(str(e))
+
+
+@cli.command()
+@click.option("--socket-path", help='Unix socket path for the record recovery service')
+@click.option("--socket-mode", help='octal filesystem mode for the Unix socket path', default='600')
+@click.option("--auth-token-env", help='optional env var containing the required auth token', default='')
+@click.option("--authz-config", help='optional JSON authz policy for fine-grained service request checks', default='')
+@click.option("--allowed-caller", "allowed_callers", multiple=True, help='repeatable caller identity allowlist for service requests')
+@click.option("--allowed-output-root", "allowed_output_roots", multiple=True, help='repeatable allowed output root for bridge handoff writes')
+@click.option("--allowed-record-store-root", "allowed_record_store_roots", multiple=True, help='repeatable allowed encrypted record-store root')
+@click.option("--audit-log", help='optional service audit jsonl path', default='')
+@click.option("--pid-file", help='optional file that receives the running service pid', default='')
+@click.option("--ready-file", help='optional file created once the socket is ready', default='')
+async def serve_record_recovery(socket_path, socket_mode, auth_token_env, authz_config, allowed_callers, allowed_output_roots, allowed_record_store_roots, audit_log, pid_file, ready_file):
+    if socket_path is None:
+        click.echo('Incomplete options: --socket-path')
+        return
+
+    try:
+        client_commands.serve_record_recovery_service(
+            socket_path=socket_path,
+            socket_mode=socket_mode,
+            auth_token_env=auth_token_env,
+            authz_config=authz_config,
+            allowed_callers=list(allowed_callers),
+            allowed_output_roots=list(allowed_output_roots),
+            allowed_record_store_roots=list(allowed_record_store_roots),
+            audit_log=audit_log,
+            pid_file=pid_file,
+            ready_file=ready_file,
+        )
+    except Exception as e:
+        raise click.ClickException(str(e))
 
 
 if __name__ == '__main__':

@@ -1,0 +1,52 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "audit_seal/v1",
+  "title": "Audit artifact integrity seal",
+  "type": "object",
+  "required": [
+    "schema",
+    "ts_utc",
+    "event",
+    "job_id",
+    "correlation_id",
+    "artifact_file",
+    "artifact_sha256",
+    "signature_algorithm",
+    "signature",
+    "secret_source"
+  ],
+  "properties": {
+    "schema": {
+      "const": "audit_seal/v1"
+    },
+    "ts_utc": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "event": {
+      "const": "audit_seal"
+    },
+    "job_id": {
+      "type": "string"
+    },
+    "correlation_id": {
+      "type": "string"
+    },
+    "artifact_file": {
+      "type": "string"
+    },
+    "artifact_sha256": {
+      "type": "string"
+    },
+    "signature_algorithm": {
+      "type": ["string", "null"],
+      "enum": ["hmac-sha256", null]
+    },
+    "signature": {
+      "type": ["string", "null"]
+    },
+    "secret_source": {
+      "type": ["object", "null"]
+    }
+  }
+}

@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "sse_bridge_export_audit/v1",
-  "title": "SSE bridge export audit JSONL record",
+  "$id": "sse_record_recovery_service_audit/v1",
+  "title": "SSE record recovery service audit JSONL record",
   "type": "object",
   "required": [
     "schema",
@@ -9,20 +9,22 @@
     "event",
     "caller",
     "role",
+    "auth_mode",
+    "socket_path",
     "decision",
     "reason_code",
-    "candidate_source"
+    "reason"
   ],
   "properties": {
     "schema": {
-      "const": "sse_bridge_export_audit/v1"
+      "const": "sse_record_recovery_service_audit/v1"
     },
     "ts_utc": {
       "type": "string",
       "format": "date-time"
     },
     "event": {
-      "const": "sse_bridge_export"
+      "const": "record_recovery_service_request"
     },
     "caller": {
       "type": "string"
@@ -36,14 +38,23 @@
     "role": {
       "enum": ["server", "client", "unknown"]
     },
-    "source_file": {
+    "auth_mode": {
+      "enum": ["env_token", "socket_acl_only"]
+    },
+    "socket_path": {
+      "type": "string"
+    },
+    "authz_policy_config": {
       "type": ["string", "null"]
     },
-    "source_sha256": {
+    "record_store_file": {
+      "type": ["string", "null"]
+    },
+    "record_store_sha256": {
       "type": ["string", "null"]
     },
     "output_file": {
-      "type": "string"
+      "type": ["string", "null"]
     },
     "output_file_type": {
       "enum": ["file", "fifo", "other", "missing"]
@@ -51,17 +62,14 @@
     "output_sha256": {
       "type": ["string", "null"]
     },
-    "source_format": {
-      "enum": ["jsonl", "csv"]
-    },
-    "out_format": {
-      "enum": ["jsonl", "csv"]
-    },
     "join_key_field": {
-      "type": "string"
+      "type": ["string", "null"]
     },
     "value_field": {
       "type": ["string", "null"]
+    },
+    "candidate_count": {
+      "type": ["integer", "null"]
     },
     "filters": {
       "type": "array",
@@ -83,28 +91,6 @@
     },
     "output_rows": {
       "type": ["integer", "null"]
-    },
-    "policy_config": {
-      "type": ["string", "null"]
-    },
-    "candidate_source": {
-      "enum": ["local_filter", "sse_query"]
-    },
-    "record_id_field": {
-      "type": ["string", "null"]
-    },
-    "candidate_count": {
-      "type": ["integer", "null"]
-    },
-    "record_store_file": {
-      "type": ["string", "null"]
-    },
-    "record_store_sha256": {
-      "type": ["string", "null"]
-    },
-    "record_recovery_boundary": {
-      "type": ["string", "null"],
-      "enum": ["worker_subprocess", "service_socket", null]
     },
     "decision": {
       "enum": ["allow", "deny"]

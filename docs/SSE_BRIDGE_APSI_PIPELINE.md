@@ -39,6 +39,14 @@ bash scripts/run_sse_bridge_pipeline.sh \
   --n 5
 ```
 
+For the fully bootstrapped live SSE-backed path, use the wrapper script instead:
+
+```bash
+bash scripts/run_live_sse_bridge_demo.sh
+```
+
+That wrapper starts or reuses the local SSE server, bootstraps a fresh SSE service with normalized demo keyword IDs, creates encrypted record stores for both sides, runs `scripts/run_sse_bridge_pipeline.sh`, verifies `intersection_size=2` and `intersection_sum=425`, and writes `live_demo_manifest.json` under `tmp/live_sse_bridge_demo/run-*/`.
+
 ## Outputs
 
 The orchestrator writes three stages under `--out-base`:
@@ -50,13 +58,19 @@ The orchestrator writes three stages under `--out-base`:
 Important files:
 
 - `sse_exports/export_audit.jsonl`
+- `sse_exports/record_recovery_service.pid`, when the orchestrator auto-starts the recovery service
+- `sse_exports/record_recovery_service.ready`, when the orchestrator auto-starts the recovery service
 - `bridge_job/server.csv`
 - `bridge_job/client.csv`
 - `bridge_job/job_meta.json`
 - `bridge_job/bridge_audit.jsonl`
+- `key_access_audit.jsonl`, when `--token-secret-key-id` is used
+- `audit_chain.json`
+- `audit_chain.seal.json`
 - `a_psi_run/attribution_result.json`
 - `a_psi_run/public_report.json`
 - `a_psi_run/audit_log.jsonl`
+- `live_demo_manifest.json`, when the wrapper script is used
 
 ## Manual step-by-step
 
@@ -135,6 +149,34 @@ cd sse
 
 Then pass `--client-record-store-path` and `--client-record-store-key-env` to `scripts/run_sse_bridge_pipeline.sh` together with `--client-sse-keyword`. Server-side store options use the same pattern: `--server-record-store-path` and `--server-record-store-key-env`.
 
+For a longer-lived local recovery boundary, start the recovery service and point the orchestrator at it:
+
+```bash
+export SSE_RECORD_RECOVERY_TOKEN=<token>
+cd sse
+.venv/bin/python run_client.py serve-record-recovery \
+  --socket-path /tmp/sse_record_recovery.sock \
+  --socket-mode 600 \
+  --auth-token-env SSE_RECORD_RECOVERY_TOKEN \
+  --allowed-caller auto_demo \
+  --allowed-output-root "$PWD/../tmp" \
+  --allowed-record-store-root /tmp \
+  --audit-log "$PWD/../tmp/record_recovery_service_audit.jsonl" \
+  --pid-file "$PWD/../tmp/record_recovery_service.pid" \
+  --ready-file "$PWD/../tmp/record_recovery_service.ready"
+cd ..
+```
+
+Then add these flags to `scripts/run_sse_bridge_pipeline.sh` when using encrypted record stores:
+
+```bash
+  --record-recovery-socket /tmp/sse_record_recovery.sock \
+  --record-recovery-auth-env SSE_RECORD_RECOVERY_TOKEN \
+  --record-recovery-service-audit-log "$PWD/tmp/record_recovery_service_audit.jsonl"
+```
+
+When encrypted record stores are used, the orchestrator defaults to `--record-recovery-service-mode auto`. In that mode it auto-starts `run_client.py serve-record-recovery`, uses a short `/tmp/seccomp_rr_<hash>.sock` socket path by default so deep `--out-base` directories do not trip the `AF_UNIX` path limit, writes pid/ready lifecycle files under `sse_exports/`, waits for the socket, exports through that service, validates the optional service audit log, and then shuts the service down on exit. Use `--record-recovery-service-mode manual` for a pre-started service, or `--record-recovery-service-mode subprocess` to force the older worker subprocess path.
+
 ### 2. Prepare paired bridge job
 
 ```bash
@@ -155,6 +197,8 @@ cargo run -- prepare-job \
   --token-scope sse-demo-job \
   --token-secret local-dev-secret
 ```
+
+The orchestrator also honors `BRIDGE_BIN`, so local engineering or deployment wrappers can swap `cargo run --` for a prebuilt bridge command, for example `BRIDGE_BIN=/path/to/bridge`.
 
 ### 3. Validate bridge metadata
 
@@ -188,8 +232,8 @@ python3 moduleA_psi/scripts/policy_release.py \
 
 ## Remaining production tasks
 
-- Replace local encrypted record-store recovery with a service-side streaming recovery boundary.
-- Move bridge secrets to formal key injection and rotation.
+- Harden the local Unix-socket recovery service into a separately deployed/service-user boundary with durable authn/authz and lifecycle management.
+- Move the local key manifest/env-var secret reference to formal key injection, rotation, and deactivation.
 - Add stronger validation in `a-psi` for bridge metadata compatibility across both parties.
 - Decide the long-term source of truth for join-key normalization rules and versions.
 
@@ -203,12 +247,28 @@ python3 moduleA_psi/scripts/policy_release.py \
 - minimum and maximum export row counts
 
 The example policy is [export_policy.example.json](/home/llvanion/Desktop/seccomp-privacy-platform/sse/config/export_policy.example.json).
-The audit log records file hashes, row counts, caller, role, job ID, requested fields, and hashed filter values. It does not log raw email, phone, or device identifiers.
+The audit log records file hashes, row counts, caller, role, job ID, `correlation_id`, output handoff type, requested fields, and hashed filter values. It does not log raw email, phone, or device identifiers.
 Policy config is required by default. For a local one-off export without policy, pass `--unsafe-allow-no-policy` explicitly; the orchestrator equivalent is `--unsafe-allow-no-sse-export-policy`.
 
 When `--sse-keyword` is supplied, `--unsafe-allow-no-policy` is rejected. The audit log additionally records the candidate source, record ID field, and candidate count. If no record store is supplied, the SSE-backed mode can still use a local source file to materialize bridge-ready rows after the SSE query.
 
-When `--record-store-path` is supplied with `--sse-keyword`, the materialization source is an encrypted record store using PBKDF2HMAC-SHA256 and AES-256-GCM. Row lookup tags are HMAC-SHA256 values derived from the store key and record ID, so raw record IDs are not stored in the record-store index. The remaining plaintext artifact is the audited bridge-ready handoff file.
+When `--record-store-path` is supplied with `--sse-keyword`, the materialization source is an encrypted record store using PBKDF2HMAC-SHA256 and AES-256-GCM. Row lookup tags are HMAC-SHA256 values derived from the store key and record ID, so raw record IDs are not stored in the record-store index.
+
+Two recovery boundaries now exist:
+
+- default subprocess worker: `toolkit.record_recovery_worker`, with `record_recovery_boundary=worker_subprocess`
+- long-running Unix-socket service: `run_client.py serve-record-recovery`, used via `--record-recovery-socket` and optional `--record-recovery-auth-env`, with `record_recovery_boundary=service_socket`
+
+Both paths keep candidate IDs and filters out of the bridge process and return only row counts plus output hash metadata to the export parent path. The socket service can additionally enforce allowed callers and emit `sse_record_recovery_service_audit/v1` records, which can be validated separately and included in `audit_chain.json`. The default remaining plaintext artifact is still the audited bridge-ready handoff file or FIFO stream.
+
+The orchestrator also supports a local streaming handoff:
+
+```bash
+bash scripts/run_sse_bridge_pipeline.sh ... \
+  --sse-export-handoff-mode fifo
+```
+
+In FIFO mode, `sse_exports/server.csv` and `sse_exports/client.csv` are replaced by named pipes consumed directly by the Rust bridge. The SSE audit records `output_file_type=fifo` and a write-time `output_sha256`; the bridge audit records FIFO input type and leaves input SHA-256 null instead of reopening the pipe.
 
 The same policy file is also used by the orchestrator for coarse pipeline permissions:
 
@@ -218,7 +278,7 @@ The same policy file is also used by the orchestrator for coarse pipeline permis
 
 ## Bridge audit and key hardening
 
-The Rust bridge writes `bridge_audit.jsonl` with input/output hashes, row counts, token metadata, and the token secret source. It records whether the secret came from the CLI or from an environment variable, but never records the secret value.
+The Rust bridge writes `bridge_audit.jsonl` with input/output hashes for regular files, FIFO input type for streaming handoff, row counts, token metadata, `correlation_id`, and the token secret source. It records whether the secret came from the CLI or from an environment variable, but never records the secret value.
 
 For production-mode runs, use:
 
@@ -231,6 +291,22 @@ bash scripts/run_sse_bridge_pipeline.sh ... \
 
 In production mode the bridge rejects `--token-secret`.
 
+The orchestrator can resolve a token secret through a local key manifest instead of taking an env var name directly:
+
+```bash
+export BRIDGE_TOKEN_SECRET=<secret>
+bash scripts/run_sse_bridge_pipeline.sh ... \
+  --token-secret-key-id bridge-token-demo-v1 \
+  --key-manifest "$PWD/config/key_manifest.example.json" \
+  --production-mode
+```
+
+This calls [resolve_key_access.py](/home/llvanion/Desktop/seccomp-privacy-platform/scripts/resolve_key_access.py), which checks that the key entry is enabled, active, and allowed for `bridge_token`, then returns only the env-var reference and key version. It appends `key_access_audit/v1` records to `<out-base>/key_access_audit.jsonl` or the path supplied through `--key-access-audit-log`.
+
+For result-governance hardening, pass `--deny-duplicate-query` to the orchestrator. It is forwarded to `policy_release.py` and denies exact repeated canonical query signatures for the same caller.
+
+The orchestrator always builds [audit_chain.json](/home/llvanion/Desktop/seccomp-privacy-platform/scripts/build_audit_chain.py) at the end of a successful run. It then writes `audit_chain.seal.json` through [seal_audit_artifact.py](/home/llvanion/Desktop/seccomp-privacy-platform/scripts/seal_audit_artifact.py). Without `--audit-seal-key-env`, the seal records the audit-chain SHA-256. With `--audit-seal-key-env`, it also records an HMAC-SHA256 signature and the env-var source, without logging the secret value.
+
 ## Schemas
 
 Versioned schemas are under [schemas](/home/llvanion/Desktop/seccomp-privacy-platform/schemas):
@@ -240,3 +316,17 @@ Versioned schemas are under [schemas](/home/llvanion/Desktop/seccomp-privacy-pla
 - `sse_encrypted_record_store.schema.json`
 - `bridge_job_meta.schema.json`
 - `bridge_audit.schema.json`
+- `public_report.schema.json`
+- `policy_audit.schema.json`
+- `audit_chain.schema.json`
+- `key_manifest.schema.json`
+- `key_access_audit.schema.json`
+- `audit_seal.schema.json`
+
+The local validator is [validate_json_contract.py](/home/llvanion/Desktop/seccomp-privacy-platform/scripts/validate_json_contract.py). The integrated pipeline uses it to validate export policy config, SSE export audit JSONL, bridge `job_meta.json`, bridge audit JSONL, key access audit JSONL, public report JSON, policy audit JSONL, audit chain JSON, and audit seal JSON.
+
+[validate_tabular_contract.py](/home/llvanion/Desktop/seccomp-privacy-platform/scripts/validate_tabular_contract.py) validates CSV/JSONL handoff contracts that are not JSON schema files. The integrated pipeline uses it for file-mode SSE bridge handoff CSVs and generated PJC server/client CSVs. FIFO handoffs are not re-opened for validation; they are covered by the SSE write-time hash and bridge FIFO input audit fields.
+
+[build_audit_chain.py](/home/llvanion/Desktop/seccomp-privacy-platform/scripts/build_audit_chain.py) writes `<out-base>/audit_chain.json`, a single correlated view of SSE export audit, bridge audit, bridge metadata, PJC result, public report, policy audit, and optional key access audit for the job.
+
+Run [check_json_contracts.sh](/home/llvanion/Desktop/seccomp-privacy-platform/scripts/check_json_contracts.sh) for the local contract smoke suite. The same command is wired into `.github/workflows/json-contracts.yml`.

@@ -1,0 +1,88 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "public_report/v2",
+  "title": "A-PSI governed public report",
+  "type": "object",
+  "required": [
+    "schema",
+    "generated_at_utc",
+    "policy_version",
+    "job_id",
+    "correlation_id",
+    "caller",
+    "released",
+    "reason",
+    "reason_code",
+    "window",
+    "k_threshold"
+  ],
+  "properties": {
+    "schema": {
+      "const": "public_report/v2"
+    },
+    "generated_at_utc": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "policy_version": {
+      "type": "string"
+    },
+    "job_id": {
+      "type": ["string", "null"]
+    },
+    "correlation_id": {
+      "type": ["string", "null"]
+    },
+    "caller": {
+      "type": "string"
+    },
+    "window": {
+      "type": "object"
+    },
+    "bucket": {
+      "type": ["object", "string", "null"]
+    },
+    "value_mode": {
+      "type": ["string", "null"]
+    },
+    "bridge": {
+      "type": ["object", "null"]
+    },
+    "input_sizes": {
+      "type": "object"
+    },
+    "released": {
+      "type": "boolean"
+    },
+    "reason": {
+      "type": "string"
+    },
+    "reason_code": {
+      "type": "string"
+    },
+    "k_threshold": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "rate_limit_used": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "rate_limit_max": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "conversions": {
+      "type": ["integer", "null"]
+    },
+    "value_sum": {
+      "type": ["integer", "number", "string", "null"]
+    },
+    "aov": {
+      "type": ["integer", "number", "string", "null"]
+    },
+    "details": {
+      "type": ["object", "null"]
+    }
+  }
+}

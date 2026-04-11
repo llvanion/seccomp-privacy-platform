@@ -1,0 +1,13 @@
+name: JSON contracts
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  json-contracts:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate JSON contracts
+        run: bash scripts/check_json_contracts.sh

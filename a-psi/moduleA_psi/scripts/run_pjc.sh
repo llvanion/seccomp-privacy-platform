@@ -154,6 +154,7 @@ RESULT_JSON="$OUT_DIR/attribution_result.json"
 cat > "$RESULT_JSON" <<JSON
 {
   "job_id": "$JOB_ID",
+  "correlation_id": "$JOB_ID",
   "timestamp": "$NOW_ISO",
   "server_addr": "$SERVER_ADDR",
   "server_csv": "$SERVER_CSV",
