@@ -8,6 +8,7 @@ from typing import Any
 
 RESULT_SCHEMA = "sse_record_recovery_result/v1"
 ERROR_SCHEMA = "sse_record_recovery_error/v1"
+HEALTH_SCHEMA = "sse_record_recovery_health/v1"
 
 
 class HashingTextWriter:
@@ -151,4 +152,33 @@ def build_error(*, message: str) -> dict:
     return {
         "schema": ERROR_SCHEMA,
         "error": message,
+    }
+
+
+def build_health_result(*,
+                        service_id: str,
+                        tenant_id: str,
+                        dataset_id: str,
+                        socket_path: str,
+                        auth_required: bool,
+                        authz_policy_config: str | None,
+                        allowed_callers: list[str],
+                        allowed_output_roots: list[str],
+                        allowed_record_store_roots: list[str],
+                        audit_log: str | None,
+                        pid: int) -> dict:
+    return {
+        "schema": HEALTH_SCHEMA,
+        "ok": True,
+        "service_id": service_id,
+        "tenant_id": tenant_id,
+        "dataset_id": dataset_id,
+        "socket_path": socket_path,
+        "auth_required": auth_required,
+        "authz_policy_config": authz_policy_config,
+        "allowed_callers": allowed_callers,
+        "allowed_output_roots": allowed_output_roots,
+        "allowed_record_store_roots": allowed_record_store_roots,
+        "audit_log": audit_log,
+        "pid": pid,
     }

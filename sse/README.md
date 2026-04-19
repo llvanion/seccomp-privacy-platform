@@ -273,6 +273,20 @@ export SSE_RECORD_RECOVERY_TOKEN=<token>
   --ready-file /tmp/sse_record_recovery_service.ready
 ```
 
+You can then verify the service boundary before sending recovery traffic:
+
+```bash
+python3 ../scripts/request_record_recovery_service.py \
+  --config ../config/record_recovery_service.example.json
+```
+
+For a longer-lived manually managed service, use:
+
+```bash
+python3 ../scripts/manage_record_recovery_service.py start \
+  --config ../config/record_recovery_service.example.json
+```
+
 Then point `export-bridge-records` at that service:
 
 ```bash
@@ -280,8 +294,7 @@ export SSE_RECORD_RECOVERY_TOKEN=<token>
 .venv/bin/python run_client.py export-bridge-records \
   --record-store-path exports/client_records.enc.jsonl \
   --record-store-key-env SSE_RECORD_STORE_PASSPHRASE \
-  --record-recovery-socket /tmp/sse_record_recovery.sock \
-  --record-recovery-auth-env SSE_RECORD_RECOVERY_TOKEN \
+  --record-recovery-service-config ../config/record_recovery_service.example.json \
   --out-path exports/client_demo.csv \
   --role client \
   --source-format jsonl \
@@ -299,7 +312,7 @@ export SSE_RECORD_RECOVERY_TOKEN=<token>
   --sname bridge_sse_demo
 ```
 
-This keeps the same policy and audit behavior while moving encrypted-store recovery out of the export process. SSE export audit records `record_recovery_boundary=service_socket` for this path. The service can also enforce a caller allowlist and emit `sse_record_recovery_service_audit/v1` records.
+This keeps the same policy and audit behavior while moving encrypted-store recovery out of the export process. SSE export audit records `record_recovery_boundary=service_socket` for this path. The service can also enforce a caller allowlist, answer `health` requests through the shared record-recovery client path, and emit `sse_record_recovery_service_audit/v1` records. `config/record_recovery_service.example.json` is the aligned runtime config for the service, the manual health probe, and direct `export-bridge-records` usage; it now binds `service_id`, `tenant_id`, and `dataset_id` so the recovery service uses the same caller/tenant/dataset/service scope as the export and pipeline policy. The integrated pipeline materializes its own effective `record_recovery_service_config.json` artifact and routes health/export calls through it.
 
 ### Step 8: Multi-keyword batch search
 

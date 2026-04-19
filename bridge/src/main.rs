@@ -235,8 +235,39 @@ fn main() -> Result<()> {
     let cli = Cli::parse();
 
     match cli.command {
-        Command::Generate(args) => run_generate(args),
-        Command::PrepareJob(args) => run_prepare_job(args),
+        Command::Generate(args) => run_generate_with_failure_audit(args),
+        Command::PrepareJob(args) => run_prepare_job_with_failure_audit(args),
+    }
+}
+
+fn run_generate_with_failure_audit(args: GenerateArgs) -> Result<()> {
+    let audit_path = args
+        .audit_log
+        .clone()
+        .unwrap_or_else(|| args.out_dir.join("bridge_audit.jsonl"));
+    match run_generate(args.clone()) {
+        Ok(()) => Ok(()),
+        Err(err) => {
+            let _ = append_bridge_audit(
+                &audit_path,
+                json!({
+                    "event": "bridge_generate",
+                    "job_id": args.job_id,
+                    "correlation_id": args.job_id,
+                    "role": args.role,
+                    "input_file": best_effort_path_display(&args.input),
+                    "input_file_type": safe_path_file_type_label(&args.input),
+                    "input_sha256": safe_sha256_regular_file_json(&args.input),
+                    "output_dir": best_effort_path_display(&args.out_dir),
+                    "production_mode": production_mode_enabled(args.production_mode),
+                    "token_secret_source": token_secret_source(&args.token_secret, &args.token_secret_env),
+                    "decision": "deny",
+                    "reason_code": "bridge_generate_failed",
+                    "error": format!("{:#}", err)
+                }),
+            );
+            Err(err)
+        }
     }
 }
 
@@ -363,6 +394,39 @@ fn run_generate(args: GenerateArgs) -> Result<()> {
     );
 
     Ok(())
+}
+
+fn run_prepare_job_with_failure_audit(args: PrepareJobArgs) -> Result<()> {
+    let audit_path = args
+        .audit_log
+        .clone()
+        .unwrap_or_else(|| args.out_dir.join("bridge_audit.jsonl"));
+    match run_prepare_job(args.clone()) {
+        Ok(()) => Ok(()),
+        Err(err) => {
+            let _ = append_bridge_audit(
+                &audit_path,
+                json!({
+                    "event": "bridge_prepare_job",
+                    "job_id": args.job_id,
+                    "correlation_id": args.job_id,
+                    "server_input_file": best_effort_path_display(&args.server_input),
+                    "server_input_file_type": safe_path_file_type_label(&args.server_input),
+                    "server_input_sha256": safe_sha256_regular_file_json(&args.server_input),
+                    "client_input_file": best_effort_path_display(&args.client_input),
+                    "client_input_file_type": safe_path_file_type_label(&args.client_input),
+                    "client_input_sha256": safe_sha256_regular_file_json(&args.client_input),
+                    "output_dir": best_effort_path_display(&args.out_dir),
+                    "production_mode": production_mode_enabled(args.production_mode),
+                    "token_secret_source": token_secret_source(&args.token_secret, &args.token_secret_env),
+                    "decision": "deny",
+                    "reason_code": "bridge_prepare_job_failed",
+                    "error": format!("{:#}", err)
+                }),
+            );
+            Err(err)
+        }
+    }
 }
 
 fn run_prepare_job(args: PrepareJobArgs) -> Result<()> {
@@ -750,6 +814,24 @@ fn append_bridge_audit(path: &Path, mut record: Value) -> Result<()> {
     serde_json::to_writer(&mut file, &record)?;
     file.write_all(b"\n")?;
     Ok(())
+}
+
+fn best_effort_path_display(path: &Path) -> String {
+    if path.is_absolute() {
+        return path.display().to_string();
+    }
+    match std::env::current_dir() {
+        Ok(current_dir) => current_dir.join(path).display().to_string(),
+        Err(_) => path.display().to_string(),
+    }
+}
+
+fn safe_path_file_type_label(path: &Path) -> &'static str {
+    path_file_type_label(path).unwrap_or("other")
+}
+
+fn safe_sha256_regular_file_json(path: &Path) -> Value {
+    sha256_regular_file_json(path).unwrap_or(Value::Null)
 }
 
 fn unix_epoch_ms() -> Result<u128> {

@@ -212,6 +212,9 @@ def extract_value_mode(job_meta: Dict[str, Any]) -> Optional[str]:
         client = bridge.get("client", {})
         if isinstance(client, dict):
             bridge_value_mode = client.get("value_mode")
+            value_column = str(client.get("value_column") or "").strip().lower()
+            if bridge_value_mode == "raw_int" and value_column in {"amount", "amount_cents"}:
+                return "amount"
             if bridge_value_mode == "raw_int":
                 return "raw_int"
             if bridge_value_mode == "count":
@@ -500,9 +503,12 @@ def build_public_report(
         conversions = released.get("intersection_size")
         if value_mode == "amount":
             value_sum = released.get("intersection_sum_eur") or released.get("intersection_sum")
-            raw = released.get("intersection_sum_cent")
+            raw = released.get("intersection_sum_cents")
             if conversions and raw is not None and conversions > 0:
-                aov = cents_to_eur_str(int(raw) // int(conversions))
+                average_cents = (
+                    Decimal(int(raw)) / Decimal(int(conversions))
+                ).quantize(Decimal("1"), rounding=ROUND_HALF_UP)
+                aov = cents_to_eur_str(int(average_cents))
         else:
             value_sum = released.get("intersection_sum")
             if conversions and value_sum is not None and conversions > 0:

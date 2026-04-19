@@ -24,6 +24,15 @@
     "event": {
       "const": "sse_bridge_export"
     },
+    "tenant_id": {
+      "type": ["string", "null"]
+    },
+    "dataset_id": {
+      "type": ["string", "null"]
+    },
+    "service_id": {
+      "type": ["string", "null"]
+    },
     "caller": {
       "type": "string"
     },

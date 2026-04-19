@@ -20,7 +20,6 @@ import hashlib
 import json
 import os
 import pickle
-import socket
 import stat
 import subprocess
 import sys
@@ -34,6 +33,13 @@ from toolkit.bytes_utils import BytesConverter
 from toolkit.config_manager import write_config, read_config
 from toolkit.database_utils import convert_database_keyword_to_bytes
 from toolkit.encrypted_record_store import build_record_store
+from toolkit.platform_policy import (
+    load_platform_policy,
+    platform_policy_for_caller,
+    platform_policy_string_set,
+    resolve_platform_scope,
+)
+from toolkit.record_recovery_client import request_record_recovery
 from toolkit.record_recovery_service import main as record_recovery_service_main
 
 __client_service = None
@@ -84,10 +90,13 @@ def export_bridge_records(*,
                           candidate_ids: set | None = None,
                           record_id_field: str = "",
                           candidate_source: str = "local_filter",
+                          tenant_id: str = "",
+                          dataset_id: str = "",
                           record_store_path: str = "",
                           record_store_key_env: str = "",
                           record_recovery_socket: str = "",
-                          record_recovery_auth_env: str = ""):
+                          record_recovery_auth_env: str = "",
+                          record_recovery_service_id: str = ""):
     """
     Local controlled export for bridge input preparation.
     Reads plaintext local records and writes a bridge-ready subset containing:
@@ -123,6 +132,17 @@ def export_bridge_records(*,
 
         policy = _load_export_policy(policy_config)
         caller_policy = _policy_for_caller(policy, caller)
+        scope = resolve_platform_scope(
+            caller_policy=caller_policy,
+            caller=caller,
+            tenant_id=tenant_id,
+            dataset_id=dataset_id,
+            service_id=record_recovery_service_id,
+            require_record_recovery_service=bool(record_store_path and record_recovery_socket),
+        )
+        tenant_id = scope["tenant_id"]
+        dataset_id = scope["dataset_id"]
+        record_recovery_service_id = scope["service_id"]
         _enforce_export_policy(
             caller_policy=caller_policy,
             caller=caller,
@@ -141,6 +161,9 @@ def export_bridge_records(*,
                     auth_env=record_recovery_auth_env,
                     caller=caller,
                     job_id=job_id,
+                    tenant_id=tenant_id,
+                    dataset_id=dataset_id,
+                    service_id=record_recovery_service_id,
                     record_store_path=Path(record_store_path),
                     record_store_key_env=record_store_key_env,
                     out_path=out,
@@ -202,6 +225,9 @@ def export_bridge_records(*,
                 audit_log=Path(audit_log),
                 caller=caller,
                 job_id=job_id,
+                tenant_id=tenant_id,
+                dataset_id=dataset_id,
+                service_id=record_recovery_service_id,
                 role=role,
                 source_path=source,
                 out_path=out,
@@ -232,6 +258,9 @@ def export_bridge_records(*,
                     audit_log=Path(audit_log),
                     caller=caller or "unknown",
                     job_id=job_id,
+                    tenant_id=tenant_id if "tenant_id" in locals() else "",
+                    dataset_id=dataset_id if "dataset_id" in locals() else "",
+                    service_id=record_recovery_service_id if "record_recovery_service_id" in locals() else "",
                     role=role or "unknown",
                     source_path=Path(source_path) if source_path else None,
                     out_path=Path(out_path) if out_path else Path(""),
@@ -274,10 +303,13 @@ async def export_bridge_records_from_sse(*,
                                          sse_keyword: str = "",
                                          record_id_field: str = "",
                                          record_id_format: str = "utf8",
+                                         tenant_id: str = "",
+                                         dataset_id: str = "",
                                          record_store_path: str = "",
                                          record_store_key_env: str = "",
                                          record_recovery_socket: str = "",
                                          record_recovery_auth_env: str = "",
+                                         record_recovery_service_id: str = "",
                                          sid: str = "",
                                          sname: str = ""):
     if not sse_keyword:
@@ -307,10 +339,13 @@ async def export_bridge_records_from_sse(*,
         candidate_ids=candidate_ids,
         record_id_field=record_id_field,
         candidate_source="sse_query",
+        tenant_id=tenant_id,
+        dataset_id=dataset_id,
         record_store_path=record_store_path,
         record_store_key_env=record_store_key_env,
         record_recovery_socket=record_recovery_socket,
         record_recovery_auth_env=record_recovery_auth_env,
+        record_recovery_service_id=record_recovery_service_id,
     )
 
 
@@ -410,40 +445,15 @@ def _sha256_file(path: Path) -> str | None:
 
 
 def _load_export_policy(policy_config: str) -> dict:
-    if not policy_config:
-        return {}
-    path = Path(policy_config)
-    with path.open("r", encoding="utf-8") as f:
-        policy = json.load(f)
-    if not isinstance(policy, dict):
-        raise ValueError("export policy config must be a JSON object")
-    schema = policy.get("schema")
-    if schema is not None and schema != "sse_export_policy/v1":
-        raise ValueError(f"unsupported export policy schema: {schema}")
-    return policy
+    return load_platform_policy(policy_config)
 
 
 def _policy_for_caller(policy: dict, caller: str) -> dict:
-    if not policy:
-        return {}
-    callers = policy.get("callers")
-    if not isinstance(callers, dict):
-        raise ValueError("export policy config must contain a callers object")
-    caller_policy = callers.get(caller)
-    if not isinstance(caller_policy, dict):
-        raise PermissionError(f"caller {caller} is not allowed to export bridge records")
-    if caller_policy.get("enabled", True) is False:
-        raise PermissionError(f"caller {caller} is disabled")
-    return caller_policy
+    return platform_policy_for_caller(policy, caller)
 
 
 def _as_set(policy: dict, key: str) -> set:
-    raw = policy.get(key, [])
-    if raw is None:
-        return set()
-    if not isinstance(raw, list):
-        raise ValueError(f"{key} must be a list")
-    return {str(item) for item in raw}
+    return platform_policy_string_set(policy, key)
 
 
 def _enforce_export_policy(*,
@@ -592,6 +602,9 @@ def _run_record_recovery_service(*,
                                  auth_env: str,
                                  caller: str,
                                  job_id: str,
+                                 tenant_id: str,
+                                 dataset_id: str,
+                                 service_id: str,
                                  record_store_path: Path,
                                  record_store_key_env: str,
                                  out_path: Path,
@@ -602,70 +615,37 @@ def _run_record_recovery_service(*,
                                  filter_pairs: list[tuple[str, str]],
                                  candidate_ids: set,
                                  caller_policy: dict) -> dict:
-    payload = {
-        "caller": caller,
-        "job_id": job_id,
-        "record_store_path": str(record_store_path),
-        "record_store_key_env": record_store_key_env,
-        "out_path": str(out_path),
-        "out_format": out_format,
-        "role": role,
-        "join_key_field": join_key_field,
-        "value_field": value_field,
-        "candidate_ids": sorted(_stringify_record_id(item) for item in candidate_ids),
-        "filters": [[field, value] for field, value in filter_pairs],
-    }
     min_rows = _optional_policy_int(caller_policy, "min_export_rows")
     max_rows = _optional_policy_int(caller_policy, "max_export_rows")
-    if min_rows is not None:
-        payload["min_output_rows"] = min_rows
-    if max_rows is not None:
-        payload["max_output_rows"] = max_rows
-    if auth_env:
-        auth_token = os.environ.get(auth_env)
-        if not auth_token:
-            raise RuntimeError(f"environment variable {auth_env} is not set")
-        payload["auth_token"] = auth_token
-
-    client = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-    try:
-        client.connect(str(socket_path))
-        client.sendall(json.dumps(payload, ensure_ascii=False).encode("utf-8"))
-        client.shutdown(socket.SHUT_WR)
-        chunks = []
-        while True:
-            chunk = client.recv(8192)
-            if not chunk:
-                break
-            chunks.append(chunk)
-    except OSError as e:
-        raise RuntimeError(f"record recovery service request failed: {e}") from e
-    finally:
-        client.close()
-
-    raw = b"".join(chunks)
-    if not raw:
-        raise RuntimeError("record recovery service returned an empty response")
-    try:
-        result = json.loads(raw.decode("utf-8"))
-    except json.JSONDecodeError as e:
-        raise RuntimeError(f"record recovery service returned invalid JSON: {e}") from e
-    if not isinstance(result, dict):
-        raise RuntimeError("record recovery service returned a non-object result")
-    if result.get("schema") == "sse_record_recovery_error/v1":
-        raise RuntimeError(str(result.get("error", "record recovery service failed")))
-    if result.get("schema") != "sse_record_recovery_result/v1":
-        raise RuntimeError(f"unexpected record recovery service schema: {result.get('schema')}")
-    for key in ("input_rows", "output_rows", "output_sha256"):
-        if key not in result:
-            raise RuntimeError(f"record recovery service result missing {key}")
-    return result
+    return request_record_recovery(
+        socket_path=socket_path,
+        auth_env=auth_env,
+        caller=caller,
+        job_id=job_id,
+        tenant_id=tenant_id,
+        dataset_id=dataset_id,
+        service_id=service_id,
+        record_store_path=record_store_path,
+        record_store_key_env=record_store_key_env,
+        out_path=out_path,
+        out_format=out_format,
+        role=role,
+        join_key_field=join_key_field,
+        value_field=value_field,
+        filter_pairs=filter_pairs,
+        candidate_ids={_stringify_record_id(item) for item in candidate_ids},
+        min_output_rows=min_rows,
+        max_output_rows=max_rows,
+    )
 
 
 def _append_export_audit(*,
                          audit_log: Path,
                          caller: str,
                          job_id: str,
+                         tenant_id: str,
+                         dataset_id: str,
+                         service_id: str,
                          role: str,
                          source_path: Path | None,
                          out_path: Path,
@@ -692,6 +672,9 @@ def _append_export_audit(*,
         "event": "sse_bridge_export",
         "schema": "sse_bridge_export_audit/v1",
         "caller": caller,
+        "tenant_id": tenant_id or None,
+        "dataset_id": dataset_id or None,
+        "service_id": service_id or None,
         "correlation_id": job_id or None,
         "job_id": job_id or None,
         "role": role,
@@ -723,6 +706,9 @@ def _append_export_audit(*,
 
 
 def serve_record_recovery_service(*,
+                                  service_id: str = "",
+                                  tenant_id: str = "",
+                                  dataset_id: str = "",
                                   socket_path: str,
                                   socket_mode: str = "600",
                                   auth_token_env: str = "",
@@ -735,6 +721,12 @@ def serve_record_recovery_service(*,
                                   ready_file: str = ""):
     argv = [
         "record_recovery_service",
+        "--service-id",
+        service_id,
+        "--tenant-id",
+        tenant_id,
+        "--dataset-id",
+        dataset_id,
         "--socket-path",
         socket_path,
         "--socket-mode",

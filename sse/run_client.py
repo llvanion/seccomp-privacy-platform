@@ -15,6 +15,10 @@ import asyncclick as click
 import json
 
 import frontend.client.commands as client_commands
+from toolkit.record_recovery_service_config import (
+    load_resolved_record_recovery_service_config,
+    merged_record_recovery_service_value,
+)
 
 
 def _parse_indices(indices_raw: str):
@@ -255,17 +259,21 @@ async def create_encrypted_record_store(source_path, out_path, source_format, re
 @click.option("--policy-config", help='optional JSON export policy config', default='')
 @click.option("--audit-log", help='optional export audit jsonl path', default='')
 @click.option("--job-id", help='optional job id for export audit', default='')
+@click.option("--tenant-id", help='tenant scope for export policy/audit', default='')
+@click.option("--dataset-id", help='dataset scope for export policy/audit', default='')
 @click.option("--unsafe-allow-no-policy", is_flag=True, help='allow local ad-hoc export without a policy config')
 @click.option("--sse-keyword", help='optional SSE keyword used to derive candidate record IDs before export', default='')
 @click.option("--record-id-field", help='source record field matched against SSE result identifiers', default='')
 @click.option("--record-id-format", type=click.Choice(["int", "hex", "raw", "utf8"]), default="utf8")
 @click.option("--record-store-path", help='optional encrypted record store used with --sse-keyword', default='')
 @click.option("--record-store-key-env", help='environment variable containing the record-store passphrase', default='')
+@click.option("--record-recovery-service-config", help='optional JSON config shared by record recovery service clients', default='')
 @click.option("--record-recovery-socket", help='optional Unix socket for long-running record recovery service', default='')
 @click.option("--record-recovery-auth-env", help='optional env var containing the record recovery service auth token', default='')
+@click.option("--record-recovery-service-id", help='service instance id for record recovery requests', default='')
 @click.option("--sid", help='SSE service id for --sse-keyword', default='')
 @click.option("--sname", help='SSE service name for --sse-keyword', default='')
-async def export_bridge_records(source_path, out_path, role, source_format, out_format, join_key_field, value_field, filters, caller, policy_config, audit_log, job_id, unsafe_allow_no_policy, sse_keyword, record_id_field, record_id_format, record_store_path, record_store_key_env, record_recovery_socket, record_recovery_auth_env, sid, sname):
+async def export_bridge_records(source_path, out_path, role, source_format, out_format, join_key_field, value_field, filters, caller, policy_config, audit_log, job_id, tenant_id, dataset_id, unsafe_allow_no_policy, sse_keyword, record_id_field, record_id_format, record_store_path, record_store_key_env, record_recovery_service_config, record_recovery_socket, record_recovery_auth_env, record_recovery_service_id, sid, sname):
     if out_path is None or role is None or join_key_field is None:
         click.echo('Incomplete options')
         return
@@ -274,6 +282,13 @@ async def export_bridge_records(source_path, out_path, role, source_format, out_
         return
 
     try:
+        if record_recovery_service_config:
+            resolved = load_resolved_record_recovery_service_config(record_recovery_service_config)
+            record_recovery_service_id = merged_record_recovery_service_value(record_recovery_service_id, resolved["service_id"])
+            tenant_id = merged_record_recovery_service_value(tenant_id, resolved["tenant_id"])
+            dataset_id = merged_record_recovery_service_value(dataset_id, resolved["dataset_id"])
+            record_recovery_socket = merged_record_recovery_service_value(record_recovery_socket, resolved["socket_path"])
+            record_recovery_auth_env = merged_record_recovery_service_value(record_recovery_auth_env, resolved["auth_token_env"])
         if sse_keyword:
             if unsafe_allow_no_policy:
                 raise click.ClickException("--unsafe-allow-no-policy is not allowed with --sse-keyword")
@@ -290,6 +305,8 @@ async def export_bridge_records(source_path, out_path, role, source_format, out_
                 policy_config=policy_config,
                 audit_log=audit_log,
                 job_id=job_id,
+                tenant_id=tenant_id,
+                dataset_id=dataset_id,
                 sse_keyword=sse_keyword,
                 record_id_field=record_id_field,
                 record_id_format=record_id_format,
@@ -297,6 +314,7 @@ async def export_bridge_records(source_path, out_path, role, source_format, out_
                 record_store_key_env=record_store_key_env,
                 record_recovery_socket=record_recovery_socket,
                 record_recovery_auth_env=record_recovery_auth_env,
+                record_recovery_service_id=record_recovery_service_id,
                 sid=sid,
                 sname=sname,
             )
@@ -314,19 +332,26 @@ async def export_bridge_records(source_path, out_path, role, source_format, out_
                 policy_config=policy_config,
                 audit_log=audit_log,
                 job_id=job_id,
+                tenant_id=tenant_id,
+                dataset_id=dataset_id,
                 unsafe_allow_no_policy=unsafe_allow_no_policy,
                 record_store_path=record_store_path,
                 record_store_key_env=record_store_key_env,
                 record_recovery_socket=record_recovery_socket,
                 record_recovery_auth_env=record_recovery_auth_env,
+                record_recovery_service_id=record_recovery_service_id,
             )
     except Exception as e:
         raise click.ClickException(str(e))
 
 
 @cli.command()
+@click.option("--config", help='optional JSON config for record recovery service runtime', default='')
+@click.option("--service-id", help='service instance id for the record recovery service', default='')
+@click.option("--tenant-id", help='tenant scope bound to the record recovery service', default='')
+@click.option("--dataset-id", help='dataset scope bound to the record recovery service', default='')
 @click.option("--socket-path", help='Unix socket path for the record recovery service')
-@click.option("--socket-mode", help='octal filesystem mode for the Unix socket path', default='600')
+@click.option("--socket-mode", help='octal filesystem mode for the Unix socket path', default='')
 @click.option("--auth-token-env", help='optional env var containing the required auth token', default='')
 @click.option("--authz-config", help='optional JSON authz policy for fine-grained service request checks', default='')
 @click.option("--allowed-caller", "allowed_callers", multiple=True, help='repeatable caller identity allowlist for service requests')
@@ -335,13 +360,39 @@ async def export_bridge_records(source_path, out_path, role, source_format, out_
 @click.option("--audit-log", help='optional service audit jsonl path', default='')
 @click.option("--pid-file", help='optional file that receives the running service pid', default='')
 @click.option("--ready-file", help='optional file created once the socket is ready', default='')
-async def serve_record_recovery(socket_path, socket_mode, auth_token_env, authz_config, allowed_callers, allowed_output_roots, allowed_record_store_roots, audit_log, pid_file, ready_file):
-    if socket_path is None:
+async def serve_record_recovery(config, service_id, tenant_id, dataset_id, socket_path, socket_mode, auth_token_env, authz_config, allowed_callers, allowed_output_roots, allowed_record_store_roots, audit_log, pid_file, ready_file):
+    if config:
+        try:
+            resolved = load_resolved_record_recovery_service_config(config)
+        except Exception as e:
+            raise click.ClickException(str(e))
+        service_id = merged_record_recovery_service_value(service_id, resolved["service_id"])
+        tenant_id = merged_record_recovery_service_value(tenant_id, resolved["tenant_id"])
+        dataset_id = merged_record_recovery_service_value(dataset_id, resolved["dataset_id"])
+        socket_path = merged_record_recovery_service_value(socket_path, resolved["socket_path"])
+        socket_mode = merged_record_recovery_service_value(socket_mode, resolved["socket_mode"])
+        auth_token_env = merged_record_recovery_service_value(auth_token_env, resolved["auth_token_env"])
+        authz_config = merged_record_recovery_service_value(authz_config, resolved["authz_config"])
+        if not allowed_callers:
+            allowed_callers = tuple(resolved["allowed_callers"])
+        if not allowed_output_roots:
+            allowed_output_roots = tuple(resolved["allowed_output_roots"])
+        if not allowed_record_store_roots:
+            allowed_record_store_roots = tuple(resolved["allowed_record_store_roots"])
+        audit_log = audit_log or resolved["audit_log"]
+        pid_file = pid_file or resolved["pid_file"]
+        ready_file = ready_file or resolved["ready_file"]
+    socket_mode = socket_mode or "600"
+
+    if not socket_path:
         click.echo('Incomplete options: --socket-path')
         return
 
     try:
         client_commands.serve_record_recovery_service(
+            service_id=service_id,
+            tenant_id=tenant_id,
+            dataset_id=dataset_id,
             socket_path=socket_path,
             socket_mode=socket_mode,
             auth_token_env=auth_token_env,

@@ -17,6 +17,21 @@
           "enabled": {
             "type": "boolean"
           },
+          "tenant_id": {
+            "type": "string"
+          },
+          "allowed_dataset_ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "allowed_service_ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
           "allowed_roles": {
             "type": "array",
             "items": {
@@ -71,6 +86,9 @@
             "minimum": 0
           },
           "can_run_bridge": {
+            "type": "boolean"
+          },
+          "can_use_record_recovery_service": {
             "type": "boolean"
           },
           "can_run_pjc": {

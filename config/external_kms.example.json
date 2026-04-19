@@ -1,0 +1,12 @@
+{
+  "schema": "external_kms_config/v1",
+  "endpoint_url": "http://127.0.0.1:18765",
+  "auth_token_env": "SECCOMP_EXTERNAL_KMS_TOKEN",
+  "admin_auth_token_env": "SECCOMP_EXTERNAL_KMS_ADMIN_TOKEN",
+  "request_timeout_sec": 5,
+  "auto_start": {
+    "bind_host": "127.0.0.1",
+    "port": 18765,
+    "state_file": "keyring.example.json"
+  }
+}

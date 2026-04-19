@@ -7,6 +7,9 @@
     "schema",
     "ts_utc",
     "event",
+    "service_id",
+    "tenant_id",
+    "dataset_id",
     "caller",
     "role",
     "auth_mode",
@@ -25,6 +28,15 @@
     },
     "event": {
       "const": "record_recovery_service_request"
+    },
+    "service_id": {
+      "type": ["string", "null"]
+    },
+    "tenant_id": {
+      "type": ["string", "null"]
+    },
+    "dataset_id": {
+      "type": ["string", "null"]
     },
     "caller": {
       "type": "string"

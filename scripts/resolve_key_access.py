@@ -98,6 +98,7 @@ def main() -> int:
         "manifest_file": os.path.abspath(args.manifest),
         "manifest_sha256": sha256_file(args.manifest),
         "secret_source": {"kind": "env", "name": result["env"]},
+        "resolver": {"kind": "manifest_resolver", "socket_path": None},
     })
     print(json.dumps(result, ensure_ascii=False))
     return 0

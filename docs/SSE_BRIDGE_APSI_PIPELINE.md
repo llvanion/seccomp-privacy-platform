@@ -58,12 +58,14 @@ The orchestrator writes three stages under `--out-base`:
 Important files:
 
 - `sse_exports/export_audit.jsonl`
+- `sse_exports/record_recovery_service_health.json`, when the recovery service path is used
 - `sse_exports/record_recovery_service.pid`, when the orchestrator auto-starts the recovery service
 - `sse_exports/record_recovery_service.ready`, when the orchestrator auto-starts the recovery service
 - `bridge_job/server.csv`
 - `bridge_job/client.csv`
 - `bridge_job/job_meta.json`
 - `bridge_job/bridge_audit.jsonl`
+- `a_psi_run/pjc_audit.jsonl`
 - `key_access_audit.jsonl`, when `--token-secret-key-id` is used
 - `audit_chain.json`
 - `audit_chain.seal.json`
@@ -158,6 +160,7 @@ cd sse
   --socket-path /tmp/sse_record_recovery.sock \
   --socket-mode 600 \
   --auth-token-env SSE_RECORD_RECOVERY_TOKEN \
+  --authz-config "$PWD/../config/record_recovery_service_policy.example.json" \
   --allowed-caller auto_demo \
   --allowed-output-root "$PWD/../tmp" \
   --allowed-record-store-root /tmp \
@@ -167,15 +170,36 @@ cd sse
 cd ..
 ```
 
+`config/record_recovery_service_policy.example.json` is still the lightweight compatibility example for service-side caller/field/filter/path/row checks, validated by `schemas/record_recovery_service_policy.schema.json`. The default aligned path is now the shared `sse/config/export_policy.example.json`, which also carries caller-scoped `tenant_id`, `allowed_dataset_ids`, `allowed_service_ids`, and `can_use_record_recovery_service`. `config/record_recovery_service.example.json` plus `schemas/record_recovery_service_config.schema.json` define the shared runtime contract for manual health checks, service lifecycle commands, direct export usage, and pipeline-side service wiring, including `service_id`, `tenant_id`, and `dataset_id`.
+
+To verify a pre-started service before the pipeline points at it:
+
+```bash
+python3 scripts/request_record_recovery_service.py \
+  --config config/record_recovery_service.example.json
+```
+
+Or manage the service lifecycle explicitly outside the pipeline:
+
+```bash
+python3 scripts/manage_record_recovery_service.py start \
+  --config config/record_recovery_service.example.json
+python3 scripts/manage_record_recovery_service.py status \
+  --config config/record_recovery_service.example.json
+python3 scripts/manage_record_recovery_service.py stop \
+  --config config/record_recovery_service.example.json
+```
+
 Then add these flags to `scripts/run_sse_bridge_pipeline.sh` when using encrypted record stores:
 
 ```bash
-  --record-recovery-socket /tmp/sse_record_recovery.sock \
-  --record-recovery-auth-env SSE_RECORD_RECOVERY_TOKEN \
+  --record-recovery-service-config config/record_recovery_service.example.json \
   --record-recovery-service-audit-log "$PWD/tmp/record_recovery_service_audit.jsonl"
 ```
 
-When encrypted record stores are used, the orchestrator defaults to `--record-recovery-service-mode auto`. In that mode it auto-starts `run_client.py serve-record-recovery`, uses a short `/tmp/seccomp_rr_<hash>.sock` socket path by default so deep `--out-base` directories do not trip the `AF_UNIX` path limit, writes pid/ready lifecycle files under `sse_exports/`, waits for the socket, exports through that service, validates the optional service audit log, and then shuts the service down on exit. Use `--record-recovery-service-mode manual` for a pre-started service, or `--record-recovery-service-mode subprocess` to force the older worker subprocess path.
+When encrypted record stores are used, the orchestrator defaults to `--record-recovery-service-mode auto`. In that mode it auto-starts `run_client.py serve-record-recovery`, uses a short `/tmp/seccomp_rr_<hash>.sock` socket path by default so deep `--out-base` directories do not trip the `AF_UNIX` path limit, writes an effective `sse_exports/record_recovery_service_config.json`, captures `record_recovery_service_health.json` through the shared recovery-service client, exports through that service, validates the optional service audit log plus health snapshot, and then shuts the service down on exit. By default the lifecycle files still land under `sse_exports/`, but if the shared config provides explicit lifecycle paths the runtime config artifact reflects those resolved paths. Use `--record-recovery-service-mode manual` for a pre-started service, or `--record-recovery-service-mode subprocess` to force the older worker subprocess path.
+If that auto-started service should enforce the same caller/tenant/dataset/service policy as the rest of the pipeline, add `--record-recovery-authz-config "$PWD/sse/config/export_policy.example.json"` to `scripts/run_sse_bridge_pipeline.sh` or `scripts/run_live_sse_bridge_demo.sh`. The older `config/record_recovery_service_policy.example.json` remains available for narrower compatibility testing.
+For `scripts/run_live_sse_bridge_demo.sh`, when that flag is supplied and no explicit `--run-root` / `--state-base` / `--out-base` is given, the wrapper now defaults to `/tmp/seccomp_live_sse_bridge_demo` so the example policy's `/tmp` prefix constraints still match the generated state and output paths.
 
 ### 2. Prepare paired bridge job
 
@@ -257,9 +281,9 @@ When `--record-store-path` is supplied with `--sse-keyword`, the materialization
 Two recovery boundaries now exist:
 
 - default subprocess worker: `toolkit.record_recovery_worker`, with `record_recovery_boundary=worker_subprocess`
-- long-running Unix-socket service: `run_client.py serve-record-recovery`, used via `--record-recovery-socket` and optional `--record-recovery-auth-env`, with `record_recovery_boundary=service_socket`
+- long-running Unix-socket service: `run_client.py serve-record-recovery`, used via `--record-recovery-service-config` or `--record-recovery-socket` plus optional `--record-recovery-auth-env`, with `record_recovery_boundary=service_socket`; the pipeline now writes and reuses an effective runtime config artifact for this path
 
-Both paths keep candidate IDs and filters out of the bridge process and return only row counts plus output hash metadata to the export parent path. The socket service can additionally enforce allowed callers and emit `sse_record_recovery_service_audit/v1` records, which can be validated separately and included in `audit_chain.json`. The default remaining plaintext artifact is still the audited bridge-ready handoff file or FIFO stream.
+Both paths keep candidate IDs and filters out of the bridge process and return only row counts plus output hash metadata to the export parent path. The socket service can additionally enforce allowed callers, optional `record_recovery_service_policy/v1` checks, and emit `sse_record_recovery_service_audit/v1` records, which can be validated separately and included in `audit_chain.json`. The default remaining plaintext artifact is still the audited bridge-ready handoff file or FIFO stream.
 
 The orchestrator also supports a local streaming handoff:
 
@@ -278,7 +302,7 @@ The same policy file is also used by the orchestrator for coarse pipeline permis
 
 ## Bridge audit and key hardening
 
-The Rust bridge writes `bridge_audit.jsonl` with input/output hashes for regular files, FIFO input type for streaming handoff, row counts, token metadata, `correlation_id`, and the token secret source. It records whether the secret came from the CLI or from an environment variable, but never records the secret value.
+The Rust bridge writes `bridge_audit.jsonl` with input/output hashes for regular files, FIFO input type for streaming handoff, row counts, token metadata, `correlation_id`, and the token secret source. It records whether the secret came from the CLI or from an environment variable, but never records the secret value. It now also appends deny records when `generate` or `prepare-job` fails after audit-log resolution, so failed bridge stages are auditable without depending on shell stderr alone.
 
 For production-mode runs, use:
 
@@ -303,9 +327,33 @@ bash scripts/run_sse_bridge_pipeline.sh ... \
 
 This calls [resolve_key_access.py](/home/llvanion/Desktop/seccomp-privacy-platform/scripts/resolve_key_access.py), which checks that the key entry is enabled, active, and allowed for `bridge_token`, then returns only the env-var reference and key version. It appends `key_access_audit/v1` records to `<out-base>/key_access_audit.jsonl` or the path supplied through `--key-access-audit-log`.
 
+The stronger local KMS-like path uses a keyring plus an auto-started Unix-socket key agent:
+
+```bash
+export BRIDGE_TOKEN_SECRET=<secret>
+bash scripts/run_sse_bridge_pipeline.sh ... \
+  --token-secret-key-name bridge-token \
+  --keyring "$PWD/config/keyring.example.json" \
+  --production-mode
+```
+
+That path auto-starts [key_agent_service.py](/home/llvanion/Desktop/seccomp-privacy-platform/scripts/key_agent_service.py), resolves the active key version through the socket boundary, injects the secret into a bridge-only env var, and still records `key_access_audit/v1`. Local lifecycle operations are handled through [manage_keyring.py](/home/llvanion/Desktop/seccomp-privacy-platform/scripts/manage_keyring.py), for example rotating a new version or retiring an old one.
+
+There is also an external-KMS-shaped HTTP path:
+
+```bash
+export BRIDGE_TOKEN_SECRET=<secret>
+bash scripts/run_sse_bridge_pipeline.sh ... \
+  --token-secret-key-name bridge-token \
+  --external-kms-config "$PWD/config/external_kms.example.json" \
+  --production-mode
+```
+
+That path reads [external_kms.example.json](/home/llvanion/Desktop/seccomp-privacy-platform/config/external_kms.example.json), auto-starts [external_kms_service.py](/home/llvanion/Desktop/seccomp-privacy-platform/scripts/external_kms_service.py) when `auto_start` is configured, resolves the active key version through [request_external_kms.py](/home/llvanion/Desktop/seccomp-privacy-platform/scripts/request_external_kms.py), and records `key_access_audit/v1` with `secret_source.kind=external_kms`. Lifecycle changes can be driven through [manage_external_kms.py](/home/llvanion/Desktop/seccomp-privacy-platform/scripts/manage_external_kms.py).
+
 For result-governance hardening, pass `--deny-duplicate-query` to the orchestrator. It is forwarded to `policy_release.py` and denies exact repeated canonical query signatures for the same caller.
 
-The orchestrator always builds [audit_chain.json](/home/llvanion/Desktop/seccomp-privacy-platform/scripts/build_audit_chain.py) at the end of a successful run. It then writes `audit_chain.seal.json` through [seal_audit_artifact.py](/home/llvanion/Desktop/seccomp-privacy-platform/scripts/seal_audit_artifact.py). Without `--audit-seal-key-env`, the seal records the audit-chain SHA-256. With `--audit-seal-key-env`, it also records an HMAC-SHA256 signature and the env-var source, without logging the secret value.
+The orchestrator always builds [audit_chain.json](/home/llvanion/Desktop/seccomp-privacy-platform/scripts/build_audit_chain.py) at the end of a successful run. It then writes `audit_chain.seal.json` through [seal_audit_artifact.py](/home/llvanion/Desktop/seccomp-privacy-platform/scripts/seal_audit_artifact.py). Without `--audit-seal-key-env`, the seal records the audit-chain SHA-256. With `--audit-seal-key-env`, it also records an HMAC-SHA256 signature and the env-var source, without logging the secret value. When `--audit-archive-dir` is supplied to the orchestrator, [archive_audit_bundle.py](/home/llvanion/Desktop/seccomp-privacy-platform/scripts/archive_audit_bundle.py) copies both artifacts into a local archive tree and appends an `audit_archive_index/v1` record to `audit_chain_index.jsonl`.
 
 ## Schemas
 
@@ -316,17 +364,23 @@ Versioned schemas are under [schemas](/home/llvanion/Desktop/seccomp-privacy-pla
 - `sse_encrypted_record_store.schema.json`
 - `bridge_job_meta.schema.json`
 - `bridge_audit.schema.json`
+- `pjc_audit.schema.json`
 - `public_report.schema.json`
+- `keyring.schema.json`
+- `external_kms_config.schema.json`
+- `key_lifecycle_audit.schema.json`
 - `policy_audit.schema.json`
 - `audit_chain.schema.json`
+- `record_recovery_service_health.schema.json`
+- `audit_archive_index.schema.json`
 - `key_manifest.schema.json`
 - `key_access_audit.schema.json`
 - `audit_seal.schema.json`
 
-The local validator is [validate_json_contract.py](/home/llvanion/Desktop/seccomp-privacy-platform/scripts/validate_json_contract.py). The integrated pipeline uses it to validate export policy config, SSE export audit JSONL, bridge `job_meta.json`, bridge audit JSONL, key access audit JSONL, public report JSON, policy audit JSONL, audit chain JSON, and audit seal JSON.
+The local validator is [validate_json_contract.py](/home/llvanion/Desktop/seccomp-privacy-platform/scripts/validate_json_contract.py). The integrated pipeline uses it to validate export policy config, optional external KMS config, SSE export audit JSONL, optional record-recovery service health JSON, bridge `job_meta.json`, bridge audit JSONL, PJC audit JSONL, key access audit JSONL, public report JSON, policy audit JSONL, audit chain JSON, audit seal JSON, and optional audit archive index JSONL.
 
 [validate_tabular_contract.py](/home/llvanion/Desktop/seccomp-privacy-platform/scripts/validate_tabular_contract.py) validates CSV/JSONL handoff contracts that are not JSON schema files. The integrated pipeline uses it for file-mode SSE bridge handoff CSVs and generated PJC server/client CSVs. FIFO handoffs are not re-opened for validation; they are covered by the SSE write-time hash and bridge FIFO input audit fields.
 
-[build_audit_chain.py](/home/llvanion/Desktop/seccomp-privacy-platform/scripts/build_audit_chain.py) writes `<out-base>/audit_chain.json`, a single correlated view of SSE export audit, bridge audit, bridge metadata, PJC result, public report, policy audit, and optional key access audit for the job.
+[build_audit_chain.py](/home/llvanion/Desktop/seccomp-privacy-platform/scripts/build_audit_chain.py) writes `<out-base>/audit_chain.json`, a single correlated view of SSE export audit, bridge audit, bridge metadata, PJC audit, PJC result, public report, policy audit, and optional key access audit for the job. [archive_audit_bundle.py](/home/llvanion/Desktop/seccomp-privacy-platform/scripts/archive_audit_bundle.py) can then archive `audit_chain.json` plus `audit_chain.seal.json` into a separate local retention directory and append `audit_archive_index/v1` records for indexed lookup.
 
 Run [check_json_contracts.sh](/home/llvanion/Desktop/seccomp-privacy-platform/scripts/check_json_contracts.sh) for the local contract smoke suite. The same command is wired into `.github/workflows/json-contracts.yml`.

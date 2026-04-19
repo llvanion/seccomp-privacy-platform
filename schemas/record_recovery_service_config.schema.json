@@ -1,0 +1,102 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "record_recovery_service_config/v1",
+  "title": "Record recovery service runtime config",
+  "type": "object",
+  "required": [
+    "schema",
+    "socket_path"
+  ],
+  "properties": {
+    "schema": {
+      "const": "record_recovery_service_config/v1"
+    },
+    "service_id": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "tenant_id": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "dataset_id": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "socket_path": {
+      "type": "string",
+      "minLength": 1
+    },
+    "socket_mode": {
+      "type": "string",
+      "minLength": 3
+    },
+    "auth_token_env": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "authz_config": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "allowed_callers": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "allowed_output_roots": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "allowed_record_store_roots": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "audit_log": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "lifecycle": {
+      "type": "object",
+      "properties": {
+        "pid_file": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "ready_file": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "log_file": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false
+}

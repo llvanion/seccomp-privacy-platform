@@ -3,8 +3,14 @@ import json
 from pathlib import Path
 from typing import Any
 
+from toolkit.platform_policy import (
+    load_platform_policy,
+    platform_policy_for_caller,
+    resolve_platform_scope,
+)
 
 POLICY_SCHEMA = "record_recovery_service_policy/v1"
+PLATFORM_POLICY_SCHEMA = "sse_export_policy/v1"
 
 
 def load_authz_policy(path: str) -> dict:
@@ -16,7 +22,9 @@ def load_authz_policy(path: str) -> dict:
     if not isinstance(data, dict):
         raise ValueError("record recovery authz config must be a JSON object")
     schema = data.get("schema")
-    if schema is not None and schema != POLICY_SCHEMA:
+    if schema == PLATFORM_POLICY_SCHEMA:
+        return load_platform_policy(path)
+    if schema is not None and schema not in {POLICY_SCHEMA, PLATFORM_POLICY_SCHEMA}:
         raise ValueError(f"unsupported record recovery authz schema: {schema}")
     return data
 
@@ -60,9 +68,28 @@ def _ensure_allowed_filter_values(policy: dict, filters: list[tuple[str, str]], 
             raise PermissionError(f"caller {caller} cannot use filter {field}={value}")
 
 
+def _effective_min_rows(requested_min_rows: int | None, policy_min_rows: int | None) -> int | None:
+    if requested_min_rows is None:
+        return policy_min_rows
+    if policy_min_rows is None:
+        return requested_min_rows
+    return max(requested_min_rows, policy_min_rows)
+
+
+def _effective_max_rows(requested_max_rows: int | None, policy_max_rows: int | None) -> int | None:
+    if requested_max_rows is None:
+        return policy_max_rows
+    if policy_max_rows is None:
+        return requested_max_rows
+    return min(requested_max_rows, policy_max_rows)
+
+
 def authorize_record_recovery_request(*,
                                       policy: dict,
                                       caller: str,
+                                      tenant_id: str,
+                                      dataset_id: str,
+                                      service_id: str,
                                       role: str,
                                       join_key_field: str,
                                       value_field: str,
@@ -71,9 +98,21 @@ def authorize_record_recovery_request(*,
                                       requested_min_output_rows: int | None,
                                       requested_max_output_rows: int | None,
                                       record_store_path: Path,
-                                      out_path: Path) -> None:
+                                      out_path: Path) -> tuple[int | None, int | None]:
     if not policy:
-        return
+        return requested_min_output_rows, requested_max_output_rows
+
+    if policy.get("schema") == PLATFORM_POLICY_SCHEMA:
+        caller_policy = platform_policy_for_caller(policy, caller)
+        resolve_platform_scope(
+            caller_policy=caller_policy,
+            caller=caller,
+            tenant_id=tenant_id,
+            dataset_id=dataset_id,
+            service_id=service_id,
+            require_record_recovery_service=True,
+        )
+        policy = {"callers": {caller: caller_policy}}
 
     callers = policy.get("callers")
     if not isinstance(callers, dict):
@@ -137,6 +176,17 @@ def authorize_record_recovery_request(*,
     if not isinstance(record_store_prefixes, list):
         raise ValueError("allowed_record_store_prefixes must be a list")
     _ensure_prefix(record_store_path, [str(item) for item in record_store_prefixes], "record store path")
+
+    return (
+        _effective_min_rows(
+            requested_min_rows=requested_min_output_rows,
+            policy_min_rows=int(policy_min_rows) if policy_min_rows is not None else None,
+        ),
+        _effective_max_rows(
+            requested_max_rows=requested_max_output_rows,
+            policy_max_rows=int(policy_max_rows) if policy_max_rows is not None else None,
+        ),
+    )
 
 
 def authz_policy_path(path: str) -> str | None:

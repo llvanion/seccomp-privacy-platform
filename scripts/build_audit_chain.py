@@ -64,6 +64,7 @@ def resolve_paths(args: argparse.Namespace) -> Dict[str, str]:
             "record_recovery_service_audit": args.record_recovery_service_audit or os.path.join(out_base, "sse_exports", "record_recovery_service_audit.jsonl"),
             "bridge_audit": args.bridge_audit or os.path.join(out_base, "bridge_job", "bridge_audit.jsonl"),
             "bridge_job_meta": args.bridge_job_meta or os.path.join(out_base, "bridge_job", "job_meta.json"),
+            "pjc_audit": args.pjc_audit or os.path.join(out_base, "a_psi_run", "pjc_audit.jsonl"),
             "pjc_result": args.pjc_result or os.path.join(out_base, "a_psi_run", "attribution_result.json"),
             "public_report": args.public_report or os.path.join(out_base, "a_psi_run", "public_report.json"),
             "policy_audit": args.policy_audit or os.path.join(out_base, "a_psi_run", "audit_log.jsonl"),
@@ -76,6 +77,7 @@ def resolve_paths(args: argparse.Namespace) -> Dict[str, str]:
         "record_recovery_service_audit": args.record_recovery_service_audit,
         "bridge_audit": args.bridge_audit,
         "bridge_job_meta": args.bridge_job_meta,
+        "pjc_audit": args.pjc_audit,
         "pjc_result": args.pjc_result,
         "public_report": args.public_report,
         "policy_audit": args.policy_audit,
@@ -94,6 +96,7 @@ def build_chain(args: argparse.Namespace) -> Dict[str, Any]:
     sse_export_records = filter_records(load_jsonl(paths["sse_audit"]), args.job_id)
     record_recovery_service_records = filter_records(load_jsonl(paths["record_recovery_service_audit"]), args.job_id)
     bridge_records = filter_records(load_jsonl(paths["bridge_audit"]), args.job_id)
+    pjc_records = filter_records(load_jsonl(paths["pjc_audit"]), args.job_id)
     policy_records = filter_records(load_jsonl(paths["policy_audit"]), args.job_id)
     key_access_records = filter_records(load_jsonl(paths["key_access_audit"]), args.job_id)
     bridge_job_meta = load_json_if_exists(paths["bridge_job_meta"])
@@ -111,6 +114,7 @@ def build_chain(args: argparse.Namespace) -> Dict[str, Any]:
             "record_recovery_service_audit": os.path.abspath(paths["record_recovery_service_audit"]) if paths["record_recovery_service_audit"] else None,
             "bridge_audit": os.path.abspath(paths["bridge_audit"]) if paths["bridge_audit"] else None,
             "bridge_job_meta": os.path.abspath(paths["bridge_job_meta"]) if paths["bridge_job_meta"] else None,
+            "pjc_audit": os.path.abspath(paths["pjc_audit"]) if paths["pjc_audit"] else None,
             "pjc_result": os.path.abspath(paths["pjc_result"]) if paths["pjc_result"] else None,
             "public_report": os.path.abspath(paths["public_report"]) if paths["public_report"] else None,
             "policy_audit": os.path.abspath(paths["policy_audit"]) if paths["policy_audit"] else None,
@@ -125,6 +129,7 @@ def build_chain(args: argparse.Namespace) -> Dict[str, Any]:
             "sse_export_audit_records": len(sse_export_records),
             "record_recovery_service_audit_records": len(record_recovery_service_records),
             "bridge_audit_records": len(bridge_records),
+            "pjc_audit_records": len(pjc_records),
             "policy_audit_records": len(policy_records),
             "key_access_audit_records": len(key_access_records),
         },
@@ -133,6 +138,7 @@ def build_chain(args: argparse.Namespace) -> Dict[str, Any]:
         "record_recovery_service_audit": record_recovery_service_records,
         "bridge_audit": bridge_records,
         "bridge_job_meta": bridge_job_meta,
+        "pjc_audit": pjc_records,
         "pjc_result": pjc_result,
         "public_report": public_report,
         "policy_audit": policy_records,
@@ -148,6 +154,7 @@ def main() -> int:
     ap.add_argument("--record-recovery-service-audit", default="")
     ap.add_argument("--bridge-audit", default="")
     ap.add_argument("--bridge-job-meta", default="")
+    ap.add_argument("--pjc-audit", default="")
     ap.add_argument("--pjc-result", default="")
     ap.add_argument("--public-report", default="")
     ap.add_argument("--policy-audit", default="")

@@ -16,6 +16,7 @@
     "record_recovery_service_audit",
     "bridge_audit",
     "bridge_job_meta",
+    "pjc_audit",
     "pjc_result",
     "public_report",
     "policy_audit"
@@ -57,6 +58,7 @@
         "sse_export_audit_records",
         "record_recovery_service_audit_records",
         "bridge_audit_records",
+        "pjc_audit_records",
         "policy_audit_records",
         "key_access_audit_records"
       ],
@@ -70,6 +72,10 @@
           "minimum": 0
         },
         "bridge_audit_records": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "pjc_audit_records": {
           "type": "integer",
           "minimum": 0
         },
@@ -97,6 +103,9 @@
     },
     "bridge_job_meta": {
       "type": ["object", "null"]
+    },
+    "pjc_audit": {
+      "type": "array"
     },
     "pjc_result": {
       "type": ["object", "null"]
