@@ -1,0 +1,152 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "query_template/v1",
+  "title": "Declarative query template for the privacy platform",
+  "description": "A restricted declarative query that routes through policy-validated paths. Does not support arbitrary SQL — only templated query types with explicit privacy constraints.",
+  "type": "object",
+  "required": [
+    "schema",
+    "query_type",
+    "caller",
+    "job_id"
+  ],
+  "properties": {
+    "schema": {
+      "const": "query_template/v1"
+    },
+    "query_type": {
+      "enum": ["internal_fine_grained", "merchant_aggregate", "ad_collaboration"],
+      "description": "Query type determines the allowed execution path"
+    },
+    "caller": {
+      "type": "string",
+      "description": "Identity of the caller submitting the query"
+    },
+    "job_id": {
+      "type": "string",
+      "description": "Unique job identifier for this query"
+    },
+    "correlation_id": {
+      "type": "string",
+      "description": "Cross-stage correlation identifier"
+    },
+    "tenant_id": {
+      "type": "string",
+      "description": "Tenant namespace"
+    },
+    "internal_fine_grained": {
+      "type": "object",
+      "description": "Parameters for internal fine-grained queries (SSE export + record recovery)",
+      "required": ["role", "fields"],
+      "properties": {
+        "role": {
+          "enum": ["server", "client"]
+        },
+        "fields": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Fields to export (policy-validated)"
+        },
+        "join_key_field": { "type": "string" },
+        "value_field": { "type": "string" },
+        "filters": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["field", "value"],
+            "properties": {
+              "field": { "type": "string" },
+              "value": { "type": "string" }
+            }
+          }
+        },
+        "sse_keyword": { "type": "string" },
+        "record_id_field": { "type": "string" },
+        "record_store_path": { "type": "string" },
+        "time_range": {
+          "type": "object",
+          "properties": {
+            "start": { "type": "string", "format": "date-time" },
+            "end": { "type": "string", "format": "date-time" }
+          }
+        }
+      }
+    },
+    "merchant_aggregate": {
+      "type": "object",
+      "description": "Parameters for merchant analysis queries (policy-filtered aggregate)",
+      "required": ["group_by_field", "metrics"],
+      "properties": {
+        "group_by_field": {
+          "type": "string",
+          "description": "Field to group by (e.g., store_id, campaign_id)"
+        },
+        "metrics": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["type", "field"],
+            "properties": {
+              "type": { "enum": ["count", "sum", "avg", "min", "max"] },
+              "field": { "type": "string" }
+            }
+          }
+        },
+        "filters": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "field": { "type": "string" },
+              "value": { "type": "string" },
+              "op": { "enum": ["eq", "in", "range"] }
+            }
+          }
+        },
+        "k_threshold": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Minimum group size for k-anonymity"
+        }
+      }
+    },
+    "ad_collaboration": {
+      "type": "object",
+      "description": "Parameters for cross-org ad collaboration queries (bridge + PJC + release)",
+      "required": ["server_filters", "client_filters", "join_key_field"],
+      "properties": {
+        "server_filters": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "field": { "type": "string" },
+              "value": { "type": "string" }
+            }
+          }
+        },
+        "client_filters": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "field": { "type": "string" },
+              "value": { "type": "string" }
+            }
+          }
+        },
+        "join_key_field": { "type": "string" },
+        "value_field": { "type": "string" },
+        "value_mode": { "enum": ["count", "raw-int"] },
+        "k_threshold": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "rate_limit": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,257 @@
+# Unified telemetry field definitions for the seccomp-privacy-platform
+# Fields are extracted from existing audit JSONL and pipeline outputs.
+# No sensitive plaintext values are recorded.
+
+fields:
+  - name: job_id
+    type: string
+    source: all_audit_records
+    description: Unique job identifier propagated across all pipeline stages
+
+  - name: correlation_id
+    type: string
+    source: all_audit_records
+    description: Correlation identifier, normally equal to job_id
+
+  - name: caller
+    type: string
+    source: sse_export_audit, policy_audit
+    description: Identity of the caller that submitted the job
+
+  - name: tenant_id
+    type: string
+    source: pipeline_policy_config
+    description: Tenant identifier derived from policy config or caller namespace
+    default: default_tenant
+
+  - name: dataset_id
+    type: string
+    source: sse_export_audit.source_file, bridge_job_meta
+    description: Dataset identifier derived from source file path or job metadata
+
+  - name: service_id
+    type: string
+    source: sse_export_audit
+    description: SSE service identifier when SSE-backed candidate mode is used
+
+  - name: stage
+    type: enum
+    values: [sse_export, record_recovery, bridge, pjc, policy_release, audit_seal]
+    source: derived_from_audit_event_type
+    description: Pipeline stage that produced the metric
+
+  - name: status
+    type: enum
+    values: [allow, deny, error]
+    source: all_audit_records.decision
+    description: Decision status for the stage
+
+  - name: duration_ms
+    type: integer
+    source: derived_from_timestamps
+    description: Duration of the stage in milliseconds, derived from audit timestamps
+    unit: milliseconds
+
+  - name: row_count
+    type: integer
+    source: sse_export_audit.output_rows, bridge_audit
+    description: Number of rows processed or output at this stage
+
+  - name: artifact_sha256
+    type: string
+    source: sse_export_audit.output_sha256, policy_audit.pjc_result_sha256, audit_seal
+    description: SHA-256 hash of stage output artifact
+
+  - name: input_rows
+    type: integer
+    source: sse_export_audit.input_rows
+    description: Number of input rows at this stage
+
+  - name: decision
+    type: enum
+    values: [allow, deny]
+    source: all_audit_records.decision
+    description: Allow/deny decision for the stage
+
+  - name: reason_code
+    type: string
+    source: all_audit_records.reason_code
+    description: Machine-readable reason code for the decision
+
+  - name: candidate_count
+    type: integer
+    source: sse_export_audit.candidate_count
+    description: Number of SSE candidate IDs returned by keyword query
+
+  - name: intersection_size
+    type: integer
+    source: pjc_result.intersection_size, public_report
+    description: PJC intersection cardinality
+
+  - name: intersection_sum
+    type: integer
+    source: pjc_result.intersection_sum, public_report
+    description: PJC intersection value sum (when client_value_mode is raw-int)
+
+  - name: threshold_k
+    type: integer
+    source: policy_audit.threshold_k, public_report.k_threshold
+    description: Minimum k-anonymity threshold applied during policy release
+
+  - name: rate_limit_used
+    type: integer
+    source: policy_audit.rate_limit_used
+    description: Rate-limit tokens consumed by this request
+
+  - name: rate_limit_max
+    type: integer
+    source: policy_audit.rate_limit_max, public_report.rate_limit_max
+    description: Rate-limit ceiling for the caller
+
+  - name: record_recovery_boundary
+    type: enum
+    values: [worker_subprocess, service_socket]
+    source: sse_export_audit.record_recovery_boundary
+    description: Type of recovery boundary used when encrypted record stores are involved
+
+  - name: token_secret_source_kind
+    type: enum
+    values: [cli, env, unknown]
+    source: bridge_audit.token_secret_source.kind
+    description: Source kind of the bridge token secret (never records secret value)
+
+  - name: released
+    type: boolean
+    source: public_report.released
+    description: Whether the result was released (true) or withheld (false)
+
+  - name: canonical_query_signature
+    type: string
+    source: policy_audit.canonical_query_signature
+    description: Canonical query signature used for duplicate-query detection
+
+# Labels that are safe to include as metric dimensions
+# These never contain sensitive plaintext (join keys, token secrets, etc.)
+safe_dimensions:
+  - job_id
+  - correlation_id
+  - caller
+  - tenant_id
+  - dataset_id
+  - service_id
+  - stage
+  - status
+  - reason_code
+  - record_recovery_boundary
+  - token_secret_source_kind
+
+# Metric definitions for OTLP export
+metrics:
+  - name: seccomp_job_total
+    type: counter
+    description: Total number of jobs processed
+    dimensions: [tenant_id, caller, status]
+
+  - name: seccomp_stage_duration_ms
+    type: histogram
+    description: Stage duration in milliseconds
+    dimensions: [stage, status, caller, tenant_id]
+    buckets: [10, 50, 100, 250, 500, 1000, 2500, 5000, 10000, 30000, 60000]
+
+  - name: seccomp_stage_row_count
+    type: histogram
+    description: Row count per stage
+    dimensions: [stage, tenant_id]
+    buckets: [1, 10, 100, 1000, 10000, 100000, 1000000]
+
+  - name: seccomp_stage_deny_total
+    type: counter
+    description: Total number of stage-level denies
+    dimensions: [stage, reason_code, caller, tenant_id]
+
+  - name: seccomp_sse_candidate_count
+    type: histogram
+    description: SSE candidate count distribution
+    dimensions: [candidate_source]
+    buckets: [1, 10, 50, 100, 500, 1000, 5000, 10000]
+
+  - name: seccomp_pjc_intersection_size
+    type: histogram
+    description: PJC intersection cardinality distribution
+    dimensions: [caller, tenant_id]
+    buckets: [0, 1, 5, 10, 20, 50, 100, 500, 1000]
+
+  - name: seccomp_pjc_intersection_sum
+    type: histogram
+    description: PJC intersection value sum distribution
+    dimensions: [caller, tenant_id]
+    buckets: [0, 10, 100, 1000, 10000, 100000, 1000000]
+
+  - name: seccomp_release_decision_total
+    type: counter
+    description: Total release decisions
+    dimensions: [released, reason_code, caller, tenant_id]
+
+  - name: seccomp_recovery_boundary_total
+    type: counter
+    description: Count of recovery boundary types used
+    dimensions: [record_recovery_boundary, tenant_id]
+
+  - name: seccomp_artifact_hash_mismatch_total
+    type: counter
+    description: Count of artifact hash mismatches detected during audit chain validation
+    dimensions: [stage, tenant_id]
+
+# Alert definitions
+alerts:
+  - name: HighStageDenyRate
+    description: Stage deny rate exceeds 10% over a 5-minute window
+    severity: warning
+    expr: rate(seccomp_stage_deny_total[5m]) / rate(seccomp_job_total[5m]) > 0.1
+
+  - name: PJCIntersectionBelowK
+    description: PJC intersection size below k-threshold, result may be withheld
+    severity: info
+    expr: seccomp_pjc_intersection_size < seccomp_threshold_k
+
+  - name: StageDurationHigh
+    description: Any stage duration exceeds 60 seconds
+    severity: warning
+    expr: seccomp_stage_duration_ms > 60000
+
+  - name: ArtifactHashMismatch
+    description: Artifact hash mismatch detected in audit chain
+    severity: critical
+    expr: increase(seccomp_artifact_hash_mismatch_total[5m]) > 0
+
+  - name: NoRecentJobs
+    description: No jobs processed in the last 10 minutes
+    severity: warning
+    expr: increase(seccomp_job_total[10m]) == 0
+
+# Dashboard layout suggestions (for Grafana)
+dashboard:
+  title: "Seccomp Privacy Platform"
+  rows:
+    - title: "Job Throughput"
+      panels:
+        - metric: seccomp_job_total
+          type: stat
+        - metric: seccomp_stage_duration_ms
+          type: heatmap
+    - title: "Stage Health"
+      panels:
+        - metric: seccomp_stage_deny_total
+          type: timeseries
+        - metric: seccomp_recovery_boundary_total
+          type: piechart
+    - title: "PJC Results"
+      panels:
+        - metric: seccomp_pjc_intersection_size
+          type: histogram
+        - metric: seccomp_release_decision_total
+          type: timeseries
+    - title: "Integrity"
+      panels:
+        - metric: seccomp_artifact_hash_mismatch_total
+          type: stat
