@@ -22,3 +22,8 @@ sse/.sse/
 sse/.pytest_cache/
 sse/__pycache__/
 sse/.venv/
+
+# Local workspace-only directories
+.venv/
+.codex
+.codex/

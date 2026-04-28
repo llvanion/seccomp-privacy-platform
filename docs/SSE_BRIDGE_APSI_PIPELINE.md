@@ -9,9 +9,9 @@ This workspace now supports a file-based end-to-end flow:
 
 ## Modules
 
-- [sse](/home/llvanion/Desktop/seccomp-privacy-platform/sse)
-- [bridge](/home/llvanion/Desktop/seccomp-privacy-platform/bridge)
-- [a-psi](/home/llvanion/Desktop/seccomp-privacy-platform/a-psi)
+- [sse](../sse)
+- [bridge](../bridge)
+- [a-psi](../a-psi)
 
 ## Automatic pipeline
 
@@ -246,7 +246,7 @@ python3 moduleA_psi/scripts/policy_release.py \
 - required filter fields and allowed filter values
 - minimum and maximum export row counts
 
-The example policy is [export_policy.example.json](/home/llvanion/Desktop/seccomp-privacy-platform/sse/config/export_policy.example.json).
+The example policy is [export_policy.example.json](../sse/config/export_policy.example.json).
 The audit log records file hashes, row counts, caller, role, job ID, `correlation_id`, output handoff type, requested fields, and hashed filter values. It does not log raw email, phone, or device identifiers.
 Policy config is required by default. For a local one-off export without policy, pass `--unsafe-allow-no-policy` explicitly; the orchestrator equivalent is `--unsafe-allow-no-sse-export-policy`.
 
@@ -301,15 +301,15 @@ bash scripts/run_sse_bridge_pipeline.sh ... \
   --production-mode
 ```
 
-This calls [resolve_key_access.py](/home/llvanion/Desktop/seccomp-privacy-platform/scripts/resolve_key_access.py), which checks that the key entry is enabled, active, and allowed for `bridge_token`, then returns only the env-var reference and key version. It appends `key_access_audit/v1` records to `<out-base>/key_access_audit.jsonl` or the path supplied through `--key-access-audit-log`.
+This calls [resolve_key_access.py](../scripts/resolve_key_access.py), which checks that the key entry is enabled, active, and allowed for `bridge_token`, then returns only the env-var reference and key version. It appends `key_access_audit/v1` records to `<out-base>/key_access_audit.jsonl` or the path supplied through `--key-access-audit-log`.
 
 For result-governance hardening, pass `--deny-duplicate-query` to the orchestrator. It is forwarded to `policy_release.py` and denies exact repeated canonical query signatures for the same caller.
 
-The orchestrator always builds [audit_chain.json](/home/llvanion/Desktop/seccomp-privacy-platform/scripts/build_audit_chain.py) at the end of a successful run. It then writes `audit_chain.seal.json` through [seal_audit_artifact.py](/home/llvanion/Desktop/seccomp-privacy-platform/scripts/seal_audit_artifact.py). Without `--audit-seal-key-env`, the seal records the audit-chain SHA-256. With `--audit-seal-key-env`, it also records an HMAC-SHA256 signature and the env-var source, without logging the secret value.
+The orchestrator always builds [audit_chain.json](../scripts/build_audit_chain.py) at the end of a successful run. It then writes `audit_chain.seal.json` through [seal_audit_artifact.py](../scripts/seal_audit_artifact.py). Without `--audit-seal-key-env`, the seal records the audit-chain SHA-256. With `--audit-seal-key-env`, it also records an HMAC-SHA256 signature and the env-var source, without logging the secret value.
 
 ## Schemas
 
-Versioned schemas are under [schemas](/home/llvanion/Desktop/seccomp-privacy-platform/schemas):
+Versioned schemas are under [schemas](../schemas):
 
 - `sse_export_policy.schema.json`
 - `sse_bridge_export_audit.schema.json`
@@ -323,10 +323,10 @@ Versioned schemas are under [schemas](/home/llvanion/Desktop/seccomp-privacy-pla
 - `key_access_audit.schema.json`
 - `audit_seal.schema.json`
 
-The local validator is [validate_json_contract.py](/home/llvanion/Desktop/seccomp-privacy-platform/scripts/validate_json_contract.py). The integrated pipeline uses it to validate export policy config, SSE export audit JSONL, bridge `job_meta.json`, bridge audit JSONL, key access audit JSONL, public report JSON, policy audit JSONL, audit chain JSON, and audit seal JSON.
+The local validator is [validate_json_contract.py](../scripts/validate_json_contract.py). The integrated pipeline uses it to validate export policy config, SSE export audit JSONL, bridge `job_meta.json`, bridge audit JSONL, key access audit JSONL, public report JSON, policy audit JSONL, audit chain JSON, and audit seal JSON.
 
-[validate_tabular_contract.py](/home/llvanion/Desktop/seccomp-privacy-platform/scripts/validate_tabular_contract.py) validates CSV/JSONL handoff contracts that are not JSON schema files. The integrated pipeline uses it for file-mode SSE bridge handoff CSVs and generated PJC server/client CSVs. FIFO handoffs are not re-opened for validation; they are covered by the SSE write-time hash and bridge FIFO input audit fields.
+[validate_tabular_contract.py](../scripts/validate_tabular_contract.py) validates CSV/JSONL handoff contracts that are not JSON schema files. The integrated pipeline uses it for file-mode SSE bridge handoff CSVs and generated PJC server/client CSVs. FIFO handoffs are not re-opened for validation; they are covered by the SSE write-time hash and bridge FIFO input audit fields.
 
-[build_audit_chain.py](/home/llvanion/Desktop/seccomp-privacy-platform/scripts/build_audit_chain.py) writes `<out-base>/audit_chain.json`, a single correlated view of SSE export audit, bridge audit, bridge metadata, PJC result, public report, policy audit, and optional key access audit for the job.
+[build_audit_chain.py](../scripts/build_audit_chain.py) writes `<out-base>/audit_chain.json`, a single correlated view of SSE export audit, bridge audit, bridge metadata, PJC result, public report, policy audit, and optional key access audit for the job.
 
-Run [check_json_contracts.sh](/home/llvanion/Desktop/seccomp-privacy-platform/scripts/check_json_contracts.sh) for the local contract smoke suite. The same command is wired into `.github/workflows/json-contracts.yml`.
+Run [check_json_contracts.sh](../scripts/check_json_contracts.sh) for the local contract smoke suite. The same command is wired into `.github/workflows/json-contracts.yml`.

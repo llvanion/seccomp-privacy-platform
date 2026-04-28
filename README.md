@@ -30,6 +30,64 @@ Directory map:
 
 - `DIRECTORY_STRUCTURE.md`
 
+## Control Plane Sidecar
+
+The repository now also contains a stage-1 control-plane sidecar layer for metadata persistence, import, and read-only lookup.
+
+Important boundary:
+
+1. This sidecar does not replace the current pipeline.
+2. This sidecar does not make the main pipeline depend on a database.
+3. This sidecar does not change `bridge` token contract or `policy_release.py` semantics.
+
+Main control-plane files:
+
+1. [TODO.md](TODO.md)
+2. [LOG.md](LOG.md)
+3. [schemas/platform_metadata.sql](schemas/platform_metadata.sql)
+4. [scripts/init_metadata_db.py](scripts/init_metadata_db.py)
+5. [scripts/import_run_metadata.py](scripts/import_run_metadata.py)
+6. [scripts/query_metadata.py](scripts/query_metadata.py)
+
+Main design documents:
+
+1. [docs/CONTROL_PLANE_SCHEMA.md](docs/CONTROL_PLANE_SCHEMA.md)
+2. [docs/IAM_AUTHZ_INTEGRATION_PLAN.md](docs/IAM_AUTHZ_INTEGRATION_PLAN.md)
+3. [docs/KMS_SECRET_BACKEND_PLAN.md](docs/KMS_SECRET_BACKEND_PLAN.md)
+4. [docs/POSTGREST_READONLY_API_PLAN.md](docs/POSTGREST_READONLY_API_PLAN.md)
+
+Optional local demo-only assets:
+
+1. [docs/OPTIONAL_LOCAL_DEMO_SNIPPETS.md](docs/OPTIONAL_LOCAL_DEMO_SNIPPETS.md)
+2. [docs/optional_local_control_plane_demo.compose.yaml](docs/optional_local_control_plane_demo.compose.yaml)
+3. [docs/optional_openfga_model.fga](docs/optional_openfga_model.fga)
+4. [docs/optional_openfga_tuples.json](docs/optional_openfga_tuples.json)
+
+Quick usage:
+
+```bash
+python3 scripts/init_metadata_db.py --db-path tmp/platform_metadata.db
+
+python3 scripts/import_run_metadata.py \
+  --out-base tmp/sse_bridge_pipeline_demo \
+  --db-path tmp/platform_metadata.db \
+  --tenant-id tenant-demo \
+  --dataset-id dataset-demo \
+  --service-id bridge \
+  --policy-id release_policy_k20_n5_v1
+
+python3 scripts/query_metadata.py \
+  --db-path tmp/platform_metadata.db \
+  --job-id auto_demo_job
+```
+
+Current query filters:
+
+1. `--job-id`
+2. `--caller`
+3. `--tenant-id`
+4. `--dataset-id`
+
 ## Repository Layout
 
 ```text

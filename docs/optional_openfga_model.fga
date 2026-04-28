@@ -1,0 +1,27 @@
+model
+  schema 1.1
+
+type user
+
+type service_account
+
+type tenant
+  relations
+    define admin: [user]
+    define auditor: [user]
+
+type dataset
+  relations
+    define owner: [tenant]
+    define reader: [user, service_account]
+    define recovery_allowed: [service_account]
+
+type privacy_service
+  relations
+    define operator: [service_account]
+    define can_recover: recovery_allowed from dataset
+
+type job
+  relations
+    define owner: [user, service_account]
+    define viewer: [user, service_account]

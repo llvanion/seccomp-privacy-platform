@@ -1,0 +1,44 @@
+{
+  "tuples": [
+    {
+      "user": "user:alice",
+      "relation": "admin",
+      "object": "tenant:tenant-demo"
+    },
+    {
+      "user": "user:auditor1",
+      "relation": "auditor",
+      "object": "tenant:tenant-demo"
+    },
+    {
+      "user": "tenant:tenant-demo",
+      "relation": "owner",
+      "object": "dataset:dataset-demo"
+    },
+    {
+      "user": "user:alice",
+      "relation": "reader",
+      "object": "dataset:dataset-demo"
+    },
+    {
+      "user": "service_account:recovery-service",
+      "relation": "recovery_allowed",
+      "object": "dataset:dataset-demo"
+    },
+    {
+      "user": "service_account:bridge",
+      "relation": "operator",
+      "object": "privacy_service:bridge"
+    },
+    {
+      "user": "user:alice",
+      "relation": "viewer",
+      "object": "job:contract-check"
+    },
+    {
+      "user": "service_account:policy-service",
+      "relation": "owner",
+      "object": "job:contract-check"
+    }
+  ]
+}
