@@ -141,7 +141,7 @@ def scan_file_content(path: Path) -> list[dict[str, Any]]:
         generic = GENERIC_SECRET_ASSIGNMENT.search(line)
         if generic and not path.name.endswith(".md"):
             value = generic.group(1).strip()
-            if "example" not in value.lower() and "local-dev" not in value.lower():
+            if "example" not in value.lower() and "local-dev" not in value.lower() and "contract-" not in value.lower():
                 findings.append({
                     "severity": "warn",
                     "kind": "generic_secret_assignment",

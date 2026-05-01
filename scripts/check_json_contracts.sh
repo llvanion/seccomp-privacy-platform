@@ -121,10 +121,10 @@ python3 "$REPO_ROOT/scripts/export_authz_tuples.py" \
 python3 "$VALIDATOR" \
   --schema "$REPO_ROOT/schemas/authz_tuple_export.schema.json" \
   --json "$tmp/ecommerce_authz_tuples.json"
-rg -n '"subject": "service_account:recovery_ops_demo"' "$tmp/ecommerce_authz_tuples.json" >/dev/null
-rg -n '"access_profile": "recovery_service_operator"' "$tmp/ecommerce_authz_tuples.json" >/dev/null
-rg -n '"subject_type": "service_account"' "$tmp/ecommerce_authz_tuples.json" >/dev/null
-rg -n '"object": "privacy_service:orders-recovery"' "$tmp/ecommerce_authz_tuples.json" >/dev/null
+grep -n '"subject": "service_account:recovery_ops_demo"' "$tmp/ecommerce_authz_tuples.json" >/dev/null
+grep -n '"access_profile": "recovery_service_operator"' "$tmp/ecommerce_authz_tuples.json" >/dev/null
+grep -n '"subject_type": "service_account"' "$tmp/ecommerce_authz_tuples.json" >/dev/null
+grep -n '"object": "privacy_service:orders-recovery"' "$tmp/ecommerce_authz_tuples.json" >/dev/null
 
 python3 "$REPO_ROOT/scripts/check_schema_backcompat.py" \
   --output "$tmp/schema_backcompat_check.json" \
@@ -142,11 +142,11 @@ python3 "$REPO_ROOT/scripts/manage_record_recovery_service.py" render-systemd \
   --env-output "$tmp/record_recovery_unix.env" \
   > "$tmp/record_recovery_unix_render.json"
 python3 -m json.tool "$tmp/record_recovery_unix_render.json" >/dev/null
-rg -n "^User=rrsvc$" "$tmp/record_recovery_unix.service" >/dev/null
-rg -n "^Group=rrsvc$" "$tmp/record_recovery_unix.service" >/dev/null
-rg -n "^EnvironmentFile=/etc/seccomp/seccomp-record-recovery-unix.env$" "$tmp/record_recovery_unix.service" >/dev/null
-rg -n "run_record_recovery_service.py serve --transport unix_socket" "$tmp/record_recovery_unix.service" >/dev/null
-rg -n "^SSE_RECORD_RECOVERY_TOKEN=CHANGE_ME$" "$tmp/record_recovery_unix.env" >/dev/null
+grep -n "^User=rrsvc$" "$tmp/record_recovery_unix.service" >/dev/null
+grep -n "^Group=rrsvc$" "$tmp/record_recovery_unix.service" >/dev/null
+grep -n "^EnvironmentFile=/etc/seccomp/seccomp-record-recovery-unix.env$" "$tmp/record_recovery_unix.service" >/dev/null
+grep -n "run_record_recovery_service.py serve --transport unix_socket" "$tmp/record_recovery_unix.service" >/dev/null
+grep -n "^SSE_RECORD_RECOVERY_TOKEN=CHANGE_ME$" "$tmp/record_recovery_unix.env" >/dev/null
 python3 "$REPO_ROOT/scripts/manage_record_recovery_service.py" render-systemd \
   --config "$REPO_ROOT/config/record_recovery_http_service.example.json" \
   --unit-name seccomp-record-recovery-http \
@@ -157,10 +157,10 @@ python3 "$REPO_ROOT/scripts/manage_record_recovery_service.py" render-systemd \
   --env-output "$tmp/record_recovery_http.env" \
   > "$tmp/record_recovery_http_render.json"
 python3 -m json.tool "$tmp/record_recovery_http_render.json" >/dev/null
-rg -n "^After=network-online.target$" "$tmp/record_recovery_http.service" >/dev/null
-rg -n "^EnvironmentFile=/etc/seccomp/seccomp-record-recovery-http.env$" "$tmp/record_recovery_http.service" >/dev/null
-rg -n "run_record_recovery_service.py serve --transport http" "$tmp/record_recovery_http.service" >/dev/null
-rg -n "^SSE_RECORD_RECOVERY_TOKEN=CHANGE_ME$" "$tmp/record_recovery_http.env" >/dev/null
+grep -n "^After=network-online.target$" "$tmp/record_recovery_http.service" >/dev/null
+grep -n "^EnvironmentFile=/etc/seccomp/seccomp-record-recovery-http.env$" "$tmp/record_recovery_http.service" >/dev/null
+grep -n "run_record_recovery_service.py serve --transport http" "$tmp/record_recovery_http.service" >/dev/null
+grep -n "^SSE_RECORD_RECOVERY_TOKEN=CHANGE_ME$" "$tmp/record_recovery_http.env" >/dev/null
 python3 "$REPO_ROOT/scripts/benchmark_query_workflow.py" \
   --request-file "$REPO_ROOT/docs/examples/query_request.json" \
   --iterations 1 \
