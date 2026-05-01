@@ -111,6 +111,10 @@
         }
       }
     },
+    "request_timestamp_utc": {
+      "type": ["string", "null"],
+      "format": "date-time"
+    },
     "input_rows": {
       "type": ["integer", "null"]
     },

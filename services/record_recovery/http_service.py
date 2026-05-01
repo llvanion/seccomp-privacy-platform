@@ -7,6 +7,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
 from services.record_recovery.bootstrap import ensure_repo_paths
+from services.record_recovery.common import utc_now_iso, validate_request_timestamp
 from services.record_recovery.observability import (
     elapsed_ms,
     emit_structured_service_log,
@@ -145,6 +146,10 @@ class RecordRecoveryHttpHandler(BaseHTTPRequestHandler):
             token = self._auth_token()
             if token and not payload.get("auth_token"):
                 payload["auth_token"] = token
+            # Allow timestamp from header to override payload field
+            header_ts = self.headers.get("X-Request-Timestamp", "").strip()
+            if header_ts and not payload.get("request_timestamp_utc"):
+                payload["request_timestamp_utc"] = header_ts
             result = handle_record_recovery_service_payload(payload, self.server.service_state)
             if payload.get("op") == "recover":
                 append_record_recovery_service_audit(

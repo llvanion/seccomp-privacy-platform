@@ -378,7 +378,7 @@ python3 scripts/manage_record_recovery_service.py render-systemd \
 如果继续沿“独立服务化”推进，而不是继续堆本地 orchestration，我建议后续按这个顺序做：
 
 1. 把当前基线 `systemd` artifact 进一步收紧到专用 service user、专用 writable path 和更强的主机级 hardening
-2. 把 auth token 升级成正式 service-to-service auth
+2. ~~把 auth token 升级成正式 service-to-service auth~~ 部分完成 (2026-05-01)：请求级时间戳校验已实现 (`validate_request_timestamp`, ±30s 窗口)；client 强制携带 `request_timestamp_utc`；HTTP transport 通过 `X-Request-Timestamp` header 传递；`request_timestamp_utc` 写入 `sse_record_recovery_service_audit/v1`。完整 mutual TLS / signed token 仍需后续推进。
 3. 引入服务级 metrics / tracing / structured logs
 4. 把 authz policy 改成 SQL-backed control plane
 5. 把 audit seal / archive 从本地文件推进到外部锚定

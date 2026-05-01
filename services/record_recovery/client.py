@@ -8,7 +8,7 @@ import urllib.parse
 import urllib.request
 from pathlib import Path
 
-from services.record_recovery.common import ERROR_SCHEMA, HEALTH_SCHEMA, RESULT_SCHEMA
+from services.record_recovery.common import ERROR_SCHEMA, HEALTH_SCHEMA, RESULT_SCHEMA, utc_now_iso
 
 
 def _decode_result(raw: bytes) -> dict:
@@ -86,6 +86,9 @@ def _send_http_request(*, endpoint_url: str, payload: dict, auth_token: str) -> 
     if auth_token:
         headers["Authorization"] = f"Bearer {auth_token}"
         headers["X-Record-Recovery-Token"] = auth_token
+    ts = str(payload.get("request_timestamp_utc", "") or "").strip()
+    if ts:
+        headers["X-Request-Timestamp"] = ts
     req = urllib.request.Request(
         _http_operation_url(endpoint_url, op),
         data=json.dumps(payload, ensure_ascii=False).encode("utf-8"),
@@ -167,6 +170,7 @@ def request_record_recovery(
         payload["min_output_rows"] = min_output_rows
     if max_output_rows is not None:
         payload["max_output_rows"] = max_output_rows
+    payload["request_timestamp_utc"] = utc_now_iso()
     auth_token = _auth_token_from_env(auth_env)
     if auth_token:
         payload["auth_token"] = auth_token

@@ -10,6 +10,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from services.record_recovery.bootstrap import ensure_repo_paths
+from services.record_recovery.common import validate_request_timestamp
 from services.record_recovery.observability import (
     elapsed_ms,
     emit_structured_service_log,
@@ -191,6 +192,12 @@ def handle_record_recovery_service_payload(
         )
     if op != "recover":
         raise ValueError(f"unsupported record recovery service op: {op}")
+
+    ts_valid, ts_reason_code, ts_reason = validate_request_timestamp(
+        payload.get("request_timestamp_utc")
+    )
+    if not ts_valid:
+        raise PermissionError(f"record recovery request rejected: {ts_reason}")
 
     caller = str(payload.get("caller", ""))
     tenant_id = str(payload.get("tenant_id", "")).strip()
@@ -386,6 +393,7 @@ def append_record_recovery_service_audit(
             for item in filters
             if isinstance(item, list) and len(item) == 2
         ],
+        "request_timestamp_utc": str(payload.get("request_timestamp_utc", "")) or None,
         "input_rows": result.get("input_rows") if result is not None else None,
         "output_rows": result.get("output_rows") if result is not None else None,
         "duration_ms": duration_ms,

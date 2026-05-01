@@ -310,7 +310,7 @@
       "path": "schemas/sse_record_recovery_service_audit.schema.json",
       "schema_id": "sse_record_recovery_service_audit/v1",
       "required": ["schema", "ts_utc", "event", "service_id", "tenant_id", "dataset_id", "caller", "role", "auth_mode", "transport", "socket_path", "decision", "reason_code", "reason"],
-      "stable_properties": ["schema", "ts_utc", "event", "service_id", "tenant_id", "dataset_id", "caller", "correlation_id", "job_id", "role", "auth_mode", "transport", "socket_path", "endpoint_url", "authz_policy_config", "record_store_file", "record_store_sha256", "output_file", "output_file_type", "output_sha256", "join_key_field", "value_field", "candidate_count", "filters", "input_rows", "output_rows", "duration_ms", "decision", "reason_code", "reason"]
+      "stable_properties": ["schema", "ts_utc", "event", "service_id", "tenant_id", "dataset_id", "caller", "correlation_id", "job_id", "role", "auth_mode", "transport", "socket_path", "endpoint_url", "authz_policy_config", "record_store_file", "record_store_sha256", "output_file", "output_file_type", "output_sha256", "join_key_field", "value_field", "candidate_count", "filters", "request_timestamp_utc", "input_rows", "output_rows", "duration_ms", "decision", "reason_code", "reason"]
     }
   ]
 }

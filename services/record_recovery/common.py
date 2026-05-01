@@ -2,6 +2,7 @@
 import csv
 import hashlib
 import json
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -9,6 +10,45 @@ from typing import Any
 RESULT_SCHEMA = "sse_record_recovery_result/v1"
 ERROR_SCHEMA = "sse_record_recovery_error/v1"
 HEALTH_SCHEMA = "sse_record_recovery_health/v1"
+
+REQUEST_TIMESTAMP_MAX_SKEW_SEC = 30
+
+
+def utc_now_iso() -> str:
+    return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+
+
+def validate_request_timestamp(
+    ts_str: str | None,
+    *,
+    max_skew_sec: int = REQUEST_TIMESTAMP_MAX_SKEW_SEC,
+) -> tuple[bool, str, str]:
+    """Validate a request timestamp against the current time.
+
+    Returns (valid, reason_code, reason). A missing timestamp is accepted
+    (returns True) so the check is opt-in for backward compatibility.
+    A present but malformed or stale timestamp is always rejected.
+    """
+    if not ts_str:
+        return True, "ok", "no timestamp provided"
+    try:
+        s = ts_str.strip()
+        if s.endswith("Z"):
+            s = s[:-1] + "+00:00"
+        req_dt = datetime.fromisoformat(s)
+        if req_dt.tzinfo is None:
+            req_dt = req_dt.replace(tzinfo=timezone.utc)
+        now_dt = datetime.now(timezone.utc)
+        skew = abs((now_dt - req_dt).total_seconds())
+        if skew > max_skew_sec:
+            return (
+                False,
+                "request_timestamp_expired",
+                f"request_timestamp_utc is {skew:.1f}s from server time (max {max_skew_sec}s)",
+            )
+    except Exception:
+        return False, "request_timestamp_invalid", f"request_timestamp_utc could not be parsed: {ts_str!r}"
+    return True, "ok", "timestamp ok"
 
 
 class HashingTextWriter:

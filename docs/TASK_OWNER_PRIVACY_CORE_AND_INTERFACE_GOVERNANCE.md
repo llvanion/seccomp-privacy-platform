@@ -210,8 +210,8 @@ bash scripts/check_json_contracts.sh
 
 按 [PLATFORM_LEVEL_REMAINING_ESTIMATE.md](/home/llvanion/Desktop/seccomp-privacy-platform/docs/PLATFORM_LEVEL_REMAINING_ESTIMATE.md) 的统一口径，这条 owner 主线从“当前原型”推进到“平台基线版”还需要：
 
-1. `7 blocks`（原 10，Block3 + Block4 已完成）
-2. 约 `35h`
+1. `6 blocks`（原 10，Block3 + Block4 已完成，Block1 部分完成）
+2. 约 `30h`
 
 这里的“平台基线版”指：
 
@@ -222,7 +222,8 @@ bash scripts/check_json_contracts.sh
 已完成收口：
 
 1. `audit seal / archive` 已经补到本地 append-only 锚点基线：`audit_chain_index.jsonl` 之外，归档流程现在还会生成 `audit_chain_anchor.jsonl`，并在 archive-backed verify 时回放整条锚点链。
-2. **Block3 ✓（2026-05-01）**：bridge/PJC compatibility 与 normalization version 治理基线已完成。bridge 现在在 `job_meta.json` 和 bridge audit 中嵌入 `NORMALIZER_SCHEMA_VERSION = "normalizer-schema/v1"` 作为代码级常量（区别于调用方提供的 `normalize_version`）；`bridge_job_meta.schema.json` 现在要求 `normalizer_schema_version` 并对 `bridge.server` / `bridge.client` 的 `normalizer` 字段强制限定为已知枚举值；`validate_bridge_job.py` 在 PJC 运行前检查 `KNOWN_NORMALIZER_SCHEMA_VERSIONS` 和 `KNOWN_NORMALIZERS`，拒绝任何来自未知 normalizer 实现的 job。
+2. **Block1 partial ✓（2026-05-01）**：record recovery 请求级时间戳反重放校验已实现。`validate_request_timestamp(±30s)` 加入 `services/record_recovery/common.py`；Unix-socket 和 HTTP 服务均在 `recover` op 前校验；client 强制携带 `request_timestamp_utc`；`request_timestamp_utc` 写入 `sse_record_recovery_service_audit/v1` 并加入 backcompat baseline stable properties。剩余 3 blocks：systemd 主机级 hardening、全量 service-to-service auth、authz SQL 后端。
+3. **Block3 ✓（2026-05-01）**：bridge/PJC compatibility 与 normalization version 治理基线已完成。bridge 现在在 `job_meta.json` 和 bridge audit 中嵌入 `NORMALIZER_SCHEMA_VERSION = "normalizer-schema/v1"` 作为代码级常量（区别于调用方提供的 `normalize_version`）；`bridge_job_meta.schema.json` 现在要求 `normalizer_schema_version` 并对 `bridge.server` / `bridge.client` 的 `normalizer` 字段强制限定为已知枚举值；`validate_bridge_job.py` 在 PJC 运行前检查 `KNOWN_NORMALIZER_SCHEMA_VERSIONS` 和 `KNOWN_NORMALIZERS`，拒绝任何来自未知 normalizer 实现的 job。
 
 建议拆分：
 
