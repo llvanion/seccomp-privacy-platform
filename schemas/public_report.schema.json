@@ -73,7 +73,16 @@
       "minimum": 0
     },
     "conversions": {
-      "type": ["integer", "null"]
+      "type": ["integer", "string", "null"]
+    },
+    "conversions_exact_suppressed": {
+      "type": "boolean"
+    },
+    "dp_noise_applied": {
+      "type": "boolean"
+    },
+    "dp_epsilon": {
+      "type": ["number", "null"]
     },
     "value_sum": {
       "type": ["integer", "number", "string", "null"]

@@ -100,6 +100,16 @@
     "parsed_metrics": {
       "type": "object"
     },
+    "duration_ms": {
+      "type": ["integer", "null"],
+      "minimum": 0
+    },
+    "dp_noise_applied": {
+      "type": "boolean"
+    },
+    "dp_epsilon": {
+      "type": ["number", "null"]
+    },
     "decision": {
       "enum": ["allow", "deny"]
     },

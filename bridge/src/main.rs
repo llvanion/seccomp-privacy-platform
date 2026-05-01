@@ -4,7 +4,7 @@ use std::io::{BufRead, BufReader, Read, Write};
 #[cfg(unix)]
 use std::os::unix::fs::FileTypeExt;
 use std::path::{Path, PathBuf};
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::time::{Instant, SystemTime, UNIX_EPOCH};
 
 use anyhow::{Context, Result, bail};
 use clap::{Parser, Subcommand, ValueEnum};
@@ -241,11 +241,12 @@ fn main() -> Result<()> {
 }
 
 fn run_generate_with_failure_audit(args: GenerateArgs) -> Result<()> {
+    let started_at = Instant::now();
     let audit_path = args
         .audit_log
         .clone()
         .unwrap_or_else(|| args.out_dir.join("bridge_audit.jsonl"));
-    match run_generate(args.clone()) {
+    match run_generate(args.clone(), started_at) {
         Ok(()) => Ok(()),
         Err(err) => {
             let _ = append_bridge_audit(
@@ -261,6 +262,7 @@ fn run_generate_with_failure_audit(args: GenerateArgs) -> Result<()> {
                     "output_dir": best_effort_path_display(&args.out_dir),
                     "production_mode": production_mode_enabled(args.production_mode),
                     "token_secret_source": token_secret_source(&args.token_secret, &args.token_secret_env),
+                    "duration_ms": started_at.elapsed().as_millis() as u64,
                     "decision": "deny",
                     "reason_code": "bridge_generate_failed",
                     "error": format!("{:#}", err)
@@ -271,7 +273,7 @@ fn run_generate_with_failure_audit(args: GenerateArgs) -> Result<()> {
     }
 }
 
-fn run_generate(args: GenerateArgs) -> Result<()> {
+fn run_generate(args: GenerateArgs, started_at: Instant) -> Result<()> {
     let production_mode = production_mode_enabled(args.production_mode);
     let token_secret =
         resolve_token_secret(&args.token_secret, &args.token_secret_env, production_mode)?;
@@ -381,6 +383,7 @@ fn run_generate(args: GenerateArgs) -> Result<()> {
             "dedup_policy": meta.dedup_policy,
             "production_mode": production_mode,
             "token_secret_source": token_secret_source(&args.token_secret, &args.token_secret_env),
+            "duration_ms": started_at.elapsed().as_millis() as u64,
             "decision": "allow",
             "reason_code": "ok"
         }),
@@ -397,11 +400,12 @@ fn run_generate(args: GenerateArgs) -> Result<()> {
 }
 
 fn run_prepare_job_with_failure_audit(args: PrepareJobArgs) -> Result<()> {
+    let started_at = Instant::now();
     let audit_path = args
         .audit_log
         .clone()
         .unwrap_or_else(|| args.out_dir.join("bridge_audit.jsonl"));
-    match run_prepare_job(args.clone()) {
+    match run_prepare_job(args.clone(), started_at) {
         Ok(()) => Ok(()),
         Err(err) => {
             let _ = append_bridge_audit(
@@ -419,6 +423,7 @@ fn run_prepare_job_with_failure_audit(args: PrepareJobArgs) -> Result<()> {
                     "output_dir": best_effort_path_display(&args.out_dir),
                     "production_mode": production_mode_enabled(args.production_mode),
                     "token_secret_source": token_secret_source(&args.token_secret, &args.token_secret_env),
+                    "duration_ms": started_at.elapsed().as_millis() as u64,
                     "decision": "deny",
                     "reason_code": "bridge_prepare_job_failed",
                     "error": format!("{:#}", err)
@@ -429,7 +434,7 @@ fn run_prepare_job_with_failure_audit(args: PrepareJobArgs) -> Result<()> {
     }
 }
 
-fn run_prepare_job(args: PrepareJobArgs) -> Result<()> {
+fn run_prepare_job(args: PrepareJobArgs, started_at: Instant) -> Result<()> {
     let production_mode = production_mode_enabled(args.production_mode);
     let token_secret =
         resolve_token_secret(&args.token_secret, &args.token_secret_env, production_mode)?;
@@ -554,6 +559,7 @@ fn run_prepare_job(args: PrepareJobArgs) -> Result<()> {
             "dedup_policy": meta.pointer("/bridge/dedup_policy").and_then(Value::as_str).unwrap_or(""),
             "production_mode": production_mode,
             "token_secret_source": token_secret_source(&args.token_secret, &args.token_secret_env),
+            "duration_ms": started_at.elapsed().as_millis() as u64,
             "decision": "allow",
             "reason_code": "ok"
         }),

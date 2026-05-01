@@ -19,7 +19,7 @@ intersection_size=2
 intersection_sum=425
 ```
 
-Latest local verification: file-mode pipeline with key-id resolution, HMAC audit seal, tabular contracts, and `--deny-duplicate-query` passed; FIFO handoff pipeline also passed. Both produced `intersection_size=2` and `intersection_sum=425`. Contract smoke checks passed after adding `record_recovery_boundary=service_socket` plus service-audit contracts, Unix-socket record-recovery smoke tests verified both the allow path and a service-side caller-allowlist deny path, a file-mode integrated pipeline using the local key-agent path (`--token-secret-key-name bridge-token --keyring config/keyring.example.json`) completed with `intersection_size=2` and `intersection_sum=425`, a file-mode integrated pipeline using the external HTTP KMS path (`--token-secret-key-name bridge-token --external-kms-config config/external_kms.example.json`) completed with `intersection_size=2` and `intersection_sum=425`, live SSE-backed end-to-end runs completed with `intersection_size=2` and `intersection_sum=425` for both `--record-recovery-service-mode auto` plus `--record-recovery-authz-config config/record_recovery_service_policy.example.json`, the combined local key-agent path, and the combined external KMS path, contract smoke checks now also validate local audit-bundle archiving through `audit_archive_index/v1`, the recovery-service health contract `record_recovery_service_health/v1`, and the shared recovery-service config contract `record_recovery_service_config/v1`, and targeted follow-up checks verified that the unified export policy now resolves caller-scoped `tenant_id` / `dataset_id` / `service_id`, that SSE export audit records those scope fields, and that record-recovery service request handling and service audit use the same scope contract.
+Latest local verification: file-mode pipeline with key-id resolution, HMAC audit seal, tabular contracts, and `--deny-duplicate-query` passed; FIFO handoff pipeline also passed. Both produced `intersection_size=2` and `intersection_sum=425`. Contract smoke checks passed after adding `record_recovery_boundary=service_socket` plus service-audit contracts, Unix-socket record-recovery smoke tests verified both the allow path and a service-side caller-allowlist deny path, standalone HTTP record-recovery service smoke now also passes for startup, health, recover, and service-audit validation via `record_recovery_service_config/v1`, the standalone record-recovery benchmark now also passes its Unix-socket direct `recover` mode after wiring the service-level `max_rows_per_request` cap into the Unix-socket server state, a file-mode integrated pipeline using the local key-agent path (`--token-secret-key-name bridge-token --keyring config/keyring.example.json`) completed with `intersection_size=2` and `intersection_sum=425`, a file-mode integrated pipeline using the external HTTP KMS path (`--token-secret-key-name bridge-token --external-kms-config config/external_kms.example.json`) completed with `intersection_size=2` and `intersection_sum=425`, live SSE-backed end-to-end runs completed with `intersection_size=2` and `intersection_sum=425` for both `--record-recovery-service-mode auto` plus `--record-recovery-authz-config config/record_recovery_service_policy.example.json`, the combined local key-agent path, and the combined external KMS path, contract smoke checks now also validate local audit-bundle archiving through `audit_archive_index/v1`, append-only archive anchoring through `audit_archive_anchor/v1`, archive/direct verification reports through `audit_bundle_verification/v1`, the recovery-service health contract `record_recovery_service_health/v1`, the shared recovery-service config contract `record_recovery_service_config/v1`, generated baseline `systemd` unit/env artifacts for both Unix-socket and HTTP recovery-service configs, loopback/private HTTP proxy bypass for the local record-recovery and external-KMS service checks, the new SQLite metadata sidecar path (`init_metadata_db.py -> import_run_metadata.py -> query_metadata.py -> manage_metadata_db.py -> export_authz_tuples.py`) against a synthetic run bundle including `metadata_db_status/v1`, `metadata_db_backup/v1`, `metadata_db_export/v1`, and `authz_tuple_export/v1`, stage-level `duration_ms` propagation from SSE export / recovery service / bridge / PJC / policy audit into `pipeline_observability/v1`, and the explicit retained/cleaned/removed handoff cleanup summary now emitted in the synthetic pipeline/live benchmark fixtures; targeted follow-up checks verified that the unified export policy now resolves caller-scoped `tenant_id` / `dataset_id` / `service_id`, that SSE export audit records those scope fields, that record-recovery service request handling and service audit use the same scope contract, that the new tuple-export baseline preserves disabled subjects while only emitting active tuples for enabled callers, that archive-backed audit verification now replays a locally append-only anchor chain with optional HMAC signature verification, and that the unified CI smoke now directly compiles `services/record_recovery/*.py` plus the `sse/toolkit` compatibility shims before running contract smoke.
 
 ## Current Security Boundary
 
@@ -28,26 +28,42 @@ Implemented:
 - SSE export policy gate is required by default unless explicit unsafe flag is used.
 - SSE export audit writes hashes, row counts, caller, job id, candidate source, record-store hash, and decision.
 - SSE export audit includes `correlation_id`, output handoff type, and a write-time output hash so FIFO handoff streams can still be audited.
+- SSE export, record-recovery service audit, bridge audit, PJC audit, and policy audit now also carry stage-local `duration_ms` so `pipeline_observability/v1` can surface stable stage durations without inferring them from adjacent timestamps.
 - `--sse-keyword` makes export query SSE first and filter by returned candidate IDs.
-- `create-encrypted-record-store` builds a local encrypted record store with:
+- `create-encrypted-record-store` builds a local encrypted record store through `services/record_recovery/encrypted_record_store.py` with:
   - PBKDF2HMAC-SHA256
   - AES-256-GCM
   - keyed HMAC-SHA256 record-id tags instead of raw record IDs
   - passphrase read from env var, not CLI
 - `export-bridge-records` can recover candidate rows from `--record-store-path` with `--record-store-key-env`.
-- Encrypted record-store recovery now runs through `toolkit.record_recovery_worker` as a subprocess boundary; candidate IDs and filters go over stdin, the worker writes the bridge handoff directly, and the parent export command only receives non-sensitive metadata.
-- `run_client.py serve-record-recovery` provides a long-running Unix-socket recovery service; `export-bridge-records` and `scripts/run_sse_bridge_pipeline.sh` can target it with `--record-recovery-service-config` or `--record-recovery-socket` and optional `--record-recovery-auth-env`, and SSE export audit records `record_recovery_boundary=service_socket`.
+- Encrypted record-store recovery now runs through `services.record_recovery.worker` as a subprocess boundary; candidate IDs and filters go over stdin, the worker writes the bridge handoff directly, and the parent export command only receives non-sensitive metadata. `sse/toolkit/record_recovery_worker.py` remains a compatibility shim.
+- `scripts/run_record_recovery_service.py` is the preferred standalone recovery-service launcher; `run_client.py serve-record-recovery` remains a compatibility entrypoint. `export-bridge-records` and `scripts/run_sse_bridge_pipeline.sh` can target it with `--record-recovery-service-config` or direct socket/endpoint options, and SSE export audit records `record_recovery_boundary=service_socket` or `service_http`.
 - `run_client.py serve-record-recovery` now binds `service_id`, `tenant_id`, and `dataset_id` through `record_recovery_service_config/v1`, reports them in `record_recovery_service_health/v1`, and records them in `sse_record_recovery_service_audit/v1`.
-- `run_client.py serve-record-recovery` also supports optional `--authz-config` with either the unified `sse_export_policy/v1` or the older `record_recovery_service_policy/v1`, so the recovery boundary can reuse the same caller/tenant/dataset/service contract as export and pipeline validation while retaining backward compatibility for the narrower service-only policy.
+- `run_client.py serve-record-recovery` also supports optional `--authz-config` with either the unified `sse_export_policy/v1` or the older `record_recovery_service_policy/v1`, so the recovery boundary can reuse the same caller/tenant/dataset/service contract as export and pipeline validation while retaining backward compatibility for the narrower service-only policy; the authz evaluator now lives under `services/record_recovery/authz.py`.
+- Unix-socket and HTTP record-recovery service adapters now live under `services/record_recovery/` and emit `record_recovery_service_log/v1` JSONL runtime logs for start, request, and stop events, including request IDs, duration, decision, reason code, transport, and non-sensitive scope fields; contract smoke validates those logs for both transports.
+- `scripts/manage_record_recovery_service.py render-systemd` now renders a baseline `systemd` unit plus env template from the same `record_recovery_service_config/v1` contract used by manual service mode, so operators can promote the standalone launcher into a dedicated service-user lifecycle without changing pipeline/export integration semantics.
+- Recovery result/health/error payload helpers and bridge-row selection/output helpers now live under `services/record_recovery/common.py`; `sse/toolkit/record_recovery_common.py` remains a compatibility shim for the existing worker/client import paths.
+- Encrypted record-store creation and candidate-row reading now live under `services/record_recovery/encrypted_record_store.py`; `sse/toolkit/encrypted_record_store.py` remains a compatibility shim.
 - `scripts/run_sse_bridge_pipeline.sh` defaults to `--record-recovery-service-mode auto` when encrypted record stores are used, so it can auto-start and tear down a local recovery service instead of requiring a separate manual startup step.
 - `scripts/run_sse_bridge_pipeline.sh` now also accepts `--record-recovery-authz-config` for that auto-started service path and validates it against `schemas/record_recovery_service_policy.schema.json`.
 - Auto recovery-service mode now defaults to a short `/tmp/seccomp_rr_<hash>.sock` Unix socket path when the caller does not provide one, which avoids `AF_UNIX path too long` failures for deep output directories.
 - `run_client.py serve-record-recovery` now also supports `--socket-mode`, `--pid-file`, and `--ready-file`, so the local Unix-socket boundary can be supervised more like a real service process.
-- `sse/toolkit/record_recovery_client.py` now centralizes the recovery-service socket protocol so the SSE export path, manual health checks, and pipeline orchestration use the same request/response handling.
+- `services/record_recovery/client.py` now centralizes the recovery-service socket/HTTP protocol so the SSE export path, manual health checks, and pipeline orchestration use the same request/response handling; `sse/toolkit/record_recovery_client.py` remains a compatibility shim.
 - The recovery service now also answers `op=health` with `sse_record_recovery_health/v1`, and the integrated pipeline records `record_recovery_service_health.json` before using a manual or auto-started service.
 - `scripts/manage_record_recovery_service.py` now provides `start`, `status`, and `stop` lifecycle commands for the recovery service outside the pipeline auto-start path.
-- `sse/toolkit/record_recovery_service_config.py`, `schemas/record_recovery_service_config.schema.json`, and `config/record_recovery_service.example.json` now provide a shared config source for manual service management, health probes, `run_client.py serve-record-recovery --config`, direct `export-bridge-records --record-recovery-service-config`, and pipeline-side `--record-recovery-service-config`.
+- `services/record_recovery/config.py`, `schemas/record_recovery_service_config.schema.json`, and `config/record_recovery_service.example.json` now provide a shared config source for manual service management, health probes, `run_client.py serve-record-recovery --config`, direct `export-bridge-records --record-recovery-service-config`, and pipeline-side `--record-recovery-service-config`; `sse/toolkit/record_recovery_service_config.py` remains a compatibility shim.
 - `scripts/run_sse_bridge_pipeline.sh` now materializes `sse_exports/record_recovery_service_config.json` as the effective recovery-service runtime config and reuses it for service health checks, manager start/stop, and export-side client wiring; `run_live_sse_bridge_demo.sh` now records that artifact and the resolved lifecycle paths in its manifest.
+- `scripts/check_mainline_contract.py` now treats recovery-service artifacts as per-role contract inputs, cross-checking the latest `server` and `client` `sse_record_recovery_service_audit/v1` records against the matching SSE export audit entries for `job_id`, `correlation_id`, `caller`, scope fields, role, join/value fields, candidate count, record-store path/hash, filter hashes, transport, output path/type/hash, and input/output row counts instead of only inspecting the last service-audit record.
+- `scripts/check_json_contracts.sh` now invokes the HTTP `expect-http-deny` recovery smoke directly, so the service-scope mismatch path is treated as a successful deny assertion instead of being incorrectly wrapped in the shell-level `expect_failure` helper.
+- The synthetic completed-run fixtures used by `scripts/check_json_contracts.sh` and `scripts/benchmark_read_adapters.py` now also keep the client-side SSE export audit aligned with the matching recovery-service audit for filter hashes, record-store SHA-256, and output path, so owner-scope contract checks exercise the same field-level invariants as real service-boundary runs.
+- `scripts/archive_audit_bundle.py`, `scripts/verify_audit_bundle.py`, and `scripts/check_platform_health.py` now also expose a compact `service_audit_consistency` summary derived from `mainline_contract_check/v1`, so archive-index review, verification reports, and completed-run platform health can surface per-role `server` / `client` recovery-service consistency as `ok`, `fail`, or `not_applicable` without re-reading the full finding list.
+- `scripts/export_observability_events.py` now also emits a derived `service_audit_consistency` stage for `server` and `client`, sourced from the embedded `mainline_contract_check/v1` payload plus the role-local `record_recovery_boundary` values in SSE export audit, so observability consumers can see whether each side used a recovery-service boundary and whether that boundary stayed contract-consistent.
+- `scripts/export_catalog_lineage.py` now also carries that embedded `mainline_contract_summary`, including per-role `service_audit_consistency`, so catalog/lineage consumers can see the same recovery-service boundary verdicts as observability, archive verify, and platform health without reopening the full owner finding list.
+- `scripts/query_metadata.py` now also attaches the same compact `mainline_contract_summary` to metadata job-detail responses and per-job list rows by loading the recorded `audit_chain_path`, so metadata CLI/API consumers can see handoff cleanup state plus per-role `service_audit_consistency` without leaving the metadata read surface.
+- `scripts/query_metadata.py` jobs-list responses now also expose a top-level `mainline_contract_summary_counts` rollup over the returned jobs, so metadata list consumers can see embedded-mainline, handoff-cleanup, and per-role `service_audit_consistency` distributions without scanning every row client-side.
+- `scripts/query_metadata.py` `grouped_status_summary` buckets now also carry their own `mainline_contract_summary_counts`, and status CSV/TSV exports include the key owner-summary count columns, so grouped status views no longer need to recompute handoff-cleanup or recovery-service consistency distributions outside the CLI/API.
+- `scripts/query_metadata.py` `grouped_stage_summary` buckets now also carry the same `mainline_contract_summary_counts`, and stage TSV/CSV exports include the key owner-summary count columns, so stage-group rollups stay symmetric with grouped status and top-level jobs-list summaries.
+- `scripts/query_metadata.py` `caller-permissions` entity responses now also expose a richer `permission_summary` for the current caller slice, including caller count, resolved tenant IDs, allowed dataset/service IDs, coarse permission booleans like `can_run_bridge`, `can_run_pjc`, `can_release`, and `can_use_record_recovery_service`, plus `enabled_counts`, `platform_role_counts`, `callers_by_platform_role`, and per-caller `access_profiles`, so current file-backed authz state is easier to audit as a compact role matrix through metadata CLI/API.
 - `scripts/run_live_sse_bridge_demo.sh` wraps local SSE server startup/reuse, fresh demo-service bootstrap, normalized demo-data generation, encrypted record-store creation, the live pipeline run, and manifest writing for reproducible one-command verification.
 - `scripts/run_live_sse_bridge_demo.sh` now derives `RUN_ROOT`-dependent paths after argument parsing, so `--run-root`, `--state-base`, and `--out-base` actually propagate through the whole live path; when authz config is enabled and no explicit roots are provided, it defaults to `/tmp/seccomp_live_sse_bridge_demo` so the example authz policy stays aligned.
 - `scripts/run_live_sse_bridge_demo.sh` now also bridges the demo token secret into the active keyring env when `--token-secret-key-name` plus `--keyring` is used, so the live wrapper can exercise the full key-agent path instead of only direct token-secret injection.
@@ -56,6 +72,7 @@ Implemented:
 - `scripts/run_sse_bridge_pipeline.sh` now honors `BRIDGE_BIN`, so engineering environments can swap `cargo run --` for a prebuilt bridge command without editing the orchestrator.
 - The recovery service can enforce `--allowed-caller`, emit `sse_record_recovery_service_audit/v1` records, and `scripts/build_audit_chain.py` can include that audit stream in `audit_chain.json`.
 - `scripts/run_sse_bridge_pipeline.sh --sse-export-handoff-mode fifo` streams bridge-ready plaintext through named pipes into the Rust bridge instead of persisting `sse_exports/server.csv` and `client.csv`.
+- `scripts/run_sse_bridge_pipeline.sh` now cleans managed file-mode `sse_exports/server.csv` and `client.csv` after `bridge prepare-job` by default; explicit `--keep-sse-export-handoff-files` remains available as an audited compatibility/debug mode, and the query/workflow adapter preserves that distinction instead of silently drifting to the new default.
 - Bridge supports production mode, bridge audit, metadata schema, and env-based token secret.
 - Bridge and policy-release audits include `correlation_id`; policy release also records `pjc_result_sha256`.
 - `scripts/resolve_key_access.py` resolves a local key manifest entry to an env-var secret reference, enforces active/purpose checks, and writes `key_access_audit/v1` without printing the secret.
@@ -67,20 +84,55 @@ Implemented:
 - `scripts/write_pjc_audit.py` appends `pjc_audit/v1` records for the PJC stage, including deny records on failure.
 - `scripts/build_audit_chain.py` writes a correlated `audit_chain.json` view for SSE export, optional record-recovery service audit, bridge, PJC audit, PJC result, public report, policy release audit, and optional key access audit.
 - `scripts/seal_audit_artifact.py` writes `audit_chain.seal.json` with the audit-chain SHA-256 and optional HMAC-SHA256 signature from `--audit-seal-key-env`.
-- `scripts/archive_audit_bundle.py` can copy `audit_chain.json` plus `audit_chain.seal.json` into a local archive dir and append an `audit_archive_index/v1` record for indexed retention.
+- `scripts/archive_audit_bundle.py` can copy `audit_chain.json` plus `audit_chain.seal.json` into a local archive dir, append an `audit_archive_index/v1` record for indexed retention, and append an `audit_archive_anchor/v1` record for a local append-only anchor log; `scripts/verify_audit_bundle.py` verifies direct or archived bundles, replays that anchor chain for archive-backed verification, and can restore verified copies.
 - `policy_release.py --deny-duplicate-query` can reject exact repeated canonical query signatures for the same caller.
-- `scripts/check_json_contracts.sh` runs the local schema/contract smoke checks; `.github/workflows/json-contracts.yml` wires it into GitHub Actions.
+- `scripts/check_ci_smoke.sh` runs Python compile checks for both `services/record_recovery/*.py` and the `sse/toolkit` compatibility shims, `scripts/check_record_recovery_boundary.py` to keep old recovery toolkit files compatibility-only, shell syntax checks, repo hygiene, and the local schema/contract smoke suite; the recovery contract smoke now calls `services.record_recovery.encrypted_record_store` and `services.record_recovery.client` directly instead of routing those checks through legacy toolkit shims, validates the boundary-check output as `record_recovery_boundary_check/v1`, and now also validates query-wrapper request/manifest/API envelopes against `schemas/query_workflow_*.schema.json`. `.github/workflows/json-contracts.yml` wires it into GitHub Actions with SSE Python dependencies installed.
+- `scripts/check_json_contracts.sh` now also validates synthetic `pipeline_benchmark/v1` and `live_sse_benchmark/v1` fixtures plus their expected default-file, retained-file, and FIFO mode/command surfaces, so retained-handoff benchmark drift is caught without running the heavy benchmarks in default contract smoke.
+- `scripts/check_json_contracts.sh` now also validates a synthetic `pjc_benchmark/v1` fixture plus the expected single-mode command and checked-in bridge-fixture surface, so PJC benchmark contract drift is caught without starting the PJC runtime in default contract smoke.
+- `scripts/build_benchmark_contract_fixtures.py` now owns those synthetic pipeline/live/PJC benchmark fixtures, so benchmark-surface guardrails no longer live inline inside `scripts/check_json_contracts.sh`.
+- `scripts/check_benchmark_smoke_reports.py` now owns the semantic assertions for query/read/record-recovery/audit/platform-health/derived benchmark reports, so default benchmark-smoke checks no longer live in large inline Python blocks inside `scripts/check_json_contracts.sh`.
+- `scripts/check_platform_api_smoke_reports.py` now owns the query-wrapper plus query/metadata/audit/platform-health API smoke assertions, so those response/lifecycle checks also no longer live inline inside `scripts/check_json_contracts.sh`; it also treats `handoff_cleanup.status=retained` as a valid platform-health compatibility state alongside `cleaned` and `removed`.
+- `scripts/check_contract_smoke_reports.py` now owns the audit-bundle verify/restore assertions, metadata CLI rollup/entity assertions, metadata TSV/CSV export assertions, and repo-hygiene report assertion, so the tail of `scripts/check_json_contracts.sh` is also down to helper calls instead of inline Python.
+- `scripts/check_pipeline_artifact_smoke_reports.py` now owns the completed-run artifact assertions for `mainline_contract_check`, `audit_chain`, `pipeline_observability`, and `catalog_lineage`, so those mainline output invariants are no longer asserted inline in `scripts/check_json_contracts.sh`.
+- `scripts/build_query_workflow_request_fixtures.py` now owns the default and retained-handoff query request fixtures, and `scripts/materialize_platform_api_smoke_reports.py` now owns direct HTTP response capture for query/metadata/audit/platform-health API smoke, so those request/response materialization blocks also no longer live inline in `scripts/check_json_contracts.sh`.
+- `scripts/build_runtime_contract_smoke_configs.py` now owns the external-KMS plus Unix-socket/HTTP record-recovery service config fixtures, and `scripts/record_recovery_contract_smoke_helpers.py` now owns the record-store build plus HTTP recover/export helper actions and validations. `scripts/check_json_contracts.sh` no longer embeds heredoc Python blocks for these runtime-smoke paths.
+- `scripts/runtime_service_helpers.py` now owns shared available-port allocation, TCP readiness checks, JSON `/healthz` polling, and `started_pid` field extraction. `scripts/check_json_contracts.sh`, `scripts/run_sse_bridge_pipeline.sh`, `scripts/run_live_sse_bridge_demo.sh`, and the query/read/platform-health/record-recovery/PJC benchmark wrappers now reuse it instead of duplicating inline socket/health snippets.
 
 Remaining main risk:
 
-- The default bridge-ready CSV/JSONL handoff is still plaintext by design. FIFO handoff plus the Unix-socket recovery service reduce local plaintext exposure, but the service is still a local process boundary rather than a separately deployed/authenticated production service.
+- The default bridge-ready CSV/JSONL handoff is still plaintext by design. FIFO handoff plus the Unix-socket recovery service reduce local plaintext exposure, and the repo can now render baseline `systemd` deploy artifacts for that service, but the boundary is still not a separately deployed/authenticated production service.
 - The repo now has a shared caller/tenant/dataset/service policy baseline across export, pipeline, and recovery-service checks, but it is still file-config based rather than a durable SQL/control-plane permission system.
 - Key management now has both a local key-agent/keyring boundary and a mock external HTTP KMS boundary, but both still depend on env-backed secret refs rather than a real KMS/HSM secret backend.
-- SQL/platform metadata layer has not been added; add later for jobs/policies/audits/service registry, not as a replacement for SSE crypto core.
+- A first-stage SQL/platform metadata sidecar now exists for jobs/policies/audits/service registry import and query, but it is still SQLite-based, post-run, and read-only relative to the main pipeline.
+- A first-stage ops sidecar health probe now exists for record-recovery endpoints, key-agent sockets, external KMS health, completed pipeline run artifacts, and metadata DB sanity checks; it is read-only and does not change lifecycle state.
+- A lightweight repository hygiene scan now exists for high-confidence secret patterns and tracked generated artifacts; `bridge/target/` is ignored and removed from Git tracking.
+- A lightweight offline dependency hygiene check now scans first-party `requirements*.txt` and `Cargo.toml` manifests for basic reproducibility issues while skipping vendored/generated external snapshots.
+- A lightweight smoke benchmark wrapper now emits `smoke_benchmark/v1` timing reports for hygiene, contract, or CI-smoke checks.
+- Read-side benchmark coverage now also has `scripts/benchmark_read_adapters.py`, which materializes a synthetic completed-run bundle plus sidecar DB and emits `read_adapter_benchmark/v1` for metadata job/jobs/entity and audit-chain/public-report/observability/catalog-lineage read adapters; metadata job and jobs-list modes now also pin the embedded `mainline_contract_summary` semantics, including handoff cleanup and per-role `service_audit_consistency`, while metadata entity modes now pin a synthetic multi-role policy fixture and the caller-scoped `permission_summary` role-matrix fields.
+- Record-recovery service benchmark coverage now also has `scripts/benchmark_record_recovery.py`, which materializes a synthetic encrypted record store plus temporary standalone service configs and emits `record_recovery_benchmark/v1` for Unix-socket and HTTP health/recover operations.
+- Full-pipeline benchmark coverage now also has `scripts/benchmark_pipeline.py`, which runs `scripts/run_sse_bridge_pipeline.sh` over both file and FIFO handoff modes and emits `pipeline_benchmark/v1` after validating `intersection_size=2` and `intersection_sum=425`.
+- PJC-only benchmark coverage now also has `scripts/benchmark_pjc.py`, which runs `a-psi/moduleA_psi/scripts/run_pjc.sh` against the checked-in `bridge/out/sse_demo_job/` fixture and emits `pjc_benchmark/v1` after validating `intersection_size=2` and `intersection_sum=425`.
+- Live SSE benchmark coverage now also has `scripts/benchmark_live_sse_demo.py`, which runs `scripts/run_live_sse_bridge_demo.sh` over both file and FIFO handoff modes and emits `live_sse_benchmark/v1` after normalizing the released amount back to `425` cents from display/raw/cents public-report fields.
+- Audit-bundle benchmark coverage now also has `scripts/benchmark_audit_bundle.py`, which runs `scripts/archive_audit_bundle.py` plus direct/archive-index/restore flows in `scripts/verify_audit_bundle.py` over a synthetic HMAC-sealed fixture and emits `audit_bundle_benchmark/v1`.
+- Platform-health benchmark coverage now also has `scripts/benchmark_platform_health.py`, which runs the platform-health CLI, HTTP API, and `platform_api_client.py` over synthetic pipeline-run and metadata-db fixtures and emits `platform_health_benchmark/v1`.
+- Derived-views benchmark coverage now also has `scripts/benchmark_derived_views.py`, which runs `scripts/export_observability_events.py` plus default/include-paths modes of `scripts/export_catalog_lineage.py` over a synthetic audit_chain fixture and emits `derived_views_benchmark/v1`.
+- Default contract smoke now also performs semantic assertions on the synthetic benchmark reports instead of only validating schema shape: it checks dry-run/query mode coverage, read-adapter mode coverage, record-recovery transport and recover-row invariants, audit-bundle verify/restore flags, platform-health component sets with restricted-environment CLI fallback, and derived-view path-redaction coverage.
+- The schema backcompat baseline now covers the read-only `platform_health/v1` report, the stable main-pipeline audit/policy contracts, and the benchmark/report/runtime-log/config schemas that default contract smoke depends on, not just the sidecar/public-report/audit API envelopes.
+- Default contract smoke now also exercises the thin `platform_api_client.py` shell more completely across metadata health/job/jobs reads, audit health/audit-chain/catalog-lineage reads including `--include-paths`, and the query `--execute` disabled path, not just query dry-run, metadata permissions, audit public-report/observability, and platform health.
+- Bridge Rust preflight now has `scripts/check_bridge_rust.sh`, which runs `cargo fmt --check` and `cargo test` with a temporary target dir and is included by the unified CI smoke path when `cargo` is available.
+- Observability sidecar now has `scripts/export_observability_events.py`, which derives `pipeline_observability/v1` stage events from `audit_chain.json` without changing main pipeline outputs.
+- Catalog/lineage sidecar now has `scripts/export_catalog_lineage.py`, which derives `catalog_lineage/v1` job/dataset/service/artifact metadata and lineage edges from `audit_chain.json` without storing sensitive plaintext by default.
+
+Latest review blockers to keep in mind:
+
+- Standalone record-recovery service changes must land as one coherent patch set. The first-line code now imports `services/record_recovery/*` directly, while `sse/toolkit/record_recovery_*` and `sse/toolkit/encrypted_record_store.py` remain compatibility shims for older entrypoints.
+- New recovery business logic should be added under `services/record_recovery/`; the `sse/toolkit` recovery files are compatibility shims and should not regain implementation ownership.
+- The HTTP recovery client must route base `endpoint_url` requests to `/health` and `/recover`; posting recovery operations to the bare root URL breaks manager health checks and export flows.
+- `scripts/manage_record_recovery_service.py` should prefer `sse/.venv/bin/python` for the child service process when available, because SSE dependencies may exist only in that virtualenv.
 
 Later competition backlog:
 
-- Threat model and leakage-model writeup.
+- Extend the current threat model and leakage model beyond the new first-stage baseline in `docs/THREAT_MODEL_AND_LEAKAGE_MODEL.md`, especially as deployment and KMS boundaries harden.
 - Benchmarks and reproducible performance report.
 - Multi-tenant isolation, deployment/ops, backup/restore, metrics/tracing.
 - Data lifecycle governance, API/SDK/admin UI, compatibility extensions.
@@ -91,19 +143,57 @@ Later competition backlog:
 - SSE CLI: `sse/run_client.py`
 - SSE export logic: `sse/frontend/client/commands.py`
 - SSE waitable search result fix: `sse/frontend/client/services/service.py`
-- Encrypted record store: `sse/toolkit/encrypted_record_store.py`
-- Record recovery worker: `sse/toolkit/record_recovery_worker.py`
-- Record recovery service: `sse/toolkit/record_recovery_service.py`
-- Record recovery client: `sse/toolkit/record_recovery_client.py`
-- Record recovery service config loader: `sse/toolkit/record_recovery_service_config.py`
+- Encrypted record store implementation: `services/record_recovery/encrypted_record_store.py`; compatibility shim: `sse/toolkit/encrypted_record_store.py`
+- Record recovery worker implementation: `services/record_recovery/worker.py`; compatibility shim: `sse/toolkit/record_recovery_worker.py`
+- Record recovery service implementation: `services/record_recovery/service.py`; compatibility shim: `sse/toolkit/record_recovery_service.py`
+- Record recovery HTTP service implementation: `services/record_recovery/http_service.py`; compatibility shim: `sse/toolkit/record_recovery_http_service.py`
+- Record recovery client implementation: `services/record_recovery/client.py`; compatibility shim: `sse/toolkit/record_recovery_client.py`
+- Record recovery service config implementation: `services/record_recovery/config.py`; compatibility shim: `sse/toolkit/record_recovery_service_config.py`
 - Shared platform policy helper: `sse/toolkit/platform_policy.py`
-- Record recovery authz helper: `sse/toolkit/record_recovery_authz.py`
+- Record recovery authz implementation: `services/record_recovery/authz.py`; compatibility shim: `sse/toolkit/record_recovery_authz.py`
+- Record recovery common helpers implementation: `services/record_recovery/common.py`; compatibility shim: `sse/toolkit/record_recovery_common.py`
 - Record recovery service audit schema: `schemas/sse_record_recovery_service_audit.schema.json`
 - Record recovery service health schema: `schemas/record_recovery_service_health.schema.json`
 - Record recovery service config schema/example: `schemas/record_recovery_service_config.schema.json`, `config/record_recovery_service.example.json`
+- Record recovery service structured runtime log schema: `schemas/record_recovery_service_log.schema.json`
+- Record recovery boundary check schema: `schemas/record_recovery_boundary_check.schema.json`
 - Record recovery service authz schema/example: `schemas/record_recovery_service_policy.schema.json`, `config/record_recovery_service_policy.example.json` (legacy narrow policy); unified path uses `schemas/sse_export_policy.schema.json`, `sse/config/export_policy.example.json`
 - Pipeline script: `scripts/run_sse_bridge_pipeline.sh`
 - Live demo wrapper: `scripts/run_live_sse_bridge_demo.sh`
+- Metadata DB helpers: `scripts/metadata_db.py`, `scripts/init_metadata_db.py`, `scripts/import_run_metadata.py`, `scripts/query_metadata.py`, `scripts/serve_metadata_api.py`, `scripts/manage_metadata_db.py`, `scripts/export_authz_tuples.py`
+- Metadata API schemas: `schemas/metadata_api_health.schema.json`, `schemas/metadata_api_response.schema.json`, `schemas/metadata_api_error.schema.json`
+- Metadata DB lifecycle schemas: `schemas/metadata_db_status.schema.json`, `schemas/metadata_db_backup.schema.json`, `schemas/metadata_db_export.schema.json`
+- Query/workflow wrapper: `scripts/submit_query_workflow.py`, `docs/QUERY_INTERFACE_PLAN.md`
+- Query/workflow HTTP wrapper: `scripts/serve_query_workflow_api.py`
+- Local SDK/CLI prototype: `scripts/platform_api_client.py`
+- Audit/public-report HTTP wrapper: `scripts/serve_audit_query_api.py`
+- Platform-health HTTP wrapper: `scripts/serve_platform_health_api.py`
+- Schema backcompat guard: `scripts/check_schema_backcompat.py`, `config/schema_backcompat_baseline.json`
+- Query-workflow benchmark: `scripts/benchmark_query_workflow.py`, `docs/BENCHMARK_PLAN.md`
+- Read-adapter benchmark: `scripts/benchmark_read_adapters.py`, `schemas/read_adapter_benchmark.schema.json`, `docs/BENCHMARK_PLAN.md`
+- Record-recovery benchmark: `scripts/benchmark_record_recovery.py`, `schemas/record_recovery_benchmark.schema.json`, `docs/BENCHMARK_PLAN.md`
+- Full-pipeline benchmark: `scripts/benchmark_pipeline.py`, `schemas/pipeline_benchmark.schema.json`, `docs/BENCHMARK_PLAN.md`
+- PJC-only benchmark: `scripts/benchmark_pjc.py`, `schemas/pjc_benchmark.schema.json`, `docs/BENCHMARK_PLAN.md`
+- Live SSE benchmark: `scripts/benchmark_live_sse_demo.py`, `schemas/live_sse_benchmark.schema.json`, `docs/BENCHMARK_PLAN.md`
+- Audit-bundle benchmark: `scripts/benchmark_audit_bundle.py`, `schemas/audit_bundle_benchmark.schema.json`, `docs/BENCHMARK_PLAN.md`
+- Platform-health benchmark: `scripts/benchmark_platform_health.py`, `schemas/platform_health_benchmark.schema.json`, `docs/BENCHMARK_PLAN.md`
+- Derived-views benchmark: `scripts/benchmark_derived_views.py`, `schemas/derived_views_benchmark.schema.json`, `docs/BENCHMARK_PLAN.md`
+- Threat model baseline: `docs/THREAT_MODEL_AND_LEAKAGE_MODEL.md`
+- Query/workflow schemas: `schemas/query_workflow_request.schema.json`, `schemas/query_workflow_submission.schema.json`, `schemas/query_workflow_api_health.schema.json`, `schemas/query_workflow_api_response.schema.json`, `schemas/query_workflow_api_error.schema.json`
+- Audit/public-report API schemas: `schemas/audit_query_api_health.schema.json`, `schemas/audit_query_api_response.schema.json`, `schemas/audit_query_api_error.schema.json`
+- Platform health schema: `schemas/platform_health.schema.json`
+- Schema backcompat report schema: `schemas/schema_backcompat_check.schema.json`
+- Query-workflow benchmark schema: `schemas/query_workflow_benchmark.schema.json`
+- Metadata DB migrations: `migrations/metadata/001_init.sql`, `migrations/metadata/002_add_stage_duration_columns.sql`
+- Metadata query output now summarizes imported stage timings with per-job `timing_summary`, `stage_duration_summary`, `total_stage_duration_ms`, `--stage`-scoped `matched_stage` / `stage_summary`, `--stage-status` / `--stage-sort` filtering, plus `--group-by stage|status` rollups, `--list-entity tenants|datasets|services|callers|policies|policy-bindings|caller-permissions` registry/policy views, `--output-format csv|tsv` exports, grouped-output `--columns`, `--output-file`, a thin local read-only HTTP wrapper at `scripts/serve_metadata_api.py`, sidecar lifecycle `status` / SQLite-backup-API `backup` / portable `export-json` management through `scripts/manage_metadata_db.py`, and OpenFGA-style tuple export through `scripts/export_authz_tuples.py`
+- Platform health sidecar: `scripts/check_platform_health.py`, `scripts/serve_platform_health_api.py`, `docs/OPS_RUNBOOK.md`
+- CI smoke wrapper: `scripts/check_ci_smoke.sh`, `.github/workflows/json-contracts.yml`
+- Record recovery boundary check: `scripts/check_record_recovery_boundary.py`
+- Bridge Rust preflight: `scripts/check_bridge_rust.sh`
+- Smoke benchmark wrapper: `scripts/benchmark_smoke.py`
+- Observability exporter: `scripts/export_observability_events.py`
+- Catalog/lineage exporter: `scripts/export_catalog_lineage.py`
+- Observability/catalog sidecar schemas: `schemas/pipeline_observability.schema.json`, `schemas/catalog_lineage.schema.json`
 - Keyring library: `scripts/keyring_lib.py`
 - Key agent service/client: `scripts/key_agent_service.py`, `scripts/request_key_agent.py`
 - Key lifecycle manager: `scripts/manage_keyring.py`
@@ -119,7 +209,9 @@ Later competition backlog:
 - Audit chain builder: `scripts/build_audit_chain.py`
 - Key manifest resolver: `scripts/resolve_key_access.py`
 - Audit seal writer: `scripts/seal_audit_artifact.py`
-- Audit archive writer: `scripts/archive_audit_bundle.py`
+- Audit archive/verify helpers: `scripts/archive_audit_bundle.py`, `scripts/verify_audit_bundle.py`
+- Repository hygiene scan: `scripts/scan_repo_hygiene.py`
+- Dependency hygiene scan: `scripts/check_dependency_hygiene.py`
 - Record recovery service health client: `scripts/request_record_recovery_service.py` (`--config` supported)
 - Record recovery service manager: `scripts/manage_record_recovery_service.py`
 - JSON contract check script: `scripts/check_json_contracts.sh`
@@ -132,13 +224,13 @@ Python checks:
 
 ```bash
 cd sse
-.venv/bin/python -m py_compile frontend/client/commands.py run_client.py toolkit/encrypted_record_store.py toolkit/record_recovery_authz.py toolkit/record_recovery_common.py toolkit/record_recovery_client.py toolkit/record_recovery_service_config.py toolkit/record_recovery_worker.py toolkit/record_recovery_service.py
+.venv/bin/python -m py_compile frontend/client/commands.py run_client.py toolkit/encrypted_record_store.py toolkit/record_recovery_authz.py toolkit/record_recovery_common.py toolkit/record_recovery_client.py toolkit/record_recovery_service_config.py toolkit/record_recovery_worker.py toolkit/record_recovery_service.py toolkit/record_recovery_http_service.py
 ```
 
 Script checks:
 
 ```bash
-python3 -m py_compile a-psi/moduleA_psi/scripts/policy_release.py scripts/resolve_key_access.py scripts/keyring_lib.py scripts/key_agent_service.py scripts/request_key_agent.py scripts/request_record_recovery_service.py scripts/manage_record_recovery_service.py scripts/manage_keyring.py scripts/external_kms_lib.py scripts/external_kms_service.py scripts/request_external_kms.py scripts/manage_external_kms.py scripts/seal_audit_artifact.py scripts/archive_audit_bundle.py scripts/build_audit_chain.py scripts/write_pjc_audit.py scripts/validate_json_contract.py scripts/validate_tabular_contract.py
+python3 -m py_compile services/record_recovery/authz.py services/record_recovery/client.py services/record_recovery/common.py services/record_recovery/config.py services/record_recovery/encrypted_record_store.py services/record_recovery/http_service.py services/record_recovery/launcher.py services/record_recovery/observability.py services/record_recovery/runtime.py services/record_recovery/service.py services/record_recovery/worker.py a-psi/moduleA_psi/scripts/policy_release.py scripts/resolve_key_access.py scripts/keyring_lib.py scripts/key_agent_service.py scripts/request_key_agent.py scripts/request_record_recovery_service.py scripts/manage_record_recovery_service.py scripts/manage_keyring.py scripts/external_kms_lib.py scripts/external_kms_service.py scripts/request_external_kms.py scripts/manage_external_kms.py scripts/seal_audit_artifact.py scripts/archive_audit_bundle.py scripts/verify_audit_bundle.py scripts/build_audit_chain.py scripts/write_pjc_audit.py scripts/validate_json_contract.py scripts/validate_tabular_contract.py scripts/metadata_db.py scripts/init_metadata_db.py scripts/import_run_metadata.py scripts/query_metadata.py scripts/serve_metadata_api.py scripts/submit_query_workflow.py scripts/serve_query_workflow_api.py scripts/serve_audit_query_api.py scripts/serve_platform_health_api.py scripts/platform_api_client.py scripts/check_platform_health.py scripts/check_record_recovery_boundary.py scripts/check_schema_backcompat.py scripts/scan_repo_hygiene.py scripts/check_dependency_hygiene.py scripts/benchmark_smoke.py scripts/benchmark_query_workflow.py scripts/export_observability_events.py scripts/export_catalog_lineage.py
 ```
 
 Shell check:
@@ -155,6 +247,8 @@ python3 -m json.tool schemas/record_recovery_service_policy.schema.json
 python3 -m json.tool schemas/sse_record_recovery_service_audit.schema.json
 python3 -m json.tool schemas/record_recovery_service_health.schema.json
 python3 -m json.tool schemas/record_recovery_service_config.schema.json
+python3 -m json.tool schemas/record_recovery_service_log.schema.json
+python3 -m json.tool schemas/record_recovery_boundary_check.schema.json
 python3 -m json.tool schemas/sse_encrypted_record_store.schema.json
 python3 -m json.tool schemas/public_report.schema.json
 python3 -m json.tool schemas/pjc_audit.schema.json
@@ -167,11 +261,15 @@ python3 -m json.tool schemas/external_kms_config.schema.json
 python3 -m json.tool schemas/key_access_audit.schema.json
 python3 -m json.tool schemas/key_lifecycle_audit.schema.json
 python3 -m json.tool schemas/audit_seal.schema.json
+python3 -m json.tool schemas/pipeline_observability.schema.json
+python3 -m json.tool schemas/catalog_lineage.schema.json
 python3 scripts/validate_json_contract.py --schema schemas/sse_export_policy.schema.json --json sse/config/export_policy.example.json
 python3 scripts/validate_json_contract.py --schema schemas/record_recovery_service_policy.schema.json --json config/record_recovery_service_policy.example.json
 python3 scripts/validate_json_contract.py --schema schemas/keyring.schema.json --json config/keyring.example.json
 python3 scripts/validate_json_contract.py --schema schemas/external_kms_config.schema.json --json config/external_kms.example.json
 bash scripts/check_json_contracts.sh
+bash scripts/check_ci_smoke.sh
+bash scripts/check_bridge_rust.sh
 ```
 
 Bridge checks, if Rust changes:

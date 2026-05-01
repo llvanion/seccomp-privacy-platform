@@ -2,10 +2,15 @@ import argparse
 import hashlib
 import hmac
 import json
+import math
 import os
+import random as _random
+import urllib.error
+import urllib.request
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from decimal import Decimal, ROUND_HALF_UP
+from time import perf_counter
 from typing import Any, Dict, List, Optional, Tuple
 
 
@@ -22,6 +27,10 @@ def utc_now() -> datetime:
 
 def utc_now_iso() -> str:
     return utc_now().isoformat().replace("+00:00", "Z")
+
+
+def elapsed_ms(started_at: float) -> int:
+    return int(round((perf_counter() - started_at) * 1000))
 
 
 def parse_iso8601_utc(ts: str) -> datetime:
@@ -52,6 +61,63 @@ def sha256_file(path: str) -> str:
 
 def hmac_sha256_hex(secret: str, msg: str) -> str:
     return hmac.new(secret.encode("utf-8"), msg.encode("utf-8"), hashlib.sha256).hexdigest()
+
+
+# ---------- signed result delivery ----------
+
+def deliver_signed_result(
+    *,
+    report_path: str,
+    callback_url: str,
+    delivery_key_env: str,
+) -> Dict[str, Any]:
+    delivery_key = os.environ.get(delivery_key_env, "")
+    if not delivery_key:
+        raise ValueError(f"result delivery key env {delivery_key_env!r} is not set")
+    with open(report_path, "rb") as f:
+        report_bytes = f.read()
+    report_sha256 = sha256_hex_bytes(report_bytes)
+    signature = hmac_sha256_hex(delivery_key, report_sha256)
+    req = urllib.request.Request(
+        callback_url,
+        data=report_bytes,
+        headers={
+            "Content-Type": "application/json",
+            "X-Report-SHA256": report_sha256,
+            "X-Report-Signature": signature,
+        },
+        method="POST",
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            status = resp.status
+            body = resp.read().decode("utf-8", errors="replace")
+    except urllib.error.HTTPError as e:
+        status = e.code
+        body = e.read().decode("utf-8", errors="replace")
+    return {
+        "callback_url": callback_url,
+        "report_sha256": report_sha256,
+        "signature_algorithm": "hmac-sha256",
+        "http_status": status,
+        "delivered": 200 <= status < 300,
+    }
+
+
+# ---------- differential privacy ----------
+
+def _laplace_noise(scale: float) -> float:
+    # Inverse-CDF method: no numpy dependency required.
+    # scale = sensitivity / epsilon
+    u = _random.uniform(-0.5 + 1e-10, 0.5 - 1e-10)
+    return -scale * math.copysign(1.0, u) * math.log(1.0 - 2.0 * abs(u))
+
+
+def bucket_intersection_size(n: int) -> str:
+    if n < 10:   return "<10"
+    if n < 50:   return "10-49"
+    if n < 200:  return "50-199"
+    return "200+"
 
 
 def load_json(path: str) -> Dict[str, Any]:
@@ -430,7 +496,14 @@ def seen_query_signature(audit_log_path: str, caller: str, query_sig: str) -> bo
 
 # ---------- release policy ----------
 
-def apply_threshold_policy(metrics: Dict[str, Optional[int]], threshold_k: int, round_sum_to: Optional[int]) -> Dict[str, Any]:
+def apply_threshold_policy(
+    metrics: Dict[str, Optional[int]],
+    threshold_k: int,
+    round_sum_to: Optional[int],
+    *,
+    dp_epsilon: Optional[float] = None,
+    dp_sensitivity: Optional[int] = None,
+) -> Dict[str, Any]:
     size = metrics.get("intersection_size")
     total = metrics.get("intersection_sum")
 
@@ -439,6 +512,8 @@ def apply_threshold_policy(metrics: Dict[str, Optional[int]], threshold_k: int, 
             "decision": "deny",
             "reason_code": "missing_metrics",
             "reason": "missing required metrics",
+            "dp_noise_applied": False,
+            "dp_epsilon": None,
             "released": None,
         }
 
@@ -447,6 +522,8 @@ def apply_threshold_policy(metrics: Dict[str, Optional[int]], threshold_k: int, 
             "decision": "deny",
             "reason_code": "below_k",
             "reason": f"intersection_size below threshold ({size} < {threshold_k})",
+            "dp_noise_applied": False,
+            "dp_epsilon": None,
             "released": None,
         }
 
@@ -454,12 +531,21 @@ def apply_threshold_policy(metrics: Dict[str, Optional[int]], threshold_k: int, 
     if round_sum_to is not None and round_sum_to > 1:
         released_sum = int(round(total / round_sum_to) * round_sum_to)
 
+    dp_noise_applied = False
+    if dp_epsilon is not None and dp_sensitivity is not None and dp_epsilon > 0 and dp_sensitivity > 0:
+        noise = _laplace_noise(dp_sensitivity / dp_epsilon)
+        released_sum = int(round(released_sum + noise))
+        dp_noise_applied = True
+
     return {
         "decision": "allow",
         "reason_code": "threshold_passed",
         "reason": "threshold passed",
+        "dp_noise_applied": dp_noise_applied,
+        "dp_epsilon": dp_epsilon if dp_noise_applied else None,
         "released": {
             "intersection_size": size,
+            "intersection_size_bucket": bucket_intersection_size(size),
             "intersection_sum": released_sum,
             "intersection_sum_raw": total,
         },
@@ -493,14 +579,17 @@ def build_public_report(
     threshold_k: int,
     rate_limit_out: Dict[str, Any],
     policy_out: Dict[str, Any],
+    bucket_size: bool = False,
 ) -> Dict[str, Any]:
     released = decorate_released_value(policy_out.get("released"), value_mode)
 
     conversions = None
+    conversions_bucket = None
     value_sum = None
     aov = None
     if released is not None:
         conversions = released.get("intersection_size")
+        conversions_bucket = released.get("intersection_size_bucket")
         if value_mode == "amount":
             value_sum = released.get("intersection_sum_eur") or released.get("intersection_sum")
             raw = released.get("intersection_sum_cents")
@@ -532,7 +621,10 @@ def build_public_report(
         "k_threshold": threshold_k,
         "rate_limit_used": rate_limit_out["used"],
         "rate_limit_max": rate_limit_out["max"],
-        "conversions": conversions,
+        "conversions": conversions_bucket if bucket_size else conversions,
+        "conversions_exact_suppressed": bucket_size,
+        "dp_noise_applied": policy_out.get("dp_noise_applied", False),
+        "dp_epsilon": policy_out.get("dp_epsilon"),
         "value_sum": value_sum,
         "aov": aov,
         "details": released,
@@ -580,6 +672,7 @@ def build_audit_record(
     metrics: Dict[str, Optional[int]],
     policy_out: Dict[str, Any],
     auth_result: AuthResult,
+    duration_ms: Optional[int],
 ) -> Dict[str, Any]:
     input_sha256 = sha256_file(input_path)
     return {
@@ -606,9 +699,12 @@ def build_audit_record(
         "rate_limit_max": rate_limit_out["max"],
         "canonical_query_signature": query_sig,
         "parsed_metrics": metrics,
+        "duration_ms": duration_ms,
         "decision": policy_out["decision"],
         "reason": policy_out["reason"],
         "reason_code": policy_out["reason_code"],
+        "dp_noise_applied": policy_out.get("dp_noise_applied", False),
+        "dp_epsilon": policy_out.get("dp_epsilon"),
         "released": policy_out.get("released"),
         "auth": {
             "mode": "hmac" if key_id else "disabled_or_caller_only",
@@ -640,6 +736,22 @@ def main() -> None:
     ap.add_argument("--round-sum-to", type=int, default=None)
     ap.add_argument("--deny-duplicate-query", action="store_true", help="Deny an exact repeated canonical query signature for the caller")
 
+    # signed result delivery
+    ap.add_argument("--result-callback-url", default=None,
+                    help="URL to POST the public report to after a successful release")
+    ap.add_argument("--result-delivery-key-env", default=None,
+                    help="Env var holding the HMAC-SHA256 delivery signing key for --result-callback-url")
+
+    # differential privacy
+    ap.add_argument("--dp-epsilon", type=float, default=None,
+                    help="Laplace mechanism epsilon for DP noise on intersection_sum. "
+                         "Requires --dp-sensitivity. Noise scale = sensitivity/epsilon.")
+    ap.add_argument("--dp-sensitivity", type=int, default=None,
+                    help="L1 sensitivity of intersection_sum (maximum individual value). "
+                         "Required when --dp-epsilon is set.")
+    ap.add_argument("--bucket-intersection-size", action="store_true",
+                    help="Replace exact intersection_size in public_report with a bucket label (<10, 10-49, 50-199, 200+).")
+
     # optional HMAC authn/authz
     ap.add_argument("--auth-config", default=None, help="JSON file: {key_id: {caller, secret, enabled}}")
     ap.add_argument("--auth-required", action="store_true", help="Require HMAC auth")
@@ -651,6 +763,7 @@ def main() -> None:
     ap.add_argument("--print-signing-template", action="store_true", help="Print the canonical HMAC message and exit")
 
     args = ap.parse_args()
+    started_at = perf_counter()
 
     paths = resolve_paths(args)
     input_path = paths["input"]
@@ -759,6 +872,7 @@ def main() -> None:
             metrics=metrics,
             policy_out=deny_out,
             auth_result=auth_result,
+            duration_ms=elapsed_ms(started_at),
         )
         append_jsonl(audit_log_path, audit_record)
         print(json.dumps(report, ensure_ascii=False, indent=2))
@@ -782,7 +896,11 @@ def main() -> None:
             "released": None,
         }
     else:
-        policy_out = apply_threshold_policy(metrics, args.threshold_k, args.round_sum_to)
+        policy_out = apply_threshold_policy(
+            metrics, args.threshold_k, args.round_sum_to,
+            dp_epsilon=args.dp_epsilon,
+            dp_sensitivity=args.dp_sensitivity,
+        )
 
     report = build_public_report(
         policy_version=args.policy_version,
@@ -796,6 +914,7 @@ def main() -> None:
         threshold_k=args.threshold_k,
         rate_limit_out=rate_limit_out,
         policy_out=policy_out,
+        bucket_size=args.bucket_intersection_size,
     )
 
     ensure_dir(os.path.dirname(out_path) or ".")
@@ -823,12 +942,25 @@ def main() -> None:
         metrics=metrics,
         policy_out=policy_out,
         auth_result=auth_result,
+        duration_ms=elapsed_ms(started_at),
     )
     append_jsonl(audit_log_path, audit_record)
 
     print(f"[ok] public report: {os.path.abspath(out_path)}")
     print(f"[ok] audit log:     {os.path.abspath(audit_log_path)}")
     print(json.dumps(report, ensure_ascii=False, indent=2))
+
+    if args.result_callback_url and args.result_delivery_key_env and policy_out["decision"] == "allow":
+        try:
+            delivery = deliver_signed_result(
+                report_path=out_path,
+                callback_url=args.result_callback_url,
+                delivery_key_env=args.result_delivery_key_env,
+            )
+            status = "ok" if delivery["delivered"] else "failed"
+            print(f"[{status}] result delivery: {delivery['callback_url']} http={delivery['http_status']}")
+        except Exception as exc:
+            print(f"[warn] result delivery failed: {exc}")
 
 
 if __name__ == "__main__":
