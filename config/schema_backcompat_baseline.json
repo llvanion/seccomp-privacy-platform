@@ -256,7 +256,7 @@
       "path": "schemas/bridge_audit.schema.json",
       "schema_id": "bridge_audit/v1",
       "required": ["schema", "ts_unix_ms", "event", "job_id", "decision", "reason_code", "token_secret_source"],
-      "stable_properties": ["schema", "ts_unix_ms", "event", "job_id", "correlation_id", "input_file_type", "input_sha256", "server_input_file_type", "server_input_sha256", "client_input_file_type", "client_input_sha256", "duration_ms", "decision", "reason_code", "token_secret_source"]
+      "stable_properties": ["schema", "ts_unix_ms", "event", "job_id", "correlation_id", "role", "input_file", "input_file_type", "input_sha256", "server_input_file", "server_input_file_type", "server_input_sha256", "client_input_file", "client_input_file_type", "client_input_sha256", "output_dir", "server_csv", "server_csv_sha256", "client_csv", "client_csv_sha256", "job_meta_file", "job_meta_sha256", "counts", "token_scheme", "token_scope", "token_key_version", "normalize_version", "server_normalizer", "client_normalizer", "dedup_policy", "production_mode", "duration_ms", "decision", "reason_code", "token_secret_source"]
     },
     {
       "path": "schemas/bridge_job_meta.schema.json",

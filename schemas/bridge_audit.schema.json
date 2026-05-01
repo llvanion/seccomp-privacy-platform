@@ -20,11 +20,20 @@
     "correlation_id": {
       "type": "string"
     },
+    "role": {
+      "type": "string"
+    },
+    "input_file": {
+      "type": "string"
+    },
     "input_file_type": {
       "enum": ["file", "fifo", "other"]
     },
     "input_sha256": {
       "type": ["string", "null"]
+    },
+    "server_input_file": {
+      "type": "string"
     },
     "server_input_file_type": {
       "enum": ["file", "fifo", "other"]
@@ -32,11 +41,62 @@
     "server_input_sha256": {
       "type": ["string", "null"]
     },
+    "client_input_file": {
+      "type": "string"
+    },
     "client_input_file_type": {
       "enum": ["file", "fifo", "other"]
     },
     "client_input_sha256": {
       "type": ["string", "null"]
+    },
+    "output_dir": {
+      "type": "string"
+    },
+    "server_csv": {
+      "type": "string"
+    },
+    "server_csv_sha256": {
+      "type": ["string", "null"]
+    },
+    "client_csv": {
+      "type": "string"
+    },
+    "client_csv_sha256": {
+      "type": ["string", "null"]
+    },
+    "job_meta_file": {
+      "type": "string"
+    },
+    "job_meta_sha256": {
+      "type": ["string", "null"]
+    },
+    "counts": {
+      "type": ["object", "null"]
+    },
+    "token_scheme": {
+      "type": "string"
+    },
+    "token_scope": {
+      "type": "string"
+    },
+    "token_key_version": {
+      "type": "string"
+    },
+    "normalize_version": {
+      "type": "string"
+    },
+    "server_normalizer": {
+      "type": "string"
+    },
+    "client_normalizer": {
+      "type": "string"
+    },
+    "dedup_policy": {
+      "type": "string"
+    },
+    "production_mode": {
+      "type": "boolean"
     },
     "duration_ms": {
       "type": ["integer", "null"],

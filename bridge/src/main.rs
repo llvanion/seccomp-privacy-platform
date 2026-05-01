@@ -556,6 +556,8 @@ fn run_prepare_job(args: PrepareJobArgs, started_at: Instant) -> Result<()> {
             "token_scope": meta.pointer("/bridge/token_scope").and_then(Value::as_str).unwrap_or(""),
             "token_key_version": meta.pointer("/bridge/token_key_version").and_then(Value::as_str).unwrap_or(""),
             "normalize_version": meta.pointer("/bridge/normalize_version").and_then(Value::as_str).unwrap_or(""),
+            "server_normalizer": meta.pointer("/bridge/server/normalizer").and_then(Value::as_str).unwrap_or(""),
+            "client_normalizer": meta.pointer("/bridge/client/normalizer").and_then(Value::as_str).unwrap_or(""),
             "dedup_policy": meta.pointer("/bridge/dedup_policy").and_then(Value::as_str).unwrap_or(""),
             "production_mode": production_mode,
             "token_secret_source": token_secret_source(&args.token_secret, &args.token_secret_env),
