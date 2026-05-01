@@ -294,6 +294,34 @@ def format_systemd_execstart(command: list[str]) -> str:
     return shlex.join(command)
 
 
+def derive_writable_paths(runtime: dict) -> list[str]:
+    """Return the set of directories the service must write to.
+
+    Used to populate ReadWritePaths= when ProtectSystem=strict is in effect.
+    Includes parent dirs of lifecycle files, the socket dir, audit log dir, and
+    any explicitly allowed output root directories.
+    """
+    dirs: list[str] = []
+    seen: set[str] = set()
+
+    def _add(path_value: str) -> None:
+        if not path_value:
+            return
+        p = Path(path_value)
+        candidate = str(p.parent if p.suffix or p.name else p)
+        if candidate and candidate not in seen:
+            seen.add(candidate)
+            dirs.append(candidate)
+
+    _add(runtime.get("audit_log", ""))
+    _add(runtime.get("socket_path", ""))
+    _add(runtime.get("pid_file", ""))
+    _add(runtime.get("ready_file", ""))
+    for root in runtime.get("allowed_output_roots", []):
+        _add(str(root) + "/")  # trailing slash ensures the dir itself is added
+    return dirs
+
+
 def build_systemd_unit(
     *,
     runtime: dict,
@@ -308,6 +336,7 @@ def build_systemd_unit(
     restart_sec: float,
 ) -> str:
     resolved_workdir = normalize_path(working_directory)
+    writable_paths = derive_writable_paths(runtime)
     lines = [
         "[Unit]",
         f"Description={description}",
@@ -328,10 +357,22 @@ def build_systemd_unit(
             f"Group={service_group}",
             f"WorkingDirectory={resolved_workdir}",
             "UMask=0077",
+            # Privilege and filesystem hardening
             "NoNewPrivileges=true",
             "PrivateTmp=true",
+            "PrivateDevices=true",
+            "ProtectSystem=strict",
+            "ProtectHome=true",
+            "ProtectKernelTunables=true",
+            "ProtectKernelModules=true",
+            "ProtectControlGroups=true",
+            "LockPersonality=true",
+            "RestrictSUIDSGID=true",
+            "SystemCallFilter=@system-service",
         ]
     )
+    if writable_paths:
+        lines.append(f"ReadWritePaths={' '.join(writable_paths)}")
     if environment_file:
         lines.append(f"EnvironmentFile={environment_file}")
     lines.extend(
@@ -541,6 +582,7 @@ def cmd_render_systemd(args: argparse.Namespace) -> int:
         "service_group": service_group,
         "environment_file": environment_file or None,
         "environment_variables": environment_variables,
+        "read_write_paths": derive_writable_paths(runtime),
         "unit_output": output_path or None,
         "env_output": env_output_path or None,
         "notes": notes,

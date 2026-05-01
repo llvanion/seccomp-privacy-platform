@@ -147,6 +147,15 @@ grep -n "^Group=rrsvc$" "$tmp/record_recovery_unix.service" >/dev/null
 grep -n "^EnvironmentFile=/etc/seccomp/seccomp-record-recovery-unix.env$" "$tmp/record_recovery_unix.service" >/dev/null
 grep -n "run_record_recovery_service.py serve --transport unix_socket" "$tmp/record_recovery_unix.service" >/dev/null
 grep -n "^SSE_RECORD_RECOVERY_TOKEN=CHANGE_ME$" "$tmp/record_recovery_unix.env" >/dev/null
+grep -n "^ProtectSystem=strict$" "$tmp/record_recovery_unix.service" >/dev/null
+grep -n "^ProtectHome=true$" "$tmp/record_recovery_unix.service" >/dev/null
+grep -n "^PrivateDevices=true$" "$tmp/record_recovery_unix.service" >/dev/null
+grep -n "^ProtectKernelTunables=true$" "$tmp/record_recovery_unix.service" >/dev/null
+grep -n "^ProtectKernelModules=true$" "$tmp/record_recovery_unix.service" >/dev/null
+grep -n "^ProtectControlGroups=true$" "$tmp/record_recovery_unix.service" >/dev/null
+grep -n "^LockPersonality=true$" "$tmp/record_recovery_unix.service" >/dev/null
+grep -n "^RestrictSUIDSGID=true$" "$tmp/record_recovery_unix.service" >/dev/null
+grep -n "^SystemCallFilter=@system-service$" "$tmp/record_recovery_unix.service" >/dev/null
 python3 "$REPO_ROOT/scripts/manage_record_recovery_service.py" render-systemd \
   --config "$REPO_ROOT/config/record_recovery_http_service.example.json" \
   --unit-name seccomp-record-recovery-http \
@@ -161,6 +170,13 @@ grep -n "^After=network-online.target$" "$tmp/record_recovery_http.service" >/de
 grep -n "^EnvironmentFile=/etc/seccomp/seccomp-record-recovery-http.env$" "$tmp/record_recovery_http.service" >/dev/null
 grep -n "run_record_recovery_service.py serve --transport http" "$tmp/record_recovery_http.service" >/dev/null
 grep -n "^SSE_RECORD_RECOVERY_TOKEN=CHANGE_ME$" "$tmp/record_recovery_http.env" >/dev/null
+grep -n "^ProtectSystem=strict$" "$tmp/record_recovery_http.service" >/dev/null
+grep -n "^ProtectHome=true$" "$tmp/record_recovery_http.service" >/dev/null
+grep -n "^PrivateDevices=true$" "$tmp/record_recovery_http.service" >/dev/null
+grep -n "^ProtectKernelTunables=true$" "$tmp/record_recovery_http.service" >/dev/null
+grep -n "^LockPersonality=true$" "$tmp/record_recovery_http.service" >/dev/null
+grep -n "^RestrictSUIDSGID=true$" "$tmp/record_recovery_http.service" >/dev/null
+grep -n "^SystemCallFilter=@system-service$" "$tmp/record_recovery_http.service" >/dev/null
 python3 "$REPO_ROOT/scripts/benchmark_query_workflow.py" \
   --request-file "$REPO_ROOT/docs/examples/query_request.json" \
   --iterations 1 \
