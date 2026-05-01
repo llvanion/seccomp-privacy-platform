@@ -1,0 +1,31 @@
+{
+  "schema": "query_workflow_request/v1",
+  "query_type": "cross_party_match",
+  "server_source": "../../sse/examples/bridge_server_records.jsonl",
+  "client_source": "../../sse/examples/bridge_client_records.jsonl",
+  "server_join_key_field": "email",
+  "client_join_key_field": "email",
+  "client_value_field": "amount",
+  "server_normalizer": "email",
+  "client_normalizer": "email",
+  "client_value_mode": "raw-int",
+  "server_filters": [
+    "campaign=demo"
+  ],
+  "client_filters": [
+    "campaign=demo"
+  ],
+  "token_scope": "query-demo-scope",
+  "token_secret_env": "BRIDGE_TOKEN_SECRET",
+  "job_id": "query_demo_job",
+  "out_base": "../../tmp/query_demo_job",
+  "caller": "auto_demo",
+  "tenant_id": "demo_tenant",
+  "dataset_id": "bridge_demo_dataset",
+  "k": 1,
+  "n": 5,
+  "sse_export_policy_config": "../../sse/config/export_policy.example.json",
+  "deny_duplicate_query": true,
+  "sse_export_handoff_mode": "fifo",
+  "cleanup_sse_export_handoff_files_after_bridge": true
+}

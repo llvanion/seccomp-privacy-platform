@@ -1,0 +1,212 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "authz_tuple_export/v1",
+  "title": "Authz tuple export",
+  "type": "object",
+  "required": [
+    "schema",
+    "generated_at_utc",
+    "mapping_profile",
+    "source",
+    "filters",
+    "subjects",
+    "tuples",
+    "summary"
+  ],
+  "properties": {
+    "schema": {
+      "const": "authz_tuple_export/v1"
+    },
+    "generated_at_utc": {
+      "type": "string"
+    },
+    "mapping_profile": {
+      "const": "openfga_baseline_v1"
+    },
+    "source": {
+      "type": "object",
+      "required": ["kind", "policy_count", "policy_ids", "policy_paths", "policy_schema_names"],
+      "properties": {
+        "kind": {
+          "enum": ["policy_config", "metadata_db"]
+        },
+        "policy_count": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "policy_ids": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "policy_paths": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "policy_schema_names": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "policy_path": {
+          "type": "string"
+        },
+        "db_path": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false
+    },
+    "filters": {
+      "type": "object",
+      "required": ["caller", "tenant_id", "dataset_id", "service_id"],
+      "properties": {
+        "caller": { "type": ["string", "null"] },
+        "tenant_id": { "type": ["string", "null"] },
+        "dataset_id": { "type": ["string", "null"] },
+        "service_id": { "type": ["string", "null"] }
+      },
+      "additionalProperties": false
+    },
+    "subjects": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "subject",
+          "caller",
+          "subject_type",
+          "subject_type_source",
+          "enabled",
+          "tenant_id",
+          "platform_roles",
+          "access_profile",
+          "allowed_dataset_ids",
+          "allowed_service_ids",
+          "permissions",
+          "source_policy_id"
+        ],
+        "properties": {
+          "subject": { "type": "string" },
+          "caller": { "type": "string" },
+          "subject_type": {
+            "enum": ["user", "service_account"]
+          },
+          "subject_type_source": {
+            "enum": ["default_user", "role_or_profile_inference"]
+          },
+          "enabled": { "type": ["boolean", "null"] },
+          "tenant_id": { "type": ["string", "null"] },
+          "platform_roles": {
+            "type": "array",
+            "items": {
+              "enum": [
+                "platform_admin",
+                "platform_auditor",
+                "privacy_operator",
+                "query_submitter",
+                "service_operator"
+              ]
+            }
+          },
+          "access_profile": { "type": ["string", "null"] },
+          "allowed_dataset_ids": {
+            "type": "array",
+            "items": { "type": "string" }
+          },
+          "allowed_service_ids": {
+            "type": "array",
+            "items": { "type": "string" }
+          },
+          "permissions": {
+            "type": "object",
+            "required": [
+              "can_run_bridge",
+              "can_run_pjc",
+              "can_release",
+              "can_use_record_recovery_service"
+            ],
+            "properties": {
+              "can_run_bridge": { "type": ["boolean", "null"] },
+              "can_run_pjc": { "type": ["boolean", "null"] },
+              "can_release": { "type": ["boolean", "null"] },
+              "can_use_record_recovery_service": { "type": ["boolean", "null"] }
+            },
+            "additionalProperties": false
+          },
+          "source_policy_id": { "type": ["string", "null"] }
+        },
+        "additionalProperties": false
+      }
+    },
+    "tuples": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["user", "relation", "object", "user_type", "object_type", "object_id"],
+        "properties": {
+          "user": { "type": "string" },
+          "relation": { "type": "string" },
+          "object": { "type": "string" },
+          "user_type": {
+            "enum": ["user", "service_account"]
+          },
+          "object_type": { "type": "string" },
+          "object_id": { "type": "string" }
+        },
+        "additionalProperties": false
+      }
+    },
+    "summary": {
+      "type": "object",
+      "required": [
+        "subject_count",
+        "active_subject_count",
+        "disabled_subject_count",
+        "tuple_count",
+        "subject_type_counts",
+        "object_type_counts",
+        "relation_counts"
+      ],
+      "properties": {
+        "subject_count": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "active_subject_count": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "disabled_subject_count": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "tuple_count": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "subject_type_counts": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "integer",
+            "minimum": 0
+          }
+        },
+        "object_type_counts": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "integer",
+            "minimum": 0
+          }
+        },
+        "relation_counts": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "integer",
+            "minimum": 0
+          }
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false
+}

@@ -21,7 +21,8 @@
     "signature_algorithm",
     "signature_verified",
     "secret_source",
-    "source_out_base"
+    "source_out_base",
+    "mainline_contract_summary"
   ],
   "properties": {
     "schema": {
@@ -96,6 +97,101 @@
         "string",
         "null"
       ]
+    },
+    "mainline_contract_summary": {
+      "type": "object",
+      "required": [
+        "schema",
+        "status",
+        "embedded_in_audit_chain",
+        "handoff_cleanup"
+      ],
+      "properties": {
+        "schema": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "status": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "embedded_in_audit_chain": {
+          "type": "boolean"
+        },
+        "handoff_cleanup": {
+          "type": "object",
+          "required": [
+            "server",
+            "client"
+          ],
+          "properties": {
+            "server": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "client": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          "additionalProperties": false
+        },
+        "service_audit_consistency": {
+          "type": "object",
+          "required": [
+            "server",
+            "client",
+            "error_count"
+          ],
+          "properties": {
+            "server": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "enum": [
+                "ok",
+                "fail",
+                "not_applicable",
+                null
+              ]
+            },
+            "client": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "enum": [
+                "ok",
+                "fail",
+                "not_applicable",
+                null
+              ]
+            },
+            "error_count": {
+              "type": "integer",
+              "minimum": 0
+            }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    },
+    "anchor_file": {
+      "type": "string"
+    },
+    "anchor_entry_sha256": {
+      "type": "string",
+      "minLength": 64
     }
   }
 }

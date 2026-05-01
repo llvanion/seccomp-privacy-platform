@@ -1,0 +1,149 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "pipeline_observability/v1",
+  "title": "Stage-level observability export derived from audit_chain.json",
+  "type": "object",
+  "required": [
+    "schema",
+    "generated_at_utc",
+    "job_id",
+    "correlation_id",
+    "caller",
+    "tenant_id",
+    "dataset_id",
+    "service_id",
+    "summary",
+    "events"
+  ],
+  "properties": {
+    "schema": {
+      "const": "pipeline_observability/v1"
+    },
+    "generated_at_utc": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "job_id": {
+      "type": ["string", "null"]
+    },
+    "correlation_id": {
+      "type": ["string", "null"]
+    },
+    "caller": {
+      "type": ["string", "null"]
+    },
+    "tenant_id": {
+      "type": ["string", "null"]
+    },
+    "dataset_id": {
+      "type": ["string", "null"]
+    },
+    "service_id": {
+      "type": ["string", "null"]
+    },
+    "summary": {
+      "type": "object",
+      "required": [
+        "event_count",
+        "by_stage",
+        "status"
+      ],
+      "properties": {
+        "event_count": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "by_stage": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "integer",
+              "minimum": 0
+            }
+          }
+        },
+        "status": {
+          "type": "string"
+        }
+      }
+    },
+    "events": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "job_id",
+          "correlation_id",
+          "caller",
+          "tenant_id",
+          "dataset_id",
+          "service_id",
+          "stage",
+          "status",
+          "ts_utc",
+          "role",
+          "decision",
+          "reason_code",
+          "duration_ms",
+          "row_count",
+          "artifact_sha256",
+          "source_event"
+        ],
+        "properties": {
+          "job_id": {
+            "type": ["string", "null"]
+          },
+          "correlation_id": {
+            "type": ["string", "null"]
+          },
+          "caller": {
+            "type": ["string", "null"]
+          },
+          "tenant_id": {
+            "type": ["string", "null"]
+          },
+          "dataset_id": {
+            "type": ["string", "null"]
+          },
+          "service_id": {
+            "type": ["string", "null"]
+          },
+          "stage": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          },
+          "ts_utc": {
+            "type": ["string", "null"],
+            "format": "date-time"
+          },
+          "role": {
+            "type": ["string", "null"]
+          },
+          "decision": {
+            "type": ["string", "null"]
+          },
+          "reason_code": {
+            "type": ["string", "null"]
+          },
+          "duration_ms": {
+            "type": ["number", "null"],
+            "minimum": 0
+          },
+          "row_count": {
+            "type": ["integer", "null"],
+            "minimum": 0
+          },
+          "artifact_sha256": {
+            "type": ["string", "null"]
+          },
+          "source_event": {
+            "type": ["string", "null"]
+          }
+        }
+      }
+    }
+  }
+}

@@ -13,12 +13,13 @@ def _sse_root() -> Path:
 
 
 sys.path.insert(0, str(_sse_root()))
+sys.path.insert(0, str(REPO_ROOT))
 
-from toolkit.record_recovery_client import request_record_recovery_health  # noqa: E402
-from toolkit.record_recovery_service_config import (  # noqa: E402
+from services.record_recovery.config import (  # noqa: E402
     load_resolved_record_recovery_service_config,
     merged_record_recovery_service_value,
 )
+from services.record_recovery.client import request_record_recovery_health  # noqa: E402
 
 
 def optional_repo_path(path_value: str) -> str:
@@ -31,20 +32,23 @@ def optional_repo_path(path_value: str) -> str:
 
 
 def main() -> int:
-    ap = argparse.ArgumentParser(description="Request a health snapshot from the local Unix-socket record recovery service.")
+    ap = argparse.ArgumentParser(description="Request a health snapshot from a record recovery service endpoint or Unix socket.")
     ap.add_argument("--config", default="")
     ap.add_argument("--socket-path", default="")
+    ap.add_argument("--endpoint-url", default="")
     ap.add_argument("--auth-token-env", default="")
     args = ap.parse_args()
 
     config = load_resolved_record_recovery_service_config(optional_repo_path(args.config)) if args.config else {}
     socket_path = merged_record_recovery_service_value(args.socket_path, config.get("socket_path", ""))
+    endpoint_url = merged_record_recovery_service_value(args.endpoint_url, config.get("endpoint_url", ""))
     auth_token_env = merged_record_recovery_service_value(args.auth_token_env, config.get("auth_token_env", ""))
-    if not socket_path:
-        raise SystemExit("[ERROR] --socket-path or --config with socket_path is required")
+    if not socket_path and not endpoint_url:
+        raise SystemExit("[ERROR] --socket-path / --endpoint-url or a config with one of them is required")
 
     result = request_record_recovery_health(
-        socket_path=Path(socket_path),
+        socket_path=Path(socket_path) if socket_path else None,
+        endpoint_url=endpoint_url,
         auth_env=auth_token_env,
     )
     print(json.dumps(result, ensure_ascii=False))

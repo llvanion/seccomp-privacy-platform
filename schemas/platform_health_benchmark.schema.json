@@ -1,0 +1,192 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "platform_health_benchmark/v1",
+  "title": "Benchmark report for platform health sidecar entrypoints",
+  "type": "object",
+  "required": [
+    "schema",
+    "generated_at_utc",
+    "repo_root",
+    "fixture_profile",
+    "iterations",
+    "modes"
+  ],
+  "properties": {
+    "schema": {
+      "const": "platform_health_benchmark/v1"
+    },
+    "generated_at_utc": {
+      "type": "string",
+      "minLength": 1
+    },
+    "repo_root": {
+      "type": "string",
+      "minLength": 1
+    },
+    "fixture_profile": {
+      "type": "string",
+      "const": "synthetic_completed_run_v1"
+    },
+    "iterations": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "modes": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "mode",
+          "command",
+          "summary",
+          "results"
+        ],
+        "properties": {
+          "mode": {
+            "type": "string",
+            "enum": [
+              "pipeline_run_cli",
+              "metadata_db_cli",
+              "combined_cli",
+              "pipeline_run_http",
+              "metadata_db_http",
+              "combined_http",
+              "combined_client"
+            ]
+          },
+          "command": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "summary": {
+            "type": "object",
+            "required": [
+              "iterations",
+              "successful_iterations",
+              "failed_iterations",
+              "duration_ms"
+            ],
+            "properties": {
+              "iterations": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "successful_iterations": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "failed_iterations": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "duration_ms": {
+                "type": "object",
+                "required": [
+                  "min",
+                  "mean",
+                  "p50",
+                  "p95",
+                  "max"
+                ],
+                "properties": {
+                  "min": {
+                    "type": [
+                      "number",
+                      "null"
+                    ]
+                  },
+                  "mean": {
+                    "type": [
+                      "number",
+                      "null"
+                    ]
+                  },
+                  "p50": {
+                    "type": [
+                      "number",
+                      "null"
+                    ]
+                  },
+                  "p95": {
+                    "type": [
+                      "number",
+                      "null"
+                    ]
+                  },
+                  "max": {
+                    "type": [
+                      "number",
+                      "null"
+                    ]
+                  }
+                },
+                "additionalProperties": false
+              }
+            },
+            "additionalProperties": false
+          },
+          "results": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": [
+                "duration_ms",
+                "exit_code",
+                "timed_out",
+                "stderr_tail",
+                "stdout_tail",
+                "summary_status",
+                "check_count",
+                "components"
+              ],
+              "properties": {
+                "duration_ms": {
+                  "type": "number",
+                  "minimum": 0
+                },
+                "exit_code": {
+                  "type": "integer"
+                },
+                "timed_out": {
+                  "type": "boolean"
+                },
+                "stderr_tail": {
+                  "type": "string"
+                },
+                "stdout_tail": {
+                  "type": "string"
+                },
+                "summary_status": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "check_count": {
+                  "type": [
+                    "integer",
+                    "null"
+                  ],
+                  "minimum": 0
+                },
+                "components": {
+                  "type": "array",
+                  "items": {
+                    "type": "string",
+                    "minLength": 1
+                  }
+                }
+              },
+              "additionalProperties": false
+            }
+          }
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  "additionalProperties": false
+}

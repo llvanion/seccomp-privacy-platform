@@ -13,6 +13,7 @@
     "caller",
     "role",
     "auth_mode",
+    "transport",
     "socket_path",
     "decision",
     "reason_code",
@@ -53,8 +54,20 @@
     "auth_mode": {
       "enum": ["env_token", "socket_acl_only"]
     },
+    "transport": {
+      "enum": ["unix_socket", "http"]
+    },
     "socket_path": {
-      "type": "string"
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "endpoint_url": {
+      "type": [
+        "string",
+        "null"
+      ]
     },
     "authz_policy_config": {
       "type": ["string", "null"]
@@ -103,6 +116,10 @@
     },
     "output_rows": {
       "type": ["integer", "null"]
+    },
+    "duration_ms": {
+      "type": ["integer", "null"],
+      "minimum": 0
     },
     "decision": {
       "enum": ["allow", "deny"]

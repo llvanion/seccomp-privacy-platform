@@ -51,6 +51,7 @@ def build_record(args: argparse.Namespace) -> Dict[str, Any]:
         "client_log_sha256": sha256_file_if_exists(args.client_log),
         "result_file": abspath_or_none(args.result_file),
         "result_sha256": sha256_file_if_exists(args.result_file),
+        "duration_ms": args.duration_ms,
         "decision": args.decision,
         "reason_code": args.reason_code,
         "reason": args.reason,
@@ -68,6 +69,7 @@ def main() -> int:
     ap.add_argument("--server-log", default="")
     ap.add_argument("--client-log", default="")
     ap.add_argument("--result-file", default="")
+    ap.add_argument("--duration-ms", type=int, default=None)
     ap.add_argument("--decision", required=True, choices=["allow", "deny"])
     ap.add_argument("--reason-code", required=True)
     ap.add_argument("--reason", required=True)

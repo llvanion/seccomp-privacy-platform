@@ -25,6 +25,11 @@ import subprocess
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
+from time import perf_counter
+
+REPO_ROOT = Path(__file__).resolve().parents[3]
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
 
 import schemes
 from frontend.client.services import service_name_handler
@@ -32,15 +37,16 @@ from frontend.client.services.service import Service
 from toolkit.bytes_utils import BytesConverter
 from toolkit.config_manager import write_config, read_config
 from toolkit.database_utils import convert_database_keyword_to_bytes
-from toolkit.encrypted_record_store import build_record_store
+from services.record_recovery.encrypted_record_store import build_record_store
 from toolkit.platform_policy import (
     load_platform_policy,
     platform_policy_for_caller,
     platform_policy_string_set,
     resolve_platform_scope,
 )
-from toolkit.record_recovery_client import request_record_recovery
-from toolkit.record_recovery_service import main as record_recovery_service_main
+from services.record_recovery.client import request_record_recovery
+from services.record_recovery.http_service import main as record_recovery_http_service_main
+from services.record_recovery.service import main as record_recovery_service_main
 
 __client_service = None
 
@@ -95,6 +101,7 @@ def export_bridge_records(*,
                           record_store_path: str = "",
                           record_store_key_env: str = "",
                           record_recovery_socket: str = "",
+                          record_recovery_endpoint_url: str = "",
                           record_recovery_auth_env: str = "",
                           record_recovery_service_id: str = ""):
     """
@@ -103,6 +110,7 @@ def export_bridge_records(*,
     - join key only for server role
     - join key + value for client role
     """
+    started_at = perf_counter()
     try:
         caller = caller or "local_demo"
         if role not in {"server", "client"}:
@@ -138,7 +146,7 @@ def export_bridge_records(*,
             tenant_id=tenant_id,
             dataset_id=dataset_id,
             service_id=record_recovery_service_id,
-            require_record_recovery_service=bool(record_store_path and record_recovery_socket),
+            require_record_recovery_service=bool(record_store_path and (record_recovery_socket or record_recovery_endpoint_url)),
         )
         tenant_id = scope["tenant_id"]
         dataset_id = scope["dataset_id"]
@@ -158,6 +166,7 @@ def export_bridge_records(*,
             if record_recovery_socket:
                 worker_result = _run_record_recovery_service(
                     socket_path=Path(record_recovery_socket),
+                    endpoint_url=record_recovery_endpoint_url,
                     auth_env=record_recovery_auth_env,
                     caller=caller,
                     job_id=job_id,
@@ -176,6 +185,28 @@ def export_bridge_records(*,
                     caller_policy=caller_policy,
                 )
                 record_recovery_boundary = "service_socket"
+            elif record_recovery_endpoint_url:
+                worker_result = _run_record_recovery_service(
+                    socket_path=None,
+                    endpoint_url=record_recovery_endpoint_url,
+                    auth_env=record_recovery_auth_env,
+                    caller=caller,
+                    job_id=job_id,
+                    tenant_id=tenant_id,
+                    dataset_id=dataset_id,
+                    service_id=record_recovery_service_id,
+                    record_store_path=Path(record_store_path),
+                    record_store_key_env=record_store_key_env,
+                    out_path=out,
+                    out_format=out_format,
+                    role=role,
+                    join_key_field=join_key_field,
+                    value_field=value_field if role == "client" else "",
+                    filter_pairs=filter_pairs,
+                    candidate_ids=candidate_ids,
+                    caller_policy=caller_policy,
+                )
+                record_recovery_boundary = "service_http"
             else:
                 worker_result = _run_record_recovery_worker(
                     record_store_path=Path(record_store_path),
@@ -245,6 +276,7 @@ def export_bridge_records(*,
                 record_store_path=record_store_path,
                 record_recovery_boundary=record_recovery_boundary,
                 output_sha256=output_sha256,
+                duration_ms=_elapsed_ms(started_at),
                 decision="allow",
                 reason_code="ok",
                 reason="ok",
@@ -276,8 +308,9 @@ def export_bridge_records(*,
                     record_id_field=record_id_field,
                     candidate_count=len(candidate_ids) if candidate_ids is not None else None,
                     record_store_path=record_store_path,
-                    record_recovery_boundary="service_socket" if record_recovery_socket and record_store_path else "worker_subprocess" if record_store_path else None,
+                    record_recovery_boundary="service_socket" if record_recovery_socket and record_store_path else "service_http" if record_recovery_endpoint_url and record_store_path else "worker_subprocess" if record_store_path else None,
                     output_sha256=None,
+                    duration_ms=_elapsed_ms(started_at),
                     decision="deny",
                     reason_code="export_failed",
                     reason=str(e),
@@ -308,6 +341,7 @@ async def export_bridge_records_from_sse(*,
                                          record_store_path: str = "",
                                          record_store_key_env: str = "",
                                          record_recovery_socket: str = "",
+                                         record_recovery_endpoint_url: str = "",
                                          record_recovery_auth_env: str = "",
                                          record_recovery_service_id: str = "",
                                          sid: str = "",
@@ -344,6 +378,7 @@ async def export_bridge_records_from_sse(*,
         record_store_path=record_store_path,
         record_store_key_env=record_store_key_env,
         record_recovery_socket=record_recovery_socket,
+        record_recovery_endpoint_url=record_recovery_endpoint_url,
         record_recovery_auth_env=record_recovery_auth_env,
         record_recovery_service_id=record_recovery_service_id,
     )
@@ -432,6 +467,10 @@ def _stringify_record_id(value) -> str:
 
 def _utc_now_iso() -> str:
     return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+
+
+def _elapsed_ms(started_at: float) -> int:
+    return int(round((perf_counter() - started_at) * 1000))
 
 
 def _sha256_file(path: Path) -> str | None:
@@ -542,11 +581,11 @@ def _run_record_recovery_worker(*,
                                 filter_pairs: list[tuple[str, str]],
                                 candidate_ids: set,
                                 caller_policy: dict) -> dict:
-    sse_root = Path(__file__).resolve().parents[2]
+    repo_root = Path(__file__).resolve().parents[3]
     cmd = [
         sys.executable,
         "-m",
-        "toolkit.record_recovery_worker",
+        "services.record_recovery.worker",
         "--record-store-path",
         str(record_store_path),
         "--record-store-key-env",
@@ -578,7 +617,7 @@ def _run_record_recovery_worker(*,
         input=json.dumps(payload, ensure_ascii=False),
         text=True,
         capture_output=True,
-        cwd=sse_root,
+        cwd=repo_root,
         check=False,
     )
     if proc.returncode != 0:
@@ -598,7 +637,8 @@ def _run_record_recovery_worker(*,
 
 
 def _run_record_recovery_service(*,
-                                 socket_path: Path,
+                                 socket_path: Path | None,
+                                 endpoint_url: str,
                                  auth_env: str,
                                  caller: str,
                                  job_id: str,
@@ -619,6 +659,7 @@ def _run_record_recovery_service(*,
     max_rows = _optional_policy_int(caller_policy, "max_export_rows")
     return request_record_recovery(
         socket_path=socket_path,
+        endpoint_url=endpoint_url,
         auth_env=auth_env,
         caller=caller,
         job_id=job_id,
@@ -663,6 +704,7 @@ def _append_export_audit(*,
                          record_store_path: str,
                          record_recovery_boundary: str | None,
                          output_sha256: str | None,
+                         duration_ms: int | None,
                          decision: str,
                          reason_code: str,
                          reason: str) -> None:
@@ -697,6 +739,7 @@ def _append_export_audit(*,
         "record_store_file": str(Path(record_store_path).resolve()) if record_store_path else None,
         "record_store_sha256": _sha256_file(Path(record_store_path)) if record_store_path else None,
         "record_recovery_boundary": record_recovery_boundary,
+        "duration_ms": duration_ms,
         "decision": decision,
         "reason_code": reason_code,
         "reason": reason,
@@ -752,6 +795,60 @@ def serve_record_recovery_service(*,
     try:
         sys.argv = argv
         raise SystemExit(record_recovery_service_main())
+    finally:
+        sys.argv = previous_argv
+
+
+def serve_record_recovery_http_service(*,
+                                       service_id: str = "",
+                                       tenant_id: str = "",
+                                       dataset_id: str = "",
+                                       bind_host: str,
+                                       port: int,
+                                       endpoint_url: str = "",
+                                       auth_token_env: str = "",
+                                       authz_config: str = "",
+                                       allowed_callers: list[str] | None = None,
+                                       allowed_output_roots: list[str] | None = None,
+                                       allowed_record_store_roots: list[str] | None = None,
+                                       audit_log: str = "",
+                                       pid_file: str = "",
+                                       ready_file: str = ""):
+    argv = [
+        "record_recovery_http_service",
+        "--service-id",
+        service_id,
+        "--tenant-id",
+        tenant_id,
+        "--dataset-id",
+        dataset_id,
+        "--bind-host",
+        bind_host,
+        "--port",
+        str(port),
+    ]
+    if endpoint_url:
+        argv.extend(["--endpoint-url", endpoint_url])
+    if authz_config:
+        argv.extend(["--authz-config", authz_config])
+    for caller in allowed_callers or []:
+        argv.extend(["--allowed-caller", caller])
+    for root in allowed_output_roots or []:
+        argv.extend(["--allowed-output-root", root])
+    for root in allowed_record_store_roots or []:
+        argv.extend(["--allowed-record-store-root", root])
+    if auth_token_env:
+        argv.extend(["--auth-token-env", auth_token_env])
+    if audit_log:
+        argv.extend(["--audit-log", audit_log])
+    if pid_file:
+        argv.extend(["--pid-file", pid_file])
+    if ready_file:
+        argv.extend(["--ready-file", ready_file])
+    previous_argv = sys.argv
+    try:
+        sys.argv = argv
+        raise SystemExit(record_recovery_http_service_main())
     finally:
         sys.argv = previous_argv
 

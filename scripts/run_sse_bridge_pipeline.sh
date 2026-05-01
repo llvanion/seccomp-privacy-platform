@@ -20,6 +20,7 @@ VALIDATE_PIPELINE_POLICY_PY="${VALIDATE_PIPELINE_POLICY_PY:-$REPO_ROOT/scripts/v
 VALIDATE_JSON_CONTRACT_PY="${VALIDATE_JSON_CONTRACT_PY:-$REPO_ROOT/scripts/validate_json_contract.py}"
 VALIDATE_TABULAR_CONTRACT_PY="${VALIDATE_TABULAR_CONTRACT_PY:-$REPO_ROOT/scripts/validate_tabular_contract.py}"
 BUILD_AUDIT_CHAIN_PY="${BUILD_AUDIT_CHAIN_PY:-$REPO_ROOT/scripts/build_audit_chain.py}"
+CHECK_MAINLINE_CONTRACT_PY="${CHECK_MAINLINE_CONTRACT_PY:-$REPO_ROOT/scripts/check_mainline_contract.py}"
 WRITE_PJC_AUDIT_PY="${WRITE_PJC_AUDIT_PY:-$REPO_ROOT/scripts/write_pjc_audit.py}"
 ARCHIVE_AUDIT_BUNDLE_PY="${ARCHIVE_AUDIT_BUNDLE_PY:-$REPO_ROOT/scripts/archive_audit_bundle.py}"
 RESOLVE_KEY_ACCESS_PY="${RESOLVE_KEY_ACCESS_PY:-$REPO_ROOT/scripts/resolve_key_access.py}"
@@ -29,7 +30,9 @@ EXTERNAL_KMS_SERVICE_PY="${EXTERNAL_KMS_SERVICE_PY:-$REPO_ROOT/scripts/external_
 REQUEST_EXTERNAL_KMS_PY="${REQUEST_EXTERNAL_KMS_PY:-$REPO_ROOT/scripts/request_external_kms.py}"
 REQUEST_RECORD_RECOVERY_SERVICE_PY="${REQUEST_RECORD_RECOVERY_SERVICE_PY:-$REPO_ROOT/scripts/request_record_recovery_service.py}"
 MANAGE_RECORD_RECOVERY_SERVICE_PY="${MANAGE_RECORD_RECOVERY_SERVICE_PY:-$REPO_ROOT/scripts/manage_record_recovery_service.py}"
+RUN_RECORD_RECOVERY_SERVICE_PY="${RUN_RECORD_RECOVERY_SERVICE_PY:-$REPO_ROOT/scripts/run_record_recovery_service.py}"
 SEAL_AUDIT_ARTIFACT_PY="${SEAL_AUDIT_ARTIFACT_PY:-$REPO_ROOT/scripts/seal_audit_artifact.py}"
+RUNTIME_SERVICE_HELPERS_PY="${RUNTIME_SERVICE_HELPERS_PY:-$REPO_ROOT/scripts/runtime_service_helpers.py}"
 PJC_BIN_DIR="${PJC_BIN_DIR:-$APSI_DIR/private-join-and-compute/bazel-bin}"
 
 SERVER_SOURCE=""
@@ -57,6 +60,7 @@ CLIENT_RECORD_STORE_PATH=""
 SERVER_RECORD_STORE_KEY_ENV=""
 CLIENT_RECORD_STORE_KEY_ENV=""
 RECORD_RECOVERY_SOCKET=""
+RECORD_RECOVERY_ENDPOINT_URL=""
 RECORD_RECOVERY_AUTH_ENV=""
 RECORD_RECOVERY_SERVICE_CONFIG=""
 RECORD_RECOVERY_AUTHZ_CONFIG=""
@@ -65,8 +69,12 @@ RECORD_RECOVERY_SERVICE_LOG=""
 RECORD_RECOVERY_SERVICE_HEALTH_JSON=""
 RECORD_RECOVERY_SERVICE_RUNTIME_CONFIG_JSON=""
 RECORD_RECOVERY_SERVICE_MODE="auto"
+RECORD_RECOVERY_TRANSPORT="unix_socket"
 RECORD_RECOVERY_SOCKET_MODE="600"
 RECORD_RECOVERY_SERVICE_ID=""
+RECORD_RECOVERY_CONFIG_SERVICE_ID=""
+RECORD_RECOVERY_CONFIG_TENANT_ID=""
+RECORD_RECOVERY_CONFIG_DATASET_ID=""
 TOKEN_SCOPE=""
 TOKEN_SECRET="${TOKEN_SECRET:-}"
 TOKEN_SECRET_ENV="${TOKEN_SECRET_ENV:-}"
@@ -97,7 +105,8 @@ RATE_N="5"
 DENY_DUPLICATE_QUERY="0"
 SSE_EXPORT_POLICY_CONFIG=""
 SSE_EXPORT_AUDIT_LOG=""
-SSE_EXPORT_HANDOFF_MODE="file"
+SSE_EXPORT_HANDOFF_MODE="fifo"
+CLEANUP_SSE_EXPORT_HANDOFF_FILES_AFTER_BRIDGE="1"
 UNSAFE_ALLOW_NO_SSE_EXPORT_POLICY="0"
 PRODUCTION_MODE="0"
 SERVER_FILTERS=()
@@ -137,6 +146,7 @@ Options:
   --server-record-store-key-env <env> record store passphrase env var
   --client-record-store-key-env <env> record store passphrase env var
   --record-recovery-socket <path> optional Unix socket for long-running record recovery service
+  --record-recovery-endpoint-url <url> optional HTTP endpoint for long-running record recovery service
   --record-recovery-auth-env <env> optional env var containing the record recovery service auth token
   --record-recovery-service-config <path> optional JSON config shared by manual/auto recovery service management
   --record-recovery-authz-config <path> optional JSON authz policy passed to auto-started recovery service
@@ -169,6 +179,8 @@ Options:
   --sse-export-policy-config <path> SSE export policy config
   --sse-export-audit-log <path>     default: <out-base>/sse_exports/export_audit.jsonl
   --sse-export-handoff-mode file|fifo default: file; fifo streams plaintext handoff through named pipes
+  --cleanup-sse-export-handoff-files-after-bridge force file-mode SSE plaintext handoff cleanup after bridge prepare-job (default)
+  --keep-sse-export-handoff-files keep file-mode SSE plaintext handoff files after bridge prepare-job
   --unsafe-allow-no-sse-export-policy allow ad-hoc export without policy config
   --production-mode                 forbid command-line token secrets in bridge
   --caller <id>                      policy caller, default: bridge_demo
@@ -207,6 +219,7 @@ while [[ $# -gt 0 ]]; do
     --server-record-store-key-env) SERVER_RECORD_STORE_KEY_ENV="$2"; shift 2 ;;
     --client-record-store-key-env) CLIENT_RECORD_STORE_KEY_ENV="$2"; shift 2 ;;
     --record-recovery-socket) RECORD_RECOVERY_SOCKET="$2"; shift 2 ;;
+    --record-recovery-endpoint-url) RECORD_RECOVERY_ENDPOINT_URL="$2"; shift 2 ;;
     --record-recovery-auth-env) RECORD_RECOVERY_AUTH_ENV="$2"; shift 2 ;;
     --record-recovery-service-config) RECORD_RECOVERY_SERVICE_CONFIG="$2"; shift 2 ;;
     --record-recovery-authz-config) RECORD_RECOVERY_AUTHZ_CONFIG="$2"; shift 2 ;;
@@ -240,6 +253,8 @@ while [[ $# -gt 0 ]]; do
     --sse-export-policy-config) SSE_EXPORT_POLICY_CONFIG="$2"; shift 2 ;;
     --sse-export-audit-log) SSE_EXPORT_AUDIT_LOG="$2"; shift 2 ;;
     --sse-export-handoff-mode) SSE_EXPORT_HANDOFF_MODE="$2"; shift 2 ;;
+    --cleanup-sse-export-handoff-files-after-bridge) CLEANUP_SSE_EXPORT_HANDOFF_FILES_AFTER_BRIDGE="1"; shift ;;
+    --keep-sse-export-handoff-files) CLEANUP_SSE_EXPORT_HANDOFF_FILES_AFTER_BRIDGE="0"; shift ;;
     --unsafe-allow-no-sse-export-policy) UNSAFE_ALLOW_NO_SSE_EXPORT_POLICY="1"; shift ;;
     --production-mode) PRODUCTION_MODE="1"; shift ;;
     --job-id) JOB_ID="$2"; shift 2 ;;
@@ -295,7 +310,7 @@ SSE_EXPORT_POLICY_CONFIG="$(normalize_repo_path "$SSE_EXPORT_POLICY_CONFIG")"
 [[ -z "$CLIENT_RECORD_STORE_PATH" || -n "$CLIENT_SSE_KEYWORD" ]] || die "--client-record-store-path requires --client-sse-keyword"
 [[ -z "$SERVER_RECORD_STORE_PATH" || -n "$SERVER_RECORD_STORE_KEY_ENV" ]] || die "--server-record-store-key-env required with --server-record-store-path"
 [[ -z "$CLIENT_RECORD_STORE_PATH" || -n "$CLIENT_RECORD_STORE_KEY_ENV" ]] || die "--client-record-store-key-env required with --client-record-store-path"
-[[ -z "$RECORD_RECOVERY_AUTH_ENV" || -n "$RECORD_RECOVERY_SOCKET" ]] || die "--record-recovery-auth-env requires --record-recovery-socket"
+[[ -z "$RECORD_RECOVERY_AUTH_ENV" || -n "$RECORD_RECOVERY_SOCKET" || -n "$RECORD_RECOVERY_ENDPOINT_URL" || -n "$RECORD_RECOVERY_SERVICE_CONFIG" ]] || die "--record-recovery-auth-env requires a record recovery service address or config"
 [[ "$RECORD_RECOVERY_SERVICE_MODE" == "auto" || "$RECORD_RECOVERY_SERVICE_MODE" == "manual" || "$RECORD_RECOVERY_SERVICE_MODE" == "subprocess" ]] || die "--record-recovery-service-mode must be auto, manual, or subprocess"
 [[ -z "$RECORD_RECOVERY_AUTHZ_CONFIG" || "$RECORD_RECOVERY_SERVICE_MODE" == "auto" ]] || die "--record-recovery-authz-config currently requires --record-recovery-service-mode=auto"
 [[ "$RECORD_RECOVERY_SOCKET_MODE" =~ ^[0-7]{3,4}$ ]] || die "--record-recovery-socket-mode must be octal like 600 or 0600"
@@ -319,6 +334,7 @@ SSE_EXPORT_POLICY_CONFIG="$(normalize_repo_path "$SSE_EXPORT_POLICY_CONFIG")"
 [[ -f "$REQUEST_EXTERNAL_KMS_PY" ]] || die "missing external KMS client: $REQUEST_EXTERNAL_KMS_PY"
 [[ -f "$REQUEST_RECORD_RECOVERY_SERVICE_PY" ]] || die "missing record recovery service client: $REQUEST_RECORD_RECOVERY_SERVICE_PY"
 [[ -f "$MANAGE_RECORD_RECOVERY_SERVICE_PY" ]] || die "missing record recovery service manager: $MANAGE_RECORD_RECOVERY_SERVICE_PY"
+[[ -f "$RUN_RECORD_RECOVERY_SERVICE_PY" ]] || die "missing standalone record recovery launcher: $RUN_RECORD_RECOVERY_SERVICE_PY"
 [[ -f "$SEAL_AUDIT_ARTIFACT_PY" ]] || die "missing audit seal script: $SEAL_AUDIT_ARTIFACT_PY"
 
 if [[ -n "$TOKEN_SECRET_KEY_ID" ]]; then
@@ -451,8 +467,8 @@ if [[ -n "$TOKEN_SECRET_KEY_ID" ]]; then
       --job-id "$JOB_ID" \
       --audit-log "$KEY_ACCESS_AUDIT_LOG"
   )"
-  TOKEN_SECRET_ENV="$(python3 -c 'import json,sys; print(json.load(sys.stdin)["env"])' <<< "$KEY_RESOLUTION_JSON")"
-  TOKEN_KEY_VERSION="$(python3 -c 'import json,sys; print(json.load(sys.stdin)["key_version"])' <<< "$KEY_RESOLUTION_JSON")"
+  TOKEN_SECRET_ENV="$(python3 "$RUNTIME_SERVICE_HELPERS_PY" read-json-field --field env <<< "$KEY_RESOLUTION_JSON")"
+  TOKEN_KEY_VERSION="$(python3 "$RUNTIME_SERVICE_HELPERS_PY" read-json-field --field key_version <<< "$KEY_RESOLUTION_JSON")"
   python3 "$VALIDATE_JSON_CONTRACT_PY" \
     --schema "$REPO_ROOT/schemas/key_access_audit.schema.json" \
     --jsonl "$KEY_ACCESS_AUDIT_LOG"
@@ -499,7 +515,7 @@ normalize_optional_path() {
 
 record_recovery_service_config_value() {
   local field="$1"
-  python3 -c 'import sys; from pathlib import Path; repo_root=Path(sys.argv[1]); config_path=sys.argv[2]; field=sys.argv[3]; sys.path.insert(0, str(repo_root / "sse")); from toolkit.record_recovery_service_config import load_record_recovery_service_config, resolve_record_recovery_service_config; cfg=resolve_record_recovery_service_config(load_record_recovery_service_config(config_path)); value=cfg.get(field); 
+  python3 -c 'import sys; from pathlib import Path; repo_root=Path(sys.argv[1]); config_path=sys.argv[2]; field=sys.argv[3]; sys.path.insert(0, str(repo_root)); from services.record_recovery.config import load_record_recovery_service_config, resolve_record_recovery_service_config; cfg=resolve_record_recovery_service_config(load_record_recovery_service_config(config_path)); value=cfg.get(field);
 if value is None:
     print("")
 elif isinstance(value, list):
@@ -573,14 +589,14 @@ start_command_with_status() {
 write_record_recovery_service_runtime_config() {
   [[ "$RECORD_RECOVERY_USE_SERVICE" == "1" ]] || return 0
   [[ "$RECORD_RECOVERY_SERVICE_MODE" != "subprocess" ]] || return 0
-  [[ -n "$RECORD_RECOVERY_SOCKET" ]] || return 0
+  [[ -n "$RECORD_RECOVERY_SOCKET" || -n "$RECORD_RECOVERY_ENDPOINT_URL" ]] || return 0
 
   local allowed_callers_json allowed_output_roots_json allowed_record_store_roots_json
   allowed_callers_json="$(json_array "${RECORD_RECOVERY_ALLOWED_CALLERS[@]}")"
   allowed_output_roots_json="$(json_array "${RECORD_RECOVERY_ALLOWED_OUTPUT_ROOTS[@]}")"
   allowed_record_store_roots_json="$(json_array "${RECORD_RECOVERY_ALLOWED_RECORD_STORE_ROOTS[@]}")"
 
-  python3 - "$RECORD_RECOVERY_SERVICE_RUNTIME_CONFIG_JSON" "$RECORD_RECOVERY_SERVICE_ID" "$TENANT_ID" "$DATASET_ID" "$RECORD_RECOVERY_SOCKET" "$RECORD_RECOVERY_SOCKET_MODE" "$RECORD_RECOVERY_AUTH_ENV" "$RECORD_RECOVERY_AUTHZ_CONFIG" "$RECORD_RECOVERY_SERVICE_AUDIT_LOG" "$RECORD_RECOVERY_SERVICE_PID_FILE" "$RECORD_RECOVERY_SERVICE_READY_FILE" "$RECORD_RECOVERY_SERVICE_LOG" "$allowed_callers_json" "$allowed_output_roots_json" "$allowed_record_store_roots_json" <<'PY'
+  python3 - "$RECORD_RECOVERY_SERVICE_RUNTIME_CONFIG_JSON" "$RECORD_RECOVERY_TRANSPORT" "$RECORD_RECOVERY_SERVICE_ID" "$TENANT_ID" "$DATASET_ID" "$RECORD_RECOVERY_SOCKET" "$RECORD_RECOVERY_ENDPOINT_URL" "$RECORD_RECOVERY_SOCKET_MODE" "$RECORD_RECOVERY_AUTH_ENV" "$RECORD_RECOVERY_AUTHZ_CONFIG" "$RECORD_RECOVERY_SERVICE_AUDIT_LOG" "$RECORD_RECOVERY_SERVICE_PID_FILE" "$RECORD_RECOVERY_SERVICE_READY_FILE" "$RECORD_RECOVERY_SERVICE_LOG" "$allowed_callers_json" "$allowed_output_roots_json" "$allowed_record_store_roots_json" <<'PY'
 import json
 import sys
 from pathlib import Path
@@ -589,21 +605,23 @@ out_path = Path(sys.argv[1])
 out_path.parent.mkdir(parents=True, exist_ok=True)
 payload = {
     "schema": "record_recovery_service_config/v1",
-    "service_id": sys.argv[2] or None,
-    "tenant_id": sys.argv[3] or None,
-    "dataset_id": sys.argv[4] or None,
-    "socket_path": sys.argv[5],
-    "socket_mode": sys.argv[6] or "600",
-    "auth_token_env": sys.argv[7] or None,
-    "authz_config": sys.argv[8] or None,
-    "allowed_callers": json.loads(sys.argv[13]),
-    "allowed_output_roots": json.loads(sys.argv[14]),
-    "allowed_record_store_roots": json.loads(sys.argv[15]),
-    "audit_log": sys.argv[9] or None,
+    "transport": sys.argv[2] or "unix_socket",
+    "service_id": sys.argv[3] or None,
+    "tenant_id": sys.argv[4] or None,
+    "dataset_id": sys.argv[5] or None,
+    "socket_path": sys.argv[6] or None,
+    "endpoint_url": sys.argv[7] or None,
+    "socket_mode": sys.argv[8] or "600",
+    "auth_token_env": sys.argv[9] or None,
+    "authz_config": sys.argv[10] or None,
+    "allowed_callers": json.loads(sys.argv[15]),
+    "allowed_output_roots": json.loads(sys.argv[16]),
+    "allowed_record_store_roots": json.loads(sys.argv[17]),
+    "audit_log": sys.argv[11] or None,
     "lifecycle": {
-        "pid_file": sys.argv[10] or None,
-        "ready_file": sys.argv[11] or None,
-        "log_file": sys.argv[12] or None,
+        "pid_file": sys.argv[12] or None,
+        "ready_file": sys.argv[13] or None,
+        "log_file": sys.argv[14] or None,
     },
 }
 out_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
@@ -618,6 +636,7 @@ CLIENT_SOURCE="$(normalize_optional_path "$CLIENT_SOURCE")"
 SERVER_RECORD_STORE_PATH="$(normalize_optional_path "$SERVER_RECORD_STORE_PATH")"
 CLIENT_RECORD_STORE_PATH="$(normalize_optional_path "$CLIENT_RECORD_STORE_PATH")"
 RECORD_RECOVERY_SOCKET="$(normalize_optional_path "$RECORD_RECOVERY_SOCKET")"
+RECORD_RECOVERY_ENDPOINT_URL="${RECORD_RECOVERY_ENDPOINT_URL:-}"
 RECORD_RECOVERY_SERVICE_CONFIG="$(normalize_optional_path "$RECORD_RECOVERY_SERVICE_CONFIG")"
 RECORD_RECOVERY_AUTHZ_CONFIG="$(normalize_optional_path "$RECORD_RECOVERY_AUTHZ_CONFIG")"
 RECORD_RECOVERY_SERVICE_AUDIT_LOG="$(normalize_optional_path "$RECORD_RECOVERY_SERVICE_AUDIT_LOG")"
@@ -637,10 +656,16 @@ SSE_EXPORT_AUDIT_LOG="$(normalize_optional_path "$SSE_EXPORT_AUDIT_LOG")"
 AUDIT_ARCHIVE_DIR="$(normalize_optional_path "$AUDIT_ARCHIVE_DIR")"
 
 if [[ -n "$RECORD_RECOVERY_SERVICE_CONFIG" ]]; then
+  config_record_recovery_transport="$(record_recovery_service_config_value transport)"
+  [[ -n "$config_record_recovery_transport" ]] && RECORD_RECOVERY_TRANSPORT="$config_record_recovery_transport"
+  RECORD_RECOVERY_CONFIG_SERVICE_ID="$(record_recovery_service_config_value service_id)"
+  RECORD_RECOVERY_CONFIG_TENANT_ID="$(record_recovery_service_config_value tenant_id)"
+  RECORD_RECOVERY_CONFIG_DATASET_ID="$(record_recovery_service_config_value dataset_id)"
   [[ -n "$RECORD_RECOVERY_SERVICE_ID" ]] || RECORD_RECOVERY_SERVICE_ID="$(record_recovery_service_config_value service_id)"
   [[ -n "$TENANT_ID" ]] || TENANT_ID="$(record_recovery_service_config_value tenant_id)"
   [[ -n "$DATASET_ID" ]] || DATASET_ID="$(record_recovery_service_config_value dataset_id)"
   [[ -n "$RECORD_RECOVERY_SOCKET" ]] || RECORD_RECOVERY_SOCKET="$(record_recovery_service_config_value socket_path)"
+  [[ -n "$RECORD_RECOVERY_ENDPOINT_URL" ]] || RECORD_RECOVERY_ENDPOINT_URL="$(record_recovery_service_config_value endpoint_url)"
   [[ -n "$RECORD_RECOVERY_AUTH_ENV" ]] || RECORD_RECOVERY_AUTH_ENV="$(record_recovery_service_config_value auth_token_env)"
   [[ -n "$RECORD_RECOVERY_AUTHZ_CONFIG" ]] || RECORD_RECOVERY_AUTHZ_CONFIG="$(record_recovery_service_config_value authz_config)"
   [[ -n "$RECORD_RECOVERY_SERVICE_AUDIT_LOG" ]] || RECORD_RECOVERY_SERVICE_AUDIT_LOG="$(record_recovery_service_config_value audit_log)"
@@ -652,11 +677,25 @@ if [[ -n "$RECORD_RECOVERY_SERVICE_CONFIG" ]]; then
   load_record_recovery_service_config_array allowed_output_roots RECORD_RECOVERY_ALLOWED_OUTPUT_ROOTS
   load_record_recovery_service_config_array allowed_record_store_roots RECORD_RECOVERY_ALLOWED_RECORD_STORE_ROOTS
 fi
+if [[ -n "$RECORD_RECOVERY_ENDPOINT_URL" && -z "$RECORD_RECOVERY_SOCKET" ]]; then
+  RECORD_RECOVERY_TRANSPORT="http"
+elif [[ -n "$RECORD_RECOVERY_SOCKET" ]]; then
+  RECORD_RECOVERY_TRANSPORT="unix_socket"
+fi
 
 append_record_store_root() {
   local record_store_path="$1"
   [[ -n "$record_store_path" ]] || return 0
   append_unique_value RECORD_RECOVERY_ALLOWED_RECORD_STORE_ROOTS "$(abspath_parent_dir "$record_store_path")"
+}
+
+require_matching_scope_value() {
+  local field_name="$1"
+  local expected="$2"
+  local actual="$3"
+  local source_name="$4"
+  [[ -n "$expected" ]] || return 0
+  [[ "$expected" == "$actual" ]] || die "$source_name $field_name=$expected does not match resolved $field_name=$actual"
 }
 
 wait_for_socket() {
@@ -673,13 +712,19 @@ wait_for_socket() {
 }
 
 verify_record_recovery_service_health() {
-  [[ "$RECORD_RECOVERY_USE_SERVICE" == "1" && -n "$RECORD_RECOVERY_SOCKET" ]] || return 0
+  [[ "$RECORD_RECOVERY_USE_SERVICE" == "1" && ( -n "$RECORD_RECOVERY_SOCKET" || -n "$RECORD_RECOVERY_ENDPOINT_URL" ) ]] || return 0
 
   local health_json
   if [[ -n "$RECORD_RECOVERY_SERVICE_RUNTIME_CONFIG_JSON" && -f "$RECORD_RECOVERY_SERVICE_RUNTIME_CONFIG_JSON" ]]; then
     health_json="$(
       python3 "$REQUEST_RECORD_RECOVERY_SERVICE_PY" \
         --config "$RECORD_RECOVERY_SERVICE_RUNTIME_CONFIG_JSON"
+    )"
+  elif [[ -n "$RECORD_RECOVERY_ENDPOINT_URL" ]]; then
+    health_json="$(
+      python3 "$REQUEST_RECORD_RECOVERY_SERVICE_PY" \
+        --endpoint-url "$RECORD_RECOVERY_ENDPOINT_URL" \
+        --auth-token-env "$RECORD_RECOVERY_AUTH_ENV"
     )"
   elif [[ -n "$RECORD_RECOVERY_AUTH_ENV" ]]; then
     health_json="$(
@@ -697,19 +742,45 @@ verify_record_recovery_service_health() {
   python3 "$VALIDATE_JSON_CONTRACT_PY" \
     --schema "$REPO_ROOT/schemas/record_recovery_service_health.schema.json" \
     --json "$RECORD_RECOVERY_SERVICE_HEALTH_JSON"
+  python3 - "$RECORD_RECOVERY_SERVICE_HEALTH_JSON" "$RECORD_RECOVERY_TRANSPORT" "$RECORD_RECOVERY_SOCKET" "$RECORD_RECOVERY_ENDPOINT_URL" "$RECORD_RECOVERY_SERVICE_ID" "$TENANT_ID" "$DATASET_ID" "$RECORD_RECOVERY_AUTHZ_CONFIG" "$RECORD_RECOVERY_SERVICE_AUDIT_LOG" <<'PY'
+import json
+import sys
+from pathlib import Path
+
+health_path = Path(sys.argv[1])
+expected_transport = sys.argv[2]
+expected_socket = sys.argv[3]
+expected_endpoint = sys.argv[4]
+expected_service_id = sys.argv[5]
+expected_tenant_id = sys.argv[6]
+expected_dataset_id = sys.argv[7]
+expected_authz = sys.argv[8]
+expected_audit = sys.argv[9]
+data = json.loads(health_path.read_text(encoding="utf-8"))
+
+def ensure_match(field_name: str, expected: str, actual) -> None:
+    if not expected:
+        return
+    actual_text = "" if actual is None else str(actual)
+    if actual_text != expected:
+        raise SystemExit(
+            f"record recovery health mismatch for {field_name}: expected {expected!r}, got {actual_text!r}"
+        )
+
+ensure_match("transport", expected_transport, data.get("transport"))
+ensure_match("socket_path", expected_socket, data.get("socket_path"))
+ensure_match("endpoint_url", expected_endpoint, data.get("endpoint_url"))
+ensure_match("service_id", expected_service_id, data.get("service_id"))
+ensure_match("tenant_id", expected_tenant_id, data.get("tenant_id"))
+ensure_match("dataset_id", expected_dataset_id, data.get("dataset_id"))
+ensure_match("authz_policy_config", expected_authz, data.get("authz_policy_config"))
+ensure_match("audit_log", expected_audit, data.get("audit_log"))
+PY
 }
 
 wait_for_http_url() {
   local endpoint_url="$1"
-  local attempts=0
-  while [[ $attempts -lt 100 ]]; do
-    if python3 -c 'import json,sys,urllib.request; raw=urllib.request.urlopen(sys.argv[1], timeout=0.5).read(); data=json.loads(raw.decode("utf-8")); sys.exit(0 if data.get("ok") is True else 1)' "$endpoint_url/healthz" >/dev/null 2>&1; then
-      return 0
-    fi
-    sleep 0.1
-    attempts=$((attempts + 1))
-  done
-  return 1
+  python3 "$RUNTIME_SERVICE_HELPERS_PY" wait-json-health --url "$endpoint_url/healthz"
 }
 
 external_kms_config_value() {
@@ -801,12 +872,12 @@ resolve_key_via_agent() {
       --auth-token-env "$KEY_AGENT_AUTH_ENV"
   )"
   local resolved_secret
-  resolved_secret="$(python3 -c 'import json,sys; print(json.load(sys.stdin)["secret"])' <<< "$key_resolution_json")"
+  resolved_secret="$(python3 "$RUNTIME_SERVICE_HELPERS_PY" read-json-field --field secret <<< "$key_resolution_json")"
   TOKEN_SECRET_ENV="BRIDGE_TOKEN_SECRET_RESOLVED"
   printf -v "$TOKEN_SECRET_ENV" '%s' "$resolved_secret"
   export "$TOKEN_SECRET_ENV"
   KEY_AGENT_RESOLVED_ENV_SET="1"
-  TOKEN_KEY_VERSION="$(python3 -c 'import json,sys; print(json.load(sys.stdin)["key_version"])' <<< "$key_resolution_json")"
+  TOKEN_KEY_VERSION="$(python3 "$RUNTIME_SERVICE_HELPERS_PY" read-json-field --field key_version <<< "$key_resolution_json")"
   python3 "$VALIDATE_JSON_CONTRACT_PY" \
     --schema "$REPO_ROOT/schemas/key_access_audit.schema.json" \
     --jsonl "$KEY_ACCESS_AUDIT_LOG"
@@ -896,12 +967,12 @@ resolve_key_via_external_kms() {
       --job-id "$JOB_ID" \
       --audit-log "$KEY_ACCESS_AUDIT_LOG"
   )"
-  resolved_secret="$(python3 -c 'import json,sys; print(json.load(sys.stdin)["secret"])' <<< "$key_resolution_json")"
+  resolved_secret="$(python3 "$RUNTIME_SERVICE_HELPERS_PY" read-json-field --field secret <<< "$key_resolution_json")"
   TOKEN_SECRET_ENV="BRIDGE_TOKEN_SECRET_RESOLVED"
   printf -v "$TOKEN_SECRET_ENV" '%s' "$resolved_secret"
   export "$TOKEN_SECRET_ENV"
   EXTERNAL_KMS_RESOLVED_ENV_SET="1"
-  TOKEN_KEY_VERSION="$(python3 -c 'import json,sys; print(json.load(sys.stdin)["key_version"])' <<< "$key_resolution_json")"
+  TOKEN_KEY_VERSION="$(python3 "$RUNTIME_SERVICE_HELPERS_PY" read-json-field --field key_version <<< "$key_resolution_json")"
   python3 "$VALIDATE_JSON_CONTRACT_PY" \
     --schema "$REPO_ROOT/schemas/key_access_audit.schema.json" \
     --jsonl "$KEY_ACCESS_AUDIT_LOG"
@@ -913,7 +984,7 @@ start_record_recovery_service() {
     return 0
   fi
   if [[ "$RECORD_RECOVERY_SERVICE_MODE" == "manual" ]]; then
-    [[ -n "$RECORD_RECOVERY_SOCKET" || -n "$RECORD_RECOVERY_SERVICE_CONFIG" ]] || die "--record-recovery-socket or --record-recovery-service-config required when --record-recovery-service-mode=manual"
+    [[ -n "$RECORD_RECOVERY_SOCKET" || -n "$RECORD_RECOVERY_ENDPOINT_URL" || -n "$RECORD_RECOVERY_SERVICE_CONFIG" ]] || die "--record-recovery-socket, --record-recovery-endpoint-url, or --record-recovery-service-config required when --record-recovery-service-mode=manual"
     [[ -n "$RECORD_RECOVERY_SERVICE_PID_FILE" ]] || RECORD_RECOVERY_SERVICE_PID_FILE="$RECORD_RECOVERY_CONFIG_PID_FILE"
     [[ -n "$RECORD_RECOVERY_SERVICE_READY_FILE" ]] || RECORD_RECOVERY_SERVICE_READY_FILE="$RECORD_RECOVERY_CONFIG_READY_FILE"
     [[ -n "$RECORD_RECOVERY_SERVICE_LOG" ]] || RECORD_RECOVERY_SERVICE_LOG="$RECORD_RECOVERY_CONFIG_LOG_FILE"
@@ -924,7 +995,11 @@ start_record_recovery_service() {
     return 0
   fi
 
-  [[ -n "$RECORD_RECOVERY_SOCKET" ]] || RECORD_RECOVERY_SOCKET="$(default_record_recovery_socket)"
+  if [[ "$RECORD_RECOVERY_TRANSPORT" == "http" ]]; then
+    [[ -n "$RECORD_RECOVERY_ENDPOINT_URL" ]] || die "record recovery HTTP auto mode requires --record-recovery-endpoint-url or config endpoint_url/http_listener"
+  else
+    [[ -n "$RECORD_RECOVERY_SOCKET" ]] || RECORD_RECOVERY_SOCKET="$(default_record_recovery_socket)"
+  fi
   [[ -n "$RECORD_RECOVERY_AUTH_ENV" ]] || RECORD_RECOVERY_AUTH_ENV="SSE_RECORD_RECOVERY_AUTH_TOKEN"
   if [[ -z "${!RECORD_RECOVERY_AUTH_ENV:-}" ]]; then
     printf -v "$RECORD_RECOVERY_AUTH_ENV" '%s' "$(python3 -c 'import secrets; print(secrets.token_hex(32))')"
@@ -951,11 +1026,14 @@ start_record_recovery_service() {
   )
   local start_json
   start_json="$("${start_cmd[@]}")"
-  RECORD_RECOVERY_SERVICE_PID="$(python3 -c 'import json,sys; print(json.load(sys.stdin).get("started_pid", ""))' <<< "$start_json")"
+  RECORD_RECOVERY_SERVICE_PID="$(python3 "$RUNTIME_SERVICE_HELPERS_PY" read-json-field --field started_pid --default '' <<< "$start_json")"
   RECORD_RECOVERY_SERVICE_STARTED="1"
-  wait_for_socket "$RECORD_RECOVERY_SOCKET" || die "record recovery service socket did not become ready: $RECORD_RECOVERY_SOCKET"
   verify_record_recovery_service_health
-  log "Auto-started record recovery service: $RECORD_RECOVERY_SOCKET"
+  if [[ "$RECORD_RECOVERY_TRANSPORT" == "http" ]]; then
+    log "Auto-started record recovery service: $RECORD_RECOVERY_ENDPOINT_URL"
+  else
+    log "Auto-started record recovery service: $RECORD_RECOVERY_SOCKET"
+  fi
   log "  record recovery service log: $RECORD_RECOVERY_SERVICE_LOG"
 }
 
@@ -984,6 +1062,12 @@ cleanup_handoff() {
       "$SERVER_EXPORT_STATUS_FILE" "$CLIENT_EXPORT_STATUS_FILE" "$BRIDGE_STATUS_FILE"
   fi
 }
+
+cleanup_persisted_sse_export_handoff_files() {
+  [[ "$SSE_EXPORT_HANDOFF_MODE" == "file" ]] || return 0
+  [[ "$CLEANUP_SSE_EXPORT_HANDOFF_FILES_AFTER_BRIDGE" == "1" ]] || return 0
+  rm -f "$SERVER_EXPORT" "$CLIENT_EXPORT"
+}
 cleanup_all() {
   cleanup_handoff
   cleanup_key_agent_service
@@ -993,16 +1077,24 @@ cleanup_all() {
 trap cleanup_all EXIT
 
 if [[ -n "$SERVER_RECORD_STORE_PATH" || -n "$CLIENT_RECORD_STORE_PATH" ]]; then
-  if [[ "$RECORD_RECOVERY_SERVICE_MODE" != "subprocess" || -n "$RECORD_RECOVERY_SOCKET" ]]; then
+  if [[ "$RECORD_RECOVERY_SERVICE_MODE" != "subprocess" || -n "$RECORD_RECOVERY_SOCKET" || -n "$RECORD_RECOVERY_ENDPOINT_URL" ]]; then
     RECORD_RECOVERY_USE_SERVICE="1"
   fi
 fi
 
 if [[ -n "$SSE_EXPORT_POLICY_CONFIG" ]]; then
   PLATFORM_SCOPE_JSON="$(resolve_platform_scope_json "$RECORD_RECOVERY_USE_SERVICE")"
-  TENANT_ID="$(python3 -c 'import json,sys; print(json.load(sys.stdin).get("tenant_id", ""))' <<< "$PLATFORM_SCOPE_JSON")"
-  DATASET_ID="$(python3 -c 'import json,sys; print(json.load(sys.stdin).get("dataset_id", ""))' <<< "$PLATFORM_SCOPE_JSON")"
-  RECORD_RECOVERY_SERVICE_ID="$(python3 -c 'import json,sys; print(json.load(sys.stdin).get("service_id", ""))' <<< "$PLATFORM_SCOPE_JSON")"
+  RESOLVED_TENANT_ID="$(python3 "$RUNTIME_SERVICE_HELPERS_PY" read-json-field --field tenant_id --default '' <<< "$PLATFORM_SCOPE_JSON")"
+  RESOLVED_DATASET_ID="$(python3 "$RUNTIME_SERVICE_HELPERS_PY" read-json-field --field dataset_id --default '' <<< "$PLATFORM_SCOPE_JSON")"
+  RESOLVED_RECORD_RECOVERY_SERVICE_ID="$(python3 "$RUNTIME_SERVICE_HELPERS_PY" read-json-field --field service_id --default '' <<< "$PLATFORM_SCOPE_JSON")"
+  if [[ "$RECORD_RECOVERY_USE_SERVICE" == "1" ]]; then
+    require_matching_scope_value "tenant_id" "$RECORD_RECOVERY_CONFIG_TENANT_ID" "$RESOLVED_TENANT_ID" "record recovery service config"
+    require_matching_scope_value "dataset_id" "$RECORD_RECOVERY_CONFIG_DATASET_ID" "$RESOLVED_DATASET_ID" "record recovery service config"
+    require_matching_scope_value "service_id" "$RECORD_RECOVERY_CONFIG_SERVICE_ID" "$RESOLVED_RECORD_RECOVERY_SERVICE_ID" "record recovery service config"
+  fi
+  TENANT_ID="$RESOLVED_TENANT_ID"
+  DATASET_ID="$RESOLVED_DATASET_ID"
+  RECORD_RECOVERY_SERVICE_ID="$RESOLVED_RECORD_RECOVERY_SERVICE_ID"
 fi
 
 start_key_agent_service
@@ -1036,8 +1128,12 @@ if [[ -n "$TOKEN_SECRET_KEY_NAME" ]]; then
     log "  key agent ready file: $KEY_AGENT_READY_FILE"
   fi
 fi
-if [[ "$RECORD_RECOVERY_USE_SERVICE" == "1" && -n "$RECORD_RECOVERY_SOCKET" ]]; then
-  log "Using record recovery service socket: $RECORD_RECOVERY_SOCKET"
+if [[ "$RECORD_RECOVERY_USE_SERVICE" == "1" && ( -n "$RECORD_RECOVERY_SOCKET" || -n "$RECORD_RECOVERY_ENDPOINT_URL" ) ]]; then
+  if [[ -n "$RECORD_RECOVERY_ENDPOINT_URL" ]]; then
+    log "Using record recovery service endpoint: $RECORD_RECOVERY_ENDPOINT_URL"
+  else
+    log "Using record recovery service socket: $RECORD_RECOVERY_SOCKET"
+  fi
   if [[ -n "$RECORD_RECOVERY_SERVICE_ID" ]]; then
     log "  record recovery service id: $RECORD_RECOVERY_SERVICE_ID"
   fi
@@ -1078,7 +1174,7 @@ if [[ -n "$SERVER_SOURCE" ]]; then
 fi
 if [[ -n "$SERVER_RECORD_STORE_PATH" ]]; then
   SERVER_EXPORT_CMD+=(--record-store-path "$SERVER_RECORD_STORE_PATH" --record-store-key-env "$SERVER_RECORD_STORE_KEY_ENV")
-  if [[ "$RECORD_RECOVERY_USE_SERVICE" == "1" && -n "$RECORD_RECOVERY_SOCKET" ]]; then
+  if [[ "$RECORD_RECOVERY_USE_SERVICE" == "1" && ( -n "$RECORD_RECOVERY_SOCKET" || -n "$RECORD_RECOVERY_ENDPOINT_URL" ) ]]; then
     SERVER_EXPORT_CMD+=(--record-recovery-service-config "$RECORD_RECOVERY_SERVICE_RUNTIME_CONFIG_JSON")
     if [[ -n "$RECORD_RECOVERY_SERVICE_ID" ]]; then
       SERVER_EXPORT_CMD+=(--record-recovery-service-id "$RECORD_RECOVERY_SERVICE_ID")
@@ -1126,7 +1222,7 @@ if [[ -n "$CLIENT_SOURCE" ]]; then
 fi
 if [[ -n "$CLIENT_RECORD_STORE_PATH" ]]; then
   CLIENT_EXPORT_CMD+=(--record-store-path "$CLIENT_RECORD_STORE_PATH" --record-store-key-env "$CLIENT_RECORD_STORE_KEY_ENV")
-  if [[ "$RECORD_RECOVERY_USE_SERVICE" == "1" && -n "$RECORD_RECOVERY_SOCKET" ]]; then
+  if [[ "$RECORD_RECOVERY_USE_SERVICE" == "1" && ( -n "$RECORD_RECOVERY_SOCKET" || -n "$RECORD_RECOVERY_ENDPOINT_URL" ) ]]; then
     CLIENT_EXPORT_CMD+=(--record-recovery-service-config "$RECORD_RECOVERY_SERVICE_RUNTIME_CONFIG_JSON")
     if [[ -n "$RECORD_RECOVERY_SERVICE_ID" ]]; then
       CLIENT_EXPORT_CMD+=(--record-recovery-service-id "$RECORD_RECOVERY_SERVICE_ID")
@@ -1176,6 +1272,33 @@ if [[ "$SSE_EXPORT_HANDOFF_MODE" == "file" ]]; then
     CLIENT_BRIDGE_CONTRACT_CMD+=(--value-field "$CLIENT_VALUE_FIELD")
   fi
   "${CLIENT_BRIDGE_CONTRACT_CMD[@]}"
+fi
+
+if [[ "$SSE_EXPORT_HANDOFF_MODE" == "file" && -f "$SSE_EXPORT_AUDIT_LOG" ]]; then
+  log "Verifying bridge input file hashes against SSE export audit (input commitment check)"
+  ACTUAL_SERVER_HASH="$(sha256sum "$SERVER_EXPORT" | cut -d' ' -f1)"
+  ACTUAL_CLIENT_HASH="$(sha256sum "$CLIENT_EXPORT" | cut -d' ' -f1)"
+  AUDIT_SERVER_HASH="$(python3 - "$SSE_EXPORT_AUDIT_LOG" <<'PYEOF'
+import json, sys
+lines = [json.loads(l) for l in open(sys.argv[1]) if l.strip()]
+rec = next((l for l in reversed(lines) if l.get("role") == "server"), {})
+print(rec.get("output_hash", ""))
+PYEOF
+)"
+  AUDIT_CLIENT_HASH="$(python3 - "$SSE_EXPORT_AUDIT_LOG" <<'PYEOF'
+import json, sys
+lines = [json.loads(l) for l in open(sys.argv[1]) if l.strip()]
+rec = next((l for l in reversed(lines) if l.get("role") == "client"), {})
+print(rec.get("output_hash", ""))
+PYEOF
+)"
+  if [[ -z "$AUDIT_SERVER_HASH" || -z "$AUDIT_CLIENT_HASH" ]]; then
+    log "WARN: output_hash not found in SSE export audit — skipping input commitment check"
+  elif [[ "$ACTUAL_SERVER_HASH" != "$AUDIT_SERVER_HASH" || "$ACTUAL_CLIENT_HASH" != "$AUDIT_CLIENT_HASH" ]]; then
+    die "Input commitment check FAILED: bridge input file hashes do not match SSE export audit. Possible file substitution. Aborting."
+  else
+    log "Input commitment check PASSED: bridge input hashes match SSE export audit"
+  fi
 fi
 
 log "Stage2 bridge prepare-job"
@@ -1260,6 +1383,7 @@ else
   (cd "$BRIDGE_DIR" && "${BRIDGE_CMD[@]}") || BRIDGE_RC=$?
   [[ "$BRIDGE_RC" -eq 0 ]] || exit "$BRIDGE_RC"
 fi
+cleanup_persisted_sse_export_handoff_files
 
 python3 "$VALIDATE_JSON_CONTRACT_PY" \
   --schema "$REPO_ROOT/schemas/sse_bridge_export_audit.schema.json" \
@@ -1300,6 +1424,7 @@ python3 "$VALIDATE_TABULAR_CONTRACT_PY" \
 
 log "Stage3 a-psi run"
 cp "$BRIDGE_JOB_DIR/job_meta.json" "$APSI_JOB_DIR/job_meta.json"
+PJC_STARTED_MS="$(date +%s%3N)"
 PJC_RC=0
 (
   cd "$APSI_DIR"
@@ -1310,6 +1435,8 @@ PJC_RC=0
   PJC_BIN_DIR="$PJC_BIN_DIR" \
   bash "$RUN_PJC_SH"
 ) || PJC_RC=$?
+PJC_ENDED_MS="$(date +%s%3N)"
+PJC_DURATION_MS="$((PJC_ENDED_MS - PJC_STARTED_MS))"
 
 PJC_AUDIT_CMD=(
   python3 "$WRITE_PJC_AUDIT_PY"
@@ -1321,6 +1448,7 @@ PJC_AUDIT_CMD=(
   --server-log "$APSI_JOB_DIR/server.log"
   --client-log "$APSI_JOB_DIR/client.log"
   --result-file "$APSI_JOB_DIR/attribution_result.json"
+  --duration-ms "$PJC_DURATION_MS"
 )
 if [[ "$PJC_RC" -eq 0 ]]; then
   "${PJC_AUDIT_CMD[@]}" \
@@ -1374,6 +1502,21 @@ if [[ -n "$RECORD_RECOVERY_SERVICE_AUDIT_LOG" ]]; then
   BUILD_AUDIT_CHAIN_CMD+=(--record-recovery-service-audit "$RECORD_RECOVERY_SERVICE_AUDIT_LOG")
 fi
 BUILD_AUDIT_CHAIN_CMD+=(--pjc-audit "$PJC_AUDIT_LOG")
+MAINLINE_CONTRACT_CMD=(
+  python3 "$CHECK_MAINLINE_CONTRACT_PY"
+  --out-base "$OUT_BASE"
+  --job-id "$JOB_ID"
+  --output "$OUT_BASE/mainline_contract_check.json"
+)
+if [[ "$CLEANUP_SSE_EXPORT_HANDOFF_FILES_AFTER_BRIDGE" != "1" ]]; then
+  MAINLINE_CONTRACT_CMD+=(--allow-retained-managed-handoff)
+fi
+"${MAINLINE_CONTRACT_CMD[@]}"
+
+python3 "$VALIDATE_JSON_CONTRACT_PY" \
+  --schema "$REPO_ROOT/schemas/mainline_contract_check.schema.json" \
+  --json "$OUT_BASE/mainline_contract_check.json"
+
 "${BUILD_AUDIT_CHAIN_CMD[@]}"
 
 python3 "$VALIDATE_JSON_CONTRACT_PY" \
@@ -1435,7 +1578,11 @@ if [[ -n "$TOKEN_SECRET_KEY_NAME" ]]; then
 fi
 if [[ "$RECORD_RECOVERY_USE_SERVICE" == "1" ]]; then
   log "  recovery audit: $RECORD_RECOVERY_SERVICE_AUDIT_LOG"
-  log "  recovery socket: $RECORD_RECOVERY_SOCKET"
+  if [[ -n "$RECORD_RECOVERY_ENDPOINT_URL" ]]; then
+    log "  recovery endpoint: $RECORD_RECOVERY_ENDPOINT_URL"
+  else
+    log "  recovery socket: $RECORD_RECOVERY_SOCKET"
+  fi
   if [[ -n "$RECORD_RECOVERY_AUTHZ_CONFIG" ]]; then
     log "  recovery authz config: $RECORD_RECOVERY_AUTHZ_CONFIG"
   fi
@@ -1450,6 +1597,7 @@ fi
 log "  bridge job:    $BRIDGE_JOB_DIR"
 log "  a-psi outputs: $APSI_JOB_DIR"
 log "  audit chain:   $OUT_BASE/audit_chain.json"
+log "  contract check:$OUT_BASE/mainline_contract_check.json"
 log "  audit seal:    $OUT_BASE/audit_chain.seal.json"
 if [[ -n "$AUDIT_ARCHIVE_DIR" ]]; then
   log "  audit archive: $AUDIT_ARCHIVE_DIR"

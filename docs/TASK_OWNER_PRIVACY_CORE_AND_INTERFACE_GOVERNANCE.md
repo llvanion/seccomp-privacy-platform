@@ -1,0 +1,237 @@
+# 任务书 0：项目负责人负责的隐私内核与接口治理
+
+## 1. 任务定位
+
+这份任务归项目负责人，不建议分出去。
+
+你负责的是平台最核心、最容易因为接口漂移而失控的部分：
+
+1. 隐私计算主语义
+2. 跨模块 contract
+3. 数据泄漏边界
+4. release policy
+5. `SSE -> record recovery -> bridge -> PJC -> policy release` 主链路
+
+其他人可以围绕这些接口做平台能力，但不能自行重新定义这些接口。
+
+## 2. 不能分出去的原因
+
+这些部分不是普通工程任务，而是平台的安全语义：
+
+1. `SSE` 到 `record recovery` 的恢复边界决定哪些记录可以从加密存储里被恢复。
+2. `bridge` 的 token contract 决定跨方 join key 如何被标准化、HMAC 化和审计。
+3. `PJC` 的输入 contract 决定广告商和电商平台之间实际交换什么。
+4. `policy release` 决定哪些交集结果、聚合值和报告可以被发布。
+5. `caller / tenant_id / dataset_id / service_id / job_id / correlation_id` 的语义必须全链路一致。
+
+如果这些语义分散给多人各自修改，后面会出现“看起来能跑，但隐私边界已经被破坏”的问题。
+
+## 3. 你负责的具体任务
+
+### 任务 A：冻结核心 contract
+
+你需要维护这些稳定字段：
+
+1. `job_id`
+2. `correlation_id`
+3. `caller`
+4. `tenant_id`
+5. `dataset_id`
+6. `service_id`
+7. `record_recovery_boundary`
+8. `token_scope`
+9. `token_key_version`
+10. `release_policy`
+
+这些字段只允许向后兼容扩展，不允许静默改名或改变含义。
+
+### 任务 B：维护主链路接口
+
+你保留以下入口的最终接口定义权：
+
+1. `scripts/run_sse_bridge_pipeline.sh`
+2. `scripts/run_live_sse_bridge_demo.sh`
+3. `scripts/run_record_recovery_service.py`
+4. `sse/run_client.py export-bridge-records`
+5. `bridge` CLI 的 `generate` / `prepare-job`
+6. `a-psi/moduleA_psi/scripts/run_pjc.sh`
+7. `a-psi/moduleA_psi/scripts/policy_release.py`
+
+其他人如果需要修改这些入口，必须先提交 `docs/change_requests/<topic>.md`。
+
+### 任务 C：定义隐私边界
+
+你需要继续推进以下边界：
+
+1. encrypted record store 是平台内部加密存储边界。
+2. record recovery service 是受控恢复边界。
+3. bridge-ready handoff 是当前仍需收紧的明文暴露边界。
+4. HMAC join token 是跨机构协作输入边界。
+5. PJC result 是聚合结果边界。
+6. policy release 是最终对外发布边界。
+
+重点是把“当前仍然明文的 handoff”逐步收敛到：
+
+1. FIFO 短生命周期流式传输
+2. 加密 at-rest handoff
+3. 远期的服务间认证传输
+4. 审计可追溯的最小字段恢复
+
+### 任务 D：维护泄漏模型
+
+你需要明确每个阶段允许泄漏什么：
+
+1. SSE 阶段允许泄漏候选数量，但不泄漏原始过滤条件。
+2. recovery 阶段只允许恢复被策略允许的字段。
+3. bridge 阶段不接收候选 ID 和原始过滤器。
+4. PJC 阶段只接收 token 化 join key 和必要 value。
+5. release 阶段只允许发布满足阈值、去重、审计策略的结果。
+
+### 任务 E：接口变更审批
+
+所有跨模块接口变更都必须走：
+
+1. 变更提案
+2. 兼容策略
+3. schema 或 contract 更新
+4. demo 回放验证
+5. 文档同步
+
+参考流程文档：
+
+```text
+docs/INTERFACE_FREEZE_AND_CHANGE_PROCESS.md
+```
+
+冻结字段矩阵：
+
+```text
+docs/CORE_CONTRACT_FREEZE_MATRIX.md
+```
+
+当前 threat model / leakage model 基线文档：
+
+```text
+docs/THREAT_MODEL_AND_LEAKAGE_MODEL.md
+```
+
+当前 bridge-ready handoff 收紧计划：
+
+```text
+docs/BRIDGE_HANDOFF_HARDENING_PLAN.md
+```
+
+owner 评审清单：
+
+```text
+docs/OWNER_MAINLINE_CHANGE_CHECKLIST.md
+```
+
+## 4. 技术栈
+
+你主要维护当前项目已有技术栈：
+
+1. Python 3
+2. Bash
+3. Rust
+4. JSON / JSONL / CSV
+5. Unix socket / HTTP recovery service
+6. HMAC-SHA256 tokenization
+7. PBKDF2HMAC-SHA256 + AES-256-GCM encrypted record store
+8. A-PSI / private-join-and-compute
+
+## 5. 可参考但不能替代核心语义的 GitHub 项目
+
+这些项目可以作为外围能力参考，但不能替代你的隐私主链路：
+
+| 能力 | GitHub 项目 | 用法边界 |
+| --- | --- | --- |
+| 通用策略引擎 | https://github.com/open-policy-agent/opa | 可做 admission / ops policy，不替代隐私 release policy |
+| 细粒度授权 | https://github.com/openfga/openfga | 可表达租户、数据集、服务权限，不替代主链路字段语义 |
+| 密钥与加密服务 | https://github.com/hashicorp/vault | 可替代 mock KMS，不直接改变 bridge token contract |
+| 工作流编排 | https://github.com/temporalio/temporal | 可替代 shell orchestration，不改变阶段输入输出 contract |
+| SQL 查询引擎 | https://github.com/apache/datafusion | 可做未来查询前端，不直接访问未经授权的隐私数据 |
+
+## 6. 稳定接口
+
+### 端到端 demo
+
+```bash
+bash scripts/run_live_sse_bridge_demo.sh
+```
+
+### 集成 pipeline
+
+```bash
+bash scripts/run_sse_bridge_pipeline.sh \
+  --server-input <server-source> \
+  --client-input <client-source> \
+  --job-id <job-id> \
+  --token-scope <scope> \
+  --token-secret-env BRIDGE_TOKEN_SECRET
+```
+
+### record recovery 独立服务
+
+```bash
+python3 scripts/run_record_recovery_service.py serve \
+  --config config/record_recovery_http_service.example.json
+```
+
+### contract smoke
+
+```bash
+bash scripts/check_json_contracts.sh
+```
+
+## 7. 禁止事项
+
+你之外的成员默认不能直接做这些事：
+
+1. 改 `bridge-ready` handoff 字段语义。
+2. 改 PJC `server.csv` / `client.csv` 语义。
+3. 改 `policy_release.py` 的发布条件。
+4. 改 `record_recovery_boundary` 的含义。
+5. 把主链路强制依赖新数据库或新 API。
+6. 删除已有 CLI 参数。
+7. 改已有 schema name。
+
+## 8. 验收标准
+
+你的工作完成标准：
+
+1. 三个人的实现都只能通过冻结接口协作。
+2. 主链路 demo 能持续跑通。
+3. 所有新增平台能力都是 adapter / sidecar first。
+4. 明文 handoff 暴露面逐步减少，但不破坏现有 demo。
+5. 每次接口变化都有文档、schema、兼容策略和回放验证。
+
+## 9. 平台级剩余工作量估算
+
+按 [PLATFORM_LEVEL_REMAINING_ESTIMATE.md](/home/llvanion/Desktop/seccomp-privacy-platform/docs/PLATFORM_LEVEL_REMAINING_ESTIMATE.md) 的统一口径，这条 owner 主线从“当前原型”推进到“平台基线版”还需要：
+
+1. `10 blocks`
+2. 约 `50h`
+
+这里的“平台基线版”指：
+
+1. 主链路 contract 继续冻结。
+2. recovery / handoff / replay governance 不再只是本地 demo 边界。
+3. 关键敏感边界具备更正式的 deploy / authn / lifecycle / replay 形态。
+
+已完成收口：
+
+1. `audit seal / archive` 已经补到本地 append-only 锚点基线：`audit_chain_index.jsonl` 之外，归档流程现在还会生成 `audit_chain_anchor.jsonl`，并在 archive-backed verify 时回放整条锚点链。
+
+建议拆分：
+
+1. `4 blocks / 20h`：把 record recovery 从本地受控进程推进到更独立的 service-user / external-service 边界，补更强 authn、lifecycle 和回放验证。
+2. `3 blocks / 15h`：继续收紧 `bridge-ready` 明文 handoff，至少补一条比当前 file/FIFO 更接近平台边界的受控路径。
+3. `2 blocks / 10h`：补 bridge/PJC compatibility 与 normalization version 的长期治理基线，避免后续多实现并行时语义漂移。
+4. `1 block / 5h`：把 replay、benchmark、change-process 和 owner checklist 再收一轮，形成平台基线签收点。
+
+不含：
+
+1. 完整生产级多租户硬隔离。
+2. 真实 HSM/KMS 上线。
+3. 大规模运维、SLO、告警体系。

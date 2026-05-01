@@ -1,0 +1,31 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "platform_health_api_health/v1",
+  "title": "Health envelope for the platform health API",
+  "type": "object",
+  "required": [
+    "schema",
+    "ok",
+    "auth_required",
+    "available_results"
+  ],
+  "properties": {
+    "schema": {
+      "const": "platform_health_api_health/v1"
+    },
+    "ok": {
+      "type": "boolean"
+    },
+    "auth_required": {
+      "type": "boolean"
+    },
+    "available_results": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    }
+  },
+  "additionalProperties": false
+}

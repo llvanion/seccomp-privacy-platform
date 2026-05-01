@@ -1,0 +1,49 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "audit_query_api_response/v1",
+  "title": "Success envelope for the audit/public-report query adapter",
+  "type": "object",
+  "required": [
+    "schema",
+    "method",
+    "path",
+    "query",
+    "result_schema",
+    "result"
+  ],
+  "properties": {
+    "schema": {
+      "const": "audit_query_api_response/v1"
+    },
+    "method": {
+      "type": "string",
+      "minLength": 1
+    },
+    "path": {
+      "type": "string",
+      "minLength": 1
+    },
+    "query": {
+      "type": "object",
+      "additionalProperties": {
+        "type": [
+          "string",
+          "array"
+        ],
+        "items": {
+          "type": "string"
+        }
+      }
+    },
+    "result_schema": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "result": {
+      "type": "object"
+    }
+  },
+  "additionalProperties": false
+}

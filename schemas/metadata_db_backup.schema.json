@@ -1,0 +1,65 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "metadata_db_backup/v1",
+  "title": "Metadata sidecar DB backup report",
+  "type": "object",
+  "required": [
+    "schema",
+    "generated_at_utc",
+    "status",
+    "source_db_path",
+    "backup_db_path",
+    "source_sha256",
+    "backup_sha256",
+    "source_size_bytes",
+    "backup_size_bytes",
+    "applied_migrations",
+    "used_sqlite_backup_api"
+  ],
+  "properties": {
+    "schema": {
+      "const": "metadata_db_backup/v1"
+    },
+    "generated_at_utc": {
+      "type": "string",
+      "minLength": 1
+    },
+    "status": {
+      "type": "string",
+      "enum": ["ok", "error"]
+    },
+    "source_db_path": {
+      "type": "string",
+      "minLength": 1
+    },
+    "backup_db_path": {
+      "type": "string",
+      "minLength": 1
+    },
+    "source_sha256": {
+      "type": ["string", "null"]
+    },
+    "backup_sha256": {
+      "type": ["string", "null"]
+    },
+    "source_size_bytes": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "backup_size_bytes": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "applied_migrations": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "used_sqlite_backup_api": {
+      "type": "boolean"
+    }
+  },
+  "additionalProperties": false
+}

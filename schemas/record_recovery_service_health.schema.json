@@ -9,6 +9,7 @@
     "service_id",
     "tenant_id",
     "dataset_id",
+    "transport",
     "socket_path",
     "auth_required",
     "authz_policy_config",
@@ -31,11 +32,23 @@
     "dataset_id": {
       "type": "string"
     },
+    "transport": {
+      "enum": ["unix_socket", "http"]
+    },
     "ok": {
       "type": "boolean"
     },
     "socket_path": {
-      "type": "string"
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "endpoint_url": {
+      "type": [
+        "string",
+        "null"
+      ]
     },
     "auth_required": {
       "type": "boolean"

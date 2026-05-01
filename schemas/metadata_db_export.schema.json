@@ -1,0 +1,137 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "metadata_db_export/v1",
+  "title": "Metadata sidecar DB JSON export",
+  "type": "object",
+  "required": [
+    "schema",
+    "generated_at_utc",
+    "db_path",
+    "out_path",
+    "job_limit",
+    "entity_limit",
+    "artifact_limit",
+    "status",
+    "jobs",
+    "entities",
+    "sample_artifacts"
+  ],
+  "properties": {
+    "schema": {
+      "const": "metadata_db_export/v1"
+    },
+    "generated_at_utc": {
+      "type": "string",
+      "minLength": 1
+    },
+    "db_path": {
+      "type": "string",
+      "minLength": 1
+    },
+    "out_path": {
+      "type": "string",
+      "minLength": 1
+    },
+    "job_limit": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "entity_limit": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "artifact_limit": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "status": {
+      "type": "object",
+      "required": [
+        "schema",
+        "generated_at_utc",
+        "db_path",
+        "status",
+        "sqlite_version",
+        "size_bytes",
+        "sha256",
+        "applied_migrations",
+        "expected_migrations",
+        "pending_migrations",
+        "summary",
+        "warnings"
+      ],
+      "properties": {
+        "schema": {
+          "const": "metadata_db_status/v1"
+        }
+      },
+      "additionalProperties": true
+    },
+    "jobs": {
+      "type": "object",
+      "required": ["filters", "jobs", "mainline_contract_summary_counts", "stage_summary", "grouped_stage_summary", "grouped_status_summary"],
+      "properties": {
+        "filters": { "type": "object" },
+        "jobs": {
+          "type": "array",
+          "items": {
+            "type": "object"
+          }
+        },
+        "mainline_contract_summary_counts": { "type": "object" },
+        "stage_summary": { "type": ["object", "null"] },
+        "grouped_stage_summary": { "type": ["array", "null"] },
+        "grouped_status_summary": { "type": ["array", "null"] }
+      },
+      "additionalProperties": false
+    },
+    "entities": {
+      "type": "object",
+      "required": [
+        "tenants",
+        "datasets",
+        "services",
+        "callers",
+        "policies",
+        "policy-bindings",
+        "caller-permissions"
+      ],
+      "properties": {
+        "tenants": { "type": "object" },
+        "datasets": { "type": "object" },
+        "services": { "type": "object" },
+        "callers": { "type": "object" },
+        "policies": { "type": "object" },
+        "policy-bindings": { "type": "object" },
+        "caller-permissions": { "type": "object" }
+      },
+      "additionalProperties": false
+    },
+    "sample_artifacts": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "job_id",
+          "stage",
+          "artifact_type",
+          "path",
+          "sha256",
+          "file_format",
+          "exists_on_disk"
+        ],
+        "properties": {
+          "job_id": { "type": "string", "minLength": 1 },
+          "stage": { "type": "string", "minLength": 1 },
+          "artifact_type": { "type": "string", "minLength": 1 },
+          "path": { "type": "string", "minLength": 1 },
+          "sha256": { "type": ["string", "null"] },
+          "file_format": { "type": ["string", "null"] },
+          "exists_on_disk": { "type": "integer", "minimum": 0 }
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  "additionalProperties": false
+}

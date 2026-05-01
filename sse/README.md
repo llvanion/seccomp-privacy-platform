@@ -257,11 +257,12 @@ Then export from the encrypted store after SSE candidate search:
 
 The store uses PBKDF2HMAC-SHA256 and AES-256-GCM. Per-record lookup uses keyed HMAC tags instead of raw record IDs, so the store does not write raw email, phone, device ID, or their hex identifiers as row selectors.
 
-To move recovery behind a longer-lived local boundary, start the Unix-socket recovery service first:
+To move recovery behind a longer-lived local boundary, start the standalone Unix-socket recovery service first:
 
 ```bash
 export SSE_RECORD_RECOVERY_TOKEN=<token>
-.venv/bin/python run_client.py serve-record-recovery \
+python3 ../scripts/run_record_recovery_service.py serve \
+  --transport unix_socket \
   --socket-path /tmp/sse_record_recovery.sock \
   --socket-mode 600 \
   --auth-token-env SSE_RECORD_RECOVERY_TOKEN \
@@ -312,7 +313,7 @@ export SSE_RECORD_RECOVERY_TOKEN=<token>
   --sname bridge_sse_demo
 ```
 
-This keeps the same policy and audit behavior while moving encrypted-store recovery out of the export process. SSE export audit records `record_recovery_boundary=service_socket` for this path. The service can also enforce a caller allowlist, answer `health` requests through the shared record-recovery client path, and emit `sse_record_recovery_service_audit/v1` records. `config/record_recovery_service.example.json` is the aligned runtime config for the service, the manual health probe, and direct `export-bridge-records` usage; it now binds `service_id`, `tenant_id`, and `dataset_id` so the recovery service uses the same caller/tenant/dataset/service scope as the export and pipeline policy. The integrated pipeline materializes its own effective `record_recovery_service_config.json` artifact and routes health/export calls through it.
+This keeps the same policy and audit behavior while moving encrypted-store recovery out of the export process. SSE export audit records `record_recovery_boundary=service_socket` for this path. The service can also enforce a caller allowlist, answer `health` requests through the shared record-recovery client path, and emit `sse_record_recovery_service_audit/v1` records. `config/record_recovery_service.example.json` is the aligned runtime config for the service, the manual health probe, and direct `export-bridge-records` usage; it now binds `service_id`, `tenant_id`, and `dataset_id` so the recovery service uses the same caller/tenant/dataset/service scope as the export and pipeline policy. The recommended standalone deploy entrypoint is now `scripts/run_record_recovery_service.py serve`, while `run_client.py serve-record-recovery` remains as a compatibility adapter. The integrated pipeline materializes its own effective `record_recovery_service_config.json` artifact and routes health/export calls through it.
 
 ### Step 8: Multi-keyword batch search
 

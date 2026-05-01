@@ -1,0 +1,316 @@
+{
+  "schemas": [
+    {
+      "path": "schemas/public_report.schema.json",
+      "schema_id": "public_report/v2",
+      "required": ["schema", "generated_at_utc", "policy_version", "job_id", "correlation_id", "caller", "released", "reason", "reason_code", "window", "k_threshold"],
+      "stable_properties": ["aov", "bridge", "bucket", "caller", "conversions", "correlation_id", "details", "generated_at_utc", "input_sizes", "job_id", "k_threshold", "policy_version", "rate_limit_max", "rate_limit_used", "reason", "reason_code", "released", "schema", "value_mode", "value_sum", "window"]
+    },
+    {
+      "path": "schemas/audit_chain.schema.json",
+      "schema_id": "audit_chain/v1",
+      "required": ["schema", "generated_at_utc", "job_id", "correlation_id", "paths", "artifacts", "counts", "key_access_audit", "sse_export_audit", "record_recovery_service_audit", "bridge_audit", "bridge_job_meta", "pjc_audit", "pjc_result", "public_report", "policy_audit"],
+      "stable_properties": ["artifacts", "bridge_audit", "bridge_job_meta", "correlation_id", "counts", "generated_at_utc", "job_id", "key_access_audit", "mainline_contract_check", "paths", "pjc_audit", "pjc_result", "policy_audit", "public_report", "record_recovery_service_audit", "schema", "sse_export_audit"]
+    },
+    {
+      "path": "schemas/pipeline_observability.schema.json",
+      "schema_id": "pipeline_observability/v1",
+      "required": ["schema", "generated_at_utc", "job_id", "correlation_id", "caller", "tenant_id", "dataset_id", "service_id", "summary", "events"],
+      "stable_properties": ["caller", "correlation_id", "dataset_id", "events", "generated_at_utc", "job_id", "schema", "service_id", "summary", "tenant_id"]
+    },
+    {
+      "path": "schemas/catalog_lineage.schema.json",
+      "schema_id": "catalog_lineage/v1",
+      "required": ["schema", "generated_at_utc", "job_id", "correlation_id", "caller", "tenant_id", "dataset_id", "service_id", "privacy", "job", "datasets", "services", "artifacts", "lineage_edges", "summary"],
+      "stable_properties": ["artifacts", "caller", "correlation_id", "dataset_id", "datasets", "generated_at_utc", "job", "job_id", "lineage_edges", "privacy", "schema", "service_id", "services", "summary", "tenant_id"]
+    },
+    {
+      "path": "schemas/query_workflow_request.schema.json",
+      "schema_id": "query_workflow_request/v1",
+      "required": ["schema", "query_type", "server_source", "client_source", "server_join_key_field", "client_join_key_field", "client_value_field", "token_scope", "job_id", "out_base", "caller", "sse_export_policy_config"],
+      "stable_properties": ["audit_archive_dir", "caller", "cleanup_sse_export_handoff_files_after_bridge", "client_filters", "client_join_key_field", "client_normalizer", "client_record_id_field", "client_record_id_format", "client_record_store_key_env", "client_record_store_path", "client_source", "client_source_format", "client_sse_keyword", "client_sse_sid", "client_sse_sname", "client_value_field", "client_value_mode", "dataset_id", "deny_duplicate_query", "external_kms_config", "job_id", "k", "key_access_audit_log", "key_manifest", "keyring", "n", "out_base", "pjc_audit_log", "production_mode", "query_type", "record_recovery_auth_env", "record_recovery_authz_config", "record_recovery_endpoint_url", "record_recovery_service_audit_log", "record_recovery_service_config", "record_recovery_service_health_json", "record_recovery_service_id", "record_recovery_service_log", "record_recovery_service_mode", "record_recovery_socket", "schema", "server_filters", "server_join_key_field", "server_normalizer", "server_record_id_field", "server_record_id_format", "server_record_store_key_env", "server_record_store_path", "server_source", "server_source_format", "server_sse_keyword", "server_sse_sid", "server_sse_sname", "sse_export_audit_log", "sse_export_handoff_mode", "sse_export_policy_config", "tenant_id", "token_key_version", "token_scope", "token_secret", "token_secret_env", "token_secret_key_id", "token_secret_key_name", "unsafe_allow_no_sse_export_policy"]
+    },
+    {
+      "path": "schemas/query_workflow_submission.schema.json",
+      "schema_id": "query_workflow_submission/v1",
+      "required": ["schema", "submitted_at_utc", "request_file", "query_type", "workflow", "mode", "pipeline_script", "request_summary", "command", "exit_code"],
+      "stable_properties": ["command", "exit_code", "mode", "pipeline_script", "query_type", "request_file", "request_summary", "schema", "submitted_at_utc", "workflow"]
+    },
+    {
+      "path": "schemas/query_workflow_api_health.schema.json",
+      "schema_id": "query_workflow_api_health/v1",
+      "required": ["schema", "ok", "auth_required", "allow_execute", "request_base_dir_default"],
+      "stable_properties": ["allow_execute", "auth_required", "ok", "request_base_dir_default", "schema"]
+    },
+    {
+      "path": "schemas/query_workflow_api_response.schema.json",
+      "schema_id": "query_workflow_api_response/v1",
+      "required": ["schema", "method", "path", "result"],
+      "stable_properties": ["method", "path", "result", "schema"]
+    },
+    {
+      "path": "schemas/query_workflow_api_error.schema.json",
+      "schema_id": "query_workflow_api_error/v1",
+      "required": ["schema", "method", "path", "error"],
+      "stable_properties": ["error", "method", "path", "schema"]
+    },
+    {
+      "path": "schemas/metadata_api_health.schema.json",
+      "schema_id": "metadata_api_health/v1",
+      "required": ["schema", "ok", "db_path", "auth_required"],
+      "stable_properties": ["auth_required", "db_path", "ok", "schema"]
+    },
+    {
+      "path": "schemas/metadata_api_response.schema.json",
+      "schema_id": "metadata_api_response/v1",
+      "required": ["schema", "method", "path", "query", "result"],
+      "stable_properties": ["method", "path", "query", "result", "schema"]
+    },
+    {
+      "path": "schemas/metadata_api_error.schema.json",
+      "schema_id": "metadata_api_error/v1",
+      "required": ["schema", "method", "path", "error"],
+      "stable_properties": ["error", "method", "path", "schema"]
+    },
+    {
+      "path": "schemas/metadata_db_status.schema.json",
+      "schema_id": "metadata_db_status/v1",
+      "required": ["schema", "generated_at_utc", "db_path", "status", "sqlite_version", "size_bytes", "sha256", "applied_migrations", "expected_migrations", "pending_migrations", "summary", "warnings"],
+      "stable_properties": ["applied_migrations", "db_path", "expected_migrations", "generated_at_utc", "pending_migrations", "schema", "sha256", "size_bytes", "sqlite_version", "status", "summary", "warnings"]
+    },
+    {
+      "path": "schemas/metadata_db_backup.schema.json",
+      "schema_id": "metadata_db_backup/v1",
+      "required": ["schema", "generated_at_utc", "status", "source_db_path", "backup_db_path", "source_sha256", "backup_sha256", "source_size_bytes", "backup_size_bytes", "applied_migrations", "used_sqlite_backup_api"],
+      "stable_properties": ["applied_migrations", "backup_db_path", "backup_sha256", "backup_size_bytes", "generated_at_utc", "schema", "source_db_path", "source_sha256", "source_size_bytes", "status", "used_sqlite_backup_api"]
+    },
+    {
+      "path": "schemas/metadata_db_export.schema.json",
+      "schema_id": "metadata_db_export/v1",
+      "required": ["schema", "generated_at_utc", "db_path", "out_path", "job_limit", "entity_limit", "artifact_limit", "status", "jobs", "entities", "sample_artifacts"],
+      "stable_properties": ["artifact_limit", "db_path", "entities", "entity_limit", "generated_at_utc", "job_limit", "jobs", "out_path", "sample_artifacts", "schema", "status"]
+    },
+    {
+      "path": "schemas/authz_tuple_export.schema.json",
+      "schema_id": "authz_tuple_export/v1",
+      "required": ["schema", "generated_at_utc", "mapping_profile", "source", "filters", "subjects", "tuples", "summary"],
+      "stable_properties": ["filters", "generated_at_utc", "mapping_profile", "schema", "source", "subjects", "summary", "tuples"]
+    },
+    {
+      "path": "schemas/audit_query_api_health.schema.json",
+      "schema_id": "audit_query_api_health/v1",
+      "required": ["schema", "ok", "out_base", "auth_required", "available_results"],
+      "stable_properties": ["auth_required", "available_results", "ok", "out_base", "schema"]
+    },
+    {
+      "path": "schemas/audit_query_api_response.schema.json",
+      "schema_id": "audit_query_api_response/v1",
+      "required": ["schema", "method", "path", "query", "result_schema", "result"],
+      "stable_properties": ["method", "path", "query", "result", "result_schema", "schema"]
+    },
+    {
+      "path": "schemas/audit_query_api_error.schema.json",
+      "schema_id": "audit_query_api_error/v1",
+      "required": ["schema", "method", "path", "error"],
+      "stable_properties": ["error", "method", "path", "schema"]
+    },
+    {
+      "path": "schemas/platform_health_api_health.schema.json",
+      "schema_id": "platform_health_api_health/v1",
+      "required": ["schema", "ok", "auth_required", "available_results"],
+      "stable_properties": ["auth_required", "available_results", "ok", "schema"]
+    },
+    {
+      "path": "schemas/platform_health_api_response.schema.json",
+      "schema_id": "platform_health_api_response/v1",
+      "required": ["schema", "method", "path", "query", "result_schema", "result"],
+      "stable_properties": ["method", "path", "query", "result", "result_schema", "schema"]
+    },
+    {
+      "path": "schemas/platform_health_api_error.schema.json",
+      "schema_id": "platform_health_api_error/v1",
+      "required": ["schema", "method", "path", "error"],
+      "stable_properties": ["error", "method", "path", "schema"]
+    },
+    {
+      "path": "schemas/platform_health.schema.json",
+      "schema_id": "platform_health/v1",
+      "required": ["schema", "generated_at_utc", "repo_root", "summary", "checks"],
+      "stable_properties": ["checks", "generated_at_utc", "repo_root", "schema", "summary"]
+    },
+    {
+      "path": "schemas/query_workflow_benchmark.schema.json",
+      "schema_id": "query_workflow_benchmark/v1",
+      "required": ["schema", "generated_at_utc", "repo_root", "request_file", "iterations", "modes"],
+      "stable_properties": ["generated_at_utc", "iterations", "modes", "repo_root", "request_file", "schema"]
+    },
+    {
+      "path": "schemas/read_adapter_benchmark.schema.json",
+      "schema_id": "read_adapter_benchmark/v1",
+      "required": ["schema", "generated_at_utc", "repo_root", "fixture_profile", "fixture_job_id", "iterations", "modes"],
+      "stable_properties": ["fixture_job_id", "fixture_profile", "generated_at_utc", "iterations", "modes", "repo_root", "schema"]
+    },
+    {
+      "path": "schemas/record_recovery_benchmark.schema.json",
+      "schema_id": "record_recovery_benchmark/v1",
+      "required": ["schema", "generated_at_utc", "repo_root", "fixture_profile", "service_id", "transports", "iterations", "candidate_count", "modes"],
+      "stable_properties": ["candidate_count", "fixture_profile", "generated_at_utc", "iterations", "modes", "repo_root", "schema", "service_id", "transports"]
+    },
+    {
+      "path": "schemas/audit_bundle_benchmark.schema.json",
+      "schema_id": "audit_bundle_benchmark/v1",
+      "required": ["schema", "generated_at_utc", "repo_root", "fixture_profile", "job_id", "iterations", "modes"],
+      "stable_properties": ["fixture_profile", "generated_at_utc", "iterations", "job_id", "modes", "repo_root", "schema"]
+    },
+    {
+      "path": "schemas/platform_health_benchmark.schema.json",
+      "schema_id": "platform_health_benchmark/v1",
+      "required": ["schema", "generated_at_utc", "repo_root", "fixture_profile", "iterations", "modes"],
+      "stable_properties": ["fixture_profile", "generated_at_utc", "iterations", "modes", "repo_root", "schema"]
+    },
+    {
+      "path": "schemas/derived_views_benchmark.schema.json",
+      "schema_id": "derived_views_benchmark/v1",
+      "required": ["schema", "generated_at_utc", "repo_root", "fixture_profile", "iterations", "modes"],
+      "stable_properties": ["fixture_profile", "generated_at_utc", "iterations", "modes", "repo_root", "schema"]
+    },
+    {
+      "path": "schemas/record_recovery_service_log.schema.json",
+      "schema_id": "record_recovery_service_log/v1",
+      "required": ["schema", "ts_utc", "event", "pid", "transport"],
+      "stable_properties": ["caller", "candidate_count", "dataset_id", "decision", "duration_ms", "event", "job_id", "method", "op", "path", "pid", "reason_code", "request_id", "role", "schema", "service_id", "status_code", "tenant_id", "transport", "ts_utc"]
+    },
+    {
+      "path": "schemas/record_recovery_boundary_check.schema.json",
+      "schema_id": "record_recovery_boundary_check/v1",
+      "required": ["schema", "generated_at_utc", "repo_root", "status", "summary", "implementation_owner", "legacy_shim_package", "findings"],
+      "stable_properties": ["findings", "generated_at_utc", "implementation_owner", "legacy_shim_package", "repo_root", "schema", "status", "summary"]
+    },
+    {
+      "path": "schemas/mainline_contract_check.schema.json",
+      "schema_id": "mainline_contract_check/v1",
+      "required": ["schema", "generated_at_utc", "repo_root", "out_base", "job_id", "status", "canonical_scope", "handoff_cleanup", "summary", "findings"],
+      "stable_properties": ["canonical_scope", "findings", "generated_at_utc", "handoff_cleanup", "job_id", "out_base", "repo_root", "schema", "status", "summary"]
+    },
+    {
+      "path": "schemas/schema_backcompat_check.schema.json",
+      "schema_id": "schema_backcompat_check/v1",
+      "required": ["schema", "generated_at_utc", "baseline_path", "checked_count", "failed_count", "checks"],
+      "stable_properties": ["baseline_path", "checked_count", "checks", "failed_count", "generated_at_utc", "schema"]
+    },
+    {
+      "path": "schemas/audit_seal.schema.json",
+      "schema_id": "audit_seal/v1",
+      "required": ["schema", "ts_utc", "event", "job_id", "correlation_id", "artifact_file", "artifact_sha256", "signature_algorithm", "signature", "secret_source"],
+      "stable_properties": ["artifact_file", "artifact_sha256", "correlation_id", "event", "job_id", "schema", "secret_source", "signature", "signature_algorithm", "ts_utc"]
+    },
+    {
+      "path": "schemas/audit_archive_index.schema.json",
+      "schema_id": "audit_archive_index/v1",
+      "required": ["schema", "ts_utc", "event", "job_id", "correlation_id", "archive_dir", "index_file", "source_audit_chain_file", "source_audit_seal_file", "archived_audit_chain_file", "archived_audit_seal_file", "audit_chain_sha256", "audit_seal_sha256", "artifact_sha256_verified", "signature_algorithm", "signature_verified", "secret_source", "source_out_base", "mainline_contract_summary"],
+      "stable_properties": ["archive_dir", "archived_audit_chain_file", "archived_audit_seal_file", "artifact_sha256_verified", "audit_chain_sha256", "audit_seal_sha256", "correlation_id", "event", "index_file", "job_id", "mainline_contract_summary", "schema", "secret_source", "signature_algorithm", "signature_verified", "source_audit_chain_file", "source_audit_seal_file", "source_out_base", "ts_utc"]
+    },
+    {
+      "path": "schemas/audit_archive_anchor.schema.json",
+      "schema_id": "audit_archive_anchor/v1",
+      "required": ["schema", "ts_utc", "event", "job_id", "correlation_id", "archive_dir", "anchor_file", "index_file", "archived_audit_chain_file", "archived_audit_seal_file", "index_record_sha256", "previous_anchor_entry_sha256", "chain_position", "payload_sha256", "entry_sha256", "signature_algorithm", "signature", "secret_source"],
+      "stable_properties": ["anchor_file", "archive_dir", "archived_audit_chain_file", "archived_audit_seal_file", "chain_position", "correlation_id", "entry_sha256", "event", "index_file", "index_record_sha256", "job_id", "payload_sha256", "previous_anchor_entry_sha256", "schema", "secret_source", "signature", "signature_algorithm", "ts_utc"]
+    },
+    {
+      "path": "schemas/audit_bundle_verification.schema.json",
+      "schema_id": "audit_bundle_verification/v1",
+      "required": ["schema", "ts_utc", "verified", "job_id"],
+      "stable_properties": ["anchor_entry_sha256", "anchor_file", "anchor_log_verified", "anchor_signature_verified", "archive_index_verified", "artifact_sha256_verified", "audit_chain_sha256", "audit_seal_sha256", "correlation_id", "error", "job_id", "mainline_contract_summary", "restored", "schema", "signature_algorithm", "signature_verified", "source", "ts_utc", "verified"]
+    },
+    {
+      "path": "schemas/record_recovery_service_config.schema.json",
+      "schema_id": "record_recovery_service_config/v1",
+      "required": ["schema"],
+      "stable_properties": ["allowed_callers", "allowed_output_roots", "allowed_record_store_roots", "audit_log", "auth_token_env", "authz_config", "dataset_id", "endpoint_url", "http_listener", "lifecycle", "schema", "service_id", "socket_mode", "socket_path", "tenant_id", "transport"]
+    },
+    {
+      "path": "schemas/record_recovery_service_policy.schema.json",
+      "schema_id": "record_recovery_service_policy/v1",
+      "required": ["schema", "callers"],
+      "stable_properties": ["callers", "schema"]
+    },
+    {
+      "path": "schemas/external_kms_config.schema.json",
+      "schema_id": "external_kms_config/v1",
+      "required": ["schema", "endpoint_url"],
+      "stable_properties": ["admin_auth_token_env", "auth_token_env", "auto_start", "endpoint_url", "request_timeout_sec", "schema"]
+    },
+    {
+      "path": "schemas/keyring.schema.json",
+      "schema_id": "keyring/v1",
+      "required": ["schema", "keys"],
+      "stable_properties": ["keys", "schema"]
+    },
+    {
+      "path": "schemas/key_manifest.schema.json",
+      "schema_id": "key_manifest/v1",
+      "required": ["schema", "keys"],
+      "stable_properties": ["keys", "schema"]
+    },
+    {
+      "path": "schemas/bridge_audit.schema.json",
+      "schema_id": "bridge_audit/v1",
+      "required": ["schema", "ts_unix_ms", "event", "job_id", "decision", "reason_code", "token_secret_source"],
+      "stable_properties": ["schema", "ts_unix_ms", "event", "job_id", "correlation_id", "input_file_type", "input_sha256", "server_input_file_type", "server_input_sha256", "client_input_file_type", "client_input_sha256", "duration_ms", "decision", "reason_code", "token_secret_source"]
+    },
+    {
+      "path": "schemas/bridge_job_meta.schema.json",
+      "schema_id": "bridge_job_meta/v1",
+      "required": ["schema", "job_id", "job_type", "generator", "input_sizes", "bridge", "inputs", "counts"],
+      "stable_properties": ["schema", "job_id", "job_type", "generator", "input_sizes", "bridge", "inputs", "counts"]
+    },
+    {
+      "path": "schemas/key_access_audit.schema.json",
+      "schema_id": "key_access_audit/v1",
+      "required": ["schema", "ts_utc", "event", "caller", "key_id", "key_version", "purpose", "decision", "reason_code", "manifest_file", "manifest_sha256", "secret_source"],
+      "stable_properties": ["schema", "ts_utc", "event", "caller", "job_id", "correlation_id", "key_id", "key_version", "purpose", "decision", "reason_code", "manifest_file", "manifest_sha256", "secret_source", "resolver", "reason"]
+    },
+    {
+      "path": "schemas/key_lifecycle_audit.schema.json",
+      "schema_id": "key_lifecycle_audit/v1",
+      "required": ["schema", "ts_utc", "event", "caller", "key_name", "key_version", "action", "status", "decision", "reason_code", "keyring_file", "keyring_sha256", "secret_source"],
+      "stable_properties": ["schema", "ts_utc", "event", "caller", "key_name", "key_version", "action", "status", "decision", "reason_code", "reason", "keyring_file", "keyring_sha256", "secret_source"]
+    },
+    {
+      "path": "schemas/pjc_audit.schema.json",
+      "schema_id": "pjc_audit/v1",
+      "required": ["schema", "ts_utc", "event", "job_id", "correlation_id", "out_dir", "server_csv", "server_csv_sha256", "client_csv", "client_csv_sha256", "server_log", "server_log_sha256", "client_log", "client_log_sha256", "result_file", "result_sha256", "decision", "reason_code", "reason", "exit_code"],
+      "stable_properties": ["schema", "ts_utc", "event", "job_id", "correlation_id", "out_dir", "server_csv", "server_csv_sha256", "client_csv", "client_csv_sha256", "server_log", "server_log_sha256", "client_log", "client_log_sha256", "result_file", "result_sha256", "duration_ms", "decision", "reason_code", "reason", "exit_code"]
+    },
+    {
+      "path": "schemas/policy_audit.schema.json",
+      "schema_id": "policy_audit/v1",
+      "required": ["ts_utc", "event", "policy_version", "job_id", "correlation_id", "caller", "input_file", "input_sha256", "pjc_result_file", "pjc_result_sha256", "release_file", "release_sha256", "threshold_k", "rate_limit_used", "rate_limit_max", "canonical_query_signature", "parsed_metrics", "decision", "reason", "reason_code", "auth"],
+      "stable_properties": ["ts_utc", "event", "policy_version", "job_id", "correlation_id", "caller", "window", "bucket", "value_mode", "bridge", "input_sizes", "input_file", "input_sha256", "pjc_result_file", "pjc_result_sha256", "release_file", "release_sha256", "threshold_k", "round_sum_to", "rate_limit_used", "rate_limit_max", "canonical_query_signature", "parsed_metrics", "duration_ms", "decision", "reason", "reason_code", "released", "auth"]
+    },
+    {
+      "path": "schemas/sse_bridge_export_audit.schema.json",
+      "schema_id": "sse_bridge_export_audit/v1",
+      "required": ["schema", "ts_utc", "event", "caller", "role", "decision", "reason_code", "candidate_source"],
+      "stable_properties": ["schema", "ts_utc", "event", "tenant_id", "dataset_id", "service_id", "caller", "correlation_id", "job_id", "role", "source_file", "source_sha256", "output_file", "output_file_type", "output_sha256", "source_format", "out_format", "join_key_field", "value_field", "filters", "input_rows", "output_rows", "policy_config", "candidate_source", "record_id_field", "candidate_count", "record_store_file", "record_store_sha256", "record_recovery_boundary", "duration_ms", "decision", "reason_code", "reason"]
+    },
+    {
+      "path": "schemas/sse_encrypted_record_store.schema.json",
+      "schema_id": "sse_encrypted_record_store/v1",
+      "required": ["schema", "kdf", "kdf_salt_b64", "kdf_iterations", "aead", "record_id_field"],
+      "stable_properties": ["schema", "kdf", "kdf_salt_b64", "kdf_iterations", "aead", "record_id_field"]
+    },
+    {
+      "path": "schemas/sse_export_policy.schema.json",
+      "schema_id": "sse_export_policy/v1",
+      "required": ["schema", "callers"],
+      "stable_properties": ["schema", "callers"]
+    },
+    {
+      "path": "schemas/sse_record_recovery_service_audit.schema.json",
+      "schema_id": "sse_record_recovery_service_audit/v1",
+      "required": ["schema", "ts_utc", "event", "service_id", "tenant_id", "dataset_id", "caller", "role", "auth_mode", "transport", "socket_path", "decision", "reason_code", "reason"],
+      "stable_properties": ["schema", "ts_utc", "event", "service_id", "tenant_id", "dataset_id", "caller", "correlation_id", "job_id", "role", "auth_mode", "transport", "socket_path", "endpoint_url", "authz_policy_config", "record_store_file", "record_store_sha256", "output_file", "output_file_type", "output_sha256", "join_key_field", "value_field", "candidate_count", "filters", "input_rows", "output_rows", "duration_ms", "decision", "reason_code", "reason"]
+    }
+  ]
+}

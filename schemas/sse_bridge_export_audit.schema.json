@@ -113,7 +113,11 @@
     },
     "record_recovery_boundary": {
       "type": ["string", "null"],
-      "enum": ["worker_subprocess", "service_socket", null]
+      "enum": ["worker_subprocess", "service_socket", "service_http", null]
+    },
+    "duration_ms": {
+      "type": ["integer", "null"],
+      "minimum": 0
     },
     "decision": {
       "enum": ["allow", "deny"]

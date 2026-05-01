@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+import ipaddress
 import json
 import os
 import urllib.error
@@ -83,6 +84,27 @@ def endpoint_url_from_parts(bind_host: str, port: int) -> str:
     return f"http://{bind_host}:{port}"
 
 
+def _should_bypass_proxy(url: str) -> bool:
+    hostname = urllib.parse.urlsplit(url).hostname
+    if not hostname:
+        return False
+    lowered = hostname.lower()
+    if lowered == "localhost" or lowered.endswith(".localhost"):
+        return True
+    try:
+        parsed_ip = ipaddress.ip_address(lowered)
+    except ValueError:
+        return False
+    return parsed_ip.is_loopback or parsed_ip.is_private or parsed_ip.is_link_local
+
+
+def _open_request(request: urllib.request.Request, *, timeout: float):
+    if _should_bypass_proxy(request.full_url):
+        opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+        return opener.open(request, timeout=timeout)
+    return urllib.request.urlopen(request, timeout=timeout)
+
+
 def _json_request(config: Dict[str, Any], *,
                   method: str,
                   path: str,
@@ -101,7 +123,7 @@ def _json_request(config: Dict[str, Any], *,
     request = urllib.request.Request(url, data=data, headers=headers, method=method.upper())
     timeout = request_timeout_sec(config)
     try:
-        with urllib.request.urlopen(request, timeout=timeout) as resp:
+        with _open_request(request, timeout=timeout) as resp:
             raw = resp.read()
     except urllib.error.HTTPError as e:
         raw = e.read()

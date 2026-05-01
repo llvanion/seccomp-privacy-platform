@@ -32,6 +32,7 @@ EXTERNAL_KMS_MODE="${EXTERNAL_KMS_MODE:-auto}"
 K_THRESHOLD="${K_THRESHOLD:-1}"
 RATE_N="${RATE_N:-5}"
 SSE_EXPORT_HANDOFF_MODE="${SSE_EXPORT_HANDOFF_MODE:-file}"
+CLEANUP_SSE_EXPORT_HANDOFF_FILES_AFTER_BRIDGE="${CLEANUP_SSE_EXPORT_HANDOFF_FILES_AFTER_BRIDGE:-1}"
 RECORD_RECOVERY_SERVICE_MODE="${RECORD_RECOVERY_SERVICE_MODE:-auto}"
 RECORD_RECOVERY_SERVICE_CONFIG="${RECORD_RECOVERY_SERVICE_CONFIG:-}"
 
@@ -80,6 +81,7 @@ Options:
   --record-recovery-service-config <p> optional shared recovery-service config for pipeline/manual service mode
   --record-recovery-authz-config <p>   optional authz policy for auto-started recovery service
   --sse-export-handoff-mode <m>        file|fifo, default: file
+  --keep-sse-export-handoff-files      keep file-mode SSE plaintext handoff files after bridge prepare-job
   --bootstrap-only                     prepare live SSE state but do not run pipeline
   --keep-server                        do not stop the SSE server on exit when this script started it
   -h|--help                            show help
@@ -107,6 +109,7 @@ while [[ $# -gt 0 ]]; do
     --record-recovery-service-config) RECORD_RECOVERY_SERVICE_CONFIG="$2"; shift 2 ;;
     --record-recovery-authz-config) RECORD_RECOVERY_AUTHZ_CONFIG="$2"; shift 2 ;;
     --sse-export-handoff-mode) SSE_EXPORT_HANDOFF_MODE="$2"; shift 2 ;;
+    --keep-sse-export-handoff-files) CLEANUP_SSE_EXPORT_HANDOFF_FILES_AFTER_BRIDGE=0; shift ;;
     --bootstrap-only) BOOTSTRAP_ONLY=1; shift ;;
     --keep-server) KEEP_SERVER=1; shift ;;
     -h|--help) usage; exit 0 ;;
@@ -146,6 +149,7 @@ CLIENT_RECORD_STORE_PATH="$WORK_DIR/client_records.enc.jsonl"
 MANIFEST_PATH="$OUT_BASE/live_demo_manifest.json"
 PIPELINE_RECOVERY_PID_FILE="$OUT_BASE/sse_exports/record_recovery_service.pid"
 PIPELINE_RECOVERY_READY_FILE="$OUT_BASE/sse_exports/record_recovery_service.ready"
+RUNTIME_SERVICE_HELPERS_PY="$REPO_ROOT/scripts/runtime_service_helpers.py"
 
 mkdir -p "$STATE_BASE" "$WORK_DIR" "$OUT_BASE"
 ORIGINAL_HOME="${HOME:-}"
@@ -202,19 +206,11 @@ print(ref["name"])' \
 ensure_external_kms_demo_secret
 
 port_ready() {
-  python3 -c 'import socket,sys; s=socket.socket(); s.settimeout(0.2); rc=s.connect_ex(("127.0.0.1", 8001)); s.close(); sys.exit(0 if rc == 0 else 1)'
+  python3 "$RUNTIME_SERVICE_HELPERS_PY" check-tcp-port --host 127.0.0.1 --port 8001 >/dev/null 2>&1
 }
 
 wait_for_port() {
-  local attempts=0
-  while [[ $attempts -lt 100 ]]; do
-    if port_ready; then
-      return 0
-    fi
-    sleep 0.1
-    attempts=$((attempts + 1))
-  done
-  return 1
+  python3 "$RUNTIME_SERVICE_HELPERS_PY" wait-tcp-port --host 127.0.0.1 --port 8001
 }
 
 cleanup() {
@@ -329,8 +325,9 @@ write_manifest() {
   local bridge_meta_path="$OUT_BASE/bridge_job/job_meta.json"
   local bridge_audit_path="$OUT_BASE/bridge_job/bridge_audit.jsonl"
   local audit_chain_path="$OUT_BASE/audit_chain.json"
+  local mainline_contract_check_path="$OUT_BASE/mainline_contract_check.json"
   local audit_seal_path="$OUT_BASE/audit_chain.seal.json"
-  python3 - "$MANIFEST_PATH" "$STATE_BASE" "$OUT_BASE" "$JOB_ID" "$SERVICE_NAME" "$public_report_path" "$export_audit_path" "$recovery_audit_path" "$recovery_health_path" "$recovery_runtime_config_path" "$recovery_log_path" "$bridge_meta_path" "$bridge_audit_path" "$audit_chain_path" "$audit_seal_path" "$SERVER_LOG" "$SERVER_SOURCE_NORMALIZED" "$CLIENT_SOURCE_NORMALIZED" "$SSE_DB_PATH" "$SERVER_RECORD_STORE_PATH" "$CLIENT_RECORD_STORE_PATH" "$PIPELINE_RECOVERY_PID_FILE" "$PIPELINE_RECOVERY_READY_FILE" "$RECORD_STORE_KEY_ENV" "$RECORD_RECOVERY_SERVICE_MODE" "$SSE_EXPORT_HANDOFF_MODE" "$RECORD_RECOVERY_SERVICE_CONFIG" "$RECORD_RECOVERY_AUTHZ_CONFIG" "$TOKEN_SECRET_KEY_NAME" "$KEYRING" "$EXTERNAL_KMS_CONFIG" "$EXTERNAL_KMS_MODE" <<'PY'
+  python3 - "$MANIFEST_PATH" "$STATE_BASE" "$OUT_BASE" "$JOB_ID" "$SERVICE_NAME" "$public_report_path" "$export_audit_path" "$recovery_audit_path" "$recovery_health_path" "$recovery_runtime_config_path" "$recovery_log_path" "$bridge_meta_path" "$bridge_audit_path" "$audit_chain_path" "$mainline_contract_check_path" "$audit_seal_path" "$SERVER_LOG" "$SERVER_SOURCE_NORMALIZED" "$CLIENT_SOURCE_NORMALIZED" "$SSE_DB_PATH" "$SERVER_RECORD_STORE_PATH" "$CLIENT_RECORD_STORE_PATH" "$PIPELINE_RECOVERY_PID_FILE" "$PIPELINE_RECOVERY_READY_FILE" "$RECORD_STORE_KEY_ENV" "$RECORD_RECOVERY_SERVICE_MODE" "$SSE_EXPORT_HANDOFF_MODE" "$RECORD_RECOVERY_SERVICE_CONFIG" "$RECORD_RECOVERY_AUTHZ_CONFIG" "$TOKEN_SECRET_KEY_NAME" "$KEYRING" "$EXTERNAL_KMS_CONFIG" "$EXTERNAL_KMS_MODE" "$CLEANUP_SSE_EXPORT_HANDOFF_FILES_AFTER_BRIDGE" <<'PY'
 import json
 import sys
 from pathlib import Path
@@ -354,23 +351,24 @@ manifest = {
     "job_id": sys.argv[4],
     "service_name": sys.argv[5],
     "runtime": {
-        "record_store_key_env": sys.argv[24],
-        "record_recovery_service_mode": sys.argv[25],
-        "sse_export_handoff_mode": sys.argv[26],
-        "record_recovery_service_config": sys.argv[27] or None,
-        "record_recovery_authz_config": sys.argv[28] or None,
-        "token_secret_key_name": sys.argv[29] or None,
-        "keyring": sys.argv[30] or None,
-        "external_kms_config": sys.argv[31] or None,
-        "external_kms_mode": sys.argv[32] or None,
+        "record_store_key_env": sys.argv[25],
+        "record_recovery_service_mode": sys.argv[26],
+        "sse_export_handoff_mode": sys.argv[27],
+        "record_recovery_service_config": sys.argv[28] or None,
+        "record_recovery_authz_config": sys.argv[29] or None,
+        "token_secret_key_name": sys.argv[30] or None,
+        "keyring": sys.argv[31] or None,
+        "external_kms_config": sys.argv[32] or None,
+        "external_kms_mode": sys.argv[33] or None,
+        "cleanup_sse_export_handoff_files_after_bridge": sys.argv[34] == "1",
     },
     "state_artifacts": {
-        "sse_server_log": str(Path(sys.argv[16]).resolve()),
-        "server_source_normalized": str(Path(sys.argv[17]).resolve()),
-        "client_source_normalized": str(Path(sys.argv[18]).resolve()),
-        "sse_keyword_db": str(Path(sys.argv[19]).resolve()),
-        "server_record_store": str(Path(sys.argv[20]).resolve()),
-        "client_record_store": str(Path(sys.argv[21]).resolve()),
+        "sse_server_log": str(Path(sys.argv[17]).resolve()),
+        "server_source_normalized": str(Path(sys.argv[18]).resolve()),
+        "client_source_normalized": str(Path(sys.argv[19]).resolve()),
+        "sse_keyword_db": str(Path(sys.argv[20]).resolve()),
+        "server_record_store": str(Path(sys.argv[21]).resolve()),
+        "client_record_store": str(Path(sys.argv[22]).resolve()),
     },
     "outputs": {
         "public_report": str(public_report_path.resolve()),
@@ -382,13 +380,17 @@ manifest = {
         "bridge_job_meta": str(Path(sys.argv[12]).resolve()),
         "bridge_audit": str(Path(sys.argv[13]).resolve()),
         "audit_chain": str(Path(sys.argv[14]).resolve()),
-        "audit_seal": str(Path(sys.argv[15]).resolve()),
-        "record_recovery_service_pid_file": str(Path(lifecycle.get("pid_file", sys.argv[22])).resolve()),
-        "record_recovery_service_ready_file": str(Path(lifecycle.get("ready_file", sys.argv[23])).resolve()),
+        "mainline_contract_check": str(Path(sys.argv[15]).resolve()),
+        "audit_seal": str(Path(sys.argv[16]).resolve()),
+        "record_recovery_service_pid_file": str(Path(lifecycle.get("pid_file", sys.argv[23])).resolve()),
+        "record_recovery_service_ready_file": str(Path(lifecycle.get("ready_file", sys.argv[24])).resolve()),
     },
     "result": {
         "intersection_size": public_report.get("intersection_size", details.get("intersection_size")),
         "intersection_sum": public_report.get("intersection_sum", details.get("intersection_sum")),
+        "intersection_sum_raw": public_report.get("intersection_sum_raw", details.get("intersection_sum_raw")),
+        "intersection_sum_cents": public_report.get("intersection_sum_cents", details.get("intersection_sum_cents")),
+        "intersection_sum_eur": public_report.get("intersection_sum_eur", details.get("intersection_sum_eur")),
         "released": public_report.get("released"),
         "reason_code": public_report.get("reason_code"),
     },
@@ -404,13 +406,49 @@ verify_demo_result() {
 import json
 import sys
 from pathlib import Path
+from decimal import Decimal, InvalidOperation
 
 public_report = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
 details = public_report.get("details", {}) if isinstance(public_report.get("details"), dict) else {}
 size = public_report.get("intersection_size", details.get("intersection_size"))
-total = public_report.get("intersection_sum", details.get("intersection_sum"))
+
+def normalize_sum_cents(*values):
+    for value in values:
+        if value is None or isinstance(value, bool):
+            continue
+        if isinstance(value, int):
+            return value
+        if isinstance(value, str):
+            value = value.strip()
+            if not value:
+                continue
+        try:
+            parsed = Decimal(str(value))
+        except (InvalidOperation, ValueError):
+            continue
+        if parsed == parsed.to_integral_value():
+            return int(parsed)
+        cents = parsed * Decimal("100")
+        if cents == cents.to_integral_value():
+            return int(cents)
+    return None
+
+total = normalize_sum_cents(
+    public_report.get("intersection_sum_raw"),
+    details.get("intersection_sum_raw"),
+    public_report.get("intersection_sum_cents"),
+    details.get("intersection_sum_cents"),
+    public_report.get("intersection_sum"),
+    details.get("intersection_sum"),
+    public_report.get("intersection_sum_eur"),
+    details.get("intersection_sum_eur"),
+)
 if size != 2 or total != 425:
-    raise SystemExit(f"unexpected live demo result: intersection_size={size}, intersection_sum={total}")
+    display_total = public_report.get("intersection_sum", details.get("intersection_sum"))
+    raise SystemExit(
+        f"unexpected live demo result: intersection_size={size}, "
+        f"intersection_sum={display_total}, intersection_sum_cents={total}"
+    )
 PY
 }
 
@@ -464,6 +502,11 @@ run_pipeline() {
   fi
   if [[ -n "$RECORD_RECOVERY_SERVICE_CONFIG" ]]; then
     pipeline_cmd+=(--record-recovery-service-config "$RECORD_RECOVERY_SERVICE_CONFIG")
+  fi
+  if [[ "$CLEANUP_SSE_EXPORT_HANDOFF_FILES_AFTER_BRIDGE" == "1" ]]; then
+    pipeline_cmd+=(--cleanup-sse-export-handoff-files-after-bridge)
+  else
+    pipeline_cmd+=(--keep-sse-export-handoff-files)
   fi
   "${pipeline_cmd[@]}"
 }

@@ -1,0 +1,359 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "catalog_lineage/v1",
+  "title": "Catalog and lineage export derived from audit_chain.json",
+  "type": "object",
+  "required": [
+    "schema",
+    "generated_at_utc",
+    "job_id",
+    "correlation_id",
+    "caller",
+    "tenant_id",
+    "dataset_id",
+    "service_id",
+    "privacy",
+    "job",
+    "datasets",
+    "services",
+    "artifacts",
+    "lineage_edges",
+    "summary"
+  ],
+  "properties": {
+    "schema": {
+      "const": "catalog_lineage/v1"
+    },
+    "generated_at_utc": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "job_id": {
+      "type": ["string", "null"]
+    },
+    "correlation_id": {
+      "type": ["string", "null"]
+    },
+    "caller": {
+      "type": ["string", "null"]
+    },
+    "tenant_id": {
+      "type": ["string", "null"]
+    },
+    "dataset_id": {
+      "type": ["string", "null"]
+    },
+    "service_id": {
+      "type": ["string", "null"]
+    },
+    "mainline_contract_summary": {
+      "type": "object",
+      "required": [
+        "schema",
+        "status",
+        "embedded_in_audit_chain",
+        "handoff_cleanup",
+        "service_audit_consistency"
+      ],
+      "properties": {
+        "schema": {
+          "type": ["string", "null"]
+        },
+        "status": {
+          "type": ["string", "null"]
+        },
+        "embedded_in_audit_chain": {
+          "type": "boolean"
+        },
+        "handoff_cleanup": {
+          "type": "object",
+          "required": [
+            "server",
+            "client"
+          ],
+          "properties": {
+            "server": {
+              "type": ["string", "null"]
+            },
+            "client": {
+              "type": ["string", "null"]
+            }
+          },
+          "additionalProperties": false
+        },
+        "service_audit_consistency": {
+          "type": "object",
+          "required": [
+            "server",
+            "client",
+            "error_count"
+          ],
+          "properties": {
+            "server": {
+              "type": ["string", "null"],
+              "enum": ["ok", "fail", "not_applicable", null]
+            },
+            "client": {
+              "type": ["string", "null"],
+              "enum": ["ok", "fail", "not_applicable", null]
+            },
+            "error_count": {
+              "type": "integer",
+              "minimum": 0
+            }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    },
+    "privacy": {
+      "type": "object",
+      "required": [
+        "stores_sensitive_plaintext",
+        "paths_included",
+        "notes"
+      ],
+      "properties": {
+        "stores_sensitive_plaintext": {
+          "type": "boolean"
+        },
+        "paths_included": {
+          "type": "boolean"
+        },
+        "notes": {
+          "type": "string"
+        }
+      }
+    },
+    "job": {
+      "type": "object",
+      "required": [
+        "id",
+        "job_id",
+        "correlation_id",
+        "caller",
+        "tenant_id",
+        "dataset_id",
+        "service_id",
+        "status",
+        "released",
+        "reason_code",
+        "policy_version"
+      ],
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "job_id": {
+          "type": ["string", "null"]
+        },
+        "correlation_id": {
+          "type": ["string", "null"]
+        },
+        "caller": {
+          "type": ["string", "null"]
+        },
+        "tenant_id": {
+          "type": ["string", "null"]
+        },
+        "dataset_id": {
+          "type": ["string", "null"]
+        },
+        "service_id": {
+          "type": ["string", "null"]
+        },
+        "status": {
+          "type": "string"
+        },
+        "released": {
+          "type": ["boolean", "null"]
+        },
+        "reason_code": {
+          "type": ["string", "null"]
+        },
+        "policy_version": {
+          "type": ["string", "null"]
+        }
+      }
+    },
+    "datasets": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "id",
+          "tenant_id",
+          "dataset_id",
+          "schema_version",
+          "source"
+        ],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "tenant_id": {
+            "type": ["string", "null"]
+          },
+          "dataset_id": {
+            "type": ["string", "null"]
+          },
+          "schema_version": {
+            "type": ["string", "null"]
+          },
+          "source": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "services": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "id",
+          "service_id",
+          "tenant_id",
+          "dataset_id",
+          "service_type",
+          "transport"
+        ],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "service_id": {
+            "type": ["string", "null"]
+          },
+          "tenant_id": {
+            "type": ["string", "null"]
+          },
+          "dataset_id": {
+            "type": ["string", "null"]
+          },
+          "service_type": {
+            "type": "string"
+          },
+          "transport": {
+            "type": ["string", "null"]
+          }
+        }
+      }
+    },
+    "artifacts": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "id",
+          "artifact_type",
+          "stage",
+          "role",
+          "sha256",
+          "row_count",
+          "format",
+          "source_event"
+        ],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "artifact_type": {
+            "type": "string"
+          },
+          "stage": {
+            "type": "string"
+          },
+          "role": {
+            "type": ["string", "null"]
+          },
+          "sha256": {
+            "type": ["string", "null"]
+          },
+          "row_count": {
+            "type": ["integer", "null"],
+            "minimum": 0
+          },
+          "format": {
+            "type": ["string", "null"]
+          },
+          "source_event": {
+            "type": ["string", "null"]
+          },
+          "path": {
+            "type": ["string", "null"]
+          },
+          "path_included": {
+            "type": "boolean"
+          }
+        },
+        "anyOf": [
+          {
+            "required": [
+              "path"
+            ]
+          },
+          {
+            "required": [
+              "path_included"
+            ]
+          }
+        ]
+      }
+    },
+    "lineage_edges": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "source",
+          "target",
+          "relationship",
+          "stage"
+        ],
+        "properties": {
+          "source": {
+            "type": "string"
+          },
+          "target": {
+            "type": "string"
+          },
+          "relationship": {
+            "type": "string"
+          },
+          "stage": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "summary": {
+      "type": "object",
+      "required": [
+        "dataset_count",
+        "service_count",
+        "artifact_count",
+        "lineage_edge_count"
+      ],
+      "properties": {
+        "dataset_count": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "service_count": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "artifact_count": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "lineage_edge_count": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    }
+  }
+}

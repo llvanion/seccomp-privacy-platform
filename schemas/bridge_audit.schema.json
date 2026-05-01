@@ -38,6 +38,10 @@
     "client_input_sha256": {
       "type": ["string", "null"]
     },
+    "duration_ms": {
+      "type": ["integer", "null"],
+      "minimum": 0
+    },
     "decision": {
       "enum": ["allow", "deny"]
     },

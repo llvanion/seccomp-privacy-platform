@@ -1,0 +1,72 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "schema_backcompat_check/v1",
+  "title": "Backward-compatibility report for frozen schema files",
+  "type": "object",
+  "required": ["schema", "generated_at_utc", "baseline_path", "checked_count", "failed_count", "checks"],
+  "properties": {
+    "schema": {
+      "const": "schema_backcompat_check/v1"
+    },
+    "generated_at_utc": {
+      "type": "string",
+      "minLength": 1
+    },
+    "baseline_path": {
+      "type": "string",
+      "minLength": 1
+    },
+    "checked_count": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "failed_count": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "checks": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["path", "schema_id", "status", "required", "stable_properties", "errors"],
+        "properties": {
+          "path": {
+            "type": "string",
+            "minLength": 1
+          },
+          "schema_id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "status": {
+            "type": "string",
+            "enum": ["ok", "error"]
+          },
+          "required": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "stable_properties": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "errors": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1
+            }
+          }
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  "additionalProperties": false
+}

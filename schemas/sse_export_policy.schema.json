@@ -32,6 +32,21 @@
               "type": "string"
             }
           },
+          "platform_roles": {
+            "type": "array",
+            "items": {
+              "enum": [
+                "platform_admin",
+                "platform_auditor",
+                "privacy_operator",
+                "query_submitter",
+                "service_operator"
+              ]
+            }
+          },
+          "access_profile": {
+            "type": "string"
+          },
           "allowed_roles": {
             "type": "array",
             "items": {

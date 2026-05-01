@@ -4,12 +4,31 @@
   "title": "Record recovery service runtime config",
   "type": "object",
   "required": [
-    "schema",
-    "socket_path"
+    "schema"
+  ],
+  "anyOf": [
+    {
+      "required": [
+        "socket_path"
+      ]
+    },
+    {
+      "required": [
+        "endpoint_url"
+      ]
+    },
+    {
+      "required": [
+        "http_listener"
+      ]
+    }
   ],
   "properties": {
     "schema": {
       "const": "record_recovery_service_config/v1"
+    },
+    "transport": {
+      "enum": ["unix_socket", "http"]
     },
     "service_id": {
       "type": [
@@ -30,12 +49,22 @@
       ]
     },
     "socket_path": {
-      "type": "string",
-      "minLength": 1
+      "type": [
+        "string",
+        "null"
+      ]
     },
     "socket_mode": {
-      "type": "string",
-      "minLength": 3
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "endpoint_url": {
+      "type": [
+        "string",
+        "null"
+      ]
     },
     "auth_token_env": {
       "type": [
@@ -72,6 +101,24 @@
         "string",
         "null"
       ]
+    },
+    "http_listener": {
+      "type": "object",
+      "required": [
+        "bind_host",
+        "port"
+      ],
+      "properties": {
+        "bind_host": {
+          "type": "string",
+          "minLength": 1
+        },
+        "port": {
+          "type": "integer",
+          "minimum": 1
+        }
+      },
+      "additionalProperties": false
     },
     "lifecycle": {
       "type": "object",

@@ -1,0 +1,289 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "query_workflow_request/v1",
+  "title": "Structured request for the query/workflow adapter",
+  "type": "object",
+  "required": [
+    "schema",
+    "query_type",
+    "server_source",
+    "client_source",
+    "server_join_key_field",
+    "client_join_key_field",
+    "client_value_field",
+    "token_scope",
+    "job_id",
+    "out_base",
+    "caller",
+    "sse_export_policy_config"
+  ],
+  "properties": {
+    "schema": {
+      "const": "query_workflow_request/v1"
+    },
+    "query_type": {
+      "type": "string",
+      "enum": [
+        "cross_party_match"
+      ]
+    },
+    "server_source": {
+      "type": "string",
+      "minLength": 1
+    },
+    "client_source": {
+      "type": "string",
+      "minLength": 1
+    },
+    "server_source_format": {
+      "type": "string",
+      "minLength": 1
+    },
+    "client_source_format": {
+      "type": "string",
+      "minLength": 1
+    },
+    "server_join_key_field": {
+      "type": "string",
+      "minLength": 1
+    },
+    "client_join_key_field": {
+      "type": "string",
+      "minLength": 1
+    },
+    "client_value_field": {
+      "type": "string",
+      "minLength": 1
+    },
+    "server_normalizer": {
+      "type": "string",
+      "minLength": 1
+    },
+    "client_normalizer": {
+      "type": "string",
+      "minLength": 1
+    },
+    "client_value_mode": {
+      "type": "string",
+      "minLength": 1
+    },
+    "server_sse_keyword": {
+      "type": "string",
+      "minLength": 1
+    },
+    "client_sse_keyword": {
+      "type": "string",
+      "minLength": 1
+    },
+    "server_record_id_field": {
+      "type": "string",
+      "minLength": 1
+    },
+    "client_record_id_field": {
+      "type": "string",
+      "minLength": 1
+    },
+    "server_record_id_format": {
+      "type": "string",
+      "minLength": 1
+    },
+    "client_record_id_format": {
+      "type": "string",
+      "minLength": 1
+    },
+    "server_sse_sid": {
+      "type": "string",
+      "minLength": 1
+    },
+    "client_sse_sid": {
+      "type": "string",
+      "minLength": 1
+    },
+    "server_sse_sname": {
+      "type": "string",
+      "minLength": 1
+    },
+    "client_sse_sname": {
+      "type": "string",
+      "minLength": 1
+    },
+    "server_record_store_path": {
+      "type": "string",
+      "minLength": 1
+    },
+    "client_record_store_path": {
+      "type": "string",
+      "minLength": 1
+    },
+    "server_record_store_key_env": {
+      "type": "string",
+      "minLength": 1
+    },
+    "client_record_store_key_env": {
+      "type": "string",
+      "minLength": 1
+    },
+    "record_recovery_socket": {
+      "type": "string",
+      "minLength": 1
+    },
+    "record_recovery_endpoint_url": {
+      "type": "string",
+      "minLength": 1
+    },
+    "record_recovery_auth_env": {
+      "type": "string",
+      "minLength": 1
+    },
+    "record_recovery_service_config": {
+      "type": "string",
+      "minLength": 1
+    },
+    "record_recovery_authz_config": {
+      "type": "string",
+      "minLength": 1
+    },
+    "record_recovery_service_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "record_recovery_service_audit_log": {
+      "type": "string",
+      "minLength": 1
+    },
+    "record_recovery_service_log": {
+      "type": "string",
+      "minLength": 1
+    },
+    "record_recovery_service_health_json": {
+      "type": "string",
+      "minLength": 1
+    },
+    "record_recovery_service_mode": {
+      "type": "string",
+      "enum": [
+        "auto",
+        "manual",
+        "subprocess"
+      ]
+    },
+    "token_scope": {
+      "type": "string",
+      "minLength": 1
+    },
+    "token_secret": {
+      "type": "string",
+      "minLength": 1
+    },
+    "token_secret_env": {
+      "type": "string",
+      "minLength": 1
+    },
+    "token_secret_key_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "token_secret_key_name": {
+      "type": "string",
+      "minLength": 1
+    },
+    "token_key_version": {
+      "type": "string",
+      "minLength": 1
+    },
+    "key_manifest": {
+      "type": "string",
+      "minLength": 1
+    },
+    "keyring": {
+      "type": "string",
+      "minLength": 1
+    },
+    "external_kms_config": {
+      "type": "string",
+      "minLength": 1
+    },
+    "key_access_audit_log": {
+      "type": "string",
+      "minLength": 1
+    },
+    "audit_archive_dir": {
+      "type": "string",
+      "minLength": 1
+    },
+    "pjc_audit_log": {
+      "type": "string",
+      "minLength": 1
+    },
+    "sse_export_policy_config": {
+      "type": "string",
+      "minLength": 1
+    },
+    "sse_export_audit_log": {
+      "type": "string",
+      "minLength": 1
+    },
+    "sse_export_handoff_mode": {
+      "type": "string",
+      "enum": [
+        "file",
+        "fifo"
+      ]
+    },
+    "cleanup_sse_export_handoff_files_after_bridge": {
+      "type": "boolean"
+    },
+    "job_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "out_base": {
+      "type": "string",
+      "minLength": 1
+    },
+    "caller": {
+      "type": "string",
+      "minLength": 1
+    },
+    "tenant_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "dataset_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "k": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "n": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "server_filters": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "client_filters": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "deny_duplicate_query": {
+      "type": "boolean"
+    },
+    "production_mode": {
+      "type": "boolean"
+    },
+    "unsafe_allow_no_sse_export_policy": {
+      "type": "boolean"
+    }
+  },
+  "additionalProperties": false
+}

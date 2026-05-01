@@ -13,11 +13,18 @@ LIB-SSE CODE
 
 import asyncclick as click
 import json
+import sys
+from pathlib import Path
+
+REPO_ROOT = Path(__file__).resolve().parents[1]
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
 
 import frontend.client.commands as client_commands
-from toolkit.record_recovery_service_config import (
+from services.record_recovery.config import (
     load_resolved_record_recovery_service_config,
     merged_record_recovery_service_value,
+    merged_record_recovery_service_scope_value,
 )
 
 
@@ -269,11 +276,12 @@ async def create_encrypted_record_store(source_path, out_path, source_format, re
 @click.option("--record-store-key-env", help='environment variable containing the record-store passphrase', default='')
 @click.option("--record-recovery-service-config", help='optional JSON config shared by record recovery service clients', default='')
 @click.option("--record-recovery-socket", help='optional Unix socket for long-running record recovery service', default='')
+@click.option("--record-recovery-endpoint-url", help='optional HTTP endpoint for long-running record recovery service', default='')
 @click.option("--record-recovery-auth-env", help='optional env var containing the record recovery service auth token', default='')
 @click.option("--record-recovery-service-id", help='service instance id for record recovery requests', default='')
 @click.option("--sid", help='SSE service id for --sse-keyword', default='')
 @click.option("--sname", help='SSE service name for --sse-keyword', default='')
-async def export_bridge_records(source_path, out_path, role, source_format, out_format, join_key_field, value_field, filters, caller, policy_config, audit_log, job_id, tenant_id, dataset_id, unsafe_allow_no_policy, sse_keyword, record_id_field, record_id_format, record_store_path, record_store_key_env, record_recovery_service_config, record_recovery_socket, record_recovery_auth_env, record_recovery_service_id, sid, sname):
+async def export_bridge_records(source_path, out_path, role, source_format, out_format, join_key_field, value_field, filters, caller, policy_config, audit_log, job_id, tenant_id, dataset_id, unsafe_allow_no_policy, sse_keyword, record_id_field, record_id_format, record_store_path, record_store_key_env, record_recovery_service_config, record_recovery_socket, record_recovery_endpoint_url, record_recovery_auth_env, record_recovery_service_id, sid, sname):
     if out_path is None or role is None or join_key_field is None:
         click.echo('Incomplete options')
         return
@@ -284,10 +292,23 @@ async def export_bridge_records(source_path, out_path, role, source_format, out_
     try:
         if record_recovery_service_config:
             resolved = load_resolved_record_recovery_service_config(record_recovery_service_config)
-            record_recovery_service_id = merged_record_recovery_service_value(record_recovery_service_id, resolved["service_id"])
-            tenant_id = merged_record_recovery_service_value(tenant_id, resolved["tenant_id"])
-            dataset_id = merged_record_recovery_service_value(dataset_id, resolved["dataset_id"])
+            record_recovery_service_id = merged_record_recovery_service_scope_value(
+                record_recovery_service_id,
+                resolved["service_id"],
+                field_name="record_recovery_service_id",
+            )
+            tenant_id = merged_record_recovery_service_scope_value(
+                tenant_id,
+                resolved["tenant_id"],
+                field_name="tenant_id",
+            )
+            dataset_id = merged_record_recovery_service_scope_value(
+                dataset_id,
+                resolved["dataset_id"],
+                field_name="dataset_id",
+            )
             record_recovery_socket = merged_record_recovery_service_value(record_recovery_socket, resolved["socket_path"])
+            record_recovery_endpoint_url = merged_record_recovery_service_value(record_recovery_endpoint_url, resolved["endpoint_url"])
             record_recovery_auth_env = merged_record_recovery_service_value(record_recovery_auth_env, resolved["auth_token_env"])
         if sse_keyword:
             if unsafe_allow_no_policy:
@@ -313,6 +334,7 @@ async def export_bridge_records(source_path, out_path, role, source_format, out_
                 record_store_path=record_store_path,
                 record_store_key_env=record_store_key_env,
                 record_recovery_socket=record_recovery_socket,
+                record_recovery_endpoint_url=record_recovery_endpoint_url,
                 record_recovery_auth_env=record_recovery_auth_env,
                 record_recovery_service_id=record_recovery_service_id,
                 sid=sid,
@@ -338,6 +360,7 @@ async def export_bridge_records(source_path, out_path, role, source_format, out_
                 record_store_path=record_store_path,
                 record_store_key_env=record_store_key_env,
                 record_recovery_socket=record_recovery_socket,
+                record_recovery_endpoint_url=record_recovery_endpoint_url,
                 record_recovery_auth_env=record_recovery_auth_env,
                 record_recovery_service_id=record_recovery_service_id,
             )
@@ -366,9 +389,21 @@ async def serve_record_recovery(config, service_id, tenant_id, dataset_id, socke
             resolved = load_resolved_record_recovery_service_config(config)
         except Exception as e:
             raise click.ClickException(str(e))
-        service_id = merged_record_recovery_service_value(service_id, resolved["service_id"])
-        tenant_id = merged_record_recovery_service_value(tenant_id, resolved["tenant_id"])
-        dataset_id = merged_record_recovery_service_value(dataset_id, resolved["dataset_id"])
+        service_id = merged_record_recovery_service_scope_value(
+            service_id,
+            resolved["service_id"],
+            field_name="service_id",
+        )
+        tenant_id = merged_record_recovery_service_scope_value(
+            tenant_id,
+            resolved["tenant_id"],
+            field_name="tenant_id",
+        )
+        dataset_id = merged_record_recovery_service_scope_value(
+            dataset_id,
+            resolved["dataset_id"],
+            field_name="dataset_id",
+        )
         socket_path = merged_record_recovery_service_value(socket_path, resolved["socket_path"])
         socket_mode = merged_record_recovery_service_value(socket_mode, resolved["socket_mode"])
         auth_token_env = merged_record_recovery_service_value(auth_token_env, resolved["auth_token_env"])
@@ -395,6 +430,84 @@ async def serve_record_recovery(config, service_id, tenant_id, dataset_id, socke
             dataset_id=dataset_id,
             socket_path=socket_path,
             socket_mode=socket_mode,
+            auth_token_env=auth_token_env,
+            authz_config=authz_config,
+            allowed_callers=list(allowed_callers),
+            allowed_output_roots=list(allowed_output_roots),
+            allowed_record_store_roots=list(allowed_record_store_roots),
+            audit_log=audit_log,
+            pid_file=pid_file,
+            ready_file=ready_file,
+        )
+    except Exception as e:
+        raise click.ClickException(str(e))
+
+
+@cli.command()
+@click.option("--config", help='optional JSON config for HTTP record recovery service runtime', default='')
+@click.option("--service-id", help='service instance id for the record recovery service', default='')
+@click.option("--tenant-id", help='tenant scope bound to the record recovery service', default='')
+@click.option("--dataset-id", help='dataset scope bound to the record recovery service', default='')
+@click.option("--bind-host", help='HTTP bind host')
+@click.option("--port", type=int, help='HTTP port')
+@click.option("--endpoint-url", help='explicit advertised HTTP endpoint', default='')
+@click.option("--auth-token-env", help='optional env var containing the required auth token', default='')
+@click.option("--authz-config", help='optional JSON authz policy for fine-grained service request checks', default='')
+@click.option("--allowed-caller", "allowed_callers", multiple=True, help='repeatable caller identity allowlist for service requests')
+@click.option("--allowed-output-root", "allowed_output_roots", multiple=True, help='repeatable allowed output root for bridge handoff writes')
+@click.option("--allowed-record-store-root", "allowed_record_store_roots", multiple=True, help='repeatable allowed encrypted record-store root')
+@click.option("--audit-log", help='optional service audit jsonl path', default='')
+@click.option("--pid-file", help='optional file that receives the running service pid', default='')
+@click.option("--ready-file", help='optional file created once the service is ready', default='')
+async def serve_record_recovery_http(config, service_id, tenant_id, dataset_id, bind_host, port, endpoint_url, auth_token_env, authz_config, allowed_callers, allowed_output_roots, allowed_record_store_roots, audit_log, pid_file, ready_file):
+    if config:
+        try:
+            resolved = load_resolved_record_recovery_service_config(config)
+        except Exception as e:
+            raise click.ClickException(str(e))
+        if resolved["transport"] != "http":
+            raise click.ClickException("record recovery HTTP service config must use transport=http")
+        service_id = merged_record_recovery_service_scope_value(
+            service_id,
+            resolved["service_id"],
+            field_name="service_id",
+        )
+        tenant_id = merged_record_recovery_service_scope_value(
+            tenant_id,
+            resolved["tenant_id"],
+            field_name="tenant_id",
+        )
+        dataset_id = merged_record_recovery_service_scope_value(
+            dataset_id,
+            resolved["dataset_id"],
+            field_name="dataset_id",
+        )
+        bind_host = merged_record_recovery_service_value(bind_host, resolved["bind_host"])
+        port = merged_record_recovery_service_value(port, resolved["port"])
+        endpoint_url = merged_record_recovery_service_value(endpoint_url, resolved["endpoint_url"])
+        auth_token_env = merged_record_recovery_service_value(auth_token_env, resolved["auth_token_env"])
+        authz_config = merged_record_recovery_service_value(authz_config, resolved["authz_config"])
+        if not allowed_callers:
+            allowed_callers = tuple(resolved["allowed_callers"])
+        if not allowed_output_roots:
+            allowed_output_roots = tuple(resolved["allowed_output_roots"])
+        if not allowed_record_store_roots:
+            allowed_record_store_roots = tuple(resolved["allowed_record_store_roots"])
+        audit_log = audit_log or resolved["audit_log"]
+        pid_file = pid_file or resolved["pid_file"]
+        ready_file = ready_file or resolved["ready_file"]
+    if not bind_host or port is None:
+        click.echo('Incomplete options: --bind-host and --port')
+        return
+
+    try:
+        client_commands.serve_record_recovery_http_service(
+            service_id=service_id,
+            tenant_id=tenant_id,
+            dataset_id=dataset_id,
+            bind_host=bind_host,
+            port=int(port),
+            endpoint_url=endpoint_url,
             auth_token_env=auth_token_env,
             authz_config=authz_config,
             allowed_callers=list(allowed_callers),

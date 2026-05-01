@@ -69,6 +69,7 @@ def resolve_paths(args: argparse.Namespace) -> Dict[str, str]:
             "public_report": args.public_report or os.path.join(out_base, "a_psi_run", "public_report.json"),
             "policy_audit": args.policy_audit or os.path.join(out_base, "a_psi_run", "audit_log.jsonl"),
             "key_access_audit": args.key_access_audit or os.path.join(out_base, "key_access_audit.jsonl"),
+            "mainline_contract_check": args.mainline_contract_check or os.path.join(out_base, "mainline_contract_check.json"),
             "out": args.out or os.path.join(out_base, "audit_chain.json"),
         }
     return {
@@ -82,6 +83,7 @@ def resolve_paths(args: argparse.Namespace) -> Dict[str, str]:
         "public_report": args.public_report,
         "policy_audit": args.policy_audit,
         "key_access_audit": args.key_access_audit,
+        "mainline_contract_check": args.mainline_contract_check,
         "out": args.out,
     }
 
@@ -102,6 +104,7 @@ def build_chain(args: argparse.Namespace) -> Dict[str, Any]:
     bridge_job_meta = load_json_if_exists(paths["bridge_job_meta"])
     pjc_result = load_json_if_exists(paths["pjc_result"])
     public_report = load_json_if_exists(paths["public_report"])
+    mainline_contract_check = load_json_if_exists(paths["mainline_contract_check"])
 
     return {
         "schema": "audit_chain/v1",
@@ -119,11 +122,13 @@ def build_chain(args: argparse.Namespace) -> Dict[str, Any]:
             "public_report": os.path.abspath(paths["public_report"]) if paths["public_report"] else None,
             "policy_audit": os.path.abspath(paths["policy_audit"]) if paths["policy_audit"] else None,
             "key_access_audit": os.path.abspath(paths["key_access_audit"]) if paths["key_access_audit"] else None,
+            "mainline_contract_check": os.path.abspath(paths["mainline_contract_check"]) if paths["mainline_contract_check"] else None,
         },
         "artifacts": {
             "bridge_job_meta_sha256": sha256_file(paths["bridge_job_meta"]),
             "pjc_result_sha256": sha256_file(paths["pjc_result"]),
             "public_report_sha256": sha256_file(paths["public_report"]),
+            "mainline_contract_check_sha256": sha256_file(paths["mainline_contract_check"]),
         },
         "counts": {
             "sse_export_audit_records": len(sse_export_records),
@@ -142,6 +147,7 @@ def build_chain(args: argparse.Namespace) -> Dict[str, Any]:
         "pjc_result": pjc_result,
         "public_report": public_report,
         "policy_audit": policy_records,
+        "mainline_contract_check": mainline_contract_check,
     }
 
 
@@ -159,6 +165,7 @@ def main() -> int:
     ap.add_argument("--public-report", default="")
     ap.add_argument("--policy-audit", default="")
     ap.add_argument("--key-access-audit", default="")
+    ap.add_argument("--mainline-contract-check", default="")
     args = ap.parse_args()
 
     try:
