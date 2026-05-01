@@ -31,7 +31,7 @@
 
 | 任务 | 剩余 block | 约合工时 | 说明 |
 | --- | ---: | ---: | --- |
-| owner：隐私内核与接口治理 | 5 | 25h | ~~Block3~~ ✓, ~~Block4~~ ✓, Block1 2/4 ✓；还差 record recovery 全量 authn/SQL authz、handoff 收紧 |
+| owner：隐私内核与接口治理 | 4 | 20h | ~~Block3~~ ✓, ~~Block4~~ ✓, Block1 3/4 ✓；还差 record recovery SQL authz、handoff 收紧 |
 | 工程师 A：控制面、身份、权限与密钥 | 10 | 50h | 还差统一身份映射、Vault/KMS、control-plane 写路径 |
 | 工程师 B：查询入口、目录、工作流、观测 | 8 | 40h | 还差 execute 级权限、durable workflow、dashboard/UI 壳 |
 | 工程师 1：审计、运维与稳定性工具 | 4 | 20h | 还差部署/恢复/SLO 包、fuzz/安全门禁收口 |
@@ -39,7 +39,7 @@
 
 合计：
 
-1. 串行视角：`35 blocks = 175h`（owner 已完成 Block3 + Block4 + Block1 2/4）
+1. 串行视角：`34 blocks = 170h`（owner 已完成 Block3 + Block4 + Block1 3/4）
 2. 并行视角：如果 5 条线都有人并行推进，关键路径大致落在 `10-12 blocks = 50h-60h`，再加联调缓冲
 
 ## owner 已完成 block 记录
@@ -51,6 +51,7 @@
 | 2026-05-01 | Block4 (1/1): replay verification, governance docs sign-off | `verify_pipeline_replay.sh`, benchmark fix, freeze matrix, owner checklist | `check_ci_smoke.sh` ✓ |
 | 2026-05-01 | Block1 (1/4): request timestamp anti-replay on recovery service | `validate_request_timestamp`, client timestamp injection, audit schema | `check_ci_smoke.sh` ✓ |
 | 2026-05-01 | Block1 (2/4): systemd host-level hardening for recovery service | `derive_writable_paths`, full Linux security directives, smoke assertions | `check_ci_smoke.sh` ✓ |
+| 2026-05-01 | Block1 (3/4): HMAC-SHA256 request signing for recovery service | `sign_request`, `verify_request_signature`, client request_id+sig, audit fields | `check_ci_smoke.sh` ✓ |
 
 ## 4. 解释
 

@@ -146,10 +146,16 @@ class RecordRecoveryHttpHandler(BaseHTTPRequestHandler):
             token = self._auth_token()
             if token and not payload.get("auth_token"):
                 payload["auth_token"] = token
-            # Allow timestamp from header to override payload field
+            # Promote headers into payload when the payload fields are absent
             header_ts = self.headers.get("X-Request-Timestamp", "").strip()
             if header_ts and not payload.get("request_timestamp_utc"):
                 payload["request_timestamp_utc"] = header_ts
+            header_sig = self.headers.get("X-Request-Signature", "").strip()
+            if header_sig and not payload.get("request_signature"):
+                payload["request_signature"] = header_sig
+            header_sig_algo = self.headers.get("X-Request-Signature-Algorithm", "").strip()
+            if header_sig_algo and not payload.get("signature_algorithm"):
+                payload["signature_algorithm"] = header_sig_algo
             result = handle_record_recovery_service_payload(payload, self.server.service_state)
             if payload.get("op") == "recover":
                 append_record_recovery_service_audit(

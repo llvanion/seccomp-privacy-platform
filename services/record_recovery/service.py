@@ -10,7 +10,11 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from services.record_recovery.bootstrap import ensure_repo_paths
-from services.record_recovery.common import validate_request_timestamp
+from services.record_recovery.common import (
+    REQUEST_SIGNATURE_ALGORITHM,
+    validate_request_timestamp,
+    verify_request_signature,
+)
 from services.record_recovery.observability import (
     elapsed_ms,
     emit_structured_service_log,
@@ -198,6 +202,24 @@ def handle_record_recovery_service_payload(
     )
     if not ts_valid:
         raise PermissionError(f"record recovery request rejected: {ts_reason}")
+
+    provided_sig = str(payload.get("request_signature", "") or "").strip()
+    if service_state.auth_token and provided_sig:
+        request_id = str(payload.get("request_id", "") or "").strip()
+        request_ts = str(payload.get("request_timestamp_utc", "") or "").strip()
+        sig_algo = str(payload.get("signature_algorithm", "") or "").strip()
+        if sig_algo and sig_algo != REQUEST_SIGNATURE_ALGORITHM:
+            raise PermissionError(
+                f"unsupported request signature algorithm: {sig_algo!r}"
+            )
+        if not verify_request_signature(
+            service_state.auth_token,
+            request_id=request_id,
+            request_timestamp_utc=request_ts,
+            op="recover",
+            provided_sig=provided_sig,
+        ):
+            raise PermissionError("record recovery request signature verification failed")
 
     caller = str(payload.get("caller", ""))
     tenant_id = str(payload.get("tenant_id", "")).strip()
@@ -394,6 +416,8 @@ def append_record_recovery_service_audit(
             if isinstance(item, list) and len(item) == 2
         ],
         "request_timestamp_utc": str(payload.get("request_timestamp_utc", "")) or None,
+        "request_signature_verified": bool(str(payload.get("request_signature", "") or "").strip()) if service_state.auth_token else None,
+        "signature_algorithm": str(payload.get("signature_algorithm", "") or "") or None,
         "input_rows": result.get("input_rows") if result is not None else None,
         "output_rows": result.get("output_rows") if result is not None else None,
         "duration_ms": duration_ms,

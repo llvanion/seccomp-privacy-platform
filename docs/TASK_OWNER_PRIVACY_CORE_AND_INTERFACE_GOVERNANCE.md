@@ -210,8 +210,8 @@ bash scripts/check_json_contracts.sh
 
 按 [PLATFORM_LEVEL_REMAINING_ESTIMATE.md](/home/llvanion/Desktop/seccomp-privacy-platform/docs/PLATFORM_LEVEL_REMAINING_ESTIMATE.md) 的统一口径，这条 owner 主线从“当前原型”推进到“平台基线版”还需要：
 
-1. `5 blocks`（原 10，Block3 + Block4 已完成，Block1 完成 2/4）
-2. 约 `25h`
+1. `4 blocks`（原 10，Block3 + Block4 已完成，Block1 完成 3/4）
+2. 约 `20h`
 
 这里的“平台基线版”指：
 
@@ -225,7 +225,8 @@ bash scripts/check_json_contracts.sh
 2. **Block1 2/4 ✓（2026-05-01）**：
    - (1/4) record recovery 请求级时间戳反重放校验：`validate_request_timestamp(±30s)`，client 强制携带 `request_timestamp_utc`，写入审计。
    - (2/4) systemd 主机级 hardening：`render-systemd` 现输出 `ProtectSystem=strict` + `ProtectHome` + `PrivateDevices` + `ProtectKernelTunables/Modules/ControlGroups` + `LockPersonality` + `RestrictSUIDSGID` + `SystemCallFilter=@system-service`；`ReadWritePaths=` 由 `derive_writable_paths(runtime)` 自动推导；contract smoke 校验所有指令。
-   - 剩余 2 blocks：全量 service-to-service auth、authz SQL 后端。
+   - (3/4) HMAC-SHA256 请求签名：client 生成 `request_id`（UUID）并计算 `HMAC-SHA256(token, "{request_id}:{ts}:{op}")`；服务端常数时间校验（`hmac.compare_digest`）；`request_signature_verified` + `signature_algorithm` 写入审计并冻结为 stable properties；HTTP transport 通过 `X-Request-Signature` 头传递。
+   - 剩余 1 block：authz SQL 后端（当前仍为 JSON 文件策略）。
 3. **Block3 ✓（2026-05-01）**：bridge/PJC compatibility 与 normalization version 治理基线已完成。bridge 现在在 `job_meta.json` 和 bridge audit 中嵌入 `NORMALIZER_SCHEMA_VERSION = "normalizer-schema/v1"` 作为代码级常量（区别于调用方提供的 `normalize_version`）；`bridge_job_meta.schema.json` 现在要求 `normalizer_schema_version` 并对 `bridge.server` / `bridge.client` 的 `normalizer` 字段强制限定为已知枚举值；`validate_bridge_job.py` 在 PJC 运行前检查 `KNOWN_NORMALIZER_SCHEMA_VERSIONS` 和 `KNOWN_NORMALIZERS`，拒绝任何来自未知 normalizer 实现的 job。
 
 建议拆分：

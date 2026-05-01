@@ -1,6 +1,7 @@
 # -*- coding:utf-8 _*-
 import csv
 import hashlib
+import hmac
 import json
 from datetime import datetime, timezone
 from pathlib import Path
@@ -12,6 +13,7 @@ ERROR_SCHEMA = "sse_record_recovery_error/v1"
 HEALTH_SCHEMA = "sse_record_recovery_health/v1"
 
 REQUEST_TIMESTAMP_MAX_SKEW_SEC = 30
+REQUEST_SIGNATURE_ALGORITHM = "hmac-sha256"
 
 
 def utc_now_iso() -> str:
@@ -49,6 +51,52 @@ def validate_request_timestamp(
     except Exception:
         return False, "request_timestamp_invalid", f"request_timestamp_utc could not be parsed: {ts_str!r}"
     return True, "ok", "timestamp ok"
+
+
+def _canonical_request_message(request_id: str, request_timestamp_utc: str, op: str) -> str:
+    """Produce the canonical string that is HMAC-signed per request.
+
+    Format: "{request_id}:{request_timestamp_utc}:{op}"
+    Tying the signature to all three fields prevents:
+    - Reuse of a valid signature for a different request (request_id)
+    - Replay of old requests (request_timestamp_utc)
+    - Cross-operation misuse (op)
+    """
+    return f"{request_id}:{request_timestamp_utc}:{op}"
+
+
+def sign_request(
+    auth_token: str,
+    *,
+    request_id: str,
+    request_timestamp_utc: str,
+    op: str,
+) -> str:
+    """Return HMAC-SHA256 hex signature for a recovery service request."""
+    msg = _canonical_request_message(request_id, request_timestamp_utc, op)
+    return hmac.new(
+        auth_token.encode("utf-8"),
+        msg.encode("utf-8"),
+        hashlib.sha256,
+    ).hexdigest()
+
+
+def verify_request_signature(
+    auth_token: str,
+    *,
+    request_id: str,
+    request_timestamp_utc: str,
+    op: str,
+    provided_sig: str,
+) -> bool:
+    """Constant-time verify of an HMAC-SHA256 request signature."""
+    expected = sign_request(
+        auth_token,
+        request_id=request_id,
+        request_timestamp_utc=request_timestamp_utc,
+        op=op,
+    )
+    return hmac.compare_digest(expected, provided_sig)
 
 
 class HashingTextWriter:

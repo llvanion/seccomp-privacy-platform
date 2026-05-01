@@ -7,8 +7,16 @@ import urllib.error
 import urllib.parse
 import urllib.request
 from pathlib import Path
+from uuid import uuid4
 
-from services.record_recovery.common import ERROR_SCHEMA, HEALTH_SCHEMA, RESULT_SCHEMA, utc_now_iso
+from services.record_recovery.common import (
+    ERROR_SCHEMA,
+    HEALTH_SCHEMA,
+    REQUEST_SIGNATURE_ALGORITHM,
+    RESULT_SCHEMA,
+    sign_request,
+    utc_now_iso,
+)
 
 
 def _decode_result(raw: bytes) -> dict:
@@ -89,6 +97,12 @@ def _send_http_request(*, endpoint_url: str, payload: dict, auth_token: str) -> 
     ts = str(payload.get("request_timestamp_utc", "") or "").strip()
     if ts:
         headers["X-Request-Timestamp"] = ts
+    sig = str(payload.get("request_signature", "") or "").strip()
+    if sig:
+        headers["X-Request-Signature"] = sig
+    sig_algo = str(payload.get("signature_algorithm", "") or "").strip()
+    if sig_algo:
+        headers["X-Request-Signature-Algorithm"] = sig_algo
     req = urllib.request.Request(
         _http_operation_url(endpoint_url, op),
         data=json.dumps(payload, ensure_ascii=False).encode("utf-8"),
@@ -170,10 +184,21 @@ def request_record_recovery(
         payload["min_output_rows"] = min_output_rows
     if max_output_rows is not None:
         payload["max_output_rows"] = max_output_rows
-    payload["request_timestamp_utc"] = utc_now_iso()
+    request_id = uuid4().hex
+    request_ts = utc_now_iso()
+    payload["request_id"] = request_id
+    payload["request_timestamp_utc"] = request_ts
     auth_token = _auth_token_from_env(auth_env)
     if auth_token:
         payload["auth_token"] = auth_token
+        sig = sign_request(
+            auth_token,
+            request_id=request_id,
+            request_timestamp_utc=request_ts,
+            op="recover",
+        )
+        payload["request_signature"] = sig
+        payload["signature_algorithm"] = REQUEST_SIGNATURE_ALGORITHM
 
     result = _send_request(
         socket_path=socket_path,
