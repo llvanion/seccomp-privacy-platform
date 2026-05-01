@@ -77,8 +77,10 @@
 1. `token_scope`
 2. `token_key_version`
 3. join-key normalization contract
-4. `server.csv` / `client.csv` 语义
-5. FIFO 与 file handoff 的审计解释
+4. `normalizer_schema_version` — 代码级 normalizer 算法版本；当前唯一已知值为 `"normalizer-schema/v1"`；新实现必须注册新版本号，而不是复用旧值
+5. `server_normalizer` / `client_normalizer` — 每侧 normalizer 类型；允许值为 `identity`、`email`、`phone`；扩展新 normalizer 必须走 change request
+6. `server.csv` / `client.csv` 语义
+7. FIFO 与 file handoff 的审计解释
 
 ### 3.4 PJC
 

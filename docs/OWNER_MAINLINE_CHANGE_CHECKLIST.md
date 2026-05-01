@@ -38,6 +38,8 @@
 8. `token_scope`
 9. `token_key_version`
 10. `release_policy` 现有组合语义
+11. `normalizer_schema_version` — 如果改 normalizer 实现，必须同步更新 `NORMALIZER_SCHEMA_VERSION` 常量并注册到 `KNOWN_NORMALIZER_SCHEMA_VERSIONS`
+12. `server_normalizer` / `client_normalizer` — 新增 normalizer 类型必须同步更新 `KNOWN_NORMALIZERS` 和 `bridge_job_meta.schema.json` 枚举
 
 ## 4. 隐私边界检查
 
@@ -83,14 +85,15 @@
 
 owner 级改动至少要附一个可复现验证包，建议包含：
 
-1. `bash -n scripts/run_sse_bridge_pipeline.sh`
-2. `bash scripts/check_json_contracts.sh`
-3. `python3 scripts/check_schema_backcompat.py`
-4. 定向 smoke 或 replay 说明
+1. `bash scripts/verify_pipeline_replay.sh` — 端到端 file-mode 回放，断言 `intersection_size=2`, `intersection_sum=425`
+2. `bash scripts/check_ci_smoke.sh` — 全量 CI smoke（含回放、schema、hygiene、backcompat、contract）
+3. `bash scripts/check_json_contracts.sh`
+4. `python3 scripts/check_schema_backcompat.py`
+5. 定向 smoke 或 replay 说明
 
 如果碰到主链路语义，优先补：
 
-1. file handoff 回放
+1. file handoff 回放（`bash scripts/verify_pipeline_replay.sh`）
 2. FIFO handoff 回放
 3. record recovery service boundary 回放
 4. public report / policy audit 回放

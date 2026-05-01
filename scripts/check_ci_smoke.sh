@@ -87,6 +87,7 @@ bash -n scripts/check_bridge_rust.sh
 bash -n scripts/check_json_contracts.sh
 bash -n scripts/run_live_sse_bridge_demo.sh
 bash -n scripts/run_sse_bridge_pipeline.sh
+bash -n scripts/verify_pipeline_replay.sh
 
 if command -v cargo >/dev/null 2>&1; then
   bash scripts/check_bridge_rust.sh
@@ -99,5 +100,6 @@ python3 scripts/check_dependency_hygiene.py --fail-on-warn
 python3 scripts/check_record_recovery_boundary.py
 python3 scripts/check_schema_backcompat.py
 bash scripts/check_json_contracts.sh
+bash scripts/verify_pipeline_replay.sh
 
 echo "[ok] CI smoke checks passed"

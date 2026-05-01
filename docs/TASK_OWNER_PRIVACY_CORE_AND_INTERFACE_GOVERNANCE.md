@@ -210,8 +210,8 @@ bash scripts/check_json_contracts.sh
 
 按 [PLATFORM_LEVEL_REMAINING_ESTIMATE.md](/home/llvanion/Desktop/seccomp-privacy-platform/docs/PLATFORM_LEVEL_REMAINING_ESTIMATE.md) 的统一口径，这条 owner 主线从“当前原型”推进到“平台基线版”还需要：
 
-1. `8 blocks`（原 10，Block3 已完成）
-2. 约 `40h`
+1. `7 blocks`（原 10，Block3 + Block4 已完成）
+2. 约 `35h`
 
 这里的“平台基线版”指：
 
@@ -229,7 +229,7 @@ bash scripts/check_json_contracts.sh
 1. `4 blocks / 20h`：把 record recovery 从本地受控进程推进到更独立的 service-user / external-service 边界，补更强 authn、lifecycle 和回放验证。
 2. `3 blocks / 15h`：继续收紧 `bridge-ready` 明文 handoff，至少补一条比当前 file/FIFO 更接近平台边界的受控路径。
 3. ~~`2 blocks / 10h`：补 bridge/PJC compatibility 与 normalization version 的长期治理基线。~~ **已完成（Block3）**
-4. `1 block / 5h`：把 replay、benchmark、change-process 和 owner checklist 再收一轮，形成平台基线签收点。
+4. ~~`1 block / 5h`：把 replay、benchmark、change-process 和 owner checklist 再收一轮，形成平台基线签收点。~~ **已完成（Block4，2026-05-01）**：`verify_pipeline_replay.sh` 已加入 CI smoke；benchmark fixture 修复；freeze matrix 和 owner checklist 更新了 normalizer 治理条目。
 
 不含：
 
