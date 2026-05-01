@@ -11,10 +11,14 @@ REQUIRED_BRIDGE_KEYS = [
     "token_scope",
     "token_key_version",
     "normalize_version",
+    "normalizer_schema_version",
     "dedup_policy",
     "server",
     "client",
 ]
+
+KNOWN_NORMALIZER_SCHEMA_VERSIONS = {"normalizer-schema/v1"}
+KNOWN_NORMALIZERS = {"identity", "email", "phone"}
 
 
 def die(msg: str) -> "NoReturn":
@@ -64,6 +68,28 @@ def validate_bridge_meta(meta: Dict[str, Any], job_dir: str) -> None:
         die("bridge.token_key_version must be non-empty")
     if not bridge.get("normalize_version"):
         die("bridge.normalize_version must be non-empty")
+
+    nsv = bridge.get("normalizer_schema_version", "")
+    if not nsv:
+        die("bridge.normalizer_schema_version must be non-empty")
+    if nsv not in KNOWN_NORMALIZER_SCHEMA_VERSIONS:
+        die(
+            f"bridge.normalizer_schema_version {nsv!r} is not a recognized version; "
+            f"known: {sorted(KNOWN_NORMALIZER_SCHEMA_VERSIONS)}"
+        )
+
+    server_normalizer = server.get("normalizer", "")
+    if server_normalizer not in KNOWN_NORMALIZERS:
+        die(
+            f"bridge.server.normalizer {server_normalizer!r} is not a recognized normalizer; "
+            f"known: {sorted(KNOWN_NORMALIZERS)}"
+        )
+    client_normalizer = client.get("normalizer", "")
+    if client_normalizer not in KNOWN_NORMALIZERS:
+        die(
+            f"bridge.client.normalizer {client_normalizer!r} is not a recognized normalizer; "
+            f"known: {sorted(KNOWN_NORMALIZERS)}"
+        )
 
     if not server.get("join_key_column"):
         die("bridge.server.join_key_column must be non-empty")

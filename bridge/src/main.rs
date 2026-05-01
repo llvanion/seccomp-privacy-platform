@@ -8,6 +8,8 @@ use std::time::{Instant, SystemTime, UNIX_EPOCH};
 
 use anyhow::{Context, Result, bail};
 use clap::{Parser, Subcommand, ValueEnum};
+
+const NORMALIZER_SCHEMA_VERSION: &str = "normalizer-schema/v1";
 use csv::{ReaderBuilder, StringRecord, WriterBuilder};
 use hmac::{Hmac, Mac};
 use serde::Serialize;
@@ -215,6 +217,7 @@ struct SingleJobMeta {
     value_column: Option<String>,
     value_mode: ValueMode,
     normalizer: Normalizer,
+    normalizer_schema_version: String,
     normalize_version: String,
     token_scheme: String,
     token_scope: String,
@@ -348,6 +351,7 @@ fn run_generate(args: GenerateArgs, started_at: Instant) -> Result<()> {
         value_column: spec.value_column,
         value_mode: args.value_mode,
         normalizer: spec.normalizer,
+        normalizer_schema_version: NORMALIZER_SCHEMA_VERSION.to_string(),
         normalize_version: args.normalize_version,
         token_scheme: args.token_scheme,
         token_scope: args.token_scope,
@@ -380,6 +384,7 @@ fn run_generate(args: GenerateArgs, started_at: Instant) -> Result<()> {
             "token_scope": meta.token_scope,
             "token_key_version": meta.token_key_version,
             "normalize_version": meta.normalize_version,
+            "normalizer_schema_version": NORMALIZER_SCHEMA_VERSION,
             "dedup_policy": meta.dedup_policy,
             "production_mode": production_mode,
             "token_secret_source": token_secret_source(&args.token_secret, &args.token_secret_env),
@@ -500,6 +505,7 @@ fn run_prepare_job(args: PrepareJobArgs, started_at: Instant) -> Result<()> {
             "token_scope": args.token_scope,
             "token_key_version": args.token_key_version,
             "normalize_version": args.normalize_version,
+            "normalizer_schema_version": NORMALIZER_SCHEMA_VERSION,
             "dedup_policy": args.dedup_policy,
             "server": {
                 "input_file": canonicalize_display(&server_spec.input)?,
@@ -556,6 +562,7 @@ fn run_prepare_job(args: PrepareJobArgs, started_at: Instant) -> Result<()> {
             "token_scope": meta.pointer("/bridge/token_scope").and_then(Value::as_str).unwrap_or(""),
             "token_key_version": meta.pointer("/bridge/token_key_version").and_then(Value::as_str).unwrap_or(""),
             "normalize_version": meta.pointer("/bridge/normalize_version").and_then(Value::as_str).unwrap_or(""),
+            "normalizer_schema_version": meta.pointer("/bridge/normalizer_schema_version").and_then(Value::as_str).unwrap_or(""),
             "server_normalizer": meta.pointer("/bridge/server/normalizer").and_then(Value::as_str).unwrap_or(""),
             "client_normalizer": meta.pointer("/bridge/client/normalizer").and_then(Value::as_str).unwrap_or(""),
             "dedup_policy": meta.pointer("/bridge/dedup_policy").and_then(Value::as_str).unwrap_or(""),

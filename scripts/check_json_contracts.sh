@@ -470,7 +470,7 @@ printf '%s\n' \
   > "$tmp/sse_exports/record_recovery_service_audit.jsonl"
 
 printf '%s\n' \
-  '{"schema":"bridge_job_meta/v1","job_id":"contract-check","job_type":"bridge_prepared_csv","generator":"bridge-rust-v0","input_sizes":{"exposure_n":1,"purchase_n":1},"bridge":{"token_scheme":"bridge-hmac-sha256-v1","token_scope":"contract-check","token_key_version":"1","normalize_version":"1","dedup_policy":"one","server":{},"client":{}},"inputs":{},"counts":{}}' \
+  '{"schema":"bridge_job_meta/v1","job_id":"contract-check","job_type":"bridge_prepared_csv","generator":"bridge-rust-v0","input_sizes":{"exposure_n":1,"purchase_n":1},"bridge":{"token_scheme":"bridge-hmac-sha256-v1","token_scope":"contract-check","token_key_version":"1","normalize_version":"1","normalizer_schema_version":"normalizer-schema/v1","dedup_policy":"one","server":{"join_key_column":"email","normalizer":"email"},"client":{"join_key_column":"email","normalizer":"email"}},"inputs":{},"counts":{}}' \
   > "$tmp/bridge_job/job_meta.json"
 
 printf '%s\n' \

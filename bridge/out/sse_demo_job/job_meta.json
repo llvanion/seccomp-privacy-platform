@@ -1,4 +1,5 @@
 {
+  "schema": "bridge_job_meta/v1",
   "bridge": {
     "client": {
       "input_file": "/home/llvanion/Desktop/seccomp-privacy-platform/sse/exports/client_demo.csv",
@@ -10,6 +11,7 @@
     },
     "dedup_policy": "one_per_user_keep_max_value",
     "normalize_version": "1",
+    "normalizer_schema_version": "normalizer-schema/v1",
     "server": {
       "input_file": "/home/llvanion/Desktop/seccomp-privacy-platform/sse/exports/server_demo.csv",
       "input_format": "csv",

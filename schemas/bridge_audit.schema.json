@@ -86,6 +86,9 @@
     "normalize_version": {
       "type": "string"
     },
+    "normalizer_schema_version": {
+      "type": "string"
+    },
     "server_normalizer": {
       "type": "string"
     },

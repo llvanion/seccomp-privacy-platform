@@ -258,8 +258,8 @@ python3 moduleA_psi/scripts/policy_release.py \
 
 - Harden the local Unix-socket recovery service into a separately deployed/service-user boundary with durable authn/authz and lifecycle management.
 - Move the local key manifest/env-var secret reference to formal key injection, rotation, and deactivation.
-- Add stronger validation in `a-psi` for bridge metadata compatibility across both parties.
-- Decide the long-term source of truth for join-key normalization rules and versions.
+- ~~Add stronger validation in `a-psi` for bridge metadata compatibility across both parties.~~ Done: `validate_bridge_job.py` now validates `normalizer_schema_version` against `KNOWN_NORMALIZER_SCHEMA_VERSIONS` and per-role `normalizer` against `KNOWN_NORMALIZERS`, so any unrecognized algorithm version is rejected before PJC runs.
+- ~~Decide the long-term source of truth for join-key normalization rules and versions.~~ Baseline established: bridge embeds `NORMALIZER_SCHEMA_VERSION = "normalizer-schema/v1"` as a code-level constant in `job_meta.json` and bridge audit, distinct from the caller-supplied `normalize_version`. New normalizer implementations must bump this constant and add to the known-versions registry.
 
 For the current boundary assumptions and allowed leakage by stage, see [docs/THREAT_MODEL_AND_LEAKAGE_MODEL.md](/home/llvanion/Desktop/seccomp-privacy-platform/docs/THREAT_MODEL_AND_LEAKAGE_MODEL.md).
 

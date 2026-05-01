@@ -31,7 +31,7 @@
 
 | 任务 | 剩余 block | 约合工时 | 说明 |
 | --- | ---: | ---: | --- |
-| owner：隐私内核与接口治理 | 10 | 50h | 还差独立敏感边界、handoff 进一步收紧、兼容/回放治理 |
+| owner：隐私内核与接口治理 | 8 | 40h | ~~兼容/回放治理~~ ✓ Block3完成；还差独立敏感边界、handoff 进一步收紧 |
 | 工程师 A：控制面、身份、权限与密钥 | 10 | 50h | 还差统一身份映射、Vault/KMS、control-plane 写路径 |
 | 工程师 B：查询入口、目录、工作流、观测 | 8 | 40h | 还差 execute 级权限、durable workflow、dashboard/UI 壳 |
 | 工程师 1：审计、运维与稳定性工具 | 4 | 20h | 还差部署/恢复/SLO 包、fuzz/安全门禁收口 |
@@ -39,8 +39,15 @@
 
 合计：
 
-1. 串行视角：`40 blocks = 200h`
+1. 串行视角：`38 blocks = 190h`（owner 已完成 Block3：normalizer version governance）
 2. 并行视角：如果 5 条线都有人并行推进，关键路径大致落在 `10-12 blocks = 50h-60h`，再加联调缓冲
+
+## owner 已完成 block 记录
+
+| 完成时间 | Block | 入口 | 验证 |
+| --- | --- | --- | --- |
+| 2026-05-01 | Block3 (1/2): bridge_audit schema + normalizer fields | `bridge_audit/v1` schema, `config/schema_backcompat_baseline.json` | `check_ci_smoke.sh` ✓ |
+| 2026-05-01 | Block3 (2/2): normalizer_schema_version + validator | `NORMALIZER_SCHEMA_VERSION` const, `validate_bridge_job.py` | `check_ci_smoke.sh` ✓ |
 
 ## 4. 解释
 
