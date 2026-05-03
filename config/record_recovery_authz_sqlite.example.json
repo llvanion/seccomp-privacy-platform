@@ -1,0 +1,7 @@
+{
+  "schema": "record_recovery_authz_source/v1",
+  "source_type": "metadata_db",
+  "db_path": "../tmp/platform_metadata.db",
+  "policy_path": "../sse/config/export_policy.example.json",
+  "policy_schema_name": "sse_export_policy/v1"
+}

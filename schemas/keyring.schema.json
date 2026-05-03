@@ -1,0 +1,95 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "keyring/v1",
+  "title": "Local keyring with lifecycle state",
+  "type": "object",
+  "required": ["schema", "keys"],
+  "properties": {
+    "schema": {
+      "const": "keyring/v1"
+    },
+    "keys": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "required": ["purpose", "active_version", "versions"],
+        "properties": {
+          "purpose": {
+            "enum": ["bridge_token", "record_store", "policy_auth", "audit_integrity"]
+          },
+          "active_version": {
+            "type": ["string", "null"]
+          },
+          "allowed_callers": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "versions": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "object",
+              "required": ["enabled", "status", "created_at_utc", "secret_ref"],
+              "properties": {
+                "enabled": {
+                  "type": "boolean"
+                },
+                "status": {
+                  "enum": ["active", "inactive", "retired"]
+                },
+                "created_at_utc": {
+                  "type": "string",
+                  "format": "date-time"
+                },
+                "secret_ref": {
+                  "oneOf": [
+                    {
+                      "type": "object",
+                      "required": ["kind", "name"],
+                      "properties": {
+                        "kind": {
+                          "const": "env"
+                        },
+                        "name": {
+                          "type": "string",
+                          "minLength": 1
+                        }
+                      },
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "object",
+                      "required": ["kind", "name"],
+                      "properties": {
+                        "kind": {
+                          "const": "vault_kv"
+                        },
+                        "name": {
+                          "type": "string",
+                          "minLength": 1
+                        },
+                        "version": {
+                          "type": "string",
+                          "minLength": 1
+                        },
+                        "field": {
+                          "type": "string",
+                          "minLength": 1
+                        }
+                      },
+                      "additionalProperties": false
+                    }
+                  ]
+                }
+              },
+              "additionalProperties": false
+            }
+          }
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  "additionalProperties": false
+}

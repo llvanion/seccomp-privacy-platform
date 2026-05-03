@@ -1,0 +1,77 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "key_lifecycle_audit/v1",
+  "title": "Key lifecycle audit JSONL record",
+  "type": "object",
+  "required": [
+    "schema",
+    "ts_utc",
+    "event",
+    "caller",
+    "key_name",
+    "key_version",
+    "action",
+    "status",
+    "decision",
+    "reason_code",
+    "keyring_file",
+    "keyring_sha256",
+    "secret_source"
+  ],
+  "properties": {
+    "schema": {
+      "const": "key_lifecycle_audit/v1"
+    },
+    "ts_utc": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "event": {
+      "const": "key_lifecycle_change"
+    },
+    "caller": {
+      "type": "string"
+    },
+    "key_name": {
+      "type": "string"
+    },
+    "key_version": {
+      "type": "string"
+    },
+    "action": {
+      "enum": ["rotate", "set_status"]
+    },
+    "status": {
+      "enum": ["active", "inactive", "retired"]
+    },
+    "decision": {
+      "enum": ["allow", "deny"]
+    },
+    "reason_code": {
+      "type": "string"
+    },
+    "reason": {
+      "type": "string"
+    },
+    "keyring_file": {
+      "type": "string"
+    },
+    "keyring_sha256": {
+      "type": "string"
+    },
+    "secret_source": {
+      "type": "object",
+      "required": ["kind", "name"],
+      "properties": {
+        "kind": {
+          "enum": ["env", "vault_kv"]
+        },
+        "name": {
+          "type": ["string", "null"]
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false
+}

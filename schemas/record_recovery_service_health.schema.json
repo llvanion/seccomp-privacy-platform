@@ -1,0 +1,91 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "record_recovery_service_health/v1",
+  "title": "Record recovery service health snapshot",
+  "type": "object",
+  "required": [
+    "schema",
+    "ok",
+    "service_id",
+    "tenant_id",
+    "dataset_id",
+    "transport",
+    "socket_path",
+    "auth_required",
+    "authz_policy_config",
+    "allowed_callers",
+    "allowed_output_roots",
+    "allowed_record_store_roots",
+    "audit_log",
+    "pid"
+  ],
+  "properties": {
+    "schema": {
+      "const": "sse_record_recovery_health/v1"
+    },
+    "service_id": {
+      "type": "string"
+    },
+    "tenant_id": {
+      "type": "string"
+    },
+    "dataset_id": {
+      "type": "string"
+    },
+    "transport": {
+      "enum": ["unix_socket", "http"]
+    },
+    "ok": {
+      "type": "boolean"
+    },
+    "socket_path": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "endpoint_url": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "auth_required": {
+      "type": "boolean"
+    },
+    "authz_policy_config": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "allowed_callers": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "allowed_output_roots": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "allowed_record_store_roots": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "audit_log": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "pid": {
+      "type": "integer",
+      "minimum": 1
+    }
+  }
+}

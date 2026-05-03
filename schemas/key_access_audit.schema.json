@@ -1,0 +1,95 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "key_access_audit/v1",
+  "title": "Local key access audit JSONL record",
+  "type": "object",
+  "required": [
+    "schema",
+    "ts_utc",
+    "event",
+    "caller",
+    "key_id",
+    "key_version",
+    "purpose",
+    "decision",
+    "reason_code",
+    "manifest_file",
+    "manifest_sha256",
+    "secret_source"
+  ],
+  "properties": {
+    "schema": {
+      "const": "key_access_audit/v1"
+    },
+    "ts_utc": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "event": {
+      "const": "key_access"
+    },
+    "caller": {
+      "type": "string"
+    },
+    "job_id": {
+      "type": ["string", "null"]
+    },
+    "correlation_id": {
+      "type": ["string", "null"]
+    },
+    "key_id": {
+      "type": "string"
+    },
+    "key_version": {
+      "type": "string"
+    },
+    "purpose": {
+      "enum": ["bridge_token", "record_store", "policy_auth", "audit_integrity"]
+    },
+    "decision": {
+      "enum": ["allow", "deny"]
+    },
+    "reason_code": {
+      "type": "string"
+    },
+    "manifest_file": {
+      "type": "string"
+    },
+    "manifest_sha256": {
+      "type": "string"
+    },
+    "secret_source": {
+      "type": "object",
+      "required": ["kind", "name"],
+      "properties": {
+        "kind": {
+          "enum": ["env", "key_agent", "external_kms"]
+        },
+        "name": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false
+    },
+    "resolver": {
+      "type": "object",
+      "required": ["kind"],
+      "properties": {
+        "kind": {
+          "enum": ["manifest_resolver", "key_agent", "external_kms_http"]
+        },
+        "socket_path": {
+          "type": ["string", "null"]
+        },
+        "endpoint_url": {
+          "type": ["string", "null"]
+        }
+      },
+      "additionalProperties": false
+    },
+    "reason": {
+      "type": "string"
+    }
+  },
+  "additionalProperties": false
+}

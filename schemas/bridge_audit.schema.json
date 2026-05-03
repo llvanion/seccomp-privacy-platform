@@ -1,0 +1,127 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "bridge_audit/v1",
+  "title": "Bridge audit JSONL record",
+  "type": "object",
+  "required": ["schema", "ts_unix_ms", "event", "job_id", "decision", "reason_code", "token_secret_source"],
+  "properties": {
+    "schema": {
+      "const": "bridge_audit/v1"
+    },
+    "ts_unix_ms": {
+      "type": "integer"
+    },
+    "event": {
+      "enum": ["bridge_generate", "bridge_prepare_job"]
+    },
+    "job_id": {
+      "type": "string"
+    },
+    "correlation_id": {
+      "type": "string"
+    },
+    "role": {
+      "type": "string"
+    },
+    "input_file": {
+      "type": "string"
+    },
+    "input_file_type": {
+      "enum": ["file", "fifo", "other"]
+    },
+    "input_sha256": {
+      "type": ["string", "null"]
+    },
+    "server_input_file": {
+      "type": "string"
+    },
+    "server_input_file_type": {
+      "enum": ["file", "fifo", "other"]
+    },
+    "server_input_sha256": {
+      "type": ["string", "null"]
+    },
+    "client_input_file": {
+      "type": "string"
+    },
+    "client_input_file_type": {
+      "enum": ["file", "fifo", "other"]
+    },
+    "client_input_sha256": {
+      "type": ["string", "null"]
+    },
+    "output_dir": {
+      "type": "string"
+    },
+    "server_csv": {
+      "type": "string"
+    },
+    "server_csv_sha256": {
+      "type": ["string", "null"]
+    },
+    "client_csv": {
+      "type": "string"
+    },
+    "client_csv_sha256": {
+      "type": ["string", "null"]
+    },
+    "job_meta_file": {
+      "type": "string"
+    },
+    "job_meta_sha256": {
+      "type": ["string", "null"]
+    },
+    "counts": {
+      "type": ["object", "null"]
+    },
+    "token_scheme": {
+      "type": "string"
+    },
+    "token_scope": {
+      "type": "string"
+    },
+    "token_key_version": {
+      "type": "string"
+    },
+    "normalize_version": {
+      "type": "string"
+    },
+    "normalizer_schema_version": {
+      "type": "string"
+    },
+    "server_normalizer": {
+      "type": "string"
+    },
+    "client_normalizer": {
+      "type": "string"
+    },
+    "dedup_policy": {
+      "type": "string"
+    },
+    "production_mode": {
+      "type": "boolean"
+    },
+    "duration_ms": {
+      "type": ["integer", "null"],
+      "minimum": 0
+    },
+    "decision": {
+      "enum": ["allow", "deny"]
+    },
+    "reason_code": {
+      "type": "string"
+    },
+    "token_secret_source": {
+      "type": "object",
+      "required": ["kind"],
+      "properties": {
+        "kind": {
+          "enum": ["cli", "env", "unknown"]
+        },
+        "name": {
+          "type": "string"
+        }
+      }
+    }
+  }
+}

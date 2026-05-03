@@ -1,0 +1,78 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "query_workflow_submission/v1",
+  "title": "Submission manifest emitted by the query/workflow adapter",
+  "type": "object",
+  "required": [
+    "schema",
+    "submitted_at_utc",
+    "request_file",
+    "query_type",
+    "workflow",
+    "mode",
+    "pipeline_script",
+    "request_summary",
+    "command",
+    "exit_code"
+  ],
+  "properties": {
+    "schema": {
+      "const": "query_workflow_submission/v1"
+    },
+    "submitted_at_utc": {
+      "type": "string",
+      "minLength": 1
+    },
+    "request_file": {
+      "type": "string",
+      "minLength": 1
+    },
+    "query_type": {
+      "type": ["string", "null"]
+    },
+    "workflow": {
+      "type": "string",
+      "const": "sse_bridge_pipeline"
+    },
+    "mode": {
+      "type": "string",
+      "enum": [
+        "dry_run",
+        "execute"
+      ]
+    },
+    "pipeline_script": {
+      "type": "string",
+      "minLength": 1
+    },
+    "request_summary": {
+      "type": "object",
+      "additionalProperties": {
+        "type": [
+          "string",
+          "array",
+          "integer",
+          "boolean",
+          "null"
+        ],
+        "items": {
+          "type": "string"
+        }
+      }
+    },
+    "command": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "exit_code": {
+      "type": [
+        "integer",
+        "null"
+      ]
+    }
+  },
+  "additionalProperties": false
+}

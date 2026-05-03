@@ -1,0 +1,25 @@
+{
+  "schema": "record_recovery_service_policy/v1",
+  "callers": {
+    "auto_demo": {
+      "enabled": true,
+      "allowed_roles": ["server", "client"],
+      "allowed_join_key_fields": ["email"],
+      "allowed_value_fields": ["amount"],
+      "required_filters": ["campaign"],
+      "allowed_filter_fields": ["campaign"],
+      "allowed_filter_values": {
+        "campaign": ["demo"]
+      },
+      "max_candidate_count": 100000,
+      "min_output_rows": 1,
+      "max_output_rows": 100000,
+      "allowed_output_prefixes": [
+        "/tmp"
+      ],
+      "allowed_record_store_prefixes": [
+        "/tmp"
+      ]
+    }
+  }
+}

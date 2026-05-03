@@ -1,0 +1,45 @@
+{
+  "case_id": "small_s16_j8",
+  "job_dir": "/home/llvanion/Desktop/seccomp-privacy-platform/runs/bench_small_s16_j8",
+  "run": {
+    "exit_status": 0,
+    "elapsed_str": "15:07.29",
+    "elapsed_s": 907.29,
+    "max_rss_mb": 1707.99609375,
+    "cpu_user_s": 1330.5,
+    "cpu_sys_s": 31.44
+  },
+  "params": {
+    "num_shards": 16,
+    "max_jobs": 8,
+    "bucket_field": "",
+    "value_mode": "count",
+    "k": 20,
+    "n": 5
+  },
+  "dedup": {
+    "exposure_n": 10289,
+    "purchase_n": 838,
+    "bucket_count": 0,
+    "bucket_exposure_stats": {
+      "min": 10289,
+      "mean": 10289.0,
+      "p95": 10289,
+      "max": 10289
+    },
+    "bucket_purchase_stats": {
+      "min": 838,
+      "mean": 838.0,
+      "p95": 838,
+      "max": 838
+    }
+  },
+  "result": {
+    "intersection_size": 838,
+    "intersection_sum": 838
+  },
+  "policy": {
+    "suppressed_bucket_count": null,
+    "published_bucket_count": null
+  }
+}

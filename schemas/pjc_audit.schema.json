@@ -1,0 +1,95 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "pjc_audit/v1",
+  "title": "PJC stage audit JSONL record",
+  "type": "object",
+  "required": [
+    "schema",
+    "ts_utc",
+    "event",
+    "job_id",
+    "correlation_id",
+    "out_dir",
+    "server_csv",
+    "server_csv_sha256",
+    "client_csv",
+    "client_csv_sha256",
+    "server_log",
+    "server_log_sha256",
+    "client_log",
+    "client_log_sha256",
+    "result_file",
+    "result_sha256",
+    "decision",
+    "reason_code",
+    "reason",
+    "exit_code"
+  ],
+  "properties": {
+    "schema": {
+      "const": "pjc_audit/v1"
+    },
+    "ts_utc": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "event": {
+      "const": "pjc_run"
+    },
+    "job_id": {
+      "type": "string"
+    },
+    "correlation_id": {
+      "type": "string"
+    },
+    "out_dir": {
+      "type": "string"
+    },
+    "server_csv": {
+      "type": "string"
+    },
+    "server_csv_sha256": {
+      "type": ["string", "null"]
+    },
+    "client_csv": {
+      "type": "string"
+    },
+    "client_csv_sha256": {
+      "type": ["string", "null"]
+    },
+    "server_log": {
+      "type": ["string", "null"]
+    },
+    "server_log_sha256": {
+      "type": ["string", "null"]
+    },
+    "client_log": {
+      "type": ["string", "null"]
+    },
+    "client_log_sha256": {
+      "type": ["string", "null"]
+    },
+    "result_file": {
+      "type": ["string", "null"]
+    },
+    "result_sha256": {
+      "type": ["string", "null"]
+    },
+    "duration_ms": {
+      "type": ["integer", "null"],
+      "minimum": 0
+    },
+    "decision": {
+      "enum": ["allow", "deny"]
+    },
+    "reason_code": {
+      "type": "string"
+    },
+    "reason": {
+      "type": "string"
+    },
+    "exit_code": {
+      "type": ["integer", "null"]
+    }
+  }
+}

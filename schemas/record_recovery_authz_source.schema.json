@@ -1,0 +1,42 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "record_recovery_authz_source/v1",
+  "title": "Record recovery authz source",
+  "type": "object",
+  "required": [
+    "schema",
+    "source_type",
+    "db_path"
+  ],
+  "properties": {
+    "schema": {
+      "const": "record_recovery_authz_source/v1"
+    },
+    "source_type": {
+      "const": "metadata_db"
+    },
+    "db_path": {
+      "type": "string",
+      "minLength": 1
+    },
+    "policy_id": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "policy_path": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "policy_schema_name": {
+      "type": [
+        "string",
+        "null"
+      ]
+    }
+  },
+  "additionalProperties": false
+}

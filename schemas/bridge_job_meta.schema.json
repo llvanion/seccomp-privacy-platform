@@ -1,0 +1,99 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "bridge_job_meta/v1",
+  "title": "Bridge prepared job metadata",
+  "type": "object",
+  "required": ["schema", "job_id", "job_type", "generator", "input_sizes", "bridge", "inputs", "counts"],
+  "properties": {
+    "schema": {
+      "const": "bridge_job_meta/v1"
+    },
+    "job_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "job_type": {
+      "const": "bridge_prepared_csv"
+    },
+    "generator": {
+      "type": "string"
+    },
+    "input_sizes": {
+      "type": "object",
+      "required": ["exposure_n", "purchase_n"],
+      "properties": {
+        "exposure_n": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "purchase_n": {
+          "type": "integer",
+          "minimum": 1
+        }
+      }
+    },
+    "bridge": {
+      "type": "object",
+      "required": ["token_scheme", "token_scope", "token_key_version", "normalize_version", "normalizer_schema_version", "dedup_policy", "server", "client"],
+      "properties": {
+        "token_scheme": {
+          "const": "bridge-hmac-sha256-v1"
+        },
+        "token_scope": {
+          "type": "string",
+          "minLength": 1
+        },
+        "token_key_version": {
+          "type": "string",
+          "minLength": 1
+        },
+        "normalize_version": {
+          "type": "string",
+          "minLength": 1
+        },
+        "normalizer_schema_version": {
+          "type": "string",
+          "minLength": 1
+        },
+        "dedup_policy": {
+          "type": "string",
+          "minLength": 1
+        },
+        "server": {
+          "type": "object",
+          "required": ["join_key_column", "normalizer"],
+          "properties": {
+            "input_file": { "type": "string" },
+            "input_format": { "type": "string" },
+            "join_key_column": { "type": "string", "minLength": 1 },
+            "normalizer": {
+              "type": "string",
+              "enum": ["identity", "email", "phone"]
+            }
+          }
+        },
+        "client": {
+          "type": "object",
+          "required": ["join_key_column", "normalizer"],
+          "properties": {
+            "input_file": { "type": "string" },
+            "input_format": { "type": "string" },
+            "join_key_column": { "type": "string", "minLength": 1 },
+            "value_column": { "type": "string" },
+            "value_mode": { "type": "string" },
+            "normalizer": {
+              "type": "string",
+              "enum": ["identity", "email", "phone"]
+            }
+          }
+        }
+      }
+    },
+    "inputs": {
+      "type": "object"
+    },
+    "counts": {
+      "type": "object"
+    }
+  }
+}

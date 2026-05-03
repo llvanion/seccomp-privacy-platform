@@ -1,0 +1,305 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "read_adapter_benchmark/v1",
+  "title": "Benchmark report for metadata and audit read adapters",
+  "type": "object",
+  "required": [
+    "schema",
+    "generated_at_utc",
+    "repo_root",
+    "fixture_profile",
+    "fixture_job_id",
+    "iterations",
+    "modes"
+  ],
+  "properties": {
+    "schema": {
+      "const": "read_adapter_benchmark/v1"
+    },
+    "generated_at_utc": {
+      "type": "string",
+      "minLength": 1
+    },
+    "repo_root": {
+      "type": "string",
+      "minLength": 1
+    },
+    "fixture_profile": {
+      "type": "string",
+      "minLength": 1
+    },
+    "fixture_job_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "iterations": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "modes": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "mode",
+          "family",
+          "command",
+          "summary",
+          "results"
+        ],
+        "properties": {
+          "mode": {
+            "type": "string",
+            "enum": [
+              "metadata_cli_job",
+              "metadata_cli_jobs",
+              "metadata_http_job",
+              "metadata_http_jobs",
+              "metadata_client_job",
+              "metadata_client_jobs",
+              "metadata_http_entity",
+              "metadata_client_entity",
+              "audit_http_audit_chain",
+              "audit_http_public_report",
+              "audit_http_observability",
+              "audit_http_catalog_lineage",
+              "audit_client_audit_chain",
+              "audit_client_public_report",
+              "audit_client_observability",
+              "audit_client_catalog_lineage"
+            ]
+          },
+          "family": {
+            "type": "string",
+            "enum": [
+              "metadata",
+              "audit"
+            ]
+          },
+          "command": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "summary": {
+            "type": "object",
+            "required": [
+              "iterations",
+              "successful_iterations",
+              "failed_iterations",
+              "duration_ms"
+            ],
+            "properties": {
+              "iterations": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "successful_iterations": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "failed_iterations": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "duration_ms": {
+                "type": "object",
+                "required": [
+                  "min",
+                  "mean",
+                  "p50",
+                  "p95",
+                  "max"
+                ],
+                "properties": {
+                  "min": {
+                    "type": [
+                      "number",
+                      "null"
+                    ]
+                  },
+                  "mean": {
+                    "type": [
+                      "number",
+                      "null"
+                    ]
+                  },
+                  "p50": {
+                    "type": [
+                      "number",
+                      "null"
+                    ]
+                  },
+                  "p95": {
+                    "type": [
+                      "number",
+                      "null"
+                    ]
+                  },
+                  "max": {
+                    "type": [
+                      "number",
+                      "null"
+                    ]
+                  }
+                },
+                "additionalProperties": false
+              }
+            },
+            "additionalProperties": false
+          },
+          "results": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": [
+                "duration_ms",
+                "exit_code",
+                "timed_out",
+                "stderr_tail"
+              ],
+              "properties": {
+                "duration_ms": {
+                  "type": "number",
+                  "minimum": 0
+                },
+                "exit_code": {
+                  "type": "integer"
+                },
+                "timed_out": {
+                  "type": "boolean"
+                },
+                "stderr_tail": {
+                  "type": "string"
+                },
+                "result_schema": {
+                  "type": ["string", "null"]
+                },
+                "job_count": {
+                  "type": ["integer", "null"],
+                  "minimum": 0
+                },
+                "pagination_limit": {
+                  "type": ["integer", "null"],
+                  "minimum": 0
+                },
+                "pagination_offset": {
+                  "type": ["integer", "null"],
+                  "minimum": 0
+                },
+                "pagination_returned_count": {
+                  "type": ["integer", "null"],
+                  "minimum": 0
+                },
+                "pagination_total_matching_count": {
+                  "type": ["integer", "null"],
+                  "minimum": 0
+                },
+                "pagination_has_more": {
+                  "type": ["boolean", "null"]
+                },
+                "pagination_next_offset": {
+                  "type": ["integer", "null"],
+                  "minimum": 0
+                },
+                "pagination_previous_offset": {
+                  "type": ["integer", "null"],
+                  "minimum": 0
+                },
+                "mainline_contract_embedded": {
+                  "type": ["boolean", "null"]
+                },
+                "handoff_cleanup_server": {
+                  "type": ["string", "null"]
+                },
+                "handoff_cleanup_client": {
+                  "type": ["string", "null"]
+                },
+                "service_audit_consistency_server": {
+                  "type": ["string", "null"],
+                  "enum": ["ok", "fail", "not_applicable", null]
+                },
+                "service_audit_consistency_client": {
+                  "type": ["string", "null"],
+                  "enum": ["ok", "fail", "not_applicable", null]
+                },
+                "service_audit_consistency_error_count": {
+                  "type": ["integer", "null"],
+                  "minimum": 0
+                },
+                "mainline_summary_rollup_job_count": {
+                  "type": ["integer", "null"],
+                  "minimum": 0
+                },
+                "mainline_summary_rollup_server_removed_count": {
+                  "type": ["integer", "null"],
+                  "minimum": 0
+                },
+                "mainline_summary_rollup_client_cleaned_count": {
+                  "type": ["integer", "null"],
+                  "minimum": 0
+                },
+                "mainline_summary_rollup_server_not_applicable_count": {
+                  "type": ["integer", "null"],
+                  "minimum": 0
+                },
+                "mainline_summary_rollup_client_ok_count": {
+                  "type": ["integer", "null"],
+                  "minimum": 0
+                },
+                "permission_summary_caller_count": {
+                  "type": ["integer", "null"],
+                  "minimum": 0
+                },
+                "permission_summary_dataset_count": {
+                  "type": ["integer", "null"],
+                  "minimum": 0
+                },
+                "permission_summary_service_count": {
+                  "type": ["integer", "null"],
+                  "minimum": 0
+                },
+                "permission_summary_platform_role_count": {
+                  "type": ["integer", "null"],
+                  "minimum": 0
+                },
+                "permission_summary_has_query_submitter": {
+                  "type": ["integer", "null"],
+                  "minimum": 0
+                },
+                "permission_summary_has_privacy_operator": {
+                  "type": ["integer", "null"],
+                  "minimum": 0
+                },
+                "permission_summary_can_run_bridge_true": {
+                  "type": ["integer", "null"],
+                  "minimum": 0
+                },
+                "permission_summary_can_release_true": {
+                  "type": ["integer", "null"],
+                  "minimum": 0
+                },
+                "permission_summary_can_use_record_recovery_service_true": {
+                  "type": ["integer", "null"],
+                  "minimum": 0
+                }
+              },
+              "additionalProperties": false
+            }
+          },
+          "server_startup_ms": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "minimum": 0
+          }
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  "additionalProperties": false
+}

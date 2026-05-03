@@ -1,0 +1,42 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "policy_change_proposal/v1",
+  "type": "object",
+  "required": [
+    "schema", "generated_at_utc", "db_path", "policy_path",
+    "proposed_sha256", "is_new_policy", "caller_diff",
+    "permission_diffs", "governance_violations",
+    "error_count", "warning_count", "governance_status",
+    "mode", "applied"
+  ],
+  "properties": {
+    "schema": { "type": "string", "const": "policy_change_proposal/v1" },
+    "generated_at_utc": { "type": "string" },
+    "db_path": { "type": "string" },
+    "policy_path": { "type": "string" },
+    "proposed_sha256": { "type": "string" },
+    "existing_policy_id": { "type": ["string", "null"] },
+    "existing_sha256": { "type": ["string", "null"] },
+    "is_new_policy": { "type": "boolean" },
+    "caller_diff": {
+      "type": "object",
+      "required": ["added", "removed", "retained"],
+      "properties": {
+        "added":    { "type": "array", "items": { "type": "string" } },
+        "removed":  { "type": "array", "items": { "type": "string" } },
+        "retained": { "type": "array", "items": { "type": "string" } }
+      }
+    },
+    "permission_diffs": { "type": "array" },
+    "governance_violations": { "type": "array" },
+    "error_count": { "type": "integer", "minimum": 0 },
+    "warning_count": { "type": "integer", "minimum": 0 },
+    "governance_status": {
+      "type": "string", "enum": ["approved", "warn", "blocked"]
+    },
+    "mode": { "type": "string", "enum": ["dry_run", "apply"] },
+    "applied": { "type": "boolean" },
+    "apply_result": { "type": ["object", "null"] }
+  },
+  "additionalProperties": false
+}

@@ -1,0 +1,49 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "mutation_log_query/v1",
+  "type": "object",
+  "required": [
+    "schema",
+    "generated_at_utc",
+    "db_path",
+    "filters",
+    "pagination",
+    "mutations"
+  ],
+  "properties": {
+    "schema": { "type": "string", "const": "mutation_log_query/v1" },
+    "generated_at_utc": { "type": "string" },
+    "db_path": { "type": "string" },
+    "filters": { "type": "object" },
+    "pagination": {
+      "type": "object",
+      "required": ["limit", "offset", "returned_count", "total_matching_count", "has_more"],
+      "properties": {
+        "limit": { "type": "integer", "minimum": 0 },
+        "offset": { "type": "integer", "minimum": 0 },
+        "returned_count": { "type": "integer", "minimum": 0 },
+        "total_matching_count": { "type": "integer", "minimum": 0 },
+        "has_more": { "type": "boolean" }
+      }
+    },
+    "mutations": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["mutation_id", "operation", "entity_type", "entity_id", "status", "applied_at_utc"],
+        "properties": {
+          "mutation_id": { "type": "string" },
+          "operation": { "type": "string" },
+          "entity_type": { "type": "string" },
+          "entity_id": { "type": "string" },
+          "actor": { "type": ["string", "null"] },
+          "source": { "type": ["string", "null"] },
+          "status": { "type": "string" },
+          "applied_at_utc": { "type": "string" },
+          "notes": { "type": ["string", "null"] }
+        }
+      }
+    }
+  },
+  "additionalProperties": false
+}

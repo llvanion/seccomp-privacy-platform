@@ -1,0 +1,29 @@
+{
+  "schema": "api_identity_token_map/v1",
+  "tokens": [
+    {
+      "token_env": "SECCOMP_METADATA_COMMERCE_OPS_TOKEN",
+      "issuer": "keycloak:commerce",
+      "subject": "user:commerce_ops_owner",
+      "description": "Commerce ops owner local bearer token"
+    },
+    {
+      "token_env": "SECCOMP_METADATA_MARKETING_ANALYST_TOKEN",
+      "issuer": "keycloak:commerce",
+      "subject": "user:marketing_analyst",
+      "description": "Marketing analyst local bearer token"
+    },
+    {
+      "token_env": "SECCOMP_METADATA_AUDITOR_TOKEN",
+      "issuer": "keycloak:commerce",
+      "subject": "user:compliance_auditor",
+      "description": "Compliance auditor local bearer token"
+    },
+    {
+      "token_env": "SECCOMP_METADATA_RECOVERY_OPS_TOKEN",
+      "issuer": "keycloak:commerce",
+      "subject": "service-account:orders-recovery-operator",
+      "description": "Recovery service operator local bearer token"
+    }
+  ]
+}

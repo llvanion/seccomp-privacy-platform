@@ -1,0 +1,43 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "vault_kv_backend/v1",
+  "title": "Local Vault KV compatibility backend fixture",
+  "type": "object",
+  "required": ["schema", "secrets"],
+  "properties": {
+    "schema": {
+      "const": "vault_kv_backend/v1"
+    },
+    "secrets": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "required": ["current_version", "versions"],
+        "properties": {
+          "current_version": {
+            "type": "string",
+            "minLength": 1
+          },
+          "versions": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "object",
+              "required": ["fields"],
+              "properties": {
+                "fields": {
+                  "type": "object",
+                  "additionalProperties": {
+                    "type": "string"
+                  }
+                }
+              },
+              "additionalProperties": false
+            }
+          }
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  "additionalProperties": false
+}

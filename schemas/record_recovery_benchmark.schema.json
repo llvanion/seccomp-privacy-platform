@@ -1,0 +1,220 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "record_recovery_benchmark/v1",
+  "title": "Benchmark report for standalone record recovery service operations",
+  "type": "object",
+  "required": [
+    "schema",
+    "generated_at_utc",
+    "repo_root",
+    "fixture_profile",
+    "service_id",
+    "transports",
+    "iterations",
+    "candidate_count",
+    "modes"
+  ],
+  "properties": {
+    "schema": {
+      "const": "record_recovery_benchmark/v1"
+    },
+    "generated_at_utc": {
+      "type": "string",
+      "minLength": 1
+    },
+    "repo_root": {
+      "type": "string",
+      "minLength": 1
+    },
+    "fixture_profile": {
+      "type": "string",
+      "minLength": 1
+    },
+    "service_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "transports": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "enum": [
+          "unix_socket",
+          "http"
+        ]
+      },
+      "minItems": 1,
+      "uniqueItems": true
+    },
+    "iterations": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "candidate_count": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "modes": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "mode",
+          "transport",
+          "operation",
+          "command",
+          "summary",
+          "results",
+          "service_startup_ms"
+        ],
+        "properties": {
+          "mode": {
+            "type": "string",
+            "enum": [
+              "unix_socket_health_cli",
+              "unix_socket_health_direct",
+              "unix_socket_recover_direct",
+              "http_health_cli",
+              "http_health_direct",
+              "http_recover_direct"
+            ]
+          },
+          "transport": {
+            "type": "string",
+            "enum": [
+              "unix_socket",
+              "http"
+            ]
+          },
+          "operation": {
+            "type": "string",
+            "enum": [
+              "health",
+              "recover"
+            ]
+          },
+          "command": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "summary": {
+            "type": "object",
+            "required": [
+              "iterations",
+              "successful_iterations",
+              "failed_iterations",
+              "duration_ms"
+            ],
+            "properties": {
+              "iterations": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "successful_iterations": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "failed_iterations": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "duration_ms": {
+                "type": "object",
+                "required": [
+                  "min",
+                  "mean",
+                  "p50",
+                  "p95",
+                  "max"
+                ],
+                "properties": {
+                  "min": {
+                    "type": [
+                      "number",
+                      "null"
+                    ]
+                  },
+                  "mean": {
+                    "type": [
+                      "number",
+                      "null"
+                    ]
+                  },
+                  "p50": {
+                    "type": [
+                      "number",
+                      "null"
+                    ]
+                  },
+                  "p95": {
+                    "type": [
+                      "number",
+                      "null"
+                    ]
+                  },
+                  "max": {
+                    "type": [
+                      "number",
+                      "null"
+                    ]
+                  }
+                },
+                "additionalProperties": false
+              }
+            },
+            "additionalProperties": false
+          },
+          "results": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": [
+                "duration_ms",
+                "exit_code",
+                "timed_out",
+                "stderr_tail"
+              ],
+              "properties": {
+                "duration_ms": {
+                  "type": "number",
+                  "minimum": 0
+                },
+                "exit_code": {
+                  "type": "integer"
+                },
+                "timed_out": {
+                  "type": "boolean"
+                },
+                "stderr_tail": {
+                  "type": "string"
+                },
+                "output_rows": {
+                  "type": [
+                    "integer",
+                    "null"
+                  ]
+                },
+                "transport": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                }
+              },
+              "additionalProperties": false
+            }
+          },
+          "service_startup_ms": {
+            "type": "number",
+            "minimum": 0
+          }
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  "additionalProperties": false
+}

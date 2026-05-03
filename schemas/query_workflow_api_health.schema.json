@@ -1,0 +1,32 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "query_workflow_api_health/v1",
+  "title": "Health envelope for the local query/workflow HTTP adapter",
+  "type": "object",
+  "required": [
+    "schema",
+    "ok",
+    "auth_required",
+    "allow_execute",
+    "request_base_dir_default"
+  ],
+  "properties": {
+    "schema": {
+      "const": "query_workflow_api_health/v1"
+    },
+    "ok": {
+      "type": "boolean"
+    },
+    "auth_required": {
+      "type": "boolean"
+    },
+    "allow_execute": {
+      "type": "boolean"
+    },
+    "request_base_dir_default": {
+      "type": "string",
+      "minLength": 1
+    }
+  },
+  "additionalProperties": false
+}

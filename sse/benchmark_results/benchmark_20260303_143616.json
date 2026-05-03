@@ -1,0 +1,80 @@
+{
+  "metadata": {
+    "timestamp": "20260303_143616",
+    "repeat": 3,
+    "keyword_count": 200,
+    "avg_entries_per_keyword": 27.755,
+    "total_entries": 5551
+  },
+  "plaintext_baseline": {
+    "keyword_count": 200,
+    "avg_entries_per_keyword": 27.755,
+    "build_ms": 0.005149995558895171,
+    "lookup_ms": 2.7033335451657575e-05,
+    "total_entries": 5551
+  },
+  "sse_schemes": [
+    {
+      "scheme_name": "CJJ14.PiBas",
+      "keyword_count": 200,
+      "avg_entries_per_keyword": 27.755,
+      "keygen_ms": 0.013343669706955552,
+      "edbsetup_ms": 241.52162833585558,
+      "tokengen_ms": 0.037590613355860114,
+      "search_ms": 1.1108241433491155,
+      "total_entries": 5551
+    },
+    {
+      "scheme_name": "CJJ14.Pi2Lev",
+      "keyword_count": 200,
+      "avg_entries_per_keyword": 27.755,
+      "keygen_ms": 0.012333335083288452,
+      "edbsetup_ms": 16.045845002129983,
+      "tokengen_ms": 0.0374825116887223,
+      "search_ms": 0.04647467166554028,
+      "total_entries": 5551
+    },
+    {
+      "scheme_name": "CT14.Pi",
+      "keyword_count": 200,
+      "avg_entries_per_keyword": 27.755,
+      "keygen_ms": 0.013343669706955552,
+      "edbsetup_ms": 253.8849983344941,
+      "tokengen_ms": 0.03151219335753316,
+      "search_ms": 0.8008534266749242,
+      "total_entries": 5551
+    },
+    {
+      "scheme_name": "DP17.Pi",
+      "keyword_count": 200,
+      "avg_entries_per_keyword": 27.755,
+      "keygen_ms": 0.012553330937710902,
+      "edbsetup_ms": 573.6119046681173,
+      "tokengen_ms": 0.056060105004386664,
+      "search_ms": 9.391186550007356,
+      "total_entries": 5551
+    }
+  ],
+  "overhead_analysis": [
+    {
+      "scheme": "CJJ14.PiBas",
+      "edbsetup_overhead": 46897.44,
+      "search_overhead": 41090.9
+    },
+    {
+      "scheme": "CJJ14.Pi2Lev",
+      "edbsetup_overhead": 3115.7,
+      "search_overhead": 1719.16
+    },
+    {
+      "scheme": "CT14.Pi",
+      "edbsetup_overhead": 49298.1,
+      "search_overhead": 29624.66
+    },
+    {
+      "scheme": "DP17.Pi",
+      "edbsetup_overhead": 111381.05,
+      "search_overhead": 347392.82
+    }
+  ]
+}

@@ -1,0 +1,104 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "audit_archive_anchor/v1",
+  "title": "Append-only audit archive anchor log entry",
+  "type": "object",
+  "required": [
+    "schema",
+    "ts_utc",
+    "event",
+    "job_id",
+    "correlation_id",
+    "archive_dir",
+    "anchor_file",
+    "index_file",
+    "archived_audit_chain_file",
+    "archived_audit_seal_file",
+    "index_record_sha256",
+    "previous_anchor_entry_sha256",
+    "chain_position",
+    "payload_sha256",
+    "entry_sha256",
+    "signature_algorithm",
+    "signature",
+    "secret_source"
+  ],
+  "properties": {
+    "schema": {
+      "const": "audit_archive_anchor/v1"
+    },
+    "ts_utc": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "event": {
+      "const": "anchor_audit_bundle"
+    },
+    "job_id": {
+      "type": "string"
+    },
+    "correlation_id": {
+      "type": "string"
+    },
+    "archive_dir": {
+      "type": "string"
+    },
+    "anchor_file": {
+      "type": "string"
+    },
+    "index_file": {
+      "type": "string"
+    },
+    "archived_audit_chain_file": {
+      "type": "string"
+    },
+    "archived_audit_seal_file": {
+      "type": "string"
+    },
+    "index_record_sha256": {
+      "type": "string",
+      "minLength": 64
+    },
+    "previous_anchor_entry_sha256": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "chain_position": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "payload_sha256": {
+      "type": "string",
+      "minLength": 64
+    },
+    "entry_sha256": {
+      "type": "string",
+      "minLength": 64
+    },
+    "signature_algorithm": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "enum": [
+        "hmac-sha256",
+        null
+      ]
+    },
+    "signature": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "secret_source": {
+      "type": [
+        "object",
+        "null"
+      ]
+    }
+  },
+  "additionalProperties": false
+}

@@ -1,0 +1,126 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "record_recovery_service_log/v1",
+  "title": "Record recovery service structured runtime log",
+  "type": "object",
+  "required": [
+    "schema",
+    "ts_utc",
+    "event",
+    "pid",
+    "transport"
+  ],
+  "properties": {
+    "schema": {
+      "const": "record_recovery_service_log/v1"
+    },
+    "ts_utc": {
+      "type": "string"
+    },
+    "event": {
+      "enum": [
+        "record_recovery_service_start",
+        "record_recovery_service_request",
+        "record_recovery_service_stop"
+      ]
+    },
+    "pid": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "service_id": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "tenant_id": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "dataset_id": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "transport": {
+      "enum": [
+        "unix_socket",
+        "http"
+      ]
+    },
+    "server_address": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "request_id": {
+      "type": "string"
+    },
+    "method": {
+      "enum": [
+        "GET",
+        "POST"
+      ]
+    },
+    "path": {
+      "type": "string"
+    },
+    "op": {
+      "type": "string"
+    },
+    "status_code": {
+      "type": "integer",
+      "minimum": 100,
+      "maximum": 599
+    },
+    "decision": {
+      "enum": [
+        "allow",
+        "deny"
+      ]
+    },
+    "reason_code": {
+      "type": "string"
+    },
+    "duration_ms": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "caller": {
+      "type": "string"
+    },
+    "job_id": {
+      "type": "string"
+    },
+    "role": {
+      "type": "string"
+    },
+    "candidate_count": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "bind_host": {
+      "type": "string"
+    },
+    "port": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 65535
+    },
+    "endpoint_url": {
+      "type": "string"
+    },
+    "socket_path": {
+      "type": "string"
+    },
+    "socket_mode": {
+      "type": "string"
+    }
+  },
+  "additionalProperties": false
+}

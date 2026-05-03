@@ -1,0 +1,28 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "metadata_api_health/v1",
+  "title": "Health envelope for the metadata API",
+  "type": "object",
+  "required": [
+    "schema",
+    "ok",
+    "db_path",
+    "auth_required"
+  ],
+  "properties": {
+    "schema": {
+      "const": "metadata_api_health/v1"
+    },
+    "ok": {
+      "type": "boolean"
+    },
+    "db_path": {
+      "type": "string",
+      "minLength": 1
+    },
+    "auth_required": {
+      "type": "boolean"
+    }
+  },
+  "additionalProperties": false
+}

@@ -1,0 +1,193 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "metadata_registry_manifest/v1",
+  "title": "Metadata sidecar managed registry manifest",
+  "type": "object",
+  "required": ["schema"],
+  "properties": {
+    "schema": {
+      "const": "metadata_registry_manifest/v1"
+    },
+    "tenants": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["tenant_id"],
+        "properties": {
+          "tenant_id": { "type": "string", "minLength": 1 },
+          "source": { "type": "string", "minLength": 1 }
+        },
+        "additionalProperties": false
+      }
+    },
+    "datasets": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["dataset_id", "tenant_id"],
+        "properties": {
+          "dataset_id": { "type": "string", "minLength": 1 },
+          "tenant_id": { "type": "string", "minLength": 1 },
+          "source": { "type": "string", "minLength": 1 }
+        },
+        "additionalProperties": false
+      }
+    },
+    "services": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["service_id", "tenant_id", "dataset_id"],
+        "properties": {
+          "service_id": { "type": "string", "minLength": 1 },
+          "tenant_id": { "type": "string", "minLength": 1 },
+          "dataset_id": { "type": "string", "minLength": 1 },
+          "service_type": { "type": "string", "minLength": 1 },
+          "transport": { "type": "string", "minLength": 1 },
+          "config_path": { "type": "string", "minLength": 1 }
+        },
+        "additionalProperties": false
+      }
+    },
+    "callers": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["caller", "tenant_id"],
+        "properties": {
+          "caller": { "type": "string", "minLength": 1 },
+          "tenant_id": { "type": "string", "minLength": 1 },
+          "source": { "type": "string", "minLength": 1 }
+        },
+        "additionalProperties": false
+      }
+    },
+    "caller_identities": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["caller", "subject", "subject_type"],
+        "properties": {
+          "caller": { "type": "string", "minLength": 1 },
+          "issuer": { "type": "string" },
+          "subject": { "type": "string", "minLength": 1 },
+          "subject_type": {
+            "enum": ["human_user", "service_account", "local_operator"]
+          },
+          "service_id": { "type": "string", "minLength": 1 },
+          "display_name": { "type": "string", "minLength": 1 },
+          "platform_roles": {
+            "type": "array",
+            "items": {
+              "enum": [
+                "platform_admin",
+                "platform_auditor",
+                "privacy_operator",
+                "query_submitter",
+                "service_operator"
+              ]
+            }
+          },
+          "enabled": { "type": "boolean" },
+          "metadata": {
+            "type": "object"
+          },
+          "source": { "type": "string", "minLength": 1 }
+        },
+        "additionalProperties": false
+      }
+    },
+    "policies": {
+      "type": "array",
+      "items": {
+        "oneOf": [
+          {
+            "type": "string",
+            "minLength": 1
+          },
+          {
+            "type": "object",
+            "required": ["path"],
+            "properties": {
+              "path": { "type": "string", "minLength": 1 },
+              "required_schema": { "type": "string", "minLength": 1 }
+            },
+            "additionalProperties": false
+          }
+        ]
+      }
+    },
+    "key_refs": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["key_name", "purpose", "backend_kind", "active_version", "versions"],
+        "properties": {
+          "key_name": { "type": "string", "minLength": 1 },
+          "purpose": { "type": "string", "minLength": 1 },
+          "service_id": { "type": "string", "minLength": 1 },
+          "backend_kind": { "type": "string", "minLength": 1 },
+          "backend_ref": { "type": "string", "minLength": 1 },
+          "active_version": { "type": "string", "minLength": 1 },
+          "allowed_callers": {
+            "type": "array",
+            "items": { "type": "string", "minLength": 1 }
+          },
+          "source": { "type": "string", "minLength": 1 },
+          "versions": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "type": "object",
+              "required": ["version", "enabled", "status"],
+              "properties": {
+                "version": { "type": "string", "minLength": 1 },
+                "enabled": { "type": "boolean" },
+                "status": {
+                  "enum": ["active", "inactive", "retired"]
+                },
+                "secret_ref_kind": { "type": "string", "minLength": 1 },
+                "secret_ref_name": { "type": "string", "minLength": 1 },
+                "backend_key_version": { "type": "string", "minLength": 1 },
+                "created_at_utc": { "type": "string", "minLength": 1 },
+                "source": { "type": "string", "minLength": 1 },
+                "metadata": {
+                  "type": "object"
+                }
+              },
+              "additionalProperties": false
+            }
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    "issuer_registry": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["issuer", "issuer_type"],
+        "properties": {
+          "issuer": { "type": "string", "minLength": 1 },
+          "issuer_type": {
+            "type": "string",
+            "enum": ["keycloak", "vault", "service_account", "local", "external"]
+          },
+          "display_name": { "type": "string" },
+          "service_id": { "type": "string" },
+          "jwks_uri": { "type": "string" },
+          "token_endpoint": { "type": "string" },
+          "claim_mapping": { "type": "object" },
+          "trusted_audiences": {
+            "type": "array",
+            "items": { "type": "string" }
+          },
+          "enabled": { "type": "boolean" },
+          "source": { "type": "string" }
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  "additionalProperties": false
+}

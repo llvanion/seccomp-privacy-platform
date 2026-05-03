@@ -1,0 +1,25 @@
+{
+  "schema": "vault_kv_backend/v1",
+  "secrets": {
+    "secret/data/bridge-token": {
+      "current_version": "1",
+      "versions": {
+        "1": {
+          "fields": {
+            "value": "vault-example-bridge-token"
+          }
+        }
+      }
+    },
+    "secret/data/audit-integrity": {
+      "current_version": "1",
+      "versions": {
+        "1": {
+          "fields": {
+            "seal_secret": "vault-example-audit-secret"
+          }
+        }
+      }
+    }
+  }
+}

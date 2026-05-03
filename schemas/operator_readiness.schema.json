@@ -1,0 +1,67 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "operator_readiness/v1",
+  "title": "Operator deployment readiness report",
+  "type": "object",
+  "required": [
+    "schema",
+    "generated_at_utc",
+    "summary",
+    "checks",
+    "env_var_catalog"
+  ],
+  "properties": {
+    "schema": {
+      "const": "operator_readiness/v1"
+    },
+    "generated_at_utc": {
+      "type": "string",
+      "minLength": 1
+    },
+    "summary": {
+      "type": "object",
+      "required": ["total", "passed", "failed", "status"],
+      "properties": {
+        "total": {"type": "integer", "minimum": 0},
+        "passed": {"type": "integer", "minimum": 0},
+        "failed": {"type": "integer", "minimum": 0},
+        "status": {"type": "string", "enum": ["ok", "fail"]}
+      },
+      "additionalProperties": false
+    },
+    "checks": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["name", "status"],
+        "properties": {
+          "name": {"type": "string", "minLength": 1},
+          "status": {"type": "string", "enum": ["pass", "fail"]},
+          "files_checked": {"type": ["integer", "null"], "minimum": 0},
+          "files_found": {"type": ["integer", "null"], "minimum": 0},
+          "files_failed": {"type": ["array", "null"]},
+          "files_missing": {"type": ["array", "null"]},
+          "duration_ms": {"type": ["number", "null"], "minimum": 0},
+          "exit_code": {"type": ["integer", "null"]},
+          "stderr_tail": {"type": ["string", "null"]}
+        }
+      }
+    },
+    "env_var_catalog": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["name", "role", "description", "required_for", "set"],
+        "properties": {
+          "name": {"type": "string", "minLength": 1},
+          "role": {"type": "string", "minLength": 1},
+          "description": {"type": "string"},
+          "required_for": {"type": "string"},
+          "set": {"type": "boolean"}
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  "additionalProperties": false
+}

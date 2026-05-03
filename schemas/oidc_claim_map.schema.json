@@ -1,0 +1,48 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "oidc_claim_map/v1",
+  "type": "object",
+  "required": [
+    "schema",
+    "generated_at_utc",
+    "algorithm",
+    "issuer",
+    "subject",
+    "signature_verified",
+    "signature_skipped",
+    "issuer_registered",
+    "issuer_enabled",
+    "audience_ok",
+    "expiry",
+    "raw_claims",
+    "mapped_fields",
+    "errors",
+    "valid"
+  ],
+  "properties": {
+    "schema": { "type": "string", "const": "oidc_claim_map/v1" },
+    "generated_at_utc": { "type": "string" },
+    "algorithm": { "type": "string" },
+    "issuer": { "type": "string" },
+    "subject": { "type": "string" },
+    "signature_verified": { "type": "boolean" },
+    "signature_skipped": { "type": "boolean" },
+    "issuer_registered": { "type": "boolean" },
+    "issuer_enabled": { "type": "boolean" },
+    "audience_ok": { "type": "boolean" },
+    "expiry": {
+      "type": "object",
+      "required": ["expired", "not_yet_valid"],
+      "properties": {
+        "expired": { "type": "boolean" },
+        "not_yet_valid": { "type": "boolean" }
+      }
+    },
+    "raw_claims": { "type": "object" },
+    "mapped_fields": { "type": "object" },
+    "issuer_record": { "type": ["object", "null"] },
+    "errors": { "type": "array", "items": { "type": "string" } },
+    "valid": { "type": "boolean" }
+  },
+  "additionalProperties": false
+}

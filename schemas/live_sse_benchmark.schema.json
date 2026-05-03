@@ -1,0 +1,244 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "live_sse_benchmark/v1",
+  "title": "Benchmark report for the live SSE-backed demo wrapper",
+  "type": "object",
+  "required": [
+    "schema",
+    "generated_at_utc",
+    "repo_root",
+    "expected_result",
+    "iterations",
+    "modes"
+  ],
+  "properties": {
+    "schema": {
+      "const": "live_sse_benchmark/v1"
+    },
+    "generated_at_utc": {
+      "type": "string",
+      "minLength": 1
+    },
+    "repo_root": {
+      "type": "string",
+      "minLength": 1
+    },
+    "expected_result": {
+      "type": "object",
+      "required": [
+        "intersection_size",
+        "intersection_sum"
+      ],
+      "properties": {
+        "intersection_size": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "intersection_sum": {
+          "type": "integer",
+          "minimum": 0
+        }
+      },
+      "additionalProperties": false
+    },
+    "iterations": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "modes": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "mode",
+          "command",
+          "summary",
+          "results"
+        ],
+        "properties": {
+          "mode": {
+            "type": "string",
+            "enum": [
+              "file_handoff",
+              "file_handoff_retained",
+              "fifo_handoff"
+            ]
+          },
+          "command": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "summary": {
+            "type": "object",
+            "required": [
+              "iterations",
+              "successful_iterations",
+              "failed_iterations",
+              "duration_ms"
+            ],
+            "properties": {
+              "iterations": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "successful_iterations": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "failed_iterations": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "duration_ms": {
+                "type": "object",
+                "required": [
+                  "min",
+                  "mean",
+                  "p50",
+                  "p95",
+                  "max"
+                ],
+                "properties": {
+                  "min": {
+                    "type": [
+                      "number",
+                      "null"
+                    ]
+                  },
+                  "mean": {
+                    "type": [
+                      "number",
+                      "null"
+                    ]
+                  },
+                  "p50": {
+                    "type": [
+                      "number",
+                      "null"
+                    ]
+                  },
+                  "p95": {
+                    "type": [
+                      "number",
+                      "null"
+                    ]
+                  },
+                  "max": {
+                    "type": [
+                      "number",
+                      "null"
+                    ]
+                  }
+                },
+                "additionalProperties": false
+              }
+            },
+            "additionalProperties": false
+          },
+          "results": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": [
+                "duration_ms",
+                "exit_code",
+                "timed_out",
+                "stderr_tail",
+                "stdout_tail",
+                "intersection_size",
+                "intersection_sum",
+                "released",
+                "reason_code",
+                "manifest_path"
+              ],
+              "properties": {
+                "duration_ms": {
+                  "type": "number",
+                  "minimum": 0
+                },
+                "exit_code": {
+                  "type": "integer"
+                },
+                "timed_out": {
+                  "type": "boolean"
+                },
+                "stderr_tail": {
+                  "type": "string"
+                },
+                "stdout_tail": {
+                  "type": "string"
+                },
+                "intersection_size": {
+                  "type": [
+                    "integer",
+                    "null"
+                  ]
+                },
+                "intersection_sum": {
+                  "type": [
+                    "integer",
+                    "null"
+                  ]
+                },
+                "released": {
+                  "type": [
+                    "boolean",
+                    "null"
+                  ]
+                },
+                "reason_code": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "manifest_path": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "mainline_contract_check_embedded": {
+                  "type": [
+                    "boolean",
+                    "null"
+                  ]
+                },
+                "handoff_cleanup_server_status": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "handoff_cleanup_client_status": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "handoff_cleanup_server_exists_after_run": {
+                  "type": [
+                    "boolean",
+                    "null"
+                  ]
+                },
+                "handoff_cleanup_client_exists_after_run": {
+                  "type": [
+                    "boolean",
+                    "null"
+                  ]
+                }
+              },
+              "additionalProperties": false
+            }
+          }
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  "additionalProperties": false
+}

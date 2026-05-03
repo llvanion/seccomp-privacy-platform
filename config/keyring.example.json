@@ -1,0 +1,37 @@
+{
+  "schema": "keyring/v1",
+  "keys": {
+    "bridge-token": {
+      "purpose": "bridge_token",
+      "active_version": "demo-v1",
+      "allowed_callers": ["auto_demo"],
+      "versions": {
+        "demo-v1": {
+          "enabled": true,
+          "status": "active",
+          "created_at_utc": "2026-04-12T00:00:00Z",
+          "secret_ref": {
+            "kind": "env",
+            "name": "BRIDGE_TOKEN_SECRET"
+          }
+        }
+      }
+    },
+    "audit-integrity": {
+      "purpose": "audit_integrity",
+      "active_version": "demo-v1",
+      "allowed_callers": ["auto_demo"],
+      "versions": {
+        "demo-v1": {
+          "enabled": true,
+          "status": "active",
+          "created_at_utc": "2026-04-12T00:00:00Z",
+          "secret_ref": {
+            "kind": "env",
+            "name": "AUDIT_SEAL_SECRET"
+          }
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,161 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "record_recovery_service_config/v1",
+  "title": "Record recovery service runtime config",
+  "type": "object",
+  "required": [
+    "schema"
+  ],
+  "anyOf": [
+    {
+      "required": [
+        "socket_path"
+      ]
+    },
+    {
+      "required": [
+        "endpoint_url"
+      ]
+    },
+    {
+      "required": [
+        "http_listener"
+      ]
+    }
+  ],
+  "properties": {
+    "schema": {
+      "const": "record_recovery_service_config/v1"
+    },
+    "transport": {
+      "enum": ["unix_socket", "http"]
+    },
+    "service_id": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "tenant_id": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "dataset_id": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "socket_path": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "socket_mode": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "endpoint_url": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "auth_token_env": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "metadata_db_path": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "identity_token_config": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "authz_config": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "allowed_callers": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "allowed_output_roots": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "allowed_record_store_roots": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "audit_log": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "http_listener": {
+      "type": "object",
+      "required": [
+        "bind_host",
+        "port"
+      ],
+      "properties": {
+        "bind_host": {
+          "type": "string",
+          "minLength": 1
+        },
+        "port": {
+          "type": "integer",
+          "minimum": 1
+        }
+      },
+      "additionalProperties": false
+    },
+    "lifecycle": {
+      "type": "object",
+      "properties": {
+        "pid_file": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "ready_file": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "log_file": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false
+}

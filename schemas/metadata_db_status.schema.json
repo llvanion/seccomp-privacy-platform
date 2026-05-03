@@ -1,0 +1,129 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "metadata_db_status/v1",
+  "title": "Metadata sidecar DB status report",
+  "type": "object",
+  "required": [
+    "schema",
+    "generated_at_utc",
+    "db_path",
+    "status",
+    "sqlite_version",
+    "size_bytes",
+    "sha256",
+    "applied_migrations",
+    "expected_migrations",
+    "pending_migrations",
+    "summary",
+    "warnings"
+  ],
+  "properties": {
+    "schema": {
+      "const": "metadata_db_status/v1"
+    },
+    "generated_at_utc": {
+      "type": "string",
+      "minLength": 1
+    },
+    "db_path": {
+      "type": "string",
+      "minLength": 1
+    },
+    "status": {
+      "type": "string",
+      "enum": ["ok", "warn", "error"]
+    },
+    "sqlite_version": {
+      "type": "string",
+      "minLength": 1
+    },
+    "size_bytes": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "sha256": {
+      "type": ["string", "null"]
+    },
+    "applied_migrations": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "expected_migrations": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "pending_migrations": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "summary": {
+      "type": "object",
+      "required": [
+        "tenant_count",
+        "dataset_count",
+        "service_count",
+        "caller_count",
+        "job_count",
+        "artifact_count",
+        "stage_status_count",
+        "audit_event_count",
+        "audit_chain_count",
+        "audit_seal_count",
+        "policy_count",
+        "policy_binding_count",
+        "caller_permission_count",
+        "key_access_event_count",
+        "latest_job_id",
+        "latest_imported_at_utc",
+        "latest_job_created_at_utc",
+        "latest_policy_imported_at_utc",
+        "table_counts"
+      ],
+      "properties": {
+        "tenant_count": { "type": "integer", "minimum": 0 },
+        "dataset_count": { "type": "integer", "minimum": 0 },
+        "service_count": { "type": "integer", "minimum": 0 },
+        "caller_count": { "type": "integer", "minimum": 0 },
+        "job_count": { "type": "integer", "minimum": 0 },
+        "artifact_count": { "type": "integer", "minimum": 0 },
+        "stage_status_count": { "type": "integer", "minimum": 0 },
+        "audit_event_count": { "type": "integer", "minimum": 0 },
+        "audit_chain_count": { "type": "integer", "minimum": 0 },
+        "audit_seal_count": { "type": "integer", "minimum": 0 },
+        "policy_count": { "type": "integer", "minimum": 0 },
+        "policy_binding_count": { "type": "integer", "minimum": 0 },
+        "caller_permission_count": { "type": "integer", "minimum": 0 },
+        "key_access_event_count": { "type": "integer", "minimum": 0 },
+        "latest_job_id": { "type": ["string", "null"] },
+        "latest_imported_at_utc": { "type": ["string", "null"] },
+        "latest_job_created_at_utc": { "type": ["string", "null"] },
+        "latest_policy_imported_at_utc": { "type": ["string", "null"] },
+        "table_counts": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "integer",
+            "minimum": 0
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "warnings": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    }
+  },
+  "additionalProperties": false
+}

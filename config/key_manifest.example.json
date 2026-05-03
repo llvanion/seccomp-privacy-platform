@@ -1,0 +1,19 @@
+{
+  "schema": "key_manifest/v1",
+  "keys": {
+    "bridge-token-demo-v1": {
+      "enabled": true,
+      "status": "active",
+      "version": "demo-v1",
+      "purposes": ["bridge_token"],
+      "env": "BRIDGE_TOKEN_SECRET"
+    },
+    "audit-integrity-demo-v1": {
+      "enabled": true,
+      "status": "active",
+      "version": "demo-v1",
+      "purposes": ["audit_integrity"],
+      "env": "AUDIT_SEAL_SECRET"
+    }
+  }
+}

@@ -1,0 +1,93 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "record_recovery_boundary_check/v1",
+  "title": "Record recovery implementation boundary check",
+  "type": "object",
+  "required": [
+    "schema",
+    "generated_at_utc",
+    "repo_root",
+    "status",
+    "summary",
+    "implementation_owner",
+    "legacy_shim_package",
+    "findings"
+  ],
+  "properties": {
+    "schema": {
+      "const": "record_recovery_boundary_check/v1"
+    },
+    "generated_at_utc": {
+      "type": "string"
+    },
+    "repo_root": {
+      "type": "string"
+    },
+    "status": {
+      "enum": [
+        "ok",
+        "fail"
+      ]
+    },
+    "summary": {
+      "type": "object",
+      "required": [
+        "checked_shims",
+        "error"
+      ],
+      "properties": {
+        "checked_shims": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "error": {
+          "type": "integer",
+          "minimum": 0
+        }
+      },
+      "additionalProperties": false
+    },
+    "implementation_owner": {
+      "const": "services.record_recovery"
+    },
+    "legacy_shim_package": {
+      "const": "sse.toolkit"
+    },
+    "findings": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "severity",
+          "kind",
+          "path",
+          "line",
+          "message"
+        ],
+        "properties": {
+          "severity": {
+            "const": "error"
+          },
+          "kind": {
+            "type": "string"
+          },
+          "path": {
+            "type": "string"
+          },
+          "line": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "minimum": 1
+          },
+          "message": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  "additionalProperties": false
+}

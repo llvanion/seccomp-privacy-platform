@@ -1,0 +1,80 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "record_recovery_service_policy/v1",
+  "title": "Record recovery service authz policy",
+  "type": "object",
+  "required": ["schema", "callers"],
+  "properties": {
+    "schema": {
+      "const": "record_recovery_service_policy/v1"
+    },
+    "callers": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "properties": {
+          "enabled": {
+            "type": "boolean"
+          },
+          "allowed_roles": {
+            "type": "array",
+            "items": {
+              "enum": ["server", "client"]
+            }
+          },
+          "allowed_join_key_fields": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "allowed_value_fields": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "required_filters": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "allowed_filter_fields": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "allowed_filter_values": {
+            "type": "object"
+          },
+          "max_candidate_count": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "min_output_rows": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "max_output_rows": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "allowed_output_prefixes": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "allowed_record_store_prefixes": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      }
+    }
+  }
+}

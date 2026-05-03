@@ -1,0 +1,34 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "sse_encrypted_record_store/v1",
+  "title": "SSE encrypted record store JSONL header",
+  "type": "object",
+  "required": [
+    "schema",
+    "kdf",
+    "kdf_salt_b64",
+    "kdf_iterations",
+    "aead",
+    "record_id_field"
+  ],
+  "properties": {
+    "schema": {
+      "const": "sse_encrypted_record_store/v1"
+    },
+    "kdf": {
+      "const": "PBKDF2HMAC-SHA256"
+    },
+    "kdf_salt_b64": {
+      "type": "string"
+    },
+    "kdf_iterations": {
+      "type": "integer"
+    },
+    "aead": {
+      "const": "AES-256-GCM"
+    },
+    "record_id_field": {
+      "type": "string"
+    }
+  }
+}

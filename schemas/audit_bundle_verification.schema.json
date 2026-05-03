@@ -1,0 +1,269 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "audit_bundle_verification/v1",
+  "title": "Audit bundle verification report",
+  "type": "object",
+  "required": [
+    "schema",
+    "ts_utc",
+    "verified",
+    "job_id"
+  ],
+  "properties": {
+    "schema": {
+      "const": "audit_bundle_verification/v1"
+    },
+    "ts_utc": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "verified": {
+      "type": "boolean"
+    },
+    "job_id": {
+      "type": "string"
+    },
+    "correlation_id": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "source": {
+      "type": "object",
+      "required": [
+        "archive_index",
+        "audit_chain_file",
+        "audit_seal_file"
+      ],
+      "properties": {
+        "archive_index": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "audit_chain_file": {
+          "type": "string"
+        },
+        "audit_seal_file": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false
+    },
+    "audit_chain_sha256": {
+      "type": "string",
+      "minLength": 64
+    },
+    "audit_seal_sha256": {
+      "type": "string",
+      "minLength": 64
+    },
+    "artifact_sha256_verified": {
+      "type": "boolean"
+    },
+    "signature_algorithm": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "enum": [
+        "hmac-sha256",
+        null
+      ]
+    },
+    "signature_verified": {
+      "type": [
+        "boolean",
+        "null"
+      ]
+    },
+    "archive_index_verified": {
+      "type": "boolean"
+    },
+    "anchor_log_verified": {
+      "type": "boolean"
+    },
+    "anchor_file": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "anchor_entry_sha256": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "anchor_signature_verified": {
+      "type": [
+        "boolean",
+        "null"
+      ]
+    },
+    "mainline_contract_summary": {
+      "type": "object",
+      "required": [
+        "schema",
+        "status",
+        "embedded_in_audit_chain",
+        "handoff_cleanup"
+      ],
+      "properties": {
+        "schema": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "status": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "embedded_in_audit_chain": {
+          "type": "boolean"
+        },
+        "handoff_mode": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "enum": [
+            "file",
+            "fifo",
+            null
+          ]
+        },
+        "handoff_exposure": {
+          "type": "object",
+          "required": [
+            "plaintext_exposure_risk",
+            "server",
+            "client"
+          ],
+          "properties": {
+            "plaintext_exposure_risk": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "enum": [
+                "none",
+                "low",
+                "elevated",
+                "unknown",
+                null
+              ]
+            },
+            "server": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "client": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          "additionalProperties": false
+        },
+        "handoff_cleanup": {
+          "type": "object",
+          "required": [
+            "server",
+            "client"
+          ],
+          "properties": {
+            "server": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "client": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          "additionalProperties": false
+        },
+        "service_audit_consistency": {
+          "type": "object",
+          "required": [
+            "server",
+            "client",
+            "error_count"
+          ],
+          "properties": {
+            "server": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "enum": [
+                "ok",
+                "fail",
+                "not_applicable",
+                null
+              ]
+            },
+            "client": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "enum": [
+                "ok",
+                "fail",
+                "not_applicable",
+                null
+              ]
+            },
+            "error_count": {
+              "type": "integer",
+              "minimum": 0
+            }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    },
+    "restored": {
+      "type": [
+        "object",
+        "null"
+      ],
+      "required": [
+        "restore_dir",
+        "restored_audit_chain_file",
+        "restored_audit_seal_file"
+      ],
+      "properties": {
+        "restore_dir": {
+          "type": "string"
+        },
+        "restored_audit_chain_file": {
+          "type": "string"
+        },
+        "restored_audit_seal_file": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false
+    },
+    "error": {
+      "type": "string"
+    }
+  },
+  "additionalProperties": false
+}

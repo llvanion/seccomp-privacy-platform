@@ -1,0 +1,211 @@
+{
+  "schema": "metadata_registry_manifest/v1",
+  "tenants": [
+    {
+      "tenant_id": "commerce_tenant",
+      "source": "metadata_registry_example"
+    }
+  ],
+  "datasets": [
+    {
+      "dataset_id": "orders_analytics",
+      "tenant_id": "commerce_tenant",
+      "source": "metadata_registry_example"
+    },
+    {
+      "dataset_id": "fraud_events",
+      "tenant_id": "commerce_tenant",
+      "source": "metadata_registry_example"
+    }
+  ],
+  "services": [
+    {
+      "service_id": "orders-recovery",
+      "tenant_id": "commerce_tenant",
+      "dataset_id": "orders_analytics",
+      "service_type": "record_recovery",
+      "transport": "http",
+      "config_path": "record_recovery_http_service.example.json"
+    },
+    {
+      "service_id": "fraud-recovery",
+      "tenant_id": "commerce_tenant",
+      "dataset_id": "fraud_events",
+      "service_type": "record_recovery",
+      "transport": "http",
+      "config_path": "record_recovery_http_service.example.json"
+    }
+  ],
+  "callers": [
+    {
+      "caller": "commerce_ops_demo",
+      "tenant_id": "commerce_tenant",
+      "source": "metadata_registry_example"
+    },
+    {
+      "caller": "marketing_analyst_demo",
+      "tenant_id": "commerce_tenant",
+      "source": "metadata_registry_example"
+    },
+    {
+      "caller": "fraud_analyst_demo",
+      "tenant_id": "commerce_tenant",
+      "source": "metadata_registry_example"
+    },
+    {
+      "caller": "audit_reviewer_demo",
+      "tenant_id": "commerce_tenant",
+      "source": "metadata_registry_example"
+    },
+    {
+      "caller": "recovery_ops_demo",
+      "tenant_id": "commerce_tenant",
+      "source": "metadata_registry_example"
+    }
+  ],
+  "caller_identities": [
+    {
+      "caller": "commerce_ops_demo",
+      "issuer": "keycloak:commerce",
+      "subject": "user:commerce_ops_owner",
+      "subject_type": "human_user",
+      "display_name": "Commerce Ops Owner",
+      "platform_roles": ["query_submitter", "privacy_operator"],
+      "enabled": true,
+      "metadata": {
+        "entity_type": "human_user"
+      },
+      "source": "metadata_registry_example"
+    },
+    {
+      "caller": "marketing_analyst_demo",
+      "issuer": "keycloak:commerce",
+      "subject": "user:marketing_analyst",
+      "subject_type": "human_user",
+      "display_name": "Marketing Analyst",
+      "platform_roles": ["query_submitter"],
+      "enabled": true,
+      "metadata": {
+        "entity_type": "human_user"
+      },
+      "source": "metadata_registry_example"
+    },
+    {
+      "caller": "fraud_analyst_demo",
+      "issuer": "keycloak:commerce",
+      "subject": "user:fraud_analyst",
+      "subject_type": "human_user",
+      "display_name": "Fraud Analyst",
+      "platform_roles": ["query_submitter"],
+      "enabled": true,
+      "metadata": {
+        "entity_type": "human_user"
+      },
+      "source": "metadata_registry_example"
+    },
+    {
+      "caller": "audit_reviewer_demo",
+      "issuer": "keycloak:commerce",
+      "subject": "user:compliance_auditor",
+      "subject_type": "human_user",
+      "display_name": "Compliance Auditor",
+      "platform_roles": ["platform_auditor"],
+      "enabled": true,
+      "metadata": {
+        "entity_type": "human_user"
+      },
+      "source": "metadata_registry_example"
+    },
+    {
+      "caller": "recovery_ops_demo",
+      "issuer": "keycloak:commerce",
+      "subject": "service-account:orders-recovery-operator",
+      "subject_type": "service_account",
+      "service_id": "orders-recovery",
+      "display_name": "Orders Recovery Operator",
+      "platform_roles": ["service_operator"],
+      "enabled": true,
+      "metadata": {
+        "entity_type": "service_account"
+      },
+      "source": "metadata_registry_example"
+    }
+  ],
+  "key_refs": [
+    {
+      "key_name": "bridge-token",
+      "purpose": "bridge_token",
+      "service_id": "orders-recovery",
+      "backend_kind": "local_keyring",
+      "backend_ref": "../config/keyring.example.json#keys.bridge-token",
+      "active_version": "demo-v1",
+      "allowed_callers": ["commerce_ops_demo", "recovery_ops_demo"],
+      "source": "metadata_registry_example",
+      "versions": [
+        {
+          "version": "demo-v1",
+          "enabled": true,
+          "status": "active",
+          "secret_ref_kind": "env",
+          "secret_ref_name": "BRIDGE_TOKEN_SECRET",
+          "created_at_utc": "2026-04-12T00:00:00Z",
+          "source": "keyring_example"
+        }
+      ]
+    },
+    {
+      "key_name": "audit-integrity",
+      "purpose": "audit_integrity",
+      "service_id": "orders-recovery",
+      "backend_kind": "local_keyring",
+      "backend_ref": "../config/keyring.example.json#keys.audit-integrity",
+      "active_version": "demo-v1",
+      "allowed_callers": ["audit_reviewer_demo", "recovery_ops_demo"],
+      "source": "metadata_registry_example",
+      "versions": [
+        {
+          "version": "demo-v1",
+          "enabled": true,
+          "status": "active",
+          "secret_ref_kind": "env",
+          "secret_ref_name": "AUDIT_SEAL_SECRET",
+          "created_at_utc": "2026-04-12T00:00:00Z",
+          "source": "keyring_example"
+        }
+      ]
+    }
+  ],
+  "issuer_registry": [
+    {
+      "issuer": "https://keycloak.example.com/realms/commerce",
+      "issuer_type": "keycloak",
+      "display_name": "Commerce Keycloak Realm",
+      "jwks_uri": "https://keycloak.example.com/realms/commerce/protocol/openid-connect/certs",
+      "token_endpoint": "https://keycloak.example.com/realms/commerce/protocol/openid-connect/token",
+      "claim_mapping": {
+        "caller": "preferred_username",
+        "subject": "sub",
+        "subject_type": "_const:service_account",
+        "tenant_id": "tenant_id",
+        "service_id": "azp",
+        "platform_roles": "realm_access.roles"
+      },
+      "trusted_audiences": ["seccomp-privacy-platform"],
+      "enabled": true,
+      "source": "registry_manifest"
+    },
+    {
+      "issuer": "local",
+      "issuer_type": "local",
+      "display_name": "Local static token map (dev/test only)",
+      "enabled": true,
+      "source": "registry_manifest"
+    }
+  ],
+  "policies": [
+    {
+      "path": "../sse/config/ecommerce_access_policy.example.json",
+      "required_schema": "sse_export_policy/v1"
+    }
+  ]
+}

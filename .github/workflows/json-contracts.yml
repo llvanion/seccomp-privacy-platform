@@ -1,0 +1,19 @@
+name: CI smoke
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  ci-smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Install SSE Python dependencies
+        run: python3 -m pip install -r sse/requirements.txt
+      - name: Run CI smoke checks
+        run: bash scripts/check_ci_smoke.sh

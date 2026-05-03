@@ -1,0 +1,36 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "audit_query_api_health/v1",
+  "title": "Health envelope for the audit/public-report query adapter",
+  "type": "object",
+  "required": [
+    "schema",
+    "ok",
+    "out_base",
+    "auth_required",
+    "available_results"
+  ],
+  "properties": {
+    "schema": {
+      "const": "audit_query_api_health/v1"
+    },
+    "ok": {
+      "type": "boolean"
+    },
+    "out_base": {
+      "type": "string",
+      "minLength": 1
+    },
+    "auth_required": {
+      "type": "boolean"
+    },
+    "available_results": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    }
+  },
+  "additionalProperties": false
+}

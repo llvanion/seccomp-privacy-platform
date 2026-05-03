@@ -1,0 +1,58 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "external_kms_config/v1",
+  "title": "External KMS client config",
+  "type": "object",
+  "required": [
+    "schema",
+    "endpoint_url"
+  ],
+  "properties": {
+    "schema": {
+      "const": "external_kms_config/v1"
+    },
+    "endpoint_url": {
+      "type": "string",
+      "minLength": 1
+    },
+    "auth_token_env": {
+      "type": ["string", "null"]
+    },
+    "admin_auth_token_env": {
+      "type": ["string", "null"]
+    },
+    "request_timeout_sec": {
+      "type": "number",
+      "exclusiveMinimum": 0
+    },
+    "auto_start": {
+      "type": "object",
+      "required": [
+        "bind_host",
+        "port",
+        "state_file"
+      ],
+      "properties": {
+        "bind_host": {
+          "type": "string",
+          "minLength": 1
+        },
+        "port": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 65535
+        },
+        "state_file": {
+          "type": "string",
+          "minLength": 1
+        },
+        "vault_kv_file": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false
+}
