@@ -37,6 +37,7 @@ def main() -> int:
     ap.add_argument("--socket-path", default="")
     ap.add_argument("--endpoint-url", default="")
     ap.add_argument("--auth-token-env", default="")
+    ap.add_argument("--identity-token-env", default="")
     args = ap.parse_args()
 
     config = load_resolved_record_recovery_service_config(optional_repo_path(args.config)) if args.config else {}
@@ -50,6 +51,7 @@ def main() -> int:
         socket_path=Path(socket_path) if socket_path else None,
         endpoint_url=endpoint_url,
         auth_env=auth_token_env,
+        identity_auth_env=args.identity_token_env,
     )
     print(json.dumps(result, ensure_ascii=False))
     return 0

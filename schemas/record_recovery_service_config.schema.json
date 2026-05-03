@@ -72,6 +72,18 @@
         "null"
       ]
     },
+    "metadata_db_path": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "identity_token_config": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
     "authz_config": {
       "type": [
         "string",

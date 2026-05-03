@@ -1,0 +1,136 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "metadata_registry_apply_report/v1",
+  "title": "Metadata sidecar managed registry apply report",
+  "type": "object",
+  "required": [
+    "schema",
+    "generated_at_utc",
+    "db_path",
+    "manifest_path",
+    "manifest_sha256",
+    "mode",
+    "applied_migrations",
+    "summary",
+    "validation",
+    "entities",
+    "policies"
+  ],
+  "properties": {
+    "schema": {
+      "const": "metadata_registry_apply_report/v1"
+    },
+    "generated_at_utc": {
+      "type": "string",
+      "minLength": 1
+    },
+    "db_path": {
+      "type": "string",
+      "minLength": 1
+    },
+    "manifest_path": {
+      "type": "string",
+      "minLength": 1
+    },
+    "manifest_sha256": {
+      "type": ["string", "null"]
+    },
+    "mode": {
+      "enum": ["dry_run", "apply"]
+    },
+    "applied_migrations": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "summary": {
+      "type": "object",
+      "required": ["requested_counts", "entity_action_counts", "policy_action_counts", "checked_reference_count"],
+      "properties": {
+        "requested_counts": { "type": "object" },
+        "entity_action_counts": { "type": "object" },
+        "policy_action_counts": { "type": "object" },
+        "checked_reference_count": { "type": "integer", "minimum": 0 }
+      },
+      "additionalProperties": false
+    },
+    "validation": {
+      "type": "object",
+      "required": ["status", "checked_reference_count"],
+      "properties": {
+        "status": { "const": "ok" },
+        "checked_reference_count": { "type": "integer", "minimum": 0 }
+      },
+      "additionalProperties": false
+    },
+    "entities": {
+      "type": "object",
+      "required": ["tenants", "datasets", "services", "callers"],
+      "properties": {
+        "tenants": { "$ref": "#/$defs/entityResults" },
+        "datasets": { "$ref": "#/$defs/entityResults" },
+        "services": { "$ref": "#/$defs/entityResults" },
+        "callers": { "$ref": "#/$defs/entityResults" },
+        "caller_identities": { "$ref": "#/$defs/entityResults" },
+        "key_refs": { "$ref": "#/$defs/entityResults" },
+        "key_versions": { "$ref": "#/$defs/entityResults" }
+      },
+      "additionalProperties": false
+    },
+    "policies": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "policy_id",
+          "policy_path",
+          "schema_name",
+          "action",
+          "existing_policy",
+          "incoming",
+          "state_after"
+        ],
+        "properties": {
+          "policy_id": { "type": "string", "minLength": 1 },
+          "policy_path": { "type": "string", "minLength": 1 },
+          "schema_name": { "type": "string", "minLength": 1 },
+          "action": { "enum": ["insert", "replace", "repair", "noop"] },
+          "existing_policy": { "type": ["object", "null"] },
+          "incoming": { "type": "object" },
+          "state_after": { "type": ["object", "null"] }
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  "$defs": {
+    "entityResults": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "entity",
+          "key_name",
+          "key_value",
+          "action",
+          "existing",
+          "desired",
+          "state_after"
+        ],
+        "properties": {
+          "entity": { "type": "string", "minLength": 1 },
+          "key_name": { "type": "string", "minLength": 1 },
+          "key_value": { "type": "string", "minLength": 1 },
+          "action": { "enum": ["insert", "update", "noop"] },
+          "existing": { "type": ["object", "null"] },
+          "desired": { "type": "object" },
+          "state_after": { "type": ["object", "null"] }
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  "additionalProperties": false
+}

@@ -17,6 +17,8 @@ class RecordRecoveryServiceState:
     tenant_id: str
     dataset_id: str
     auth_token: str
+    metadata_db_path: str
+    identity_token_config: str
     allowed_callers: set[str]
     authz_policy: dict
     authz_policy_path_value: str | None
@@ -63,6 +65,8 @@ def build_service_state(*,
                         tenant_id: str,
                         dataset_id: str,
                         auth_token_env: str,
+                        metadata_db_path: str,
+                        identity_token_config: str,
                         allowed_callers: list[str],
                         authz_config: str,
                         allowed_output_roots: list[str],
@@ -77,6 +81,8 @@ def build_service_state(*,
         tenant_id=str(tenant_id or ""),
         dataset_id=str(dataset_id or ""),
         auth_token=read_optional_env(auth_token_env),
+        metadata_db_path=str(metadata_db_path or ""),
+        identity_token_config=str(identity_token_config or ""),
         allowed_callers={str(item) for item in allowed_callers},
         authz_policy=load_authz_policy(authz_config),
         authz_policy_path_value=authz_policy_path(authz_config),

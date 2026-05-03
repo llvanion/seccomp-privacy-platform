@@ -69,20 +69,36 @@ def infer_subject_type(values: dict[str, Any]) -> tuple[str, str]:
     return "user", "default_user"
 
 
-def normalize_subject(caller: str, values: dict[str, Any], *, source_policy_id: str | None = None) -> dict[str, Any]:
+def normalize_subject(
+    caller: str,
+    values: dict[str, Any],
+    *,
+    source_policy_id: str | None = None,
+    identity_override: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     platform_roles = [role for role in normalize_string_list(values.get("platform_roles")) if role in PLATFORM_ROLE_NAMES]
     subject_type, subject_type_source = infer_subject_type(values)
+    if identity_override:
+        identity_roles = [role for role in normalize_string_list(identity_override.get("platform_roles")) if role in PLATFORM_ROLE_NAMES]
+        platform_roles = sorted({*platform_roles, *identity_roles})
+        identity_subject_type = str(identity_override.get("subject_type") or "")
+        if identity_subject_type in {"user", "service_account"}:
+            subject_type = identity_subject_type
+            subject_type_source = "caller_identity"
     permissions = {name: normalize_bool(values.get(name)) for name in CAPABILITY_NAMES}
     tenant_id = values.get("tenant_id")
     tenant_value = str(tenant_id) if tenant_id not in (None, "") else None
     allowed_dataset_ids = normalize_string_list(values.get("allowed_dataset_ids"))
     allowed_service_ids = normalize_string_list(values.get("allowed_service_ids"))
+    enabled = normalize_bool(values.get("enabled"))
+    if identity_override and identity_override.get("enabled") is False:
+        enabled = False
     return {
         "subject": f"{subject_type}:{caller}",
         "caller": caller,
         "subject_type": subject_type,
         "subject_type_source": subject_type_source,
-        "enabled": normalize_bool(values.get("enabled")),
+        "enabled": enabled,
         "tenant_id": tenant_value,
         "platform_roles": platform_roles,
         "access_profile": str(values.get("access_profile")) if values.get("access_profile") not in (None, "") else None,
@@ -243,6 +259,7 @@ def load_subjects_from_db(path: Path) -> tuple[list[dict[str, Any]], dict[str, A
 
     values_by_caller: dict[str, dict[str, Any]] = {}
     source_policy_id_by_caller: dict[str, str] = {}
+    identity_override_by_caller: dict[str, dict[str, Any]] = {}
     seen: set[tuple[str, str]] = set()
     policy_ids: set[str] = set()
     policy_paths: set[str] = set()
@@ -261,8 +278,42 @@ def load_subjects_from_db(path: Path) -> tuple[list[dict[str, Any]], dict[str, A
         if row["policy_path"] not in (None, ""):
             policy_paths.add(str(row["policy_path"]))
 
+    conn = connect_db(str(path))
+    try:
+        table_exists = conn.execute(
+            "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'caller_identities'"
+        ).fetchone()
+        if table_exists:
+            identity_rows = conn.execute(
+                """
+                SELECT caller, subject_type, platform_roles_json, enabled
+                FROM caller_identities
+                ORDER BY id DESC
+                """
+            ).fetchall()
+            for row in identity_rows:
+                caller = str(row["caller"] or "")
+                if not caller or caller in identity_override_by_caller:
+                    continue
+                enabled = None
+                if row["enabled"] in (0, 1):
+                    enabled = bool(row["enabled"])
+                platform_roles_value = parse_permission_value(row["platform_roles_json"])
+                identity_override_by_caller[caller] = {
+                    "subject_type": str(row["subject_type"] or ""),
+                    "platform_roles": platform_roles_value if isinstance(platform_roles_value, list) else [],
+                    "enabled": enabled,
+                }
+    finally:
+        conn.close()
+
     subjects = [
-        normalize_subject(caller, values, source_policy_id=source_policy_id_by_caller.get(caller))
+        normalize_subject(
+            caller,
+            values,
+            source_policy_id=source_policy_id_by_caller.get(caller),
+            identity_override=identity_override_by_caller.get(caller),
+        )
         for caller, values in sorted(values_by_caller.items())
     ]
     source = {

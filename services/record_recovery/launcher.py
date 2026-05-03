@@ -58,6 +58,8 @@ def _resolved_runtime(args: argparse.Namespace) -> dict:
     bind_host = merged_record_recovery_service_value(args.bind_host, config.get("bind_host", ""))
     port = merged_record_recovery_service_value(args.port, config.get("port", None))
     auth_token_env = merged_record_recovery_service_value(args.auth_token_env, config.get("auth_token_env", ""))
+    metadata_db_path = merged_record_recovery_service_value(args.metadata_db_path, config.get("metadata_db_path", ""))
+    identity_token_config = merged_record_recovery_service_value(args.identity_token_config, config.get("identity_token_config", ""))
     authz_config = merged_record_recovery_service_value(args.authz_config, config.get("authz_config", ""))
     allowed_callers = merged_record_recovery_service_value(args.allowed_caller, config.get("allowed_callers", [])) or []
     allowed_output_roots = merged_record_recovery_service_value(args.allowed_output_root, config.get("allowed_output_roots", [])) or []
@@ -82,6 +84,8 @@ def _resolved_runtime(args: argparse.Namespace) -> dict:
         "bind_host": bind_host,
         "port": port,
         "auth_token_env": auth_token_env,
+        "metadata_db_path": metadata_db_path,
+        "identity_token_config": identity_token_config,
         "authz_config": authz_config,
         "allowed_callers": list(allowed_callers),
         "allowed_output_roots": list(allowed_output_roots),
@@ -115,6 +119,10 @@ def _serve(args: argparse.Namespace) -> int:
             argv.extend(["--endpoint-url", runtime["endpoint_url"]])
         if runtime["auth_token_env"]:
             argv.extend(["--auth-token-env", runtime["auth_token_env"]])
+        if runtime["metadata_db_path"]:
+            argv.extend(["--metadata-db-path", runtime["metadata_db_path"]])
+        if runtime["identity_token_config"]:
+            argv.extend(["--identity-token-config", runtime["identity_token_config"]])
         if runtime["authz_config"]:
             argv.extend(["--authz-config", runtime["authz_config"]])
         for caller in runtime["allowed_callers"]:
@@ -150,6 +158,10 @@ def _serve(args: argparse.Namespace) -> int:
     ]
     if runtime["auth_token_env"]:
         argv.extend(["--auth-token-env", runtime["auth_token_env"]])
+    if runtime["metadata_db_path"]:
+        argv.extend(["--metadata-db-path", runtime["metadata_db_path"]])
+    if runtime["identity_token_config"]:
+        argv.extend(["--identity-token-config", runtime["identity_token_config"]])
     if runtime["authz_config"]:
         argv.extend(["--authz-config", runtime["authz_config"]])
     for caller in runtime["allowed_callers"]:
@@ -185,6 +197,8 @@ def build_parser() -> argparse.ArgumentParser:
     serve.add_argument("--bind-host", default="")
     serve.add_argument("--port", type=int, default=None)
     serve.add_argument("--auth-token-env", default="")
+    serve.add_argument("--metadata-db-path", default="")
+    serve.add_argument("--identity-token-config", default="")
     serve.add_argument("--authz-config", default="")
     serve.add_argument("--allowed-caller", action="append", default=[])
     serve.add_argument("--allowed-output-root", action="append", default=[])

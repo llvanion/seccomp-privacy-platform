@@ -59,6 +59,24 @@ def validate_observability(tmp_dir: Path) -> None:
         role = item.get("role")
         require(expected_cleanup.get(role) == item.get("reason_code"), f"observability handoff_cleanup reason_code mismatch: {item}")
         require(item.get("status") == "ok", f"observability handoff_cleanup returned non-ok status: {item}")
+    exposure_events = [item for item in events if item.get("stage") == "handoff_exposure_assessment"]
+    require(
+        len(exposure_events) == 3,
+        f"observability output expected three handoff_exposure_assessment events: {data}",
+    )
+    overall_exposure = [item for item in exposure_events if item.get("role") is None]
+    require(
+        len(overall_exposure) == 1 and overall_exposure[0].get("reason_code") in {"none", "low", "elevated", "unknown"},
+        f"observability handoff_exposure_assessment overall event mismatch: {exposure_events}",
+    )
+    role_exposure_codes = {item.get("role"): item.get("reason_code") for item in exposure_events if item.get("role")}
+    require(
+        set(role_exposure_codes.keys()) == {"server", "client"}
+        and all(code in {"none", "low", "elevated", "unknown"} for code in role_exposure_codes.values()),
+        f"observability handoff_exposure_assessment per-role events mismatch: {exposure_events}",
+    )
+    for item in exposure_events:
+        require(item.get("status") == "ok", f"observability handoff_exposure_assessment returned non-ok status: {item}")
     service_consistency_events = [item for item in events if item.get("stage") == "service_audit_consistency"]
     require(
         len(service_consistency_events) == 2,
@@ -77,7 +95,11 @@ def validate_observability(tmp_dir: Path) -> None:
         missing = required - set(item)
         require(not missing, f"observability event missing fields {missing}: {item}")
     require(
-        not any(item.get("stage") not in {"handoff_cleanup", "service_audit_consistency"} and item.get("duration_ms") is None for item in events),
+        not any(
+            item.get("stage") not in {"handoff_cleanup", "handoff_exposure_assessment", "service_audit_consistency"}
+            and item.get("duration_ms") is None
+            for item in events
+        ),
         f"observability output did not propagate duration_ms: {data}",
     )
 
@@ -99,6 +121,20 @@ def validate_catalog_lineage(tmp_dir: Path) -> None:
         and service_consistency.get("client") == "ok"
         and service_consistency.get("error_count") == 0,
         f"catalog lineage returned invalid service audit consistency summary: {data}",
+    )
+    require(
+        mainline.get("handoff_mode") in {"file", "fifo"},
+        f"catalog lineage missing handoff_mode in mainline contract summary: {data}",
+    )
+    handoff_exposure = mainline.get("handoff_exposure") or {}
+    require(
+        handoff_exposure.get("plaintext_exposure_risk") in {"none", "low", "elevated", "unknown"},
+        f"catalog lineage missing handoff_exposure.plaintext_exposure_risk: {data}",
+    )
+    require(
+        handoff_exposure.get("server") in {"none", "low", "elevated", "unknown"}
+        and handoff_exposure.get("client") in {"none", "low", "elevated", "unknown"},
+        f"catalog lineage missing handoff_exposure per-role risk: {data}",
     )
     privacy = data.get("privacy") or {}
     require(privacy.get("stores_sensitive_plaintext") is False, f"catalog lineage must not claim to store sensitive plaintext: {data}")

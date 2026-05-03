@@ -72,6 +72,8 @@ def resolve_runtime(args: argparse.Namespace) -> dict:
     bind_host = merged_record_recovery_service_value(getattr(args, "bind_host", ""), config.get("bind_host", ""))
     port = merged_record_recovery_service_value(getattr(args, "port", None), config.get("port", None))
     auth_token_env = merged_record_recovery_service_value(getattr(args, "auth_token_env", ""), config.get("auth_token_env", ""))
+    metadata_db_path = merged_record_recovery_service_value(getattr(args, "metadata_db_path", ""), config.get("metadata_db_path", ""))
+    identity_token_config = merged_record_recovery_service_value(getattr(args, "identity_token_config", ""), config.get("identity_token_config", ""))
     authz_config = merged_record_recovery_service_value(getattr(args, "authz_config", ""), config.get("authz_config", ""))
     allowed_callers = merged_record_recovery_service_value(getattr(args, "allowed_caller", []), config.get("allowed_callers", [])) or []
     allowed_output_roots = merged_record_recovery_service_value(getattr(args, "allowed_output_root", []), config.get("allowed_output_roots", [])) or []
@@ -99,6 +101,8 @@ def resolve_runtime(args: argparse.Namespace) -> dict:
         "bind_host": bind_host,
         "port": port,
         "auth_token_env": auth_token_env,
+        "metadata_db_path": metadata_db_path,
+        "identity_token_config": identity_token_config,
         "authz_config": authz_config,
         "allowed_callers": list(allowed_callers),
         "allowed_output_roots": list(allowed_output_roots),
@@ -148,7 +152,7 @@ def wait_for_socket(socket_path: str, *, timeout_sec: float = 10.0) -> None:
     raise RuntimeError(f"record recovery service socket did not become ready: {socket_path}")
 
 
-def wait_for_http_url(endpoint_url: str, *, auth_token_env: str, timeout_sec: float = 10.0) -> None:
+def wait_for_http_url(endpoint_url: str, *, auth_token_env: str, identity_token_env: str, timeout_sec: float = 10.0) -> None:
     deadline = time.time() + timeout_sec
     while time.time() < deadline:
         try:
@@ -156,6 +160,7 @@ def wait_for_http_url(endpoint_url: str, *, auth_token_env: str, timeout_sec: fl
                 socket_path=None,
                 endpoint_url=endpoint_url,
                 auth_env=auth_token_env,
+                identity_auth_env=identity_token_env,
             )
             return
         except Exception:
@@ -184,6 +189,8 @@ def build_service_command(runtime: dict) -> list[str]:
     bind_host = runtime["bind_host"]
     port = runtime["port"]
     auth_token_env = runtime["auth_token_env"]
+    metadata_db_path = runtime["metadata_db_path"]
+    identity_token_config = runtime["identity_token_config"]
     authz_config = runtime["authz_config"]
     allowed_callers = runtime["allowed_callers"]
     allowed_output_roots = runtime["allowed_output_roots"]
@@ -236,6 +243,10 @@ def build_service_command(runtime: dict) -> list[str]:
         ]
     if auth_token_env:
         cmd.extend(["--auth-token-env", auth_token_env])
+    if metadata_db_path:
+        cmd.extend(["--metadata-db-path", normalize_path(metadata_db_path)])
+    if identity_token_config:
+        cmd.extend(["--identity-token-config", normalize_path(identity_token_config)])
     if authz_config:
         cmd.extend(["--authz-config", authz_config])
     for caller in allowed_callers:
@@ -400,7 +411,7 @@ def write_text_output(path_value: str, text: str) -> str:
     return str(output_path)
 
 
-def status_payload(*, socket_path: str, endpoint_url: str, auth_token_env: str, pid_file: str, ready_file: str) -> dict:
+def status_payload(*, socket_path: str, endpoint_url: str, auth_token_env: str, identity_token_env: str, pid_file: str, ready_file: str) -> dict:
     payload = {
         "socket_path": normalize_path(socket_path) if socket_path else None,
         "endpoint_url": endpoint_url or None,
@@ -423,6 +434,7 @@ def status_payload(*, socket_path: str, endpoint_url: str, auth_token_env: str, 
             socket_path=Path(normalize_path(socket_path)) if socket_path else None,
             endpoint_url=endpoint_url,
             auth_env=auth_token_env,
+            identity_auth_env=identity_token_env,
         )
         payload["health"] = health
         payload["reachable"] = True
@@ -473,6 +485,7 @@ def cmd_start(args: argparse.Namespace) -> int:
             wait_for_http_url(
                 endpoint_url,
                 auth_token_env=runtime["auth_token_env"],
+                identity_token_env=args.identity_token_env,
                 timeout_sec=args.timeout_sec,
             )
         else:
@@ -481,6 +494,7 @@ def cmd_start(args: argparse.Namespace) -> int:
             socket_path=socket_path,
             endpoint_url=endpoint_url,
             auth_token_env=runtime["auth_token_env"],
+            identity_token_env=args.identity_token_env,
             pid_file=pid_file,
             ready_file=ready_file,
         )
@@ -502,6 +516,7 @@ def cmd_status(args: argparse.Namespace) -> int:
         socket_path=socket_path,
         endpoint_url=endpoint_url,
         auth_token_env=runtime["auth_token_env"],
+        identity_token_env=args.identity_token_env,
         pid_file=runtime["pid_file"],
         ready_file=runtime["ready_file"],
     )
@@ -609,6 +624,9 @@ def main() -> int:
     start.add_argument("--bind-host", default="")
     start.add_argument("--port", type=int, default=None)
     start.add_argument("--auth-token-env", default="")
+    start.add_argument("--identity-token-env", default="")
+    start.add_argument("--metadata-db-path", default="")
+    start.add_argument("--identity-token-config", default="")
     start.add_argument("--authz-config", default="")
     start.add_argument("--allowed-caller", action="append", default=[])
     start.add_argument("--allowed-output-root", action="append", default=[])
@@ -627,6 +645,7 @@ def main() -> int:
     status.add_argument("--socket-path", default="")
     status.add_argument("--endpoint-url", default="")
     status.add_argument("--auth-token-env", default="")
+    status.add_argument("--identity-token-env", default="")
     status.add_argument("--pid-file", default="")
     status.add_argument("--ready-file", default="")
 
@@ -652,6 +671,8 @@ def main() -> int:
     render.add_argument("--bind-host", default="")
     render.add_argument("--port", type=int, default=None)
     render.add_argument("--auth-token-env", default="")
+    render.add_argument("--metadata-db-path", default="")
+    render.add_argument("--identity-token-config", default="")
     render.add_argument("--authz-config", default="")
     render.add_argument("--allowed-caller", action="append", default=[])
     render.add_argument("--allowed-output-root", action="append", default=[])

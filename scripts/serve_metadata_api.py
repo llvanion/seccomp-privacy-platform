@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import parse_qs, urlparse, unquote
 
+from api_identity import build_identity_resolution_payload, enforce_identity_scope, metadata_scope_filters, resolve_request_identity
 from metadata_db import connect_db
 from query_metadata import LIST_ENTITY_CHOICES, query_entities, query_job_detail, query_jobs
 
@@ -63,11 +64,13 @@ class MetadataApiServer(ThreadingHTTPServer):
         *,
         db_path: str,
         auth_token: str,
+        identity_token_config: str,
         pid_file: str,
         ready_file: str,
     ) -> None:
         self.db_path = str(Path(db_path).resolve())
         self.auth_token = auth_token
+        self.identity_token_config = str(Path(identity_token_config).resolve()) if identity_token_config else ""
         self.pid_file = pid_file
         self.ready_file = ready_file
         self.state_lock = threading.Lock()
@@ -99,16 +102,14 @@ class MetadataApiHandler(BaseHTTPRequestHandler):
             },
         )
 
-    def _require_auth(self) -> None:
-        expected = self.server.auth_token
-        if not expected:
-            return
-        header = self.headers.get("Authorization", "")
-        if not header.startswith("Bearer "):
-            raise PermissionError("missing bearer token")
-        provided = header[len("Bearer "):]
-        if provided != expected:
-            raise PermissionError("metadata API auth failed")
+    def _require_auth(self) -> dict[str, Any] | None:
+        return resolve_request_identity(
+            auth_header=self.headers.get("Authorization", ""),
+            expected_bearer_token=self.server.auth_token,
+            db_path=self.server.db_path,
+            identity_token_config=self.server.identity_token_config,
+            auth_failure_label="metadata API",
+        )
 
     def do_GET(self) -> None:
         parsed = urlparse(self.path)
@@ -122,14 +123,20 @@ class MetadataApiHandler(BaseHTTPRequestHandler):
                         "schema": HEALTH_SCHEMA,
                         "ok": True,
                         "db_path": self.server.db_path,
-                        "auth_required": bool(self.server.auth_token),
+                        "auth_required": bool(self.server.auth_token or self.server.identity_token_config),
                     },
                 )
                 return
 
-            self._require_auth()
+            identity = self._require_auth()
+            if path == "/v1/identity":
+                if identity is None:
+                    raise PermissionError("metadata identity endpoint requires identity-backed bearer token auth")
+                payload = build_identity_resolution_payload(identity, resolution_mode="bearer_token")
+                self._send_json(HTTPStatus.OK, self._success_payload(parsed=parsed, payload=payload))
+                return
             if path == "/v1/jobs":
-                payload = self._query_jobs(params)
+                payload = self._query_jobs(params, identity=identity)
                 self._send_json(HTTPStatus.OK, self._success_payload(parsed=parsed, payload=payload))
                 return
             if path.startswith("/v1/jobs/"):
@@ -138,11 +145,20 @@ class MetadataApiHandler(BaseHTTPRequestHandler):
                     raise ValueError("job_id is required")
                 with connect_db(self.server.db_path) as conn:
                     payload = query_job_detail(conn, job_id)
+                if identity is not None and not payload.get("job"):
+                    raise PermissionError("job not found")
+                if identity is not None and not payload.get("error") and payload.get("job"):
+                    enforce_identity_scope(
+                        identity,
+                        caller=str(payload["job"].get("caller") or ""),
+                        tenant_id=str(payload["job"].get("tenant_id") or ""),
+                        access_label="job detail",
+                    )
                 self._send_json(HTTPStatus.OK, self._success_payload(parsed=parsed, payload=payload))
                 return
             if path.startswith("/v1/entities/"):
                 entity = unquote(path.removeprefix("/v1/entities/"))
-                payload = self._query_entities(entity, params)
+                payload = self._query_entities(entity, params, identity=identity)
                 self._send_json(HTTPStatus.OK, self._success_payload(parsed=parsed, payload=payload))
                 return
             self._error(HTTPStatus.NOT_FOUND, "not found")
@@ -176,18 +192,38 @@ class MetadataApiHandler(BaseHTTPRequestHandler):
             raise ValueError("limit must be <= 1000")
         return limit
 
-    def _query_jobs(self, params: dict[str, list[str]]) -> dict[str, Any]:
+    def _parse_offset(self, params: dict[str, list[str]]) -> int:
+        raw = single_param(params, "offset", "0")
+        try:
+            offset = int(raw)
+        except ValueError as exc:
+            raise ValueError("offset must be an integer") from exc
+        if offset < 0:
+            raise ValueError("offset must be >= 0")
+        return offset
+
+    def _query_jobs(self, params: dict[str, list[str]], *, identity: dict[str, Any] | None) -> dict[str, Any]:
         stage_sort = single_param(params, "stage_sort", "recent")
         if stage_sort not in {"recent", "duration_desc", "duration_asc"}:
             raise ValueError("stage_sort must be one of recent, duration_desc, duration_asc")
         group_by = single_param(params, "group_by", "")
         if group_by not in {"", "stage", "status"}:
             raise ValueError("group_by must be stage or status when provided")
+        scoped = {
+            "caller": single_param(params, "caller"),
+            "tenant_id": single_param(params, "tenant_id"),
+        }
+        if identity is not None:
+            scoped = metadata_scope_filters(
+                identity,
+                caller=scoped["caller"],
+                tenant_id=scoped["tenant_id"],
+            )
         with connect_db(self.server.db_path) as conn:
             return query_jobs(
                 conn,
-                caller=single_param(params, "caller"),
-                tenant_id=single_param(params, "tenant_id"),
+                caller=scoped["caller"],
+                tenant_id=scoped["tenant_id"],
                 dataset_id=single_param(params, "dataset_id"),
                 service_id=single_param(params, "service_id"),
                 stage=single_param(params, "stage"),
@@ -195,25 +231,42 @@ class MetadataApiHandler(BaseHTTPRequestHandler):
                 stage_sort=stage_sort,
                 group_by=group_by,
                 limit=self._parse_limit(params),
+                offset=self._parse_offset(params),
             )
 
-    def _query_entities(self, entity: str, params: dict[str, list[str]]) -> dict[str, Any]:
+    def _query_entities(self, entity: str, params: dict[str, list[str]], *, identity: dict[str, Any] | None) -> dict[str, Any]:
         if entity not in LIST_ENTITY_CHOICES:
             raise ValueError(
                 f"entity must be one of: {', '.join(LIST_ENTITY_CHOICES)}"
+            )
+        scoped = {
+            "caller": single_param(params, "caller"),
+            "tenant_id": single_param(params, "tenant_id"),
+        }
+        if identity is not None:
+            scoped = metadata_scope_filters(
+                identity,
+                entity=entity,
+                caller=scoped["caller"],
+                tenant_id=scoped["tenant_id"],
             )
         with connect_db(self.server.db_path) as conn:
             return query_entities(
                 conn,
                 entity=entity,
-                caller=single_param(params, "caller"),
-                tenant_id=single_param(params, "tenant_id"),
+                caller=scoped["caller"],
+                tenant_id=scoped["tenant_id"],
                 dataset_id=single_param(params, "dataset_id"),
                 service_id=single_param(params, "service_id"),
                 policy_id=single_param(params, "policy_id"),
                 binding_kind=single_param(params, "binding_kind"),
                 permission_key=single_param(params, "permission_key"),
+                subject_type=single_param(params, "subject_type"),
+                issuer=single_param(params, "issuer"),
+                key_name=single_param(params, "key_name"),
+                purpose=single_param(params, "purpose"),
                 limit=self._parse_limit(params),
+                offset=self._parse_offset(params),
             )
 
 
@@ -223,6 +276,7 @@ def build_parser() -> argparse.ArgumentParser:
     ap.add_argument("--bind-host", default="127.0.0.1")
     ap.add_argument("--port", type=int, default=18090)
     ap.add_argument("--auth-token-env", default="", help="Optional bearer-token env var for non-health endpoints")
+    ap.add_argument("--identity-token-config", default="", help="Optional bearer-token to caller-identity mapping config")
     ap.add_argument("--pid-file", default="")
     ap.add_argument("--ready-file", default="")
     return ap
@@ -240,6 +294,7 @@ def main() -> int:
         MetadataApiHandler,
         db_path=str(db_path),
         auth_token=auth_token,
+        identity_token_config=args.identity_token_config,
         pid_file=args.pid_file,
         ready_file=args.ready_file,
     )

@@ -67,9 +67,7 @@ class RecordRecoveryHttpHandler(BaseHTTPRequestHandler):
             )
             return
         payload = {"op": "health"}
-        token = self._auth_token()
-        if token:
-            payload["auth_token"] = token
+        self._apply_bearer_token(payload)
         try:
             result = handle_record_recovery_service_payload(payload, self.server.service_state)
             self._write_json(status_code, result, request_id=request_id)
@@ -143,9 +141,7 @@ class RecordRecoveryHttpHandler(BaseHTTPRequestHandler):
             role = str(payload.get("role", "")) or None
             if isinstance(payload.get("candidate_ids"), list):
                 candidate_count = len(payload.get("candidate_ids", []))
-            token = self._auth_token()
-            if token and not payload.get("auth_token"):
-                payload["auth_token"] = token
+            self._apply_bearer_token(payload)
             # Promote headers into payload when the payload fields are absent
             header_ts = self.headers.get("X-Request-Timestamp", "").strip()
             if header_ts and not payload.get("request_timestamp_utc"):
@@ -217,6 +213,21 @@ class RecordRecoveryHttpHandler(BaseHTTPRequestHandler):
             return auth[len("Bearer "):].strip()
         return self.headers.get("X-Record-Recovery-Token", "").strip()
 
+    def _apply_bearer_token(self, payload: dict) -> None:
+        token = self._auth_token()
+        if not token:
+            return
+        service_state = self.server.service_state
+        if service_state.auth_token and token == service_state.auth_token:
+            if not payload.get("auth_token"):
+                payload["auth_token"] = token
+            return
+        if service_state.identity_token_config and not payload.get("identity_bearer_token"):
+            payload["identity_bearer_token"] = token
+            return
+        if not payload.get("auth_token"):
+            payload["auth_token"] = token
+
     def _write_json(self, status: int, payload: dict, *, request_id: str | None = None) -> None:
         body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
         self.send_response(status)
@@ -275,6 +286,8 @@ def main() -> int:
     ap.add_argument("--port", type=int, required=True)
     ap.add_argument("--endpoint-url", default="")
     ap.add_argument("--auth-token-env", default="")
+    ap.add_argument("--metadata-db-path", default="")
+    ap.add_argument("--identity-token-config", default="")
     ap.add_argument("--allowed-caller", action="append", default=[])
     ap.add_argument("--authz-config", default="")
     ap.add_argument("--allowed-output-root", action="append", default=[])
@@ -285,6 +298,8 @@ def main() -> int:
     ap.add_argument("--max-rows-per-request", type=int, default=0,
                     help="Hard cap on rows returned per recovery request (0 = unlimited)")
     args = ap.parse_args()
+    if args.identity_token_config and not args.metadata_db_path:
+        raise SystemExit("[ERROR] --identity-token-config requires --metadata-db-path")
 
     pid_file = Path(args.pid_file) if args.pid_file else None
     ready_file = Path(args.ready_file) if args.ready_file else None
@@ -294,6 +309,8 @@ def main() -> int:
         tenant_id=str(args.tenant_id or ""),
         dataset_id=str(args.dataset_id or ""),
         auth_token_env=args.auth_token_env,
+        metadata_db_path=args.metadata_db_path,
+        identity_token_config=args.identity_token_config,
         allowed_callers=list(args.allowed_caller),
         authz_config=args.authz_config,
         allowed_output_roots=list(args.allowed_output_root),

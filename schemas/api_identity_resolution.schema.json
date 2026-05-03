@@ -1,0 +1,83 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "api_identity_resolution/v1",
+  "title": "Resolved platform API identity context",
+  "type": "object",
+  "required": ["schema", "resolution_mode", "identity", "access_summary"],
+  "properties": {
+    "schema": {
+      "const": "api_identity_resolution/v1"
+    },
+    "resolution_mode": {
+      "enum": ["bearer_token", "subject_lookup"]
+    },
+    "identity": {
+      "type": "object",
+      "required": ["caller", "subject", "subject_type", "platform_roles", "permission_summary", "created_at_utc"],
+      "properties": {
+        "caller": { "type": "string", "minLength": 1 },
+        "tenant_id": { "type": ["string", "null"] },
+        "issuer": { "type": ["string", "null"] },
+        "subject": { "type": "string", "minLength": 1 },
+        "subject_type": { "type": "string", "minLength": 1 },
+        "service_id": { "type": ["string", "null"] },
+        "display_name": { "type": ["string", "null"] },
+        "platform_roles": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "permission_summary": {
+          "type": "object"
+        },
+        "metadata": {
+          "type": ["object", "null"]
+        },
+        "source": { "type": ["string", "null"] },
+        "created_at_utc": { "type": "string", "minLength": 1 }
+      },
+      "additionalProperties": true
+    },
+    "access_summary": {
+      "type": "object",
+      "required": [
+        "metadata_privileged",
+        "query_submit_allowed",
+        "query_execute_allowed",
+        "platform_health_privileged",
+        "service_operator",
+        "scopes",
+        "permissions"
+      ],
+      "properties": {
+        "metadata_privileged": { "type": "boolean" },
+        "query_submit_allowed": { "type": "boolean" },
+        "query_execute_allowed": { "type": "boolean" },
+        "platform_health_privileged": { "type": "boolean" },
+        "service_operator": { "type": "boolean" },
+        "scopes": {
+          "type": "object",
+          "required": ["caller", "tenant_id", "service_id", "allowed_dataset_ids", "allowed_service_ids"],
+          "properties": {
+            "caller": { "type": ["string", "null"] },
+            "tenant_id": { "type": ["string", "null"] },
+            "service_id": { "type": ["string", "null"] },
+            "allowed_dataset_ids": {
+              "type": "array",
+              "items": { "type": "string" }
+            },
+            "allowed_service_ids": {
+              "type": "array",
+              "items": { "type": "string" }
+            }
+          },
+          "additionalProperties": false
+        },
+        "permissions": {
+          "type": "object"
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false
+}

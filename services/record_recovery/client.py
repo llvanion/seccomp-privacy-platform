@@ -88,12 +88,14 @@ def _open_http_request(request: urllib.request.Request):
     return urllib.request.urlopen(request, timeout=10)
 
 
-def _send_http_request(*, endpoint_url: str, payload: dict, auth_token: str) -> dict:
+def _send_http_request(*, endpoint_url: str, payload: dict, auth_token: str, identity_bearer_token: str) -> dict:
     op = str(payload.get("op", "") or "").strip()
     headers = {"Content-Type": "application/json"}
     if auth_token:
         headers["Authorization"] = f"Bearer {auth_token}"
         headers["X-Record-Recovery-Token"] = auth_token
+    elif identity_bearer_token:
+        headers["Authorization"] = f"Bearer {identity_bearer_token}"
     ts = str(payload.get("request_timestamp_utc", "") or "").strip()
     if ts:
         headers["X-Request-Timestamp"] = ts
@@ -133,9 +135,23 @@ def _auth_token_from_env(auth_env: str) -> str:
     return auth_token
 
 
-def _send_request(*, socket_path: Path | None, endpoint_url: str, payload: dict, auth_token: str) -> dict:
+def _identity_token_from_env(identity_auth_env: str) -> str:
+    if not identity_auth_env:
+        return ""
+    identity_token = os.environ.get(identity_auth_env)
+    if not identity_token:
+        raise RuntimeError(f"environment variable {identity_auth_env} is not set")
+    return identity_token
+
+
+def _send_request(*, socket_path: Path | None, endpoint_url: str, payload: dict, auth_token: str, identity_bearer_token: str) -> dict:
     if endpoint_url:
-        return _send_http_request(endpoint_url=endpoint_url, payload=payload, auth_token=auth_token)
+        return _send_http_request(
+            endpoint_url=endpoint_url,
+            payload=payload,
+            auth_token=auth_token,
+            identity_bearer_token=identity_bearer_token,
+        )
     if socket_path is None:
         raise RuntimeError("record recovery service requires socket_path or endpoint_url")
     return _send_unix_request(socket_path=socket_path, payload=payload)
@@ -162,6 +178,8 @@ def request_record_recovery(
     candidate_ids: set[str],
     min_output_rows: int | None,
     max_output_rows: int | None,
+    identity_auth_env: str = "",
+    identity_bearer_token: str = "",
 ) -> dict:
     payload = {
         "op": "recover",
@@ -189,6 +207,7 @@ def request_record_recovery(
     payload["request_id"] = request_id
     payload["request_timestamp_utc"] = request_ts
     auth_token = _auth_token_from_env(auth_env)
+    identity_bearer_token = identity_bearer_token or _identity_token_from_env(identity_auth_env)
     if auth_token:
         payload["auth_token"] = auth_token
         sig = sign_request(
@@ -199,12 +218,15 @@ def request_record_recovery(
         )
         payload["request_signature"] = sig
         payload["signature_algorithm"] = REQUEST_SIGNATURE_ALGORITHM
+    if identity_bearer_token:
+        payload["identity_bearer_token"] = identity_bearer_token
 
     result = _send_request(
         socket_path=socket_path,
         endpoint_url=endpoint_url,
         payload=payload,
         auth_token=auth_token,
+        identity_bearer_token=identity_bearer_token,
     )
     if result.get("schema") != RESULT_SCHEMA:
         raise RuntimeError(f"unexpected record recovery service schema: {result.get('schema')}")
@@ -219,16 +241,22 @@ def request_record_recovery_health(
     socket_path: Path | None = None,
     endpoint_url: str = "",
     auth_env: str = "",
+    identity_auth_env: str = "",
+    identity_bearer_token: str = "",
 ) -> dict:
     payload = {"op": "health"}
     auth_token = _auth_token_from_env(auth_env)
+    identity_bearer_token = identity_bearer_token or _identity_token_from_env(identity_auth_env)
     if auth_token:
         payload["auth_token"] = auth_token
+    if identity_bearer_token:
+        payload["identity_bearer_token"] = identity_bearer_token
     result = _send_request(
         socket_path=socket_path,
         endpoint_url=endpoint_url,
         payload=payload,
         auth_token=auth_token,
+        identity_bearer_token=identity_bearer_token,
     )
     if result.get("schema") != HEALTH_SCHEMA:
         raise RuntimeError(f"unexpected record recovery health schema: {result.get('schema')}")

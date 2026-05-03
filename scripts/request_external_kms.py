@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 import argparse
 import json
+import os
 
 from external_kms_lib import endpoint_url, load_external_kms_config, resolve_secret_via_external_kms
 from keyring_lib import append_key_access_audit
@@ -13,10 +14,16 @@ def main() -> int:
     ap.add_argument("--purpose", required=True)
     ap.add_argument("--caller", required=True)
     ap.add_argument("--job-id", default="")
+    ap.add_argument("--identity-token-env", default="")
     ap.add_argument("--audit-log", required=True)
     args = ap.parse_args()
 
     config = load_external_kms_config(args.config)
+    identity_bearer_token = ""
+    if args.identity_token_env:
+        identity_bearer_token = os.environ.get(args.identity_token_env, "")
+        if not identity_bearer_token:
+            raise SystemExit(f"[ERROR] environment variable {args.identity_token_env} is not set")
     try:
         result = resolve_secret_via_external_kms(
             config,
@@ -24,6 +31,7 @@ def main() -> int:
             purpose=args.purpose,
             caller=args.caller,
             job_id=args.job_id,
+            identity_bearer_token=identity_bearer_token,
         )
         if result.get("schema") != "external_kms_result/v1":
             raise RuntimeError(f"unexpected external KMS schema: {result.get('schema')}")

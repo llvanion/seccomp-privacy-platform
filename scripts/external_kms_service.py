@@ -8,11 +8,15 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any, Dict
 
+from api_identity import resolve_identity_context
 from external_kms_lib import endpoint_url_from_parts
 from keyring_lib import (
     append_key_lifecycle_audit,
     ensure_key_access_allowed,
+    key_entry,
     load_json_object,
+    normalize_secret_ref,
+    resolve_secret_ref,
     rotate_key,
     save_json_object,
     set_version_status,
@@ -23,6 +27,8 @@ RESULT_SCHEMA = "external_kms_result/v1"
 ADMIN_RESULT_SCHEMA = "external_kms_admin_result/v1"
 HEALTH_SCHEMA = "external_kms_health/v1"
 ERROR_SCHEMA = "external_kms_error/v1"
+ADMIN_PLATFORM_ROLES = {"platform_admin"}
+SERVICE_OPERATOR_PLATFORM_ROLES = {"service_operator"}
 
 
 def build_error(message: str) -> Dict[str, Any]:
@@ -46,6 +52,13 @@ def _write_text_file(path: str, content: str) -> None:
     p.write_text(content, encoding="utf-8")
 
 
+def _identity_has_any_role(identity: Dict[str, Any] | None, *roles: str) -> bool:
+    if not identity:
+        return False
+    current = set(identity.get("platform_roles") or [])
+    return any(role in current for role in roles)
+
+
 class ExternalKmsHttpServer(ThreadingHTTPServer):
     daemon_threads = True
 
@@ -56,12 +69,18 @@ class ExternalKmsHttpServer(ThreadingHTTPServer):
                  state_file: str,
                  auth_token: str,
                  admin_auth_token: str,
+                 metadata_db_path: str,
+                 identity_token_config: str,
+                 vault_kv_file: str,
                  lifecycle_audit_log: str,
                  pid_file: str,
                  ready_file: str):
         self.state_file = state_file
         self.auth_token = auth_token
         self.admin_auth_token = admin_auth_token
+        self.metadata_db_path = metadata_db_path
+        self.identity_token_config = identity_token_config
+        self.vault_kv_file = vault_kv_file
         self.lifecycle_audit_log = lifecycle_audit_log
         self.pid_file = pid_file
         self.ready_file = ready_file
@@ -96,17 +115,28 @@ class ExternalKmsHandler(BaseHTTPRequestHandler):
             raise ValueError("request body must be a JSON object")
         return payload
 
-    def _require_auth(self, *, admin: bool) -> None:
+    def _require_auth(self, *, admin: bool) -> Dict[str, Any] | None:
         expected = self.server.admin_auth_token if admin else self.server.auth_token
-        if not expected:
-            return
         header = self.headers.get("Authorization", "")
         prefix = "Bearer "
-        if not header.startswith(prefix):
-            raise PermissionError("missing bearer token")
-        provided = header[len(prefix):]
-        if provided != expected:
+        if expected:
+            if not header.startswith(prefix):
+                raise PermissionError("missing bearer token")
+            provided = header[len(prefix):]
+            if provided == expected:
+                return None
+        if self.server.identity_token_config:
+            if not header.startswith(prefix):
+                raise PermissionError("missing bearer token")
+            provided = header[len(prefix):]
+            return resolve_identity_context(
+                db_path=self.server.metadata_db_path,
+                identity_token_config=self.server.identity_token_config,
+                bearer_token=provided,
+            )
+        if expected:
             raise PermissionError("external KMS auth failed")
+        return None
 
     def do_GET(self) -> None:
         if self.path != "/healthz":
@@ -117,21 +147,21 @@ class ExternalKmsHandler(BaseHTTPRequestHandler):
     def do_POST(self) -> None:
         try:
             if self.path == "/v1/resolve":
-                self._require_auth(admin=False)
+                identity = self._require_auth(admin=False)
                 payload = self._read_json_body()
-                result = self._handle_resolve(payload)
+                result = self._handle_resolve(payload, identity=identity)
                 self._send_json(HTTPStatus.OK, result)
                 return
             if self.path == "/v1/admin/rotate":
-                self._require_auth(admin=True)
+                identity = self._require_auth(admin=True)
                 payload = self._read_json_body()
-                result = self._handle_rotate(payload)
+                result = self._handle_rotate(payload, identity=identity)
                 self._send_json(HTTPStatus.OK, result)
                 return
             if self.path == "/v1/admin/set-status":
-                self._require_auth(admin=True)
+                identity = self._require_auth(admin=True)
                 payload = self._read_json_body()
-                result = self._handle_set_status(payload)
+                result = self._handle_set_status(payload, identity=identity)
                 self._send_json(HTTPStatus.OK, result)
                 return
             self._send_json(HTTPStatus.NOT_FOUND, build_error("not found"))
@@ -142,10 +172,14 @@ class ExternalKmsHandler(BaseHTTPRequestHandler):
         except Exception as e:
             self._send_json(HTTPStatus.INTERNAL_SERVER_ERROR, build_error(str(e)))
 
-    def _handle_resolve(self, payload: Dict[str, Any]) -> Dict[str, Any]:
+    def _handle_resolve(self, payload: Dict[str, Any], *, identity: Dict[str, Any] | None) -> Dict[str, Any]:
         key_name = str(payload.get("key_name", ""))
         purpose = str(payload.get("purpose", ""))
         caller = str(payload.get("caller", ""))
+        if identity is not None:
+            if caller and caller != identity["caller"]:
+                raise PermissionError("external KMS caller does not match authenticated identity")
+            caller = identity["caller"]
         if not key_name:
             raise ValueError("key_name is required")
         if not purpose:
@@ -153,13 +187,13 @@ class ExternalKmsHandler(BaseHTTPRequestHandler):
 
         with self.server.state_lock:
             keyring = load_json_object(self.server.state_file)
-            key_version, _key_value, _version_value, env_name = ensure_key_access_allowed(
+            key_version, _key_value, _version_value, secret_ref = ensure_key_access_allowed(
                 keyring=keyring,
                 key_name=key_name,
                 purpose=purpose,
                 caller=caller,
             )
-        secret = os.environ.get(env_name, "")
+        secret = resolve_secret_ref(secret_ref=secret_ref, vault_kv_file=self.server.vault_kv_file)
         return {
             "schema": RESULT_SCHEMA,
             "key_id": key_name,
@@ -167,11 +201,44 @@ class ExternalKmsHandler(BaseHTTPRequestHandler):
             "secret": secret,
         }
 
-    def _handle_rotate(self, payload: Dict[str, Any]) -> Dict[str, Any]:
+    def _authorize_admin_identity(
+        self,
+        *,
+        identity: Dict[str, Any] | None,
+        keyring: Dict[str, Any],
+        key_name: str,
+        caller: str,
+        create_key: bool,
+    ) -> str:
+        if identity is None:
+            return caller
+        if caller and caller != identity["caller"]:
+            raise PermissionError("external KMS admin caller does not match authenticated identity")
+        resolved_caller = identity["caller"]
+        if _identity_has_any_role(identity, *ADMIN_PLATFORM_ROLES):
+            return resolved_caller
+        if not _identity_has_any_role(identity, *SERVICE_OPERATOR_PLATFORM_ROLES):
+            raise PermissionError("external KMS admin requires platform_admin or service_operator role")
+        if create_key:
+            raise PermissionError("service_operator cannot create new external KMS keys")
+        try:
+            entry = key_entry(keyring, key_name)
+        except ValueError as exc:
+            raise PermissionError(str(exc)) from exc
+        allowed_callers = entry.get("allowed_callers", [])
+        if not isinstance(allowed_callers, list) or resolved_caller not in {str(item) for item in allowed_callers}:
+            raise PermissionError(f"service_operator caller {resolved_caller} is not allowed to manage key {key_name}")
+        return resolved_caller
+
+    def _handle_rotate(self, payload: Dict[str, Any], *, identity: Dict[str, Any] | None) -> Dict[str, Any]:
         key_name = str(payload.get("key_name", ""))
         purpose = str(payload.get("purpose", ""))
         new_version = str(payload.get("new_version", ""))
         secret_env = str(payload.get("secret_env", ""))
+        secret_ref_kind = str(payload.get("secret_ref_kind", ""))
+        secret_ref_name = str(payload.get("secret_ref_name", ""))
+        secret_ref_version = str(payload.get("secret_ref_version", ""))
+        secret_ref_field = str(payload.get("secret_ref_field", ""))
         caller = str(payload.get("caller", ""))
         activate = bool(payload.get("activate", False))
         create_key = bool(payload.get("create_key", False))
@@ -181,21 +248,41 @@ class ExternalKmsHandler(BaseHTTPRequestHandler):
             raise ValueError("purpose is required")
         if not new_version:
             raise ValueError("new_version is required")
-        if not secret_env:
-            raise ValueError("secret_env is required")
         if not caller:
             raise ValueError("caller is required")
+        if secret_ref_kind or secret_ref_name:
+            if not secret_ref_kind or not secret_ref_name:
+                raise ValueError("secret_ref_kind and secret_ref_name must be provided together")
+            secret_ref = normalize_secret_ref(
+                {
+                    "kind": secret_ref_kind,
+                    "name": secret_ref_name,
+                    "version": secret_ref_version or None,
+                    "field": secret_ref_field or None,
+                }
+            )
+        else:
+            if not secret_env:
+                raise ValueError("secret_env or secret_ref_kind/secret_ref_name is required")
+            secret_ref = normalize_secret_ref({"kind": "env", "name": secret_env})
 
         with self.server.state_lock:
             keyring = load_json_object(self.server.state_file)
+            caller = self._authorize_admin_identity(
+                identity=identity,
+                keyring=keyring,
+                key_name=key_name,
+                caller=caller,
+                create_key=create_key,
+            )
             rotate_key(
                 keyring=keyring,
                 key_name=key_name,
                 purpose=purpose,
                 new_version=new_version,
-                secret_env=secret_env,
                 caller=caller,
                 activate=activate,
+                secret_ref=secret_ref,
                 create_key=create_key,
             )
             save_json_object(self.server.state_file, keyring)
@@ -211,7 +298,8 @@ class ExternalKmsHandler(BaseHTTPRequestHandler):
             status="active" if activate else "inactive",
             decision="allow",
             reason_code="ok",
-            secret_env=secret_env,
+            secret_source_kind=str(secret_ref["kind"]),
+            secret_source_name=str(secret_ref["name"]),
         )
         return {
             "schema": ADMIN_RESULT_SCHEMA,
@@ -222,7 +310,7 @@ class ExternalKmsHandler(BaseHTTPRequestHandler):
             "active_version": active_version,
         }
 
-    def _handle_set_status(self, payload: Dict[str, Any]) -> Dict[str, Any]:
+    def _handle_set_status(self, payload: Dict[str, Any], *, identity: Dict[str, Any] | None) -> Dict[str, Any]:
         key_name = str(payload.get("key_name", ""))
         version = str(payload.get("version", ""))
         status = str(payload.get("status", ""))
@@ -238,6 +326,13 @@ class ExternalKmsHandler(BaseHTTPRequestHandler):
 
         with self.server.state_lock:
             keyring = load_json_object(self.server.state_file)
+            caller = self._authorize_admin_identity(
+                identity=identity,
+                keyring=keyring,
+                key_name=key_name,
+                caller=caller,
+                create_key=False,
+            )
             set_version_status(keyring=keyring, key_name=key_name, version=version, status=status)
             save_json_object(self.server.state_file, keyring)
             active_version = keyring["keys"][key_name].get("active_version")
@@ -252,7 +347,6 @@ class ExternalKmsHandler(BaseHTTPRequestHandler):
             status=status,
             decision="allow",
             reason_code="ok",
-            secret_env=None,
         )
         return {
             "schema": ADMIN_RESULT_SCHEMA,
@@ -271,10 +365,15 @@ def main() -> int:
     ap.add_argument("--state-file", required=True)
     ap.add_argument("--auth-token-env", default="")
     ap.add_argument("--admin-auth-token-env", default="")
+    ap.add_argument("--metadata-db-path", default="", help="Metadata DB path required when --identity-token-config is used")
+    ap.add_argument("--identity-token-config", default="", help="Optional bearer-token to caller-identity mapping config")
+    ap.add_argument("--vault-kv-file", default="")
     ap.add_argument("--lifecycle-audit-log", required=True)
     ap.add_argument("--pid-file", default="")
     ap.add_argument("--ready-file", default="")
     args = ap.parse_args()
+    if args.identity_token_config and not args.metadata_db_path:
+        raise SystemExit("[ERROR] --identity-token-config requires --metadata-db-path")
 
     server = ExternalKmsHttpServer(
         (args.bind_host, args.port),
@@ -282,6 +381,9 @@ def main() -> int:
         state_file=os.path.abspath(args.state_file),
         auth_token=_read_optional_env(args.auth_token_env),
         admin_auth_token=_read_optional_env(args.admin_auth_token_env),
+        metadata_db_path=os.path.abspath(args.metadata_db_path) if args.metadata_db_path else "",
+        identity_token_config=os.path.abspath(args.identity_token_config) if args.identity_token_config else "",
+        vault_kv_file=os.path.abspath(args.vault_kv_file) if args.vault_kv_file else "",
         lifecycle_audit_log=os.path.abspath(args.lifecycle_audit_log),
         pid_file=args.pid_file,
         ready_file=args.ready_file,

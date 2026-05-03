@@ -7,6 +7,7 @@
   "auto_start": {
     "bind_host": "127.0.0.1",
     "port": 18765,
-    "state_file": "keyring.example.json"
+    "state_file": "keyring.example.json",
+    "vault_kv_file": "vault_kv_backend.example.json"
   }
 }

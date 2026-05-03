@@ -303,6 +303,13 @@ def empty_semantics() -> dict[str, Any]:
     return {
         "result_schema": None,
         "job_count": None,
+        "pagination_limit": None,
+        "pagination_offset": None,
+        "pagination_returned_count": None,
+        "pagination_total_matching_count": None,
+        "pagination_has_more": None,
+        "pagination_next_offset": None,
+        "pagination_previous_offset": None,
         "mainline_contract_embedded": None,
         "handoff_cleanup_server": None,
         "handoff_cleanup_client": None,
@@ -323,6 +330,44 @@ def empty_semantics() -> dict[str, Any]:
         "permission_summary_can_run_bridge_true": None,
         "permission_summary_can_release_true": None,
         "permission_summary_can_use_record_recovery_service_true": None,
+    }
+
+
+def validate_pagination(
+    payload: dict[str, Any],
+    *,
+    label: str,
+    limit: int,
+    offset: int,
+    returned_count: int,
+    total_matching_count: int,
+    has_more: bool,
+) -> dict[str, Any]:
+    pagination = payload.get("pagination")
+    require(isinstance(pagination, dict), f"{label} missing pagination payload: {payload}")
+    require(pagination.get("limit") == limit, f"{label} returned wrong pagination limit: {payload}")
+    require(pagination.get("offset") == offset, f"{label} returned wrong pagination offset: {payload}")
+    require(pagination.get("returned_count") == returned_count, f"{label} returned wrong pagination returned_count: {payload}")
+    require(
+        pagination.get("total_matching_count") == total_matching_count,
+        f"{label} returned wrong pagination total_matching_count: {payload}",
+    )
+    require(pagination.get("has_more") is has_more, f"{label} returned wrong pagination has_more: {payload}")
+    expected_next_offset = offset + returned_count if has_more else None
+    expected_previous_offset = max(offset - limit, 0) if offset > 0 else None
+    require(pagination.get("next_offset") == expected_next_offset, f"{label} returned wrong pagination next_offset: {payload}")
+    require(
+        pagination.get("previous_offset") == expected_previous_offset,
+        f"{label} returned wrong pagination previous_offset: {payload}",
+    )
+    return {
+        "pagination_limit": pagination.get("limit"),
+        "pagination_offset": pagination.get("offset"),
+        "pagination_returned_count": pagination.get("returned_count"),
+        "pagination_total_matching_count": pagination.get("total_matching_count"),
+        "pagination_has_more": pagination.get("has_more"),
+        "pagination_next_offset": pagination.get("next_offset"),
+        "pagination_previous_offset": pagination.get("previous_offset"),
     }
 
 
@@ -356,9 +401,19 @@ def validate_metadata_jobs_payload(payload: dict[str, Any], *, label: str) -> di
         and (rollup.get("service_audit_consistency") or {}).get("error_count_total") == 0,
         f"{label} returned wrong service audit consistency rollup: {payload}",
     )
+    pagination = validate_pagination(
+        payload,
+        label=label,
+        limit=20,
+        offset=0,
+        returned_count=1,
+        total_matching_count=1,
+        has_more=False,
+    )
     return {
         "result_schema": "query_metadata/jobs_list",
         "job_count": len(jobs),
+        **pagination,
         **semantics,
         "mainline_summary_rollup_job_count": rollup.get("job_count"),
         "mainline_summary_rollup_server_removed_count": ((rollup.get("handoff_cleanup") or {}).get("server") or {}).get("removed"),
@@ -404,9 +459,19 @@ def validate_metadata_permissions_payload(payload: dict[str, Any], *, label: str
     profiles = summary.get("access_profiles") or []
     require(len(profiles) == 1 and profiles[0].get("caller") == "auto_demo", f"{label} returned wrong access profiles: {payload}")
     require(profiles[0].get("access_profile") == "commerce_ops_owner", f"{label} returned wrong access profile: {payload}")
+    pagination = validate_pagination(
+        payload,
+        label=label,
+        limit=20,
+        offset=0,
+        returned_count=len(items),
+        total_matching_count=len(items),
+        has_more=False,
+    )
     return {
         "result_schema": "query_metadata/caller_permissions",
         "job_count": None,
+        **pagination,
         "permission_summary_caller_count": summary.get("caller_count"),
         "permission_summary_dataset_count": len(summary.get("allowed_dataset_ids") or []),
         "permission_summary_service_count": len(summary.get("allowed_service_ids") or []),
@@ -419,6 +484,13 @@ def validate_metadata_permissions_payload(payload: dict[str, Any], *, label: str
         **{key: value for key, value in empty_semantics().items() if key not in {
             "result_schema",
             "job_count",
+            "pagination_limit",
+            "pagination_offset",
+            "pagination_returned_count",
+            "pagination_total_matching_count",
+            "pagination_has_more",
+            "pagination_next_offset",
+            "pagination_previous_offset",
             "permission_summary_caller_count",
             "permission_summary_dataset_count",
             "permission_summary_service_count",

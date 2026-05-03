@@ -181,6 +181,33 @@
                   "type": ["integer", "null"],
                   "minimum": 0
                 },
+                "pagination_limit": {
+                  "type": ["integer", "null"],
+                  "minimum": 0
+                },
+                "pagination_offset": {
+                  "type": ["integer", "null"],
+                  "minimum": 0
+                },
+                "pagination_returned_count": {
+                  "type": ["integer", "null"],
+                  "minimum": 0
+                },
+                "pagination_total_matching_count": {
+                  "type": ["integer", "null"],
+                  "minimum": 0
+                },
+                "pagination_has_more": {
+                  "type": ["boolean", "null"]
+                },
+                "pagination_next_offset": {
+                  "type": ["integer", "null"],
+                  "minimum": 0
+                },
+                "pagination_previous_offset": {
+                  "type": ["integer", "null"],
+                  "minimum": 0
+                },
                 "mainline_contract_embedded": {
                   "type": ["boolean", "null"]
                 },

@@ -58,7 +58,8 @@
 1. file 模式下新增的持久化明文是否真的必要。
 2. FIFO 模式是否仍然可用。
 3. 审计里是否还能看出 handoff 类型、hash 和 row count。
-4. 是否扩大了 bridge 可见的敏感内容。
+4. 如果用了 `--keep-sse-export-handoff-files`，是否同时提供了明确的 `--handoff-retention-reason`，并且 `mainline_contract_check.json` 能看到它。
+5. 是否扩大了 bridge 可见的敏感内容。
 
 如果扩大了明文暴露面，默认视为高风险改动。
 
@@ -89,13 +90,14 @@ owner 级改动至少要附一个可复现验证包，建议包含：
 2. `bash scripts/check_ci_smoke.sh` — 全量 CI smoke（含回放、schema、hygiene、backcompat、contract）
 3. `bash scripts/check_json_contracts.sh`
 4. `python3 scripts/check_schema_backcompat.py`
-5. 定向 smoke 或 replay 说明
+5. `bash scripts/verify_record_recovery_manual_service_replay.sh` — 预启动 external HTTP recovery service，再走 `run_live_sse_bridge_demo.sh --record-recovery-service-mode manual`
+6. 定向 smoke 或 replay 说明
 
 如果碰到主链路语义，优先补：
 
 1. file handoff 回放（`bash scripts/verify_pipeline_replay.sh`）
-2. FIFO handoff 回放
-3. record recovery service boundary 回放
+2. FIFO handoff 回放（`bash scripts/verify_fifo_handoff_replay.sh`）
+3. record recovery service boundary 回放（`bash scripts/verify_record_recovery_manual_service_replay.sh`）
 4. public report / policy audit 回放
 
 ## 9. 文档同步清单

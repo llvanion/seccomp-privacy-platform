@@ -17,8 +17,7 @@ import time
 __logger_cache = {}
 _PROGRAM_DIR_PATH = pathlib.Path.home().joinpath(".sse")
 _LOG_DIR_PATH = _PROGRAM_DIR_PATH.joinpath("log")
-if not _LOG_DIR_PATH.exists():
-    _LOG_DIR_PATH.mkdir(parents=True)
+_LOG_DIR_PATH.mkdir(parents=True, exist_ok=True)
 
 
 def getSSELogger(logger_name="sse", console_log_level=logging.INFO, file_log_level=logging.INFO):

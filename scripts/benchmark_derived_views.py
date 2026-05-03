@@ -27,6 +27,7 @@ EXPECTED_STAGES = {
     "pjc",
     "policy_release",
     "handoff_cleanup",
+    "handoff_exposure_assessment",
     "service_audit_consistency",
 }
 

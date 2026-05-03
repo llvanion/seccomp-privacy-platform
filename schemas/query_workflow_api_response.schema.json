@@ -33,6 +33,9 @@
           "type": "string",
           "minLength": 1
         },
+        "authenticated_identity": {
+          "type": ["object", "null"]
+        },
         "manifest": {
           "type": "object",
           "required": [

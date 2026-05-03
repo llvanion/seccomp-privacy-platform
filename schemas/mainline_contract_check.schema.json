@@ -106,6 +106,52 @@
       },
       "additionalProperties": false
     },
+    "handoff_mode": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "enum": [
+        "file",
+        "fifo",
+        null
+      ]
+    },
+    "handoff_exposure_assessment": {
+      "type": "object",
+      "required": [
+        "handoff_mode",
+        "plaintext_exposure_risk"
+      ],
+      "properties": {
+        "handoff_mode": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "enum": [
+            "file",
+            "fifo",
+            null
+          ]
+        },
+        "plaintext_exposure_risk": {
+          "enum": [
+            "none",
+            "low",
+            "elevated",
+            "unknown"
+          ]
+        },
+        "server_exposure": {
+          "$ref": "#/$defs/role_exposure_entry"
+        },
+        "client_exposure": {
+          "$ref": "#/$defs/role_exposure_entry"
+        }
+      },
+      "additionalProperties": false
+    },
     "handoff_cleanup": {
       "type": "object",
       "required": [
@@ -173,6 +219,37 @@
     }
   },
   "$defs": {
+    "role_exposure_entry": {
+      "type": "object",
+      "required": [
+        "output_file_type",
+        "cleanup_status",
+        "exposure_risk"
+      ],
+      "properties": {
+        "output_file_type": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "cleanup_status": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "exposure_risk": {
+          "enum": [
+            "none",
+            "low",
+            "elevated",
+            "unknown"
+          ]
+        }
+      },
+      "additionalProperties": false
+    },
     "handoff_cleanup_entry": {
       "type": "object",
       "required": [
@@ -208,6 +285,12 @@
         "exists_after_run": {
           "type": [
             "boolean",
+            "null"
+          ]
+        },
+        "retention_reason": {
+          "type": [
+            "string",
             "null"
           ]
         },

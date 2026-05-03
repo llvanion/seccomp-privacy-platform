@@ -74,7 +74,11 @@ def health_result(name: str,
     return result
 
 
-def check_record_recovery_config(config_path: str) -> dict[str, Any]:
+def check_record_recovery_config(
+    config_path: str,
+    identity_auth_env: str,
+    identity_bearer_token: str,
+) -> dict[str, Any]:
     display = config_path
     try:
         config = load_resolved_record_recovery_service_config(optional_repo_path(config_path))
@@ -87,6 +91,8 @@ def check_record_recovery_config(config_path: str) -> dict[str, Any]:
             socket_path=Path(socket_path) if socket_path else None,
             endpoint_url=endpoint_url,
             auth_env=auth_env,
+            identity_auth_env=identity_auth_env,
+            identity_bearer_token=identity_bearer_token,
         )
         details = {
             "config": optional_repo_path(config_path),
@@ -100,7 +106,13 @@ def check_record_recovery_config(config_path: str) -> dict[str, Any]:
         return health_result(display, "error", component="record_recovery", error=str(e))
 
 
-def check_record_recovery_endpoint(socket_path: str, endpoint_url: str, auth_env: str) -> dict[str, Any]:
+def check_record_recovery_endpoint(
+    socket_path: str,
+    endpoint_url: str,
+    auth_env: str,
+    identity_auth_env: str,
+    identity_bearer_token: str,
+) -> dict[str, Any]:
     name = endpoint_url or socket_path
     try:
         if not socket_path and not endpoint_url:
@@ -109,6 +121,8 @@ def check_record_recovery_endpoint(socket_path: str, endpoint_url: str, auth_env
             socket_path=Path(socket_path) if socket_path else None,
             endpoint_url=endpoint_url,
             auth_env=auth_env,
+            identity_auth_env=identity_auth_env,
+            identity_bearer_token=identity_bearer_token,
         )
         return health_result(
             name,
@@ -138,6 +152,8 @@ def check_key_agent(
     *,
     key_agent_socket: str,
     key_agent_auth_env: str,
+    key_agent_identity_token_env: str,
+    key_agent_identity_bearer_token: str,
     key_name: str,
     key_purpose: str,
     caller: str,
@@ -156,6 +172,11 @@ def check_key_agent(
         token = _read_optional_env(key_agent_auth_env)
         if token:
             payload["auth_token"] = token
+        identity_token = _read_optional_env(key_agent_identity_token_env)
+        if identity_token:
+            payload["identity_bearer_token"] = identity_token
+        elif key_agent_identity_bearer_token:
+            payload["identity_bearer_token"] = key_agent_identity_bearer_token
 
         client = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
         try:
@@ -236,6 +257,12 @@ def summarize_mainline_contract_check(base: Path, chain: dict[str, Any]) -> tupl
     summary = payload.get("summary") if isinstance(payload.get("summary"), dict) else {}
     payload_findings = payload.get("findings") if isinstance(payload.get("findings"), list) else []
     handoff_cleanup = payload.get("handoff_cleanup") if isinstance(payload.get("handoff_cleanup"), dict) else {}
+    handoff_exposure_assessment = (
+        payload.get("handoff_exposure_assessment")
+        if isinstance(payload.get("handoff_exposure_assessment"), dict)
+        else {}
+    )
+    handoff_mode = payload.get("handoff_mode")
     mainline_status = payload.get("status")
     sse_by_role: dict[str, dict[str, Any]] = {}
     for record in chain.get("sse_export_audit") if isinstance(chain.get("sse_export_audit"), list) else []:
@@ -279,6 +306,21 @@ def summarize_mainline_contract_check(base: Path, chain: dict[str, Any]) -> tupl
         "schema": payload.get("schema"),
         "status": payload.get("status"),
         "summary_error_count": summary.get("error_count"),
+        "handoff_mode": handoff_mode,
+        "handoff_exposure_assessment": {
+            "handoff_mode": handoff_exposure_assessment.get("handoff_mode"),
+            "plaintext_exposure_risk": handoff_exposure_assessment.get("plaintext_exposure_risk"),
+            "server_exposure_risk": (
+                (handoff_exposure_assessment.get("server_exposure") or {}).get("exposure_risk")
+                if isinstance(handoff_exposure_assessment.get("server_exposure"), dict)
+                else None
+            ),
+            "client_exposure_risk": (
+                (handoff_exposure_assessment.get("client_exposure") or {}).get("exposure_risk")
+                if isinstance(handoff_exposure_assessment.get("client_exposure"), dict)
+                else None
+            ),
+        },
         "retained_handoff_compatibility_mode": any(
             (
                 isinstance(handoff_cleanup.get(role_name), dict)
@@ -433,8 +475,12 @@ def build_health_report(
     record_recovery_socket: str = "",
     record_recovery_endpoint_url: str = "",
     record_recovery_auth_env: str = "",
+    record_recovery_identity_auth_env: str = "",
+    record_recovery_identity_bearer_token: str = "",
     key_agent_socket: str = "",
     key_agent_auth_env: str = "",
+    key_agent_identity_token_env: str = "",
+    key_agent_identity_bearer_token: str = "",
     key_name: str = "bridge-token",
     key_purpose: str = "bridge_token",
     caller: str = "auto_demo",
@@ -446,17 +492,27 @@ def build_health_report(
     checks: list[dict[str, Any]] = []
 
     for config_path in record_recovery_configs or []:
-        checks.append(check_record_recovery_config(config_path))
+        checks.append(
+            check_record_recovery_config(
+                config_path,
+                record_recovery_identity_auth_env,
+                record_recovery_identity_bearer_token,
+            )
+        )
     if record_recovery_socket or record_recovery_endpoint_url:
         checks.append(check_record_recovery_endpoint(
             record_recovery_socket,
             record_recovery_endpoint_url,
             record_recovery_auth_env,
+            record_recovery_identity_auth_env,
+            record_recovery_identity_bearer_token,
         ))
     if key_agent_socket:
         checks.append(check_key_agent(
             key_agent_socket=key_agent_socket,
             key_agent_auth_env=key_agent_auth_env,
+            key_agent_identity_token_env=key_agent_identity_token_env,
+            key_agent_identity_bearer_token=key_agent_identity_bearer_token,
             key_name=key_name,
             key_purpose=key_purpose,
             caller=caller,
@@ -505,8 +561,12 @@ def build_parser() -> argparse.ArgumentParser:
     ap.add_argument("--record-recovery-socket", default="")
     ap.add_argument("--record-recovery-endpoint-url", default="")
     ap.add_argument("--record-recovery-auth-env", default="")
+    ap.add_argument("--record-recovery-identity-auth-env", default="")
+    ap.add_argument("--record-recovery-identity-bearer-token", default="")
     ap.add_argument("--key-agent-socket", default="")
     ap.add_argument("--key-agent-auth-env", default="")
+    ap.add_argument("--key-agent-identity-token-env", default="")
+    ap.add_argument("--key-agent-identity-bearer-token", default="")
     ap.add_argument("--key-name", default="bridge-token")
     ap.add_argument("--key-purpose", default="bridge_token")
     ap.add_argument("--caller", default="auto_demo")
@@ -530,8 +590,12 @@ def main() -> int:
         record_recovery_socket=args.record_recovery_socket,
         record_recovery_endpoint_url=args.record_recovery_endpoint_url,
         record_recovery_auth_env=args.record_recovery_auth_env,
+        record_recovery_identity_auth_env=args.record_recovery_identity_auth_env,
+        record_recovery_identity_bearer_token=args.record_recovery_identity_bearer_token,
         key_agent_socket=args.key_agent_socket,
         key_agent_auth_env=args.key_agent_auth_env,
+        key_agent_identity_token_env=args.key_agent_identity_token_env,
+        key_agent_identity_bearer_token=args.key_agent_identity_bearer_token,
         key_name=args.key_name,
         key_purpose=args.key_purpose,
         caller=args.caller,

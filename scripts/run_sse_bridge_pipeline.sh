@@ -105,8 +105,9 @@ RATE_N="5"
 DENY_DUPLICATE_QUERY="0"
 SSE_EXPORT_POLICY_CONFIG=""
 SSE_EXPORT_AUDIT_LOG=""
-SSE_EXPORT_HANDOFF_MODE="fifo"
+SSE_EXPORT_HANDOFF_MODE="file"
 CLEANUP_SSE_EXPORT_HANDOFF_FILES_AFTER_BRIDGE="1"
+HANDOFF_RETENTION_REASON=""
 UNSAFE_ALLOW_NO_SSE_EXPORT_POLICY="0"
 PRODUCTION_MODE="0"
 SERVER_FILTERS=()
@@ -181,6 +182,7 @@ Options:
   --sse-export-handoff-mode file|fifo default: file; fifo streams plaintext handoff through named pipes
   --cleanup-sse-export-handoff-files-after-bridge force file-mode SSE plaintext handoff cleanup after bridge prepare-job (default)
   --keep-sse-export-handoff-files keep file-mode SSE plaintext handoff files after bridge prepare-job
+  --handoff-retention-reason <text> required with --keep-sse-export-handoff-files; records why plaintext handoff retention is explicitly allowed
   --unsafe-allow-no-sse-export-policy allow ad-hoc export without policy config
   --production-mode                 forbid command-line token secrets in bridge
   --caller <id>                      policy caller, default: bridge_demo
@@ -255,6 +257,7 @@ while [[ $# -gt 0 ]]; do
     --sse-export-handoff-mode) SSE_EXPORT_HANDOFF_MODE="$2"; shift 2 ;;
     --cleanup-sse-export-handoff-files-after-bridge) CLEANUP_SSE_EXPORT_HANDOFF_FILES_AFTER_BRIDGE="1"; shift ;;
     --keep-sse-export-handoff-files) CLEANUP_SSE_EXPORT_HANDOFF_FILES_AFTER_BRIDGE="0"; shift ;;
+    --handoff-retention-reason) HANDOFF_RETENTION_REASON="$2"; shift 2 ;;
     --unsafe-allow-no-sse-export-policy) UNSAFE_ALLOW_NO_SSE_EXPORT_POLICY="1"; shift ;;
     --production-mode) PRODUCTION_MODE="1"; shift ;;
     --job-id) JOB_ID="$2"; shift 2 ;;
@@ -303,6 +306,7 @@ SSE_EXPORT_POLICY_CONFIG="$(normalize_repo_path "$SSE_EXPORT_POLICY_CONFIG")"
 [[ -n "$JOB_ID" ]] || die "--job-id required"
 [[ -n "$OUT_BASE" ]] || die "--out-base required"
 [[ "$SSE_EXPORT_HANDOFF_MODE" == "file" || "$SSE_EXPORT_HANDOFF_MODE" == "fifo" ]] || die "--sse-export-handoff-mode must be file or fifo"
+[[ "$SSE_EXPORT_HANDOFF_MODE" == "file" || "$CLEANUP_SSE_EXPORT_HANDOFF_FILES_AFTER_BRIDGE" == "1" ]] || die "--keep-sse-export-handoff-files is only valid with --sse-export-handoff-mode=file"
 [[ -n "$SSE_EXPORT_POLICY_CONFIG" || "$UNSAFE_ALLOW_NO_SSE_EXPORT_POLICY" == "1" ]] || die "--sse-export-policy-config required unless --unsafe-allow-no-sse-export-policy is set"
 [[ -z "$SERVER_SSE_KEYWORD" || -n "$SERVER_RECORD_ID_FIELD" ]] || die "--server-record-id-field required with --server-sse-keyword"
 [[ -z "$CLIENT_SSE_KEYWORD" || -n "$CLIENT_RECORD_ID_FIELD" ]] || die "--client-record-id-field required with --client-sse-keyword"
@@ -336,6 +340,13 @@ SSE_EXPORT_POLICY_CONFIG="$(normalize_repo_path "$SSE_EXPORT_POLICY_CONFIG")"
 [[ -f "$MANAGE_RECORD_RECOVERY_SERVICE_PY" ]] || die "missing record recovery service manager: $MANAGE_RECORD_RECOVERY_SERVICE_PY"
 [[ -f "$RUN_RECORD_RECOVERY_SERVICE_PY" ]] || die "missing standalone record recovery launcher: $RUN_RECORD_RECOVERY_SERVICE_PY"
 [[ -f "$SEAL_AUDIT_ARTIFACT_PY" ]] || die "missing audit seal script: $SEAL_AUDIT_ARTIFACT_PY"
+
+if [[ "$CLEANUP_SSE_EXPORT_HANDOFF_FILES_AFTER_BRIDGE" != "1" ]]; then
+  [[ "$SSE_EXPORT_HANDOFF_MODE" == "file" ]] || die "--keep-sse-export-handoff-files requires --sse-export-handoff-mode=file"
+  [[ -n "${HANDOFF_RETENTION_REASON:-}" ]] || die "--handoff-retention-reason is required with --keep-sse-export-handoff-files"
+else
+  [[ -z "${HANDOFF_RETENTION_REASON:-}" ]] || die "--handoff-retention-reason is only valid with --keep-sse-export-handoff-files"
+fi
 
 if [[ -n "$TOKEN_SECRET_KEY_ID" ]]; then
   [[ -n "$KEY_MANIFEST" ]] || die "--token-secret-key-id requires --key-manifest"
@@ -440,12 +451,6 @@ if [[ -z "$EXTERNAL_KMS_LIFECYCLE_AUDIT_LOG" ]]; then
 fi
 if [[ -z "$PJC_AUDIT_LOG" ]]; then
   PJC_AUDIT_LOG="$APSI_JOB_DIR/pjc_audit.jsonl"
-fi
-if [[ -z "$RECORD_RECOVERY_SERVICE_AUDIT_LOG" ]]; then
-  RECORD_RECOVERY_SERVICE_AUDIT_LOG="$SSE_EXPORT_DIR/record_recovery_service_audit.jsonl"
-fi
-if [[ -z "$RECORD_RECOVERY_SERVICE_LOG" ]]; then
-  RECORD_RECOVERY_SERVICE_LOG="$SSE_EXPORT_DIR/record_recovery_service.log"
 fi
 if [[ -z "$RECORD_RECOVERY_SERVICE_HEALTH_JSON" ]]; then
   RECORD_RECOVERY_SERVICE_HEALTH_JSON="$SSE_EXPORT_DIR/record_recovery_service_health.json"
@@ -682,6 +687,12 @@ if [[ -n "$RECORD_RECOVERY_ENDPOINT_URL" && -z "$RECORD_RECOVERY_SOCKET" ]]; the
 elif [[ -n "$RECORD_RECOVERY_SOCKET" ]]; then
   RECORD_RECOVERY_TRANSPORT="unix_socket"
 fi
+if [[ -z "$RECORD_RECOVERY_SERVICE_AUDIT_LOG" ]]; then
+  RECORD_RECOVERY_SERVICE_AUDIT_LOG="$SSE_EXPORT_DIR/record_recovery_service_audit.jsonl"
+fi
+if [[ -z "$RECORD_RECOVERY_SERVICE_LOG" ]]; then
+  RECORD_RECOVERY_SERVICE_LOG="$SSE_EXPORT_DIR/record_recovery_service.log"
+fi
 
 append_record_store_root() {
   local record_store_path="$1"
@@ -895,10 +906,11 @@ start_external_kms_service() {
     return 0
   fi
 
-  local bind_host port state_file
+  local bind_host port state_file vault_kv_file
   bind_host="$(external_kms_config_value auto_start.bind_host)"
   port="$(external_kms_config_value auto_start.port)"
   state_file="$(external_kms_config_value auto_start.state_file)"
+  vault_kv_file="$(external_kms_config_value auto_start.vault_kv_file)"
   [[ -n "$bind_host" && -n "$port" && -n "$state_file" ]] || die "--external-kms-mode=auto requires auto_start in $EXTERNAL_KMS_CONFIG"
 
   if [[ -n "$EXTERNAL_KMS_AUTH_ENV" && -z "${!EXTERNAL_KMS_AUTH_ENV:-}" ]]; then
@@ -929,6 +941,9 @@ start_external_kms_service() {
     fi
     if [[ -n "$EXTERNAL_KMS_ADMIN_AUTH_ENV" ]]; then
       external_cmd+=(--admin-auth-token-env "$EXTERNAL_KMS_ADMIN_AUTH_ENV")
+    fi
+    if [[ -n "$vault_kv_file" ]]; then
+      external_cmd+=(--vault-kv-file "$vault_kv_file")
     fi
     "${external_cmd[@]}"
   ) >"$EXTERNAL_KMS_LOG" 2>&1 &
@@ -1108,6 +1123,9 @@ if [[ "$SSE_EXPORT_HANDOFF_MODE" == "fifo" ]]; then
   rm -f "$SERVER_EXPORT" "$CLIENT_EXPORT"
   mkfifo "$SERVER_EXPORT" "$CLIENT_EXPORT"
   log "Using FIFO SSE export handoff; bridge-ready plaintext will not be persisted in sse_exports"
+elif [[ "$CLEANUP_SSE_EXPORT_HANDOFF_FILES_AFTER_BRIDGE" != "1" ]]; then
+  log "Using retained file-mode SSE export handoff compatibility path"
+  log "  retention reason: $HANDOFF_RETENTION_REASON"
 fi
 if [[ -n "$TOKEN_SECRET_KEY_NAME" ]]; then
   if [[ -n "$EXTERNAL_KMS_CONFIG" ]]; then
@@ -1510,6 +1528,7 @@ MAINLINE_CONTRACT_CMD=(
 )
 if [[ "$CLEANUP_SSE_EXPORT_HANDOFF_FILES_AFTER_BRIDGE" != "1" ]]; then
   MAINLINE_CONTRACT_CMD+=(--allow-retained-managed-handoff)
+  MAINLINE_CONTRACT_CMD+=(--retained-managed-handoff-reason "$HANDOFF_RETENTION_REASON")
 fi
 "${MAINLINE_CONTRACT_CMD[@]}"
 

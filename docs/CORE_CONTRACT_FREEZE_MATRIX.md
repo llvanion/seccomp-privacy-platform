@@ -28,6 +28,9 @@
 | `token_scope` | bridge HMAC token 的作用域命名空间 | `bridge_job_meta/v1`、policy release bridge context | bridge CLI | bridge validator、policy release、审计核对 | 不能改成租户 ID 或 job ID 的别名 |
 | `token_key_version` | 生成 join token 时使用的 key version | `bridge_job_meta/v1`、`bridge_audit/v1`、policy release bridge context、key access audit | bridge、key resolver | bridge validator、policy release、审计 | 只能变载体，不变含义 |
 | `release_policy` | 最终结果发布规则的 owner 语义总称 | 当前以 `policy_version`、`threshold_k`、`rate_limit_*`、duplicate-query 规则、`reason_code` 共同承载 | `policy_release.py` | public report、policy audit、review/replay | 当前还不是单一顶层字段；如要新增专门字段，必须走变更提案 |
+| `handoff_mode` | 当次运行 bridge-ready handoff 的物理形态（`"file"` / `"fifo"` / `null`） | `mainline_contract_check/v1` 顶层 | `check_mainline_contract.py` 从 SSE export audit `output_file_type` 派生 | replay 验证、ops/audit 读侧 | 取值集只能在变更提案后扩展；不允许把 `"file"` 重命名 |
+| `handoff_exposure_assessment.plaintext_exposure_risk` | 当次运行 bridge-ready 明文暴露面整体评估（`none` / `low` / `elevated` / `unknown`） | `mainline_contract_check/v1` 顶层 | `check_mainline_contract.py:role_exposure_risk()` 与 `build_exposure_assessment()` | replay 验证、ops/audit 读侧、Phase 2 兼容退化检测 | 风险等级语义冻结；新增等级或改语义必须走变更提案 |
+| `mainline_contract_summary.handoff_mode` / `mainline_contract_summary.handoff_exposure` | 归档/派生视图侧暴露评估的下游载体（`audit_archive_index/v1`、`audit_bundle_verification/v1`、`catalog_lineage/v1` 共享同一语义） | `audit_archive_index/v1`、`audit_bundle_verification/v1`、`catalog_lineage/v1` 各自 `mainline_contract_summary` 子对象 | `archive_audit_bundle.py:summarize_mainline_contract`（来源：`mainline_contract_check/v1` 的 `handoff_mode` + `handoff_exposure_assessment`） | 归档审计、catalog lineage 读侧、smoke 正向断言 | 三个 schema 必须保持 keys 同步（`handoff_mode` + `handoff_exposure.{plaintext_exposure_risk,server,client}`）；不得只改其中之一 |
 
 ## 3. 当前主要 Contract 载体
 

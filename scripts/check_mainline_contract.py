@@ -142,12 +142,62 @@ def check_required_non_empty(
         )
 
 
+def role_exposure_risk(*, output_file_type: str | None, cleanup_status: str | None) -> str:
+    if output_file_type == "fifo" and cleanup_status == "removed":
+        return "none"
+    if output_file_type == "file" and cleanup_status == "cleaned":
+        return "low"
+    if output_file_type == "file" and cleanup_status == "retained":
+        return "elevated"
+    return "unknown"
+
+
+def build_exposure_assessment(
+    *,
+    handoff_mode: str | None,
+    server_cleanup: dict[str, Any],
+    client_cleanup: dict[str, Any],
+) -> dict[str, Any]:
+    server_type = stringify(server_cleanup.get("output_file_type"))
+    server_status = stringify(server_cleanup.get("status"))
+    client_type = stringify(client_cleanup.get("output_file_type"))
+    client_status = stringify(client_cleanup.get("status"))
+
+    server_risk = role_exposure_risk(output_file_type=server_type, cleanup_status=server_status)
+    client_risk = role_exposure_risk(output_file_type=client_type, cleanup_status=client_status)
+
+    role_risks = {server_risk, client_risk}
+    if "elevated" in role_risks:
+        overall_risk = "elevated"
+    elif role_risks <= {"none", "low"}:
+        overall_risk = "low" if "low" in role_risks else "none"
+    else:
+        overall_risk = "unknown"
+
+    return {
+        "handoff_mode": handoff_mode,
+        "plaintext_exposure_risk": overall_risk,
+        "server_exposure": {
+            "output_file_type": server_type,
+            "cleanup_status": server_status,
+            "exposure_risk": server_risk,
+        },
+        "client_exposure": {
+            "output_file_type": client_type,
+            "cleanup_status": client_status,
+            "exposure_risk": client_risk,
+        },
+    }
+
+
 def build_result(
     *,
     out_base: Path,
     job_id: str,
     canonical_scope: dict[str, Any],
+    handoff_mode: str | None,
     handoff_cleanup: dict[str, Any],
+    handoff_exposure_assessment: dict[str, Any],
     findings: list[dict[str, Any]],
     checks_run: int,
 ) -> dict[str, Any]:
@@ -159,6 +209,8 @@ def build_result(
         "job_id": job_id,
         "status": "ok" if not findings else "fail",
         "canonical_scope": canonical_scope,
+        "handoff_mode": handoff_mode,
+        "handoff_exposure_assessment": handoff_exposure_assessment,
         "handoff_cleanup": handoff_cleanup,
         "summary": {
             "checks_run": checks_run,
@@ -185,6 +237,7 @@ def summarize_handoff_cleanup(
     export_record: dict[str, Any],
     findings: list[dict[str, Any]],
     allow_retained_managed_handoff: bool,
+    retained_managed_handoff_reason: str | None,
 ) -> tuple[dict[str, Any], int]:
     if not export_record:
         return {
@@ -223,6 +276,7 @@ def summarize_handoff_cleanup(
         and managed_by_out_base
         and exists_after_run is True
     )
+    retention_reason = retained_managed_handoff_reason if status == "retained" else None
 
     if managed_by_out_base and output_file_type in {"file", "fifo"}:
         checks_run += 1
@@ -239,6 +293,15 @@ def summarize_handoff_cleanup(
                 expected="absent",
                 actual=output_file,
             )
+        elif retained_is_allowed and not retention_reason:
+            add_finding(
+                findings,
+                kind=f"{role_name}_handoff_retention_reason_missing",
+                message="retained managed plaintext SSE handoff file is missing an explicit retention reason",
+                path=f"sse_exports/export_audit.jsonl:{role_name}",
+                expected="non-empty retained handoff reason",
+                actual=retention_reason,
+            )
 
     return {
         "role": role_name,
@@ -247,6 +310,7 @@ def summarize_handoff_cleanup(
         "managed_by_out_base": managed_by_out_base,
         "exists_after_run": exists_after_run,
         "status": status,
+        "retention_reason": retention_reason,
     }, checks_run
 
 
@@ -263,10 +327,16 @@ def main() -> int:
         action="store_true",
         help="Treat retained managed file-mode SSE handoff artifacts as an allowed compatibility mode.",
     )
+    ap.add_argument(
+        "--retained-managed-handoff-reason",
+        default="",
+        help="Explicit justification recorded when retained managed file-mode SSE handoff artifacts are allowed.",
+    )
     args = ap.parse_args()
 
     out_base = Path(args.out_base).resolve()
     job_id = str(args.job_id)
+    retained_managed_handoff_reason = str(args.retained_managed_handoff_reason or "").strip() or None
     findings: list[dict[str, Any]] = []
     checks_run = 0
 
@@ -279,11 +349,22 @@ def main() -> int:
     bridge_record = bridge_records[-1] if bridge_records else {}
     sse_records = load_jsonl(out_base / "sse_exports" / "export_audit.jsonl")
     sse_by_role = role_records(sse_records)
-    service_audits = load_jsonl(out_base / "sse_exports" / "record_recovery_service_audit.jsonl")
-    service_by_role = role_records(service_audits)
-    service_audit = service_audits[-1] if service_audits else {}
     service_config = load_json(out_base / "sse_exports" / "record_recovery_service_config.json") or {}
     service_health = load_json(out_base / "sse_exports" / "record_recovery_service_health.json") or {}
+    default_service_audit_path = out_base / "sse_exports" / "record_recovery_service_audit.jsonl"
+    configured_service_audit_path = Path(stringify(service_config.get("audit_log")) or "")
+    if configured_service_audit_path and configured_service_audit_path.is_file():
+        service_audit_path = configured_service_audit_path
+    elif default_service_audit_path.is_file():
+        service_audit_path = default_service_audit_path
+    elif configured_service_audit_path:
+        service_audit_path = configured_service_audit_path
+    else:
+        service_audit_path = default_service_audit_path
+    service_audit_path_label = str(service_audit_path)
+    service_audits = load_jsonl(service_audit_path)
+    service_by_role = role_records(service_audits)
+    service_audit = service_audits[-1] if service_audits else {}
 
     canonical_correlation_id = stringify(
         first_non_empty(
@@ -547,7 +628,7 @@ def main() -> int:
                 findings,
                 kind="missing_service_audit",
                 message="service recovery boundary requires record recovery service audit output",
-                path="sse_exports/record_recovery_service_audit.jsonl",
+                path=service_audit_path_label,
             )
         for field_name in ("tenant_id", "dataset_id", "service_id"):
             for role_name, export_record in (("server", server_export), ("client", client_export)):
@@ -573,7 +654,7 @@ def main() -> int:
                 findings,
                 kind=f"missing_{role_name}_service_audit",
                 message="service recovery boundary requires a matching per-role service audit record",
-                path=f"sse_exports/record_recovery_service_audit.jsonl:{role_name}",
+                path=f"{service_audit_path_label}:{role_name}",
             )
             continue
 
@@ -584,7 +665,7 @@ def main() -> int:
                 label=f"{role_name}_service_{label}",
                 expected=export_record.get(label),
                 actual=service_record.get(label),
-                path=f"sse_exports/record_recovery_service_audit.jsonl:{role_name}",
+                path=f"{service_audit_path_label}:{role_name}",
             )
 
         for label in (
@@ -606,7 +687,7 @@ def main() -> int:
                 label=f"{role_name}_service_{label}",
                 expected=export_record.get(label),
                 actual=service_record.get(label),
-                path=f"sse_exports/record_recovery_service_audit.jsonl:{role_name}",
+                path=f"{service_audit_path_label}:{role_name}",
             )
 
         checks_run += 1
@@ -615,7 +696,7 @@ def main() -> int:
             label=f"{role_name}_service_filters",
             expected=export_record.get("filters"),
             actual=service_record.get("filters"),
-            path=f"sse_exports/record_recovery_service_audit.jsonl:{role_name}",
+            path=f"{service_audit_path_label}:{role_name}",
         )
 
         checks_run += 1
@@ -624,7 +705,7 @@ def main() -> int:
             label=f"{role_name}_service_transport",
             expected=expected_transport,
             actual=service_record.get("transport"),
-            path=f"sse_exports/record_recovery_service_audit.jsonl:{role_name}",
+            path=f"{service_audit_path_label}:{role_name}",
         )
 
     if "service_http" in boundaries:
@@ -688,6 +769,7 @@ def main() -> int:
         export_record=server_export,
         findings=findings,
         allow_retained_managed_handoff=args.allow_retained_managed_handoff,
+        retained_managed_handoff_reason=retained_managed_handoff_reason,
     )
     checks_run += cleanup_checks
     client_handoff_cleanup, cleanup_checks = summarize_handoff_cleanup(
@@ -696,6 +778,7 @@ def main() -> int:
         export_record=client_export,
         findings=findings,
         allow_retained_managed_handoff=args.allow_retained_managed_handoff,
+        retained_managed_handoff_reason=retained_managed_handoff_reason,
     )
     checks_run += cleanup_checks
     handoff_cleanup = {
@@ -703,11 +786,24 @@ def main() -> int:
         "client": client_handoff_cleanup,
     }
 
+    server_output_file_type = stringify(server_export.get("output_file_type"))
+    client_output_file_type = stringify(client_export.get("output_file_type"))
+    handoff_mode_values = {x for x in [server_output_file_type, client_output_file_type] if x}
+    handoff_mode: str | None = "fifo" if "fifo" in handoff_mode_values else ("file" if handoff_mode_values else None)
+
+    handoff_exposure_assessment = build_exposure_assessment(
+        handoff_mode=handoff_mode,
+        server_cleanup=server_handoff_cleanup,
+        client_cleanup=client_handoff_cleanup,
+    )
+
     result = build_result(
         out_base=out_base,
         job_id=job_id,
         canonical_scope=canonical_scope,
+        handoff_mode=handoff_mode,
         handoff_cleanup=handoff_cleanup,
+        handoff_exposure_assessment=handoff_exposure_assessment,
         findings=findings,
         checks_run=checks_run,
     )

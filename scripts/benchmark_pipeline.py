@@ -122,6 +122,12 @@ def validate_completed_run(out_base: Path, *, mode: str) -> dict[str, Any]:
                 f"unexpected handoff artifact existence for {role_name}: "
                 f"{entry.get('exists_after_run')} != {expected_exists_after_run}"
             )
+        expected_reason = "benchmark_file_handoff_retained" if mode == "file_handoff_retained" else None
+        if entry.get("retention_reason") != expected_reason:
+            raise RuntimeError(
+                f"unexpected handoff retention reason for {role_name}: "
+                f"{entry.get('retention_reason')} != {expected_reason}"
+            )
     return {
         "intersection_size": intersection_size,
         "intersection_sum": intersection_sum,
@@ -182,7 +188,7 @@ def build_pipeline_command(*, mode: str, out_base: Path, job_id: str) -> list[st
         "5",
     ]
     if mode == "file_handoff_retained":
-        command.append("--keep-sse-export-handoff-files")
+        command.extend(["--keep-sse-export-handoff-files", "--handoff-retention-reason", "benchmark_file_handoff_retained"])
     elif mode == "fifo_handoff":
         command.extend(["--sse-export-handoff-mode", "fifo"])
     return command

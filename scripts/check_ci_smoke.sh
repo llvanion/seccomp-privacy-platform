@@ -60,7 +60,10 @@ python3 -m py_compile \
   scripts/validate_pipeline_policy.py \
   scripts/validate_tabular_contract.py \
   scripts/verify_audit_bundle.py \
-  scripts/write_pjc_audit.py
+  scripts/write_pjc_audit.py \
+  scripts/check_malformed_input_gate.py \
+  scripts/check_pre_release_gate.py \
+  scripts/check_operator_readiness.py
 
 SSE_PY="$REPO_ROOT/sse/.venv/bin/python"
 if [[ ! -x "$SSE_PY" ]]; then
@@ -72,6 +75,7 @@ cd "$REPO_ROOT/sse"
   frontend/client/commands.py \
   run_client.py \
   toolkit/encrypted_record_store.py \
+  toolkit/logger/logger.py \
   toolkit/record_recovery_authz.py \
   toolkit/record_recovery_client.py \
   toolkit/record_recovery_common.py \
@@ -88,6 +92,7 @@ bash -n scripts/check_json_contracts.sh
 bash -n scripts/run_live_sse_bridge_demo.sh
 bash -n scripts/run_sse_bridge_pipeline.sh
 bash -n scripts/verify_pipeline_replay.sh
+bash -n scripts/verify_fifo_handoff_replay.sh
 
 if command -v cargo >/dev/null 2>&1; then
   bash scripts/check_bridge_rust.sh
@@ -97,9 +102,13 @@ fi
 
 python3 scripts/scan_repo_hygiene.py --fail-on-warn
 python3 scripts/check_dependency_hygiene.py --fail-on-warn
+python3 scripts/check_malformed_input_gate.py --out /dev/null
+python3 scripts/check_pre_release_gate.py --out /dev/null
+python3 scripts/check_operator_readiness.py --out /dev/null
 python3 scripts/check_record_recovery_boundary.py
 python3 scripts/check_schema_backcompat.py
 bash scripts/check_json_contracts.sh
 bash scripts/verify_pipeline_replay.sh
+bash scripts/verify_fifo_handoff_replay.sh
 
 echo "[ok] CI smoke checks passed"

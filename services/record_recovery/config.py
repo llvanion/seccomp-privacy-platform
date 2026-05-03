@@ -103,6 +103,8 @@ def resolve_record_recovery_service_config(config: Dict[str, Any]) -> Dict[str, 
         "bind_host": bind_host,
         "port": port,
         "auth_token_env": str(config.get("auth_token_env", "") or ""),
+        "metadata_db_path": resolve_relative_path(config, str(config.get("metadata_db_path", ""))) if config.get("metadata_db_path") else "",
+        "identity_token_config": resolve_relative_path(config, str(config.get("identity_token_config", ""))) if config.get("identity_token_config") else "",
         "authz_config": resolve_relative_path(config, str(config.get("authz_config", ""))) if config.get("authz_config") else "",
         "allowed_callers": _string_list(config.get("allowed_callers", []), field_name="allowed_callers"),
         "allowed_output_roots": [

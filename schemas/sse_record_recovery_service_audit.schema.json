@@ -52,7 +52,16 @@
       "enum": ["server", "client", "unknown"]
     },
     "auth_mode": {
-      "enum": ["env_token", "socket_acl_only"]
+      "enum": ["env_token", "identity_bearer", "socket_acl_only"]
+    },
+    "auth_subject": {
+      "type": ["string", "null"]
+    },
+    "auth_issuer": {
+      "type": ["string", "null"]
+    },
+    "auth_entity_type": {
+      "type": ["string", "null"]
     },
     "transport": {
       "enum": ["unix_socket", "http"]

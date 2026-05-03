@@ -43,6 +43,18 @@
     },
     "result": {
       "type": "object"
+    },
+    "authenticated_identity": {
+      "type": [
+        "object",
+        "null"
+      ]
+    },
+    "access_scope": {
+      "type": [
+        "object",
+        "null"
+      ]
     }
   },
   "additionalProperties": false

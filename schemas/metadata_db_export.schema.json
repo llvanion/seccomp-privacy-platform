@@ -69,9 +69,11 @@
     },
     "jobs": {
       "type": "object",
-      "required": ["filters", "jobs", "mainline_contract_summary_counts", "stage_summary", "grouped_stage_summary", "grouped_status_summary"],
+      "required": ["filters", "count", "pagination", "jobs", "mainline_contract_summary_counts", "stage_summary", "grouped_stage_summary", "grouped_status_summary"],
       "properties": {
         "filters": { "type": "object" },
+        "count": { "type": "integer", "minimum": 0 },
+        "pagination": { "type": "object" },
         "jobs": {
           "type": "array",
           "items": {
@@ -92,6 +94,7 @@
         "datasets",
         "services",
         "callers",
+        "caller-identities",
         "policies",
         "policy-bindings",
         "caller-permissions"
@@ -101,6 +104,9 @@
         "datasets": { "type": "object" },
         "services": { "type": "object" },
         "callers": { "type": "object" },
+        "caller-identities": { "type": "object" },
+        "key-refs": { "type": "object" },
+        "key-versions": { "type": "object" },
         "policies": { "type": "object" },
         "policy-bindings": { "type": "object" },
         "caller-permissions": { "type": "object" }

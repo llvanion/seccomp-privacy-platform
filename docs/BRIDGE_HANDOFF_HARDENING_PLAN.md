@@ -103,7 +103,7 @@ record recovery -> bridge-ready plaintext handoff -> bridge
 2. 审计字段不漂
 3. file/FIFO 回放继续可用
 
-### Phase 1：默认优先短生命周期 handoff
+### Phase 1：默认优先短生命周期 handoff ✓（2026-05-01）
 
 原则：
 
@@ -111,13 +111,44 @@ record recovery -> bridge-ready plaintext handoff -> bridge
 2. file mode 保留为兼容和排障路径
 3. 文档与 runbook 里明确 file mode 是更高暴露面
 
-### Phase 2：把 file handoff 限制成显式兼容模式
+已完成：
+
+1. `scripts/verify_fifo_handoff_replay.sh` 新增独立 FIFO 回放验证：断言 `intersection_size=2`、`intersection_sum=425`、`output_file_type=fifo`、bridge 完成后 `sse_exports/server.csv` 和 `client.csv` 不存在、`mainline_contract_check.json` 两角色均为 `status=removed`。
+2. FIFO 回放已接入 `scripts/check_ci_smoke.sh`（syntax check + 实际运行），与 file-mode 回放并列运行。
+3. `mainline_contract_check.json` 新增顶层 `handoff_mode`（`”file”` | `”fifo”` | `null`），由 SSE export audit 中 `output_file_type` 字段派生，消费方可不解析 `handoff_cleanup` 子树直接读取。
+4. `mainline_contract_check.json` 新增 `handoff_exposure_assessment` 对象（见 Phase 2），同步完成，写操作者和读消费方均可从顶层字段判断明文暴露风险，不必再推断。
+5. `schemas/mainline_contract_check.schema.json` 更新（`handoff_mode` 和 `handoff_exposure_assessment` 为 optional 新字段，backward-compatible）。
+6. `config/schema_backcompat_baseline.json` 已将两个新字段加入 `stable_properties`，`check_schema_backcompat.py` 继续通过。
+7. file mode 的明文暴露说明已在 OPS_RUNBOOK.md 中补充（见 Phase 2 文档同步部分）。
+
+### Phase 2：把 file handoff 限制成显式兼容模式 ✓（2026-05-01）
 
 方向：
 
-1. 更明确地区分“默认安全推荐路径”和“兼容落盘路径”
+1. 更明确地区分”默认安全推荐路径”和”兼容落盘路径”
 2. 把 file mode 的审计和清理要求写死
-3. 对新功能默认不再围绕落盘 CSV 设计
+3. retained file mode 必须带显式 `handoff_retention_reason`
+4. 对新功能默认不再围绕落盘 CSV 设计
+
+已完成：
+
+1. `handoff_exposure_assessment` 写入 `mainline_contract_check.json`，字段含义：
+   - `handoff_mode`：当前 handoff 模式（`”file”` 或 `”fifo”`）
+   - `plaintext_exposure_risk`：整体明文暴露风险（`”none”` / `”low”` / `”elevated”` / `”unknown”`）
+   - `server_exposure` / `client_exposure`：每角色的 `output_file_type`、`cleanup_status`、`exposure_risk`
+2. 暴露风险计算规则（已在 `check_mainline_contract.py` 中实现，见 `role_exposure_risk`）：
+   - FIFO + removed → `”none”`（明文未落盘）
+   - file + cleaned → `”low”`（瞬时明文，已清除）
+   - file + retained → `”elevated”`（明文仍在磁盘）
+   - 其他 → `”unknown”`
+   - 整体：任一角色 `”elevated”` → 整体 `”elevated”`；全为 `”none”` → 整体 `”none”`；其余无 elevated → `”low”`；否则 `”unknown”`
+3. 每次 owner 级 handoff 改动须在 `mainline_contract_check.json` 中检查 `handoff_exposure_assessment.plaintext_exposure_risk`，不得静默让 file retained 路径变成新默认。
+4. 已在 `docs/OPS_RUNBOOK.md` 补充”Handoff Exposure Assessment”段落，说明如何解读 `plaintext_exposure_risk` 字段。
+5. 暴露评估已被 downstream 派生视图全面承接（2026-05-01 同次完成，归属仍为 Phase 2 收口）：
+   - `scripts/archive_audit_bundle.py:summarize_mainline_contract` 在归档索引 `audit_archive_index/v1` 的 `mainline_contract_summary` 中加入 `handoff_mode` 和 `handoff_exposure`（含 `plaintext_exposure_risk`、`server`、`client` 风险），归档与回溯审计可同步携带暴露断言。
+   - `schemas/audit_archive_index.schema.json`、`schemas/audit_bundle_verification.schema.json`、`schemas/catalog_lineage.schema.json` 同步添加 optional `handoff_mode`/`handoff_exposure` 子字段，验证脚本继续通过。
+   - `scripts/check_pipeline_artifact_smoke_reports.py` 在 observability smoke 中新增对 `handoff_exposure_assessment` 三个事件（overall + 每角色）以及 catalog_lineage `handoff_mode`/`handoff_exposure` 的正向断言；`scripts/benchmark_derived_views.py` 的 `EXPECTED_STAGES` 加入 `handoff_exposure_assessment`。
+   - `bash scripts/check_ci_smoke.sh` 在两种 handoff 模式（file 与 FIFO）下均在归档索引中正确写出 `handoff_mode` 与 `handoff_exposure`，回放与归档链全绿。
 
 ### Phase 3：加密 at-rest handoff
 

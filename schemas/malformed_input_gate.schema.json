@@ -1,0 +1,93 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "malformed_input_gate/v1",
+  "title": "Malformed-input negative-test gate report",
+  "type": "object",
+  "required": [
+    "schema",
+    "generated_at_utc",
+    "summary",
+    "results"
+  ],
+  "properties": {
+    "schema": {
+      "const": "malformed_input_gate/v1"
+    },
+    "generated_at_utc": {
+      "type": "string",
+      "minLength": 1
+    },
+    "summary": {
+      "type": "object",
+      "required": [
+        "schemas_tested",
+        "mutations_attempted",
+        "mutations_rejected",
+        "mutations_accepted",
+        "mutations_skipped",
+        "status"
+      ],
+      "properties": {
+        "schemas_tested": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "mutations_attempted": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "mutations_rejected": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "mutations_accepted": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "mutations_skipped": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "status": {
+          "type": "string",
+          "enum": ["ok", "fail"]
+        }
+      },
+      "additionalProperties": false
+    },
+    "results": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "schema_id",
+          "mutation_type",
+          "detail",
+          "rejected"
+        ],
+        "properties": {
+          "schema_id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "mutation_type": {
+            "type": "string",
+            "minLength": 1
+          },
+          "detail": {
+            "type": "string",
+            "minLength": 1
+          },
+          "rejected": {
+            "type": "boolean"
+          },
+          "error": {
+            "type": ["string", "null"]
+          }
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  "additionalProperties": false
+}

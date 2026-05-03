@@ -45,6 +45,10 @@
         "state_file": {
           "type": "string",
           "minLength": 1
+        },
+        "vault_kv_file": {
+          "type": "string",
+          "minLength": 1
         }
       },
       "additionalProperties": false

@@ -1,5 +1,3 @@
-PRAGMA foreign_keys = ON;
-
 CREATE TABLE IF NOT EXISTS tenants (
   tenant_id TEXT PRIMARY KEY,
   created_at_utc TEXT NOT NULL,
@@ -54,7 +52,7 @@ CREATE TABLE IF NOT EXISTS jobs (
 );
 
 CREATE TABLE IF NOT EXISTS job_artifacts (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  id INTEGER PRIMARY KEY,
   job_id TEXT NOT NULL REFERENCES jobs(job_id) ON DELETE CASCADE,
   stage TEXT NOT NULL,
   artifact_type TEXT NOT NULL,
@@ -67,7 +65,7 @@ CREATE TABLE IF NOT EXISTS job_artifacts (
 );
 
 CREATE TABLE IF NOT EXISTS job_stage_status (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  id INTEGER PRIMARY KEY,
   job_id TEXT NOT NULL REFERENCES jobs(job_id) ON DELETE CASCADE,
   stage TEXT NOT NULL,
   status TEXT NOT NULL,
@@ -77,7 +75,7 @@ CREATE TABLE IF NOT EXISTS job_stage_status (
 );
 
 CREATE TABLE IF NOT EXISTS audit_events (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  id INTEGER PRIMARY KEY,
   job_id TEXT NOT NULL REFERENCES jobs(job_id) ON DELETE CASCADE,
   correlation_id TEXT,
   stage TEXT NOT NULL,
@@ -122,7 +120,7 @@ CREATE TABLE IF NOT EXISTS policies (
 );
 
 CREATE TABLE IF NOT EXISTS policy_bindings (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  id INTEGER PRIMARY KEY,
   policy_id TEXT NOT NULL REFERENCES policies(policy_id) ON DELETE CASCADE,
   binding_kind TEXT NOT NULL,
   caller TEXT,
@@ -136,7 +134,7 @@ CREATE TABLE IF NOT EXISTS policy_bindings (
 );
 
 CREATE TABLE IF NOT EXISTS caller_permissions (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  id INTEGER PRIMARY KEY,
   policy_id TEXT NOT NULL REFERENCES policies(policy_id) ON DELETE CASCADE,
   caller TEXT NOT NULL,
   permission_key TEXT NOT NULL,
@@ -147,7 +145,7 @@ CREATE TABLE IF NOT EXISTS caller_permissions (
 );
 
 CREATE TABLE IF NOT EXISTS key_access_events (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  id INTEGER PRIMARY KEY,
   job_id TEXT REFERENCES jobs(job_id) ON DELETE CASCADE,
   correlation_id TEXT,
   caller TEXT,

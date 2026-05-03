@@ -120,6 +120,10 @@ def validate_audit_bundle(tmp_dir: Path) -> None:
 def validate_metadata_cli(tmp_dir: Path) -> None:
     init_data = load(tmp_dir / "platform_metadata_init.json")
     import_data = load(tmp_dir / "platform_metadata_import.json")
+    import_dry_run_data = load(tmp_dir / "platform_metadata_import_dry_run.json")
+    import_replay_data = load(tmp_dir / "platform_metadata_import_replay.json")
+    import_batch_data = load(tmp_dir / "platform_metadata_import_batch.json")
+    portability_data = load(tmp_dir / "platform_metadata_schema_portability.json")
     job_data = load(tmp_dir / "platform_metadata_job.json")
     caller_data = load(tmp_dir / "platform_metadata_caller.json")
     scope_data = load(tmp_dir / "platform_metadata_scope.json")
@@ -132,14 +136,78 @@ def validate_metadata_cli(tmp_dir: Path) -> None:
     policies_data = load(tmp_dir / "platform_metadata_policies.json")
     policy_bindings_data = load(tmp_dir / "platform_metadata_policy_bindings.json")
     caller_permissions_data = load(tmp_dir / "platform_metadata_caller_permissions.json")
+    restore_data = load(tmp_dir / "platform_metadata_restore.json")
+    registry_apply_dry_run_data = load(tmp_dir / "platform_registry_apply_dry_run.json")
+    registry_apply_data = load(tmp_dir / "platform_registry_apply.json")
+    registry_apply_reconcile_data = load(tmp_dir / "platform_registry_apply_reconcile.json")
+    registry_policies_data = load(tmp_dir / "platform_registry_policies.json")
+    registry_caller_permissions_data = load(tmp_dir / "platform_registry_caller_permissions.json")
+    registry_key_refs_data = load(tmp_dir / "platform_registry_key_refs.json")
+    registry_key_versions_data = load(tmp_dir / "platform_registry_key_versions.json")
+    registry_authz_tuples_data = load(tmp_dir / "platform_registry_authz_tuples.json")
 
     imported = import_data.get("imported") or {}
-    for required_migration in {"001_init.sql", "002_add_stage_duration_columns.sql"}:
+    for required_migration in {"001_init.sql", "002_add_stage_duration_columns.sql", "003_add_caller_identities.sql", "004_add_key_registry.sql"}:
         require(
             required_migration in init_data.get("applied_migrations", []),
             f"metadata init did not apply {required_migration}: {init_data}",
         )
+    require(import_data.get("schema") == "metadata_import_report/v1", f"unexpected metadata import report schema: {import_data}")
+    require(import_data.get("mode") == "apply", f"unexpected metadata import mode: {import_data}")
+    require((import_data.get("summary") or {}).get("inserted_job_count") == 1, f"unexpected metadata import summary: {import_data}")
     require(imported.get("job_id") == "contract-check", f"unexpected imported job metadata: {import_data}")
+    initial_import_entry = (import_data.get("imports") or [{}])[0]
+    require(initial_import_entry.get("action") == "insert", f"unexpected metadata initial import action: {import_data}")
+    require((initial_import_entry.get("existing_job") or {}).get("exists") is False, f"unexpected metadata existing-job snapshot on initial import: {import_data}")
+    require((initial_import_entry.get("job_state_after") or {}).get("exists") is True, f"unexpected metadata post-import snapshot: {import_data}")
+
+    require(import_dry_run_data.get("schema") == "metadata_import_report/v1", f"unexpected metadata dry-run report schema: {import_dry_run_data}")
+    require(import_dry_run_data.get("mode") == "dry_run", f"unexpected metadata dry-run mode: {import_dry_run_data}")
+    require((import_dry_run_data.get("summary") or {}).get("replaced_job_count") == 1, f"unexpected metadata dry-run summary: {import_dry_run_data}")
+    dry_run_entry = (import_dry_run_data.get("imports") or [{}])[0]
+    require(dry_run_entry.get("action") == "replace", f"unexpected metadata dry-run action: {import_dry_run_data}")
+    require((dry_run_entry.get("existing_job") or {}).get("exists") is True, f"unexpected metadata dry-run existing-job snapshot: {import_dry_run_data}")
+    require(dry_run_entry.get("result") is None and dry_run_entry.get("imported_at_utc") is None, f"metadata dry-run unexpectedly mutated state: {import_dry_run_data}")
+
+    require(import_replay_data.get("schema") == "metadata_import_report/v1", f"unexpected metadata replay report schema: {import_replay_data}")
+    require(import_replay_data.get("mode") == "apply", f"unexpected metadata replay mode: {import_replay_data}")
+    require((import_replay_data.get("summary") or {}).get("replaced_job_count") == 1, f"unexpected metadata replay summary: {import_replay_data}")
+    replay_entry = (import_replay_data.get("imports") or [{}])[0]
+    require(replay_entry.get("action") == "replace", f"unexpected metadata replay action: {import_replay_data}")
+    require((replay_entry.get("existing_job") or {}).get("exists") is True, f"unexpected metadata replay existing-job snapshot: {import_replay_data}")
+    require((replay_entry.get("job_state_after") or {}).get("exists") is True, f"unexpected metadata replay post-import snapshot: {import_replay_data}")
+
+    require(import_batch_data.get("schema") == "metadata_import_report/v1", f"unexpected metadata batch report schema: {import_batch_data}")
+    require(import_batch_data.get("mode") == "dry_run", f"unexpected metadata batch report mode: {import_batch_data}")
+    require((import_batch_data.get("summary") or {}).get("processed_run_count") == 1, f"unexpected metadata batch report summary: {import_batch_data}")
+    batch_entry = (import_batch_data.get("imports") or [{}])[0]
+    require(batch_entry.get("action") == "replace", f"unexpected metadata batch import action: {import_batch_data}")
+    require(isinstance(batch_entry.get("out_base"), str) and batch_entry.get("out_base"), f"unexpected metadata batch import out_base: {import_batch_data}")
+
+    require(portability_data.get("schema") == "metadata_schema_portability/v1", f"unexpected metadata portability schema: {portability_data}")
+    require(portability_data.get("status") == "ok", f"metadata portability check failed: {portability_data}")
+    portability_summary = portability_data.get("summary") or {}
+    require(portability_summary.get("sqlite_only_construct_count") == 0, f"metadata portability check found SQLite-only constructs: {portability_data}")
+    portability_checks = {item.get("name"): item for item in portability_data.get("checks", [])}
+    for required_check in ("sqlite_only_constructs", "expected_indexes_present", "foreign_key_targets_present"):
+        require((portability_checks.get(required_check) or {}).get("status") == "ok", f"metadata portability check {required_check} failed: {portability_data}")
+    require(
+        restore_data.get("schema") == "metadata_db_restore/v1" and restore_data.get("status") == "ok",
+        f"unexpected metadata restore report schema/status: {restore_data}",
+    )
+    require(
+        restore_data.get("used_sqlite_backup_api") is True,
+        f"metadata restore did not report SQLite backup API usage: {restore_data}",
+    )
+    restored_status = restore_data.get("restored_status") or {}
+    require(
+        restored_status.get("schema") == "metadata_db_status/v1",
+        f"metadata restore missing restored_status payload: {restore_data}",
+    )
+    require(
+        ((restored_status.get("summary") or {}).get("job_count")) == 1,
+        f"metadata restore returned wrong restored job_count: {restore_data}",
+    )
 
     job = job_data.get("job") or {}
     require(job.get("job_id") == "contract-check", f"job lookup returned wrong job: {job_data}")
@@ -356,6 +424,176 @@ def validate_metadata_cli(tmp_dir: Path) -> None:
             ((permission_flags.get(required_true) or {}).get("true")) == 1,
             f"caller permission query returned wrong {required_true} summary: {caller_permissions_data}",
         )
+
+    require(
+        registry_apply_dry_run_data.get("schema") == "metadata_registry_apply_report/v1",
+        f"unexpected registry apply dry-run schema: {registry_apply_dry_run_data}",
+    )
+    require(
+        registry_apply_dry_run_data.get("mode") == "dry_run" and (registry_apply_dry_run_data.get("validation") or {}).get("status") == "ok",
+        f"unexpected registry apply dry-run envelope: {registry_apply_dry_run_data}",
+    )
+    dry_run_summary = registry_apply_dry_run_data.get("summary") or {}
+    require(
+        (dry_run_summary.get("requested_counts") or {}).get("policies") == 1,
+        f"registry apply dry-run returned wrong requested policy count: {registry_apply_dry_run_data}",
+    )
+    require(
+        (dry_run_summary.get("requested_counts") or {}).get("key_refs") == 2
+        and (dry_run_summary.get("requested_counts") or {}).get("key_versions") == 2,
+        f"registry apply dry-run returned wrong key registry requested counts: {registry_apply_dry_run_data}",
+    )
+    require(
+        ((dry_run_summary.get("entity_action_counts") or {}).get("insert")) == 19,
+        f"registry apply dry-run returned wrong insert count: {registry_apply_dry_run_data}",
+    )
+    require(
+        ((dry_run_summary.get("policy_action_counts") or {}).get("insert")) == 1,
+        f"registry apply dry-run returned wrong policy insert count: {registry_apply_dry_run_data}",
+    )
+    require(
+        all(item.get("state_after") is None for rows in (registry_apply_dry_run_data.get("entities") or {}).values() for item in rows),
+        f"registry apply dry-run unexpectedly returned state_after rows: {registry_apply_dry_run_data}",
+    )
+
+    require(
+        registry_apply_data.get("schema") == "metadata_registry_apply_report/v1",
+        f"unexpected registry apply schema: {registry_apply_data}",
+    )
+    require(
+        registry_apply_data.get("mode") == "apply",
+        f"unexpected registry apply mode: {registry_apply_data}",
+    )
+    apply_summary = registry_apply_data.get("summary") or {}
+    require(
+        ((apply_summary.get("entity_action_counts") or {}).get("insert")) == 19,
+        f"registry apply returned wrong entity insert count: {registry_apply_data}",
+    )
+    require(
+        ((apply_summary.get("policy_action_counts") or {}).get("insert")) == 1,
+        f"registry apply returned wrong policy insert count: {registry_apply_data}",
+    )
+    apply_policy = (registry_apply_data.get("policies") or [{}])[0]
+    require(
+        (apply_policy.get("state_after") or {}).get("binding_count") == 5,
+        f"registry apply returned wrong policy binding count: {registry_apply_data}",
+    )
+    require(
+        (apply_policy.get("state_after") or {}).get("permission_count", 0) >= 5,
+        f"registry apply returned wrong policy permission count: {registry_apply_data}",
+    )
+    apply_key_refs = (registry_apply_data.get("entities") or {}).get("key_refs") or []
+    require(
+        len(apply_key_refs) == 2,
+        f"registry apply returned wrong key_ref count: {registry_apply_data}",
+    )
+    require(
+        any(
+            (item.get("state_after") or {}).get("backend_kind") == "local_keyring"
+            and (item.get("state_after") or {}).get("active_version") == "demo-v1"
+            for item in apply_key_refs
+        ),
+        f"registry apply returned wrong key_ref state: {registry_apply_data}",
+    )
+
+    require(
+        registry_apply_reconcile_data.get("schema") == "metadata_registry_apply_report/v1",
+        f"unexpected registry reconcile schema: {registry_apply_reconcile_data}",
+    )
+    require(
+        registry_apply_reconcile_data.get("mode") == "dry_run",
+        f"unexpected registry reconcile mode: {registry_apply_reconcile_data}",
+    )
+    reconcile_summary = registry_apply_reconcile_data.get("summary") or {}
+    require(
+        ((reconcile_summary.get("entity_action_counts") or {}).get("noop")) == 19,
+        f"registry reconcile returned wrong entity noop count: {registry_apply_reconcile_data}",
+    )
+    require(
+        ((reconcile_summary.get("policy_action_counts") or {}).get("noop")) == 1,
+        f"registry reconcile returned wrong policy noop count: {registry_apply_reconcile_data}",
+    )
+
+    registry_policy_rows = registry_policies_data.get("items") or []
+    require(
+        registry_policies_data.get("entity") == "policies" and len(registry_policy_rows) == 1,
+        f"registry policy query returned unexpected envelope: {registry_policies_data}",
+    )
+    require(
+        registry_policy_rows[0].get("schema_name") == "sse_export_policy/v1",
+        f"registry policy query returned wrong schema: {registry_policies_data}",
+    )
+    require(
+        registry_policy_rows[0].get("binding_count") == 5,
+        f"registry policy query returned wrong binding count: {registry_policies_data}",
+    )
+
+    registry_permission_rows = registry_caller_permissions_data.get("items") or []
+    require(
+        registry_caller_permissions_data.get("entity") == "caller-permissions" and len(registry_permission_rows) >= 5,
+        f"registry caller-permissions query returned too few rows: {registry_caller_permissions_data}",
+    )
+    registry_permission_summary = registry_caller_permissions_data.get("permission_summary") or {}
+    require(
+        registry_permission_summary.get("callers") == ["commerce_ops_demo"],
+        f"registry caller-permissions query returned wrong caller summary: {registry_caller_permissions_data}",
+    )
+    require(
+        registry_permission_summary.get("allowed_service_ids") == ["orders-recovery"],
+        f"registry caller-permissions query returned wrong service summary: {registry_caller_permissions_data}",
+    )
+    registry_key_ref_rows = registry_key_refs_data.get("items") or []
+    require(
+        registry_key_refs_data.get("entity") == "key-refs" and len(registry_key_ref_rows) == 2,
+        f"registry key-refs query returned unexpected envelope: {registry_key_refs_data}",
+    )
+    key_ref_names = {item.get("key_name") for item in registry_key_ref_rows}
+    require(
+        key_ref_names == {"bridge-token", "audit-integrity"},
+        f"registry key-refs query returned wrong key names: {registry_key_refs_data}",
+    )
+    bridge_key_ref = next((item for item in registry_key_ref_rows if item.get("key_name") == "bridge-token"), None)
+    require(
+        bridge_key_ref is not None
+        and bridge_key_ref.get("backend_kind") == "local_keyring"
+        and sorted(bridge_key_ref.get("allowed_callers") or []) == ["commerce_ops_demo", "recovery_ops_demo"],
+        f"registry key-refs query returned wrong bridge-token row: {registry_key_refs_data}",
+    )
+    registry_key_version_rows = registry_key_versions_data.get("items") or []
+    require(
+        registry_key_versions_data.get("entity") == "key-versions" and len(registry_key_version_rows) == 1,
+        f"registry key-versions query returned unexpected envelope: {registry_key_versions_data}",
+    )
+    bridge_key_version = registry_key_version_rows[0]
+    require(
+        bridge_key_version.get("key_name") == "bridge-token"
+        and bridge_key_version.get("version") == "demo-v1"
+        and bridge_key_version.get("enabled") is True
+        and bridge_key_version.get("status") == "active"
+        and bridge_key_version.get("secret_ref_kind") == "env"
+        and bridge_key_version.get("secret_ref_name") == "BRIDGE_TOKEN_SECRET",
+        f"registry key-versions query returned wrong bridge-token version row: {registry_key_versions_data}",
+    )
+
+    registry_authz_summary = registry_authz_tuples_data.get("summary") or {}
+    require(
+        registry_authz_tuples_data.get("schema") == "authz_tuple_export/v1",
+        f"unexpected registry authz tuple schema: {registry_authz_tuples_data}",
+    )
+    require(
+        registry_authz_summary.get("subject_count") == 5
+        and registry_authz_summary.get("active_subject_count") == 3
+        and registry_authz_summary.get("disabled_subject_count") == 2,
+        f"registry authz tuple export returned wrong subject counts: {registry_authz_tuples_data}",
+    )
+    require(
+        ((registry_authz_summary.get("subject_type_counts") or {}).get("service_account")) == 1,
+        f"registry authz tuple export returned wrong service_account count: {registry_authz_tuples_data}",
+    )
+    require(
+        any(item.get("subject") == "service_account:recovery_ops_demo" for item in registry_authz_tuples_data.get("subjects", [])),
+        f"registry authz tuple export missing recovery_ops_demo subject: {registry_authz_tuples_data}",
+    )
 
 
 def validate_metadata_tabular_exports(tmp_dir: Path) -> None:

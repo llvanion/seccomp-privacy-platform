@@ -5,6 +5,7 @@ import sqlite3
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import Any
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -12,6 +13,32 @@ if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
 from scripts.metadata_db import apply_migrations, connect_db, file_format, sha256_file, utc_now  # noqa: E402
+from scripts.metadata_registry import apply_policy_plan, plan_policy_file  # noqa: E402
+
+
+IMPORT_SCHEMA = "metadata_import_report/v1"
+ARTIFACT_TYPE_STAGE_MAP = {
+    "sse_export_audit": "sse_export",
+    "record_recovery_service_audit": "record_recovery_service",
+    "record_recovery_service_health": "record_recovery_service",
+    "record_recovery_service_config": "record_recovery_service",
+    "bridge_job_meta": "bridge",
+    "bridge_audit": "bridge",
+    "pjc_audit": "pjc",
+    "public_report": "policy_release",
+    "policy_audit": "policy_release",
+    "audit_chain": "audit",
+    "audit_seal": "audit",
+    "key_access_audit": "key_access",
+}
+JOB_DEPENDENT_TABLES = (
+    "job_artifacts",
+    "job_stage_status",
+    "audit_events",
+    "audit_chains",
+    "audit_seals",
+    "key_access_events",
+)
 
 
 def load_json(path: Path) -> dict:
@@ -150,6 +177,63 @@ def read_bundle(out_base: Path) -> dict:
         "pjc_audit": optional_jsonl(out_base / "a_psi_run" / "pjc_audit.jsonl"),
         "policy_audit": optional_jsonl(out_base / "a_psi_run" / "audit_log.jsonl"),
         "key_access_audit": optional_jsonl(out_base / "key_access_audit.jsonl"),
+    }
+
+
+def referenced_policy_paths(bundle: dict) -> list[str]:
+    paths: set[str] = set()
+    for record in bundle["sse_export_audit"]:
+        policy_path = record.get("policy_config")
+        if isinstance(policy_path, str) and policy_path:
+            paths.add(policy_path)
+    for record in bundle["record_recovery_service_audit"]:
+        policy_path = record.get("authz_policy_config")
+        if isinstance(policy_path, str) and policy_path:
+            paths.add(policy_path)
+    config = bundle["record_recovery_service_config"] or {}
+    if isinstance(config.get("authz_config"), str) and config.get("authz_config"):
+        paths.add(str(config["authz_config"]))
+    return sorted(paths)
+
+
+def import_artifact_map(bundle: dict) -> dict[str, Path]:
+    return {
+        "sse_export_audit": bundle["out_base"] / "sse_exports" / "export_audit.jsonl",
+        "record_recovery_service_audit": bundle["out_base"] / "sse_exports" / "record_recovery_service_audit.jsonl",
+        "record_recovery_service_health": bundle["out_base"] / "sse_exports" / "record_recovery_service_health.json",
+        "record_recovery_service_config": bundle["out_base"] / "sse_exports" / "record_recovery_service_config.json",
+        "bridge_job_meta": bundle["out_base"] / "bridge_job" / "job_meta.json",
+        "bridge_audit": bundle["out_base"] / "bridge_job" / "bridge_audit.jsonl",
+        "pjc_audit": bundle["out_base"] / "a_psi_run" / "pjc_audit.jsonl",
+        "public_report": bundle["out_base"] / "a_psi_run" / "public_report.json",
+        "policy_audit": bundle["out_base"] / "a_psi_run" / "audit_log.jsonl",
+        "audit_chain": bundle["out_base"] / "audit_chain.json",
+        "audit_seal": bundle["out_base"] / "audit_chain.seal.json",
+        "key_access_audit": bundle["out_base"] / "key_access_audit.jsonl",
+    }
+
+
+def incoming_summary(bundle: dict) -> dict[str, Any]:
+    artifact_map = import_artifact_map(bundle)
+    stage_record_counts = {
+        "sse_export": len(bundle["sse_export_audit"]),
+        "record_recovery_service": len(bundle["record_recovery_service_audit"]),
+        "bridge": len(bundle["bridge_audit"]),
+        "pjc": len(bundle["pjc_audit"]),
+        "policy_release": len(bundle["policy_audit"]),
+        "key_access": len(bundle["key_access_audit"]),
+    }
+    policy_paths = referenced_policy_paths(bundle)
+    return {
+        "artifact_count_expected": len(artifact_map),
+        "artifact_count_existing_on_disk": sum(1 for path in artifact_map.values() if path.exists()),
+        "artifact_types": sorted(artifact_map),
+        "stage_status_count_expected": len(stage_record_counts),
+        "stage_record_counts": stage_record_counts,
+        "audit_event_count_expected": sum(stage_record_counts[stage] for stage in ("sse_export", "record_recovery_service", "bridge", "pjc", "policy_release")),
+        "key_access_event_count_expected": stage_record_counts["key_access"],
+        "policy_reference_count": len(policy_paths),
+        "policy_paths": policy_paths,
     }
 
 
@@ -322,43 +406,15 @@ def replace_job_core(
 
 
 def clear_job_dependent_rows(conn: sqlite3.Connection, job_id: str) -> None:
-    for table in (
-        "job_artifacts",
-        "job_stage_status",
-        "audit_events",
-        "audit_chains",
-        "audit_seals",
-        "key_access_events",
-    ):
+    for table in JOB_DEPENDENT_TABLES:
         conn.execute(f"DELETE FROM {table} WHERE job_id = ?", (job_id,))
 
 
 def insert_job_artifacts(conn: sqlite3.Connection, *, bundle: dict, job_id: str) -> None:
-    artifact_map = {
-        "sse_export_audit": bundle["out_base"] / "sse_exports" / "export_audit.jsonl",
-        "record_recovery_service_audit": bundle["out_base"] / "sse_exports" / "record_recovery_service_audit.jsonl",
-        "record_recovery_service_health": bundle["out_base"] / "sse_exports" / "record_recovery_service_health.json",
-        "record_recovery_service_config": bundle["out_base"] / "sse_exports" / "record_recovery_service_config.json",
-        "bridge_job_meta": bundle["out_base"] / "bridge_job" / "job_meta.json",
-        "bridge_audit": bundle["out_base"] / "bridge_job" / "bridge_audit.jsonl",
-        "pjc_audit": bundle["out_base"] / "a_psi_run" / "pjc_audit.jsonl",
-        "public_report": bundle["out_base"] / "a_psi_run" / "public_report.json",
-        "policy_audit": bundle["out_base"] / "a_psi_run" / "audit_log.jsonl",
-        "audit_chain": bundle["out_base"] / "audit_chain.json",
-        "audit_seal": bundle["out_base"] / "audit_chain.seal.json",
-        "key_access_audit": bundle["out_base"] / "key_access_audit.jsonl",
-    }
+    artifact_map = import_artifact_map(bundle)
     for artifact_type, path in artifact_map.items():
         exists = path.exists()
-        stage = (
-            "sse_export" if artifact_type == "sse_export_audit" else
-            "record_recovery_service" if artifact_type.startswith("record_recovery_service_") else
-            "bridge" if artifact_type.startswith("bridge_") else
-            "pjc" if artifact_type == "pjc_audit" else
-            "policy_release" if artifact_type in {"public_report", "policy_audit"} else
-            "audit" if artifact_type in {"audit_chain", "audit_seal"} else
-            "key_access"
-        )
+        stage = ARTIFACT_TYPE_STAGE_MAP[artifact_type]
         conn.execute(
             """
             INSERT INTO job_artifacts(job_id, stage, artifact_type, path, sha256, file_format, exists_on_disk, metadata_json)
@@ -558,115 +614,76 @@ def insert_audit_chain(conn: sqlite3.Connection, *, bundle: dict, job_id: str) -
         )
 
 
-def import_policy(conn: sqlite3.Connection, *, policy_path: str, imported_at: str) -> None:
-    path = Path(policy_path)
-    if not path.is_file():
-        return
-    payload = load_json(path)
-    schema_name = str(payload.get("schema", "") or "")
-    policy_id = sha256_file(path) or str(path.resolve())
-    conn.execute(
+def existing_job_row_counts(conn: sqlite3.Connection, job_id: str) -> dict[str, int]:
+    return {
+        table: int(conn.execute(f"SELECT COUNT(*) FROM {table} WHERE job_id = ?", (job_id,)).fetchone()[0])
+        for table in JOB_DEPENDENT_TABLES
+    }
+
+
+def existing_job_summary(conn: sqlite3.Connection, job_id: str) -> dict[str, Any]:
+    row = conn.execute(
         """
-        INSERT INTO policies(policy_id, policy_kind, path, sha256, schema_name, imported_at_utc, payload_json)
-        VALUES (?, ?, ?, ?, ?, ?, ?)
-        ON CONFLICT(policy_id) DO UPDATE SET
-          policy_kind=excluded.policy_kind,
-          path=excluded.path,
-          sha256=excluded.sha256,
-          schema_name=excluded.schema_name,
-          imported_at_utc=excluded.imported_at_utc,
-          payload_json=excluded.payload_json
+        SELECT job_id, correlation_id, caller, tenant_id, dataset_id, service_id,
+               status, release_reason_code, public_report_released, imported_at_utc, out_base
+        FROM jobs
+        WHERE job_id = ?
         """,
-        (
-            policy_id,
-            schema_name or "unknown_policy",
-            str(path.resolve()),
-            sha256_file(path),
-            schema_name or None,
-            imported_at,
-            json.dumps(payload, ensure_ascii=False),
-        ),
-    )
-    callers = payload.get("callers")
-    if not isinstance(callers, dict):
-        return
-    for caller, caller_policy in callers.items():
-        if not isinstance(caller_policy, dict):
-            continue
-        tenant_id = caller_policy.get("tenant_id")
-        datasets = caller_policy.get("allowed_dataset_ids")
-        services = caller_policy.get("allowed_service_ids")
-        conn.execute(
-            """
-            INSERT INTO policy_bindings(
-              policy_id, binding_kind, caller, tenant_id, dataset_id, service_id,
-              source_file, binding_json, imported_at_utc
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-            ON CONFLICT(policy_id, binding_kind, caller) DO UPDATE SET
-              tenant_id=excluded.tenant_id,
-              dataset_id=excluded.dataset_id,
-              service_id=excluded.service_id,
-              source_file=excluded.source_file,
-              binding_json=excluded.binding_json,
-              imported_at_utc=excluded.imported_at_utc
-            """,
-            (
-                policy_id,
-                "caller_policy",
-                caller,
-                str(tenant_id) if tenant_id else None,
-                datasets[0] if isinstance(datasets, list) and len(datasets) == 1 else None,
-                services[0] if isinstance(services, list) and len(services) == 1 else None,
-                str(path.resolve()),
-                json.dumps(caller_policy, ensure_ascii=False),
-                imported_at,
-            ),
-        )
-        for key, value in caller_policy.items():
-            conn.execute(
-                """
-                INSERT INTO caller_permissions(policy_id, caller, permission_key, permission_value, source_file, imported_at_utc)
-                VALUES (?, ?, ?, ?, ?, ?)
-                ON CONFLICT(policy_id, caller, permission_key) DO UPDATE SET
-                  permission_value=excluded.permission_value,
-                  source_file=excluded.source_file,
-                  imported_at_utc=excluded.imported_at_utc
-                """,
-                (
-                    policy_id,
-                    caller,
-                    str(key),
-                    json.dumps(value, ensure_ascii=False) if isinstance(value, (dict, list, bool, int, float)) else str(value),
-                    str(path.resolve()),
-                    imported_at,
-                ),
-            )
+        (job_id,),
+    ).fetchone()
+    if row is None:
+        return {
+            "exists": False,
+            "job_id": job_id,
+            "row_counts": {table: 0 for table in JOB_DEPENDENT_TABLES},
+        }
+    data = dict(row)
+    data["exists"] = True
+    data["row_counts"] = existing_job_row_counts(conn, job_id)
+    return data
 
 
-def import_referenced_policies(conn: sqlite3.Connection, *, bundle: dict, imported_at: str) -> None:
-    paths: set[str] = set()
-    for record in bundle["sse_export_audit"]:
-        policy_path = record.get("policy_config")
-        if isinstance(policy_path, str) and policy_path:
-            paths.add(policy_path)
-    for record in bundle["record_recovery_service_audit"]:
-        policy_path = record.get("authz_policy_config")
-        if isinstance(policy_path, str) and policy_path:
-            paths.add(policy_path)
-    config = bundle["record_recovery_service_config"] or {}
-    if isinstance(config.get("authz_config"), str) and config.get("authz_config"):
-        paths.add(str(config["authz_config"]))
-    for path in sorted(paths):
-        import_policy(conn, policy_path=path, imported_at=imported_at)
-
-
-def import_run(conn: sqlite3.Connection, out_base: Path) -> dict:
-    imported_at = utc_now()
+def build_import_plan(conn: sqlite3.Connection, out_base: Path) -> dict[str, Any]:
     bundle = read_bundle(out_base)
     job_id = infer_job_id(bundle)
     correlation_id = infer_correlation_id(bundle, job_id)
     caller, tenant_id, dataset_id, service_id = infer_scope(bundle)
+    existing = existing_job_summary(conn, job_id)
+    return {
+        "bundle": bundle,
+        "job_id": job_id,
+        "correlation_id": correlation_id,
+        "caller": caller,
+        "tenant_id": tenant_id,
+        "dataset_id": dataset_id,
+        "service_id": service_id,
+        "action": "replace" if existing["exists"] else "insert",
+        "incoming": incoming_summary(bundle),
+        "existing_job": existing,
+    }
 
+
+def import_policy(conn: sqlite3.Connection, *, policy_path: str, imported_at: str) -> None:
+    path = Path(policy_path)
+    if not path.is_file():
+        return
+    plan = plan_policy_file(conn, policy_path=path)
+    apply_policy_plan(conn, plan, imported_at=imported_at)
+
+
+def import_referenced_policies(conn: sqlite3.Connection, *, bundle: dict, imported_at: str) -> None:
+    for path in referenced_policy_paths(bundle):
+        import_policy(conn, policy_path=path, imported_at=imported_at)
+
+
+def apply_import_plan(conn: sqlite3.Connection, plan: dict[str, Any], *, imported_at: str) -> dict[str, Any]:
+    bundle = plan["bundle"]
+    job_id = str(plan["job_id"])
+    correlation_id = str(plan["correlation_id"])
+    caller = plan["caller"]
+    tenant_id = plan["tenant_id"]
+    dataset_id = plan["dataset_id"]
+    service_id = plan["service_id"]
     clear_job_dependent_rows(conn, job_id)
     upsert_scope_entities(
         conn,
@@ -711,7 +728,6 @@ def import_run(conn: sqlite3.Connection, out_base: Path) -> dict:
     )
     insert_audit_chain(conn, bundle=bundle, job_id=job_id)
     import_referenced_policies(conn, bundle=bundle, imported_at=imported_at)
-    conn.commit()
     return {
         "job_id": job_id,
         "correlation_id": correlation_id,
@@ -719,24 +735,120 @@ def import_run(conn: sqlite3.Connection, out_base: Path) -> dict:
         "tenant_id": tenant_id,
         "dataset_id": dataset_id,
         "service_id": service_id,
-        "out_base": str(out_base.resolve()),
+        "out_base": str(bundle["out_base"]),
         "imported_at_utc": imported_at,
     }
 
 
+def summarize_report(imports: list[dict[str, Any]]) -> dict[str, Any]:
+    action_counts = {"insert": 0, "replace": 0}
+    for item in imports:
+        action = item.get("action")
+        if action in action_counts:
+            action_counts[str(action)] += 1
+    return {
+        "requested_run_count": len(imports),
+        "processed_run_count": len(imports),
+        "inserted_job_count": action_counts["insert"],
+        "replaced_job_count": action_counts["replace"],
+    }
+
+
+def parse_out_base_file(path_value: str) -> list[Path]:
+    path = Path(path_value).resolve()
+    if not path.is_file():
+        raise SystemExit(f"[ERROR] out-base file does not exist: {path}")
+    values: list[Path] = []
+    for line in path.read_text(encoding="utf-8").splitlines():
+        candidate = line.strip()
+        if not candidate or candidate.startswith("#"):
+            continue
+        values.append(Path(candidate).resolve())
+    return values
+
+
+def collect_out_bases(args: argparse.Namespace) -> list[Path]:
+    values = [Path(item).resolve() for item in args.out_base]
+    if args.out_base_file:
+        values.extend(parse_out_base_file(args.out_base_file))
+    if not values:
+        raise SystemExit("[ERROR] at least one --out-base or --out-base-file entry is required")
+    deduped: list[Path] = []
+    seen: set[str] = set()
+    for path in values:
+        key = str(path)
+        if key in seen:
+            continue
+        seen.add(key)
+        deduped.append(path)
+    return deduped
+
+
+def import_runs(conn: sqlite3.Connection, out_bases: list[Path], *, dry_run: bool) -> dict[str, Any]:
+    generated_at = utc_now()
+    plans = [build_import_plan(conn, out_base) for out_base in out_bases]
+    job_ids = [str(plan["job_id"]) for plan in plans]
+    duplicate_job_ids = sorted({job_id for job_id in job_ids if job_ids.count(job_id) > 1})
+    if duplicate_job_ids:
+        raise SystemExit(
+            f"[ERROR] duplicate inferred job_id values in one import batch are not allowed: {', '.join(duplicate_job_ids)}"
+        )
+    imports: list[dict[str, Any]] = []
+    for plan in plans:
+        imported = None
+        imported_at = None
+        if not dry_run:
+            imported_at = utc_now()
+            imported = apply_import_plan(conn, plan, imported_at=imported_at)
+        entry = {
+            "out_base": str(plan["bundle"]["out_base"]),
+            "job_id": plan["job_id"],
+            "correlation_id": plan["correlation_id"],
+            "caller": plan["caller"],
+            "tenant_id": plan["tenant_id"],
+            "dataset_id": plan["dataset_id"],
+            "service_id": plan["service_id"],
+            "action": plan["action"],
+            "existing_job": plan["existing_job"],
+            "incoming": plan["incoming"],
+            "imported_at_utc": imported_at,
+            "result": imported,
+        }
+        if not dry_run:
+            entry["job_state_after"] = existing_job_summary(conn, str(plan["job_id"]))
+        imports.append(entry)
+    if not dry_run:
+        conn.commit()
+    return {
+        "schema": IMPORT_SCHEMA,
+        "generated_at_utc": generated_at,
+        "db_path": None,
+        "mode": "dry_run" if dry_run else "apply",
+        "applied_migrations": [],
+        "summary": summarize_report(imports),
+        "imports": imports,
+        "imported": imports[0]["result"] if len(imports) == 1 else None,
+    }
+
+
 def main() -> int:
-    ap = argparse.ArgumentParser(description="Import one existing pipeline run directory into the sidecar metadata database.")
-    ap.add_argument("--out-base", required=True)
+    ap = argparse.ArgumentParser(description="Import one or more existing pipeline run directories into the sidecar metadata database.")
+    ap.add_argument("--out-base", action="append", default=[], help="Run directory to import; may be provided multiple times")
+    ap.add_argument("--out-base-file", default="", help="Optional newline-delimited file of run directories to import")
     ap.add_argument("--db-path", required=True)
+    ap.add_argument("--dry-run", action="store_true", help="Read and reconcile runs without writing to the DB")
     args = ap.parse_args()
 
+    out_bases = collect_out_bases(args)
     conn = connect_db(args.db_path)
     try:
         applied = apply_migrations(conn)
-        result = import_run(conn, Path(args.out_base))
+        report = import_runs(conn, out_bases, dry_run=args.dry_run)
     finally:
         conn.close()
-    print(json.dumps({"db_path": str(Path(args.db_path).resolve()), "applied_migrations": applied, "imported": result}, ensure_ascii=False, indent=2))
+    report["db_path"] = str(Path(args.db_path).resolve())
+    report["applied_migrations"] = applied
+    print(json.dumps(report, ensure_ascii=False, indent=2))
     return 0
 
 

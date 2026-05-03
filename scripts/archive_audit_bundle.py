@@ -147,6 +147,12 @@ def summarize_mainline_contract(audit_chain: Dict[str, Any]) -> Dict[str, Any]:
     )
     findings = payload.get("findings") if isinstance(payload.get("findings"), list) else []
     handoff_cleanup = payload.get("handoff_cleanup") if isinstance(payload.get("handoff_cleanup"), dict) else {}
+    handoff_exposure_assessment = (
+        payload.get("handoff_exposure_assessment")
+        if isinstance(payload.get("handoff_exposure_assessment"), dict)
+        else {}
+    )
+    handoff_mode = payload.get("handoff_mode")
     sse_by_role = role_records(
         [
             record
@@ -186,10 +192,26 @@ def summarize_mainline_contract(audit_chain: Dict[str, Any]) -> Dict[str, Any]:
         )
         for role_name in ("server", "client")
     }
+    server_exposure = (
+        handoff_exposure_assessment.get("server_exposure")
+        if isinstance(handoff_exposure_assessment.get("server_exposure"), dict)
+        else {}
+    )
+    client_exposure = (
+        handoff_exposure_assessment.get("client_exposure")
+        if isinstance(handoff_exposure_assessment.get("client_exposure"), dict)
+        else {}
+    )
     return {
         "schema": payload.get("schema"),
         "status": payload.get("status"),
         "embedded_in_audit_chain": bool(payload),
+        "handoff_mode": handoff_mode if handoff_mode in ("file", "fifo") else None,
+        "handoff_exposure": {
+            "plaintext_exposure_risk": handoff_exposure_assessment.get("plaintext_exposure_risk"),
+            "server": server_exposure.get("exposure_risk"),
+            "client": client_exposure.get("exposure_risk"),
+        },
         "handoff_cleanup": {
             role_name: (
                 handoff_cleanup.get(role_name).get("status")

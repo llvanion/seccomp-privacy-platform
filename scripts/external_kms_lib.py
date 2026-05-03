@@ -109,11 +109,12 @@ def _json_request(config: Dict[str, Any], *,
                   method: str,
                   path: str,
                   payload: Dict[str, Any] | None = None,
-                  admin: bool = False) -> Dict[str, Any]:
+                  admin: bool = False,
+                  bearer_token_override: str = "") -> Dict[str, Any]:
     base_url = endpoint_url(config)
     url = urllib.parse.urljoin(base_url + "/", path.lstrip("/"))
     headers = {"Accept": "application/json"}
-    token = auth_token(config, admin=admin)
+    token = bearer_token_override or auth_token(config, admin=admin)
     if token:
         headers["Authorization"] = f"Bearer {token}"
     data = None
@@ -155,7 +156,8 @@ def resolve_secret_via_external_kms(config: Dict[str, Any], *,
                                     key_name: str,
                                     purpose: str,
                                     caller: str,
-                                    job_id: str) -> Dict[str, Any]:
+                                    job_id: str,
+                                    identity_bearer_token: str = "") -> Dict[str, Any]:
     return _json_request(
         config,
         method="POST",
@@ -167,6 +169,7 @@ def resolve_secret_via_external_kms(config: Dict[str, Any], *,
             "job_id": job_id,
         },
         admin=False,
+        bearer_token_override=identity_bearer_token,
     )
 
 
@@ -175,9 +178,14 @@ def rotate_external_key(config: Dict[str, Any], *,
                         purpose: str,
                         new_version: str,
                         secret_env: str,
+                        secret_ref_kind: str = "",
+                        secret_ref_name: str = "",
+                        secret_ref_version: str = "",
+                        secret_ref_field: str = "",
                         caller: str,
                         activate: bool,
-                        create_key: bool) -> Dict[str, Any]:
+                        create_key: bool,
+                        identity_bearer_token: str = "") -> Dict[str, Any]:
     return _json_request(
         config,
         method="POST",
@@ -187,11 +195,16 @@ def rotate_external_key(config: Dict[str, Any], *,
             "purpose": purpose,
             "new_version": new_version,
             "secret_env": secret_env,
+            "secret_ref_kind": secret_ref_kind,
+            "secret_ref_name": secret_ref_name,
+            "secret_ref_version": secret_ref_version,
+            "secret_ref_field": secret_ref_field,
             "caller": caller,
             "activate": activate,
             "create_key": create_key,
         },
         admin=True,
+        bearer_token_override=identity_bearer_token,
     )
 
 
@@ -199,7 +212,8 @@ def set_external_key_status(config: Dict[str, Any], *,
                             key_name: str,
                             version: str,
                             status: str,
-                            caller: str) -> Dict[str, Any]:
+                            caller: str,
+                            identity_bearer_token: str = "") -> Dict[str, Any]:
     return _json_request(
         config,
         method="POST",
@@ -211,6 +225,7 @@ def set_external_key_status(config: Dict[str, Any], *,
             "caller": caller,
         },
         admin=True,
+        bearer_token_override=identity_bearer_token,
     )
 
 

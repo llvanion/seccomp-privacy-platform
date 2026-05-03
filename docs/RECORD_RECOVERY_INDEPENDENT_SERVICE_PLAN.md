@@ -82,6 +82,13 @@ HTTP 模式最小配置：
 
 1. [record_recovery_http_service.example.json](/home/llvanion/Desktop/seccomp-privacy-platform/config/record_recovery_http_service.example.json)
 
+`authz_config` 现在有两种稳定来源：
+
+1. 直接指向 `sse_export_policy/v1` 或 `record_recovery_service_policy/v1` JSON。
+2. 指向 [record_recovery_authz_sqlite.example.json](/home/llvanion/Desktop/seccomp-privacy-platform/config/record_recovery_authz_sqlite.example.json) 这种 `record_recovery_authz_source/v1` 文件，再由服务端从 metadata SQLite 中重建 caller 权限视图。
+
+第二种模式的目的不是把主链路改成强依赖 SQL，而是让独立 recovery service 在不改授权语义的前提下，可以消费 sidecar/控制面已经导入好的 caller 权限切片。
+
 ### 4.2 服务接口
 
 HTTP 服务当前暴露：
@@ -179,6 +186,16 @@ python3 scripts/manage_record_recovery_service.py status \
   --config config/record_recovery_http_service.example.json
 ```
 
+如果希望服务鉴权改读 metadata SQLite：
+
+```bash
+python3 scripts/run_record_recovery_service.py serve \
+  --config config/record_recovery_http_service.example.json \
+  --authz-config config/record_recovery_authz_sqlite.example.json
+```
+
+或把 `record_recovery_service_config/v1` 里的 `authz_config` 直接改成该 source 文件路径。
+
 ### 5.3 让 export 走外部服务
 
 ```bash
@@ -246,7 +263,7 @@ python3 scripts/manage_record_recovery_service.py render-systemd \
 
 ### 6.2 还没有完全独立的部分
 
-1. authn/authz 仍然是 env token + 本地 JSON policy
+1. authn 仍然是 env token；authz 虽然已可改读 metadata SQLite，但底层仍是单机 SQLite / 已导入 caller 权限切片，不是正式多写者 control plane
 2. 部署仍然主要面向单机 / demo 环境
 3. service discovery 仍然是 endpoint/config 直连
 4. 没有正式的持久化 control plane
@@ -284,6 +301,7 @@ python3 scripts/manage_record_recovery_service.py render-systemd \
 3. `scripts/check_json_contracts.sh` 直接调用 `services.record_recovery.encrypted_record_store` 和 `services.record_recovery.client` 覆盖 Unix-socket / HTTP recovery service 的 contract smoke
 4. `scripts/check_record_recovery_boundary.py` 检查旧 `sse/toolkit` recovery 文件只做兼容 shim，不重新承载函数/类实现
 5. boundary check 输出遵循 [record_recovery_boundary_check.schema.json](/home/llvanion/Desktop/seccomp-privacy-platform/schemas/record_recovery_boundary_check.schema.json)
+6. `scripts/verify_record_recovery_manual_service_replay.sh` 固定 manual external HTTP service 回放：预启动 standalone service，再让 live SSE demo 走 `--record-recovery-service-mode manual`
 
 最近一次验证：
 
@@ -300,10 +318,13 @@ python3 scripts/manage_record_recovery_service.py render-systemd \
 11. `python3 -m py_compile scripts/check_record_recovery_boundary.py`
 12. `python3 -m json.tool schemas/record_recovery_boundary_check.schema.json`
 13. `python3 scripts/validate_json_contract.py --schema schemas/record_recovery_boundary_check.schema.json --json <boundary-check-output>`
+14. `bash scripts/verify_record_recovery_manual_service_replay.sh`
 
 ## 7. 分阶段迁移
 
 ### Phase 1：先把外部服务跑稳
+
+状态：已完成基线收口，manual external service replay 已固定。
 
 目标：
 
@@ -317,6 +338,7 @@ python3 scripts/manage_record_recovery_service.py render-systemd \
 2. pipeline 只认 health contract，不认服务实现细节
 3. 服务 start / request / stop 运行日志可按 `record_recovery_service_log/v1` 校验
 4. 可以从 config 直接生成 deploy artifact，而不是靠 README 手工拼启动命令
+5. `scripts/verify_record_recovery_manual_service_replay.sh` 能预启动 external HTTP recovery service，跑通 `run_live_sse_bridge_demo.sh --record-recovery-service-mode manual`，并校验 `record_recovery_service_health.json`、运行时 config、`mainline_contract_check.json` 与 manager-captured service log
 
 ### Phase 2：把服务从 `sse/` 目录逻辑上拆出来
 
@@ -382,9 +404,10 @@ python3 scripts/manage_record_recovery_service.py render-systemd \
    - 时间戳反重放：`validate_request_timestamp(±30s)`，client 强制携带 `request_timestamp_utc`。
    - HMAC 请求签名：client 生成 `request_id`（UUID）并计算 `HMAC-SHA256(token, "{request_id}:{ts}:{op}")`；服务端对比常数时间校验（`hmac.compare_digest`）；签名验证结果写入审计（`request_signature_verified`, `signature_algorithm`）；HTTP transport 通过 `X-Request-Signature` / `X-Request-Signature-Algorithm` 传递。
    - 完整 mutual TLS 仍需后续推进（需独立 PKI 基础设施）。
-3. 引入服务级 metrics / tracing / structured logs
-4. 把 authz policy 改成 SQL-backed control plane
-5. 把 audit seal / archive 从本地文件推进到外部锚定
+3. ~~补 manual external service replay，确认 pipeline 只依赖 config / health / audit contract，而不是 auto-start 细节~~ ✓ (2026-05-01)：新增 `scripts/verify_record_recovery_manual_service_replay.sh`，它预启动 standalone HTTP recovery service，运行 `run_live_sse_bridge_demo.sh --record-recovery-service-mode manual`，校验 `record_recovery_service_health.json`、`record_recovery_service_config.json`、`mainline_contract_check.json` 与 `record_recovery_service_log/v1`，最后 stop 并确认 pid/ready 生命周期文件被回收。
+4. 引入服务级 metrics / tracing / structured logs
+5. 把 authz policy 改成 SQL-backed control plane
+6. 把 audit seal / archive 从本地文件推进到外部锚定
 
 一句话总结：
 

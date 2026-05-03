@@ -20,7 +20,64 @@
 4. SQLite metadata sidecar 已能导入 `callers`、`tenants`、`datasets`、`services`、`policies`、`policy_bindings`、`caller_permissions`。
 5. `scripts/serve_metadata_api.py`、`scripts/serve_query_workflow_api.py`、`scripts/serve_audit_query_api.py`、`scripts/serve_platform_health_api.py` 已经是天然适合接外层 authn/authz 的 read/write adapter。
 
+当前 sidecar 现在还补了一条 `caller_identities` 基线，通过 `metadata_registry_manifest/v1` 导入外部主体到本地 `caller` 的映射，支持：
+
+1. `issuer`
+2. `subject`
+3. `subject_type`
+4. `service_id`
+5. `platform_roles`
+6. `enabled`
+
+对应入口：
+
+1. `config/metadata_registry.example.json`
+2. `scripts/manage_metadata_db.py apply-registry`
+3. `scripts/query_metadata.py --list-entity caller-identities`
+
+针对本地 adapter/API 层，当前还补了一条更接近真实接入前形态的 bearer token 适配：
+
+1. `schemas/api_identity_token_map.schema.json`
+2. `config/api_identity_tokens.example.json`
+3. `scripts/api_identity.py`
+4. `scripts/serve_metadata_api.py --identity-token-config`
+5. `scripts/serve_query_workflow_api.py --identity-token-config --metadata-db-path`
+6. `scripts/serve_audit_query_api.py --identity-token-config --metadata-db-path`
+7. `scripts/serve_platform_health_api.py --identity-token-config --metadata-db-path`
+8. `scripts/key_agent_service.py --identity-token-config --metadata-db-path`
+9. `scripts/external_kms_service.py --identity-token-config --metadata-db-path`
+10. `services/record_recovery/service.py` / `services/record_recovery/http_service.py --identity-token-config --metadata-db-path`
+
+这条路径的语义是：
+
+1. bearer token 先映射到 `issuer + subject`
+2. 再通过 `caller_identities` 解析成当前平台里的 `caller`
+3. 最后把 `caller` / `tenant_id` 绑定回 metadata query、query workflow request 或 read-service / key-service request
+
+它仍然是本地 demo / adapter-first 基线，不等于真实 OIDC 登录流，但已经把“API token 直接等于平台权限”的粗糙模型推进成了“token -> identity -> caller -> policy”的分层路径。
+
+当前已经落下来的约束是：
+
+1. metadata API 和 query workflow API 会把 identity 绑定回 caller / tenant
+2. query workflow API 现在还会从 sidecar 里的 `caller_permissions` 读 `allowed_dataset_ids` / `allowed_service_ids` / `can_*`，对 query submit 做 scope auto-fill 和越权拒绝
+3. audit query API 会对非特权主体限制为本 caller / tenant 的 completed-run 产物
+4. platform health API 现在对 `platform_admin` / `platform_auditor` 保留全量 read；对 `service_operator` 只开放匹配自身 `service_id` 的 recovery-side health scope，不再是一刀切拒绝
+5. key agent / external KMS read path 也可以接受 identity bearer token，再映射回本地 `caller`
+6. `scripts/platform_api_client.py` 已支持 `--identity-token-env`，便于用统一 CLI 走这条链路
+7. record recovery service 的 unix/http transport 也已经支持 identity bearer token，并继续复用现有 `allowed_callers + authz policy + tenant/service/dataset` 边界
+8. external KMS admin 写路径也已经支持 identity：`platform_admin` 可全量管理，`service_operator` 只允许管理 caller 归属到自身的既有 key，且不能 create-key
+9. 本地 `scripts/manage_keyring.py` 也已经支持 identity admin：`platform_admin` 可全量管理，`service_operator` 只允许管理 `allowed_callers` 包含自身 caller 的既有 key，且不能 create-key
+
 这意味着第一阶段并不缺字段，而是缺统一的身份来源和授权编排。
+
+当前这条线又往前推进了一档，已经不再只是“sidecar 可以认 token”：
+
+1. `scripts/api_identity.py` 现在提供统一的 bearer-token -> `issuer + subject` -> `caller_identities` -> `caller/tenant/service/permission_summary` resolver，metadata/query/audit/platform-health 四个 HTTP adapter 复用同一套入口
+2. `scripts/resolve_api_identity.py` 与 `schemas/api_identity_resolution.schema.json` 已固定一条可单独验证的 identity resolution contract，可直接对账 bearer token 或 issuer/subject 映射
+3. `serve_metadata_api.py` 新增 `/v1/identity`，用于把当前 authenticated identity 和 derived access summary 直接暴露成只读 control-plane 视图
+4. `serve_query_workflow_api.py` 现在把 `dry-run` 与 `execute` 分开治理：`query_submitter` 可做 `dry-run`，`execute` 还要求 `privacy_operator` 或 `platform_admin`
+5. `serve_audit_query_api.py` 现在把 `include_paths=true` 收紧到 `platform_admin` / `platform_auditor`
+6. 这套规则已经被默认 contract smoke 固化，不再只是文档约定
 
 ## 3. 设计原则
 
@@ -360,14 +417,14 @@ OPA 更适合做 admission / routing / API-gate 规则，而不是替代 release
 
 1. `caller` 必须来自 token，不允许请求体覆盖
 2. `tenant_id`、`dataset_id` 必须与 token / FGA scope 一致
-3. execute 权限要比 dry-run 更严格
+3. `dry-run` 至少要求 `query_submitter`；`execute` 还要求 `privacy_operator` 或 `platform_admin`
 
 ### `serve_audit_query_api.py`
 
 检查：
 
 1. 默认只允许 job owner、tenant auditor、platform auditor 读取
-2. `--include-paths` 等高敏选项应只开放给更高权限角色
+2. `--include-paths` 等高敏选项只开放给 `platform_admin` / `platform_auditor`
 
 ### `serve_platform_health_api.py`
 
@@ -412,7 +469,7 @@ OPA 更适合做 admission / routing / API-gate 规则，而不是替代 release
 
 ## 12. 推荐实施顺序
 
-1. 先完成 metadata/query/audit/platform-health API 的统一身份映射。
+1. ~~先完成 metadata/query/audit/platform-health API 的统一身份映射。~~ **已完成（2026-05-03）**：四类 sidecar API 现已复用统一 identity resolver，metadata `/v1/identity` 与 `resolve_api_identity.py` 可直接验证 token 映射与 access summary，query/audit/platform health 的角色门限也已收口到默认 contract smoke。
 2. 再把 metadata sidecar 中的 registry / policy 数据同步到 FGA。
 3. 再给 execute、service admin、health read 等高风险入口补角色和关系限制。
-4. 最后再考虑把 record recovery service 和 external KMS 的 auth token 升级为更正式的身份方案。
+4. 继续把 record recovery service、key agent、external KMS 的 service/admin 路径从共享 token 过渡到更正式的身份方案。

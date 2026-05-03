@@ -97,6 +97,36 @@ python3 scripts/check_platform_health.py \
 The probe verifies the expected files exist and parses `a_psi_run/public_report.json` plus `audit_chain.json` when present.
 For completed runs it now also reports whether `audit_chain.json` embeds `mainline_contract_check/v1`, whether that owner-scope contract check is `status=ok`, whether managed server/client handoff artifacts ended in `removed` / `cleaned` state, and a compact `service_audit_consistency` summary that tells you whether the per-role `server` / `client` recovery-service audit path is `ok`, `fail`, or `not_applicable` relative to the matching SSE export audit records for scope fields, join/value fields, filter hashes, record-store path/hash, and output path/hash/row counts.
 
+### Bridge Handoff Exposure Assessment
+
+Every completed pipeline run embeds a `handoff_exposure_assessment` object in `mainline_contract_check.json`. Read it to determine whether plaintext bridge-ready rows ever touched disk:
+
+```bash
+python3 -c "
+import json, sys
+p = json.load(open(sys.argv[1]))
+ea = p.get('handoff_exposure_assessment') or {}
+print('handoff_mode          :', ea.get('handoff_mode'))
+print('plaintext_exposure_risk:', ea.get('plaintext_exposure_risk'))
+for role in ('server', 'client'):
+    r = ea.get(f'{role}_exposure') or {}
+    print(f'  {role}: type={r.get(\"output_file_type\")} cleanup={r.get(\"cleanup_status\")} risk={r.get(\"exposure_risk\")}')
+" tmp/sse_bridge_pipeline_demo/mainline_contract_check.json
+```
+
+`plaintext_exposure_risk` interpretation:
+
+| Value | Meaning |
+| ----- | ------- |
+| `none` | FIFO handoff used for all roles; no plaintext CSV was written to disk. |
+| `low` | File handoff used, but both roles cleaned up (CSV deleted after `bridge prepare-job`). Transient exposure only. |
+| `elevated` | File handoff retained on disk (`--keep-sse-export-handoff-files`). Plaintext still present. Investigate `retention_reason`. |
+| `unknown` | Handoff mode or cleanup status could not be determined from audit records. |
+
+For normal pipeline runs the expected value is `none` (FIFO mode) or `low` (default file mode with cleanup). `elevated` should only appear when `--keep-sse-export-handoff-files --handoff-retention-reason <text>` was explicitly passed, in which case `retention_reason` is also recorded in `handoff_cleanup.*.retention_reason`.
+
+File mode carries higher plaintext exposure than FIFO mode. When both modes are available, prefer `--sse-export-handoff-mode fifo`. File mode is kept as the compatibility and debugging path; it is not the recommended production path.
+
 ### Metadata DB
 
 Check a sidecar metadata DB:
@@ -118,6 +148,10 @@ python3 scripts/manage_metadata_db.py backup \
   --db-path tmp/platform_metadata.db \
   --out-path tmp/platform_metadata.backup.db
 
+python3 scripts/manage_metadata_db.py restore \
+  --backup-db-path tmp/platform_metadata.backup.db \
+  --out-db-path tmp/platform_metadata.restored.db
+
 python3 scripts/manage_metadata_db.py export-json \
   --db-path tmp/platform_metadata.db \
   --out-path tmp/platform_metadata.export.json
@@ -131,8 +165,9 @@ Use them as follows:
 
 1. `status`: inspect applied/pending migrations, table counts, latest imported job, and DB file digest through `metadata_db_status/v1`
 2. `backup`: create a consistent SQLite copy via the backup API, emitting `metadata_db_backup/v1`
-3. `export-json`: materialize a portable sidecar snapshot with status, job list, registry/policy entities, and sample artifacts as `metadata_db_export/v1`
-4. `export_authz_tuples.py`: materialize the current caller/tenant/dataset/service authz slice as `authz_tuple_export/v1`, either from the sidecar DB or directly from a policy file, for OpenFGA-style relationship sync without changing the frozen pipeline contracts
+3. `restore`: restore a fresh SQLite copy from a backup DB, emitting `metadata_db_restore/v1` with embedded `restored_status`
+4. `export-json`: materialize a portable sidecar snapshot with status, job list, registry/policy entities, and sample artifacts as `metadata_db_export/v1`
+5. `export_authz_tuples.py`: materialize the current caller/tenant/dataset/service authz slice as `authz_tuple_export/v1`, either from the sidecar DB or directly from a policy file, for OpenFGA-style relationship sync without changing the frozen pipeline contracts
 
 ## Combined Check
 
@@ -425,6 +460,58 @@ python3 scripts/check_dependency_hygiene.py
 
 This check is intentionally offline. It verifies first-party Python requirement files and Cargo manifests for basic reproducibility hygiene, while skipping vendored/generated external dependency snapshots.
 
+## Malformed-Input Gate
+
+Run the negative-test (fuzz) gate to verify that the repo's JSON schema validators actively reject all known classes of malformed input:
+
+```bash
+python3 scripts/check_malformed_input_gate.py --out /tmp/malformed_gate.json
+```
+
+This gate systematically mutates minimal-valid reference payloads for eight core schemas and asserts every mutation is rejected:
+
+| Mutation type | What it tests |
+| --- | --- |
+| `missing_required` | Validator catches missing required field |
+| `const_violation` | `const`-typed fields (e.g. `schema`, `event`) reject wrong values |
+| `enum_violation` | Enum-constrained fields reject out-of-enum values |
+| `wrong_type_*` | Type-mismatched values are rejected (string→int, int→string, etc.) |
+| `extra_property` | `additionalProperties: false` schemas reject unknown keys |
+| `min_length_violation` | `minLength` fields reject the empty string |
+| `minimum_violation` | `minimum` numeric constraints reject below-floor values |
+| `invalid_json` | Truncated/malformed JSON is rejected |
+| `null_root` / `array_root` / `string_root` / `number_root` | Non-object roots are rejected |
+
+The gate exits non-zero if any mutation is **not** rejected. The output is a `malformed_input_gate/v1` JSON report validated against `schemas/malformed_input_gate.schema.json`. Both `check_ci_smoke.sh` and `check_json_contracts.sh` run this gate automatically.
+
+## Pre-Release Gate
+
+Run the consolidated pre-release gate to verify all fast contract-check and benchmark sub-checks pass before shipping:
+
+```bash
+python3 scripts/check_pre_release_gate.py --out /tmp/pre_release_gate.json --verbose
+```
+
+This runs 11 sub-checks and produces a `pre_release_gate/v1` machine-readable report:
+
+| Gate | What it checks |
+| --- | --- |
+| `repo_hygiene` | `scan_repo_hygiene.py` — secrets and tracked generated artifacts |
+| `dependency_hygiene` | `check_dependency_hygiene.py` — Python/Cargo manifest reproducibility |
+| `schema_backcompat` | `check_schema_backcompat.py` — frozen schema fields haven't disappeared |
+| `malformed_input` | `check_malformed_input_gate.py` — 191 malformed-input mutations all rejected |
+| `record_recovery_boundary` | `check_record_recovery_boundary.py` — boundary contract check |
+| `query_workflow_benchmark` | `benchmark_query_workflow.py` — dry-run workflow timing contract |
+| `read_adapter_benchmark` | `benchmark_read_adapters.py` — read adapter timing contract |
+| `record_recovery_benchmark` | `benchmark_record_recovery.py` — recovery service timing contract |
+| `audit_bundle_benchmark` | `benchmark_audit_bundle.py` — archive/verify timing contract |
+| `platform_health_benchmark` | `benchmark_platform_health.py` — health check timing contract |
+| `derived_views_benchmark` | `benchmark_derived_views.py` — observability/catalog timing contract |
+
+Each gate is timed (`duration_ms`), its output validated against its registered schema (`output_schema_valid: true`), and the consolidated report is itself validated against `schemas/pre_release_gate.schema.json`. Both `check_ci_smoke.sh` and `check_json_contracts.sh` run the full gate automatically.
+
+Attach the output JSON to release artifacts to document gate state at the time of release.
+
 ## Schema Backward-Compatibility Check
 
 Run the frozen-schema compatibility check:
@@ -544,10 +631,10 @@ python3 scripts/benchmark_pipeline.py \
 This emits `pipeline_benchmark/v1` and currently compares:
 
 1. `scripts/run_sse_bridge_pipeline.sh` with normal file handoff
-2. `scripts/run_sse_bridge_pipeline.sh --keep-sse-export-handoff-files`
+2. `scripts/run_sse_bridge_pipeline.sh --keep-sse-export-handoff-files --handoff-retention-reason ops_retained_handoff_debug`
 3. `scripts/run_sse_bridge_pipeline.sh --sse-export-handoff-mode fifo`
 
-The benchmark runs the real pipeline against the example bridge inputs and validates that the output still produces `intersection_size=2` and `intersection_sum=425`. It also verifies that managed `server` / `client` handoff artifacts end in the expected owner-visible state for the selected mode: `cleaned` for default file handoff, `retained` for the explicit compatibility mode, and `removed` for FIFO. The result rows now also emit `mainline_contract_check_embedded` plus per-role `handoff_cleanup_*` status and `exists_after_run` fields, so retained-vs-cleaned-vs-removed outcomes remain visible after the run instead of only being enforced internally by the benchmark script. It is intentionally not part of default contract smoke because it is slower and more environment-sensitive than the sidecar-only benchmarks.
+The benchmark runs the real pipeline against the example bridge inputs and validates that the output still produces `intersection_size=2` and `intersection_sum=425`. It also verifies that managed `server` / `client` handoff artifacts end in the expected owner-visible state for the selected mode: `cleaned` for default file handoff, `retained` for the explicit compatibility mode, and `removed` for FIFO. In the retained mode it also expects `mainline_contract_check.json` to carry the explicit `retention_reason`. The result rows now also emit `mainline_contract_check_embedded` plus per-role `handoff_cleanup_*` status and `exists_after_run` fields, so retained-vs-cleaned-vs-removed outcomes remain visible after the run instead of only being enforced internally by the benchmark script. It is intentionally not part of default contract smoke because it is slower and more environment-sensitive than the sidecar-only benchmarks.
 
 Benchmark the standalone PJC runner over a prepared bridge fixture:
 
@@ -578,10 +665,10 @@ python3 scripts/benchmark_live_sse_demo.py \
 This emits `live_sse_benchmark/v1` and currently measures:
 
 1. `scripts/run_live_sse_bridge_demo.sh`
-2. `scripts/run_live_sse_bridge_demo.sh --keep-sse-export-handoff-files`
+2. `scripts/run_live_sse_bridge_demo.sh --keep-sse-export-handoff-files --handoff-retention-reason ops_live_retained_handoff_debug`
 3. `scripts/run_live_sse_bridge_demo.sh --sse-export-handoff-mode fifo`
 
-The benchmark starts or reuses the local SSE server, bootstraps a fresh demo service, runs the live pipeline, and validates that the final result still normalizes to `intersection_size=2` and `intersection_sum=425`. It also verifies that managed `server` / `client` handoff artifacts end in the expected owner-visible state for the selected mode: `cleaned` for default file handoff, `retained` for the explicit compatibility mode, and `removed` for FIFO. The result rows now also emit `mainline_contract_check_embedded` plus per-role `handoff_cleanup_*` status and `exists_after_run` fields, so retained-vs-cleaned-vs-removed outcomes stay visible in the benchmark report itself. It accepts the public-report amount whether it appears as display value, raw integer, or cents field, but it is intentionally not part of default contract smoke because it is the most environment-sensitive local benchmark path.
+The benchmark starts or reuses the local SSE server, bootstraps a fresh demo service, runs the live pipeline, and validates that the final result still normalizes to `intersection_size=2` and `intersection_sum=425`. It also verifies that managed `server` / `client` handoff artifacts end in the expected owner-visible state for the selected mode: `cleaned` for default file handoff, `retained` for the explicit compatibility mode, and `removed` for FIFO. In the retained mode it also expects `mainline_contract_check.json` to carry the explicit `retention_reason`. The result rows now also emit `mainline_contract_check_embedded` plus per-role `handoff_cleanup_*` status and `exists_after_run` fields, so retained-vs-cleaned-vs-removed outcomes stay visible in the benchmark report itself. It accepts the public-report amount whether it appears as display value, raw integer, or cents field, but it is intentionally not part of default contract smoke because it is the most environment-sensitive local benchmark path.
 
 Benchmark the audit archive and verification entrypoints:
 
@@ -682,6 +769,152 @@ python3 scripts/validate_json_contract.py \
   --schema schemas/catalog_lineage.schema.json \
   --json tmp/sse_bridge_pipeline_demo/catalog_lineage.json
 ```
+
+## Operator Readiness Check
+
+Before any deployment, run the operator readiness gate to verify configuration, example data, and the full pre-release gate:
+
+```bash
+python3 scripts/check_operator_readiness.py --out /tmp/operator_readiness.json --verbose
+```
+
+This produces an `operator_readiness/v1` JSON report covering:
+
+| Check | What it validates |
+| --- | --- |
+| `config_example_files` | All 9 example config files in `config/` and `sse/config/` validate against their schemas |
+| `bridge_example_data` | Bridge example CSVs and JSONL input files are present |
+| `pre_release_gate` | Full 11-gate pre-release gate passes |
+
+The report also catalogs all 8 platform `SECCOMP_*` env vars and shows which are set in the current shell. Use this to identify any missing secrets before deployment. The check exits non-zero if any check fails. Attach the output JSON as a deployment artifact.
+
+## Pre-Deployment Checklist
+
+Run through this checklist before deploying a new version or configuration:
+
+**Step 1 — Validate the codebase**
+
+```bash
+bash scripts/check_ci_smoke.sh
+```
+
+Expected: `[ok] CI smoke checks passed`
+
+**Step 2 — Run the operator readiness gate**
+
+```bash
+python3 scripts/check_operator_readiness.py --out /tmp/operator_readiness_$(date +%Y%m%d).json --verbose
+```
+
+Expected: `3 checks, 3 passed, 0 failed → ok`
+
+Check the `env_var_catalog` in the report — any `"set": false` entry that is required for your deployment scenario must be exported before proceeding.
+
+**Step 3 — Verify replay contracts**
+
+```bash
+bash scripts/verify_pipeline_replay.sh
+bash scripts/verify_fifo_handoff_replay.sh
+```
+
+Expected: both replays pass with `intersection_size=2` and `intersection_sum=425`.
+
+**Step 4 — Archive the audit bundle from the verification run**
+
+After any pipeline run produces `audit_chain.json` + `audit_chain.seal.json`:
+
+```bash
+SECCOMP_AUDIT_ARCHIVE_ANCHOR_KEY="<anchor-key>" \
+python3 scripts/archive_audit_bundle.py \
+  --audit-chain <out-base>/audit_chain.json \
+  --audit-seal  <out-base>/audit_chain.seal.json \
+  --archive-dir <archive-dir> \
+  --job-id      <job-id> \
+  --anchor-key-env SECCOMP_AUDIT_ARCHIVE_ANCHOR_KEY
+```
+
+**Step 5 — Verify the archived bundle**
+
+```bash
+python3 scripts/verify_audit_bundle.py \
+  --archive-index <archive-dir>/audit_chain_index.jsonl \
+  --job-id <job-id> \
+  --anchor-key-env SECCOMP_AUDIT_ARCHIVE_ANCHOR_KEY
+```
+
+Expected: `signature_verified: true`, `anchor_log_verified: true`.
+
+**Step 6 — Confirm platform health after deploy**
+
+```bash
+python3 scripts/check_platform_health.py --output /tmp/post_deploy_health.json
+```
+
+Inspect `summary.status` — `"ok"` or `"warn"` is acceptable; `"error"` requires investigation before declaring the deployment complete.
+
+## Failure Recovery Decision Tree
+
+Use this tree when a check or service reports an unexpected failure.
+
+### CI Smoke Fails
+
+1. **`py_compile` error** → fix the syntax error in the named script; rerun.
+2. **Schema validation error** → check the output file against the schema diff; if the schema changed, update `config/schema_backcompat_baseline.json` and re-validate.
+3. **`scan_repo_hygiene.py --fail-on-warn`** → open findings, remove or `.gitignore` tracked generated artifacts.
+4. **`check_schema_backcompat.py` failed** → a stable property was removed or a required field disappeared from a frozen schema; restore it or file a change request.
+5. **`verify_pipeline_replay.sh` failed** → check `intersection_size` and `intersection_sum`; if wrong, the bridge binary or normalizer changed; compare against last known-good fixture.
+6. **`verify_fifo_handoff_replay.sh` failed** → check `handoff_mode=fifo` and `exposure_risk=none`; if FIFO artifacts still exist after the run, the cleanup path broke.
+
+### Audit Bundle Integrity Failure
+
+1. **`artifact_sha256_verified: false`** → the audit chain was modified after sealing.
+   - If source files are intact: `python3 scripts/seal_audit_artifact.py --input <chain> --out <seal> --job-id <id>` and re-archive.
+   - If chain is corrupted: restore from `<archive-dir>/audit_chains/` using `verify_audit_bundle.py --restore-dir <dir>`.
+2. **`signature_verified: false`** → the HMAC seal key does not match; confirm the `--hmac-key-env` value is identical to what was used at seal time.
+3. **`anchor_log_verified: false`** → the anchor chain was tampered; review `audit_chain_anchor.jsonl` for gaps and compare with archived copies.
+
+### Record Recovery Service Failure
+
+1. **Service does not start** → check `record_recovery_service_health.json` for `status` and `pid_file` errors; verify socket path and directory permissions.
+2. **`request_signature_verified: false`** → the client HMAC key does not match the service's `hmac_key_env`; re-export the correct key.
+3. **`reason_code: request_expired`** → the client's `request_timestamp_utc` is more than 30 s away from server time; sync clocks or widen the window in the service config.
+4. **`authz: deny`** → the caller is not listed in the recovery policy; add the caller to `sse_export_policy/v1` or the SQLite authz source.
+
+### Platform Health Reports Error
+
+```bash
+python3 scripts/check_platform_health.py | python3 -c \
+  "import sys,json; d=json.load(sys.stdin); [print(c['name'], c['status'], c.get('error','')) for c in d['checks'] if c['status']!='ok']"
+```
+
+Follow the component-specific guidance above for each failing check name.
+
+## SLO Baseline
+
+The table below documents the **expected performance floor** for each benchmark gate, derived from the pre-release gate's `--iterations 1` timing on the reference machine. Values are soft targets: exceeding them in CI does not automatically fail a gate, but a 5× regression warrants investigation.
+
+| Gate | Typical duration | Notes |
+| --- | ---: | --- |
+| `repo_hygiene` | < 500 ms | Scales with tracked-file count |
+| `dependency_hygiene` | < 500 ms | Reads manifests only |
+| `schema_backcompat` | < 100 ms | In-memory comparison |
+| `malformed_input` | < 10 s | 191 subprocess validator calls |
+| `record_recovery_boundary` | < 100 ms | JSON read only |
+| `query_workflow_benchmark` | < 5 s | Dry-run only, no bridge |
+| `read_adapter_benchmark` | < 5 s | Synthetic DB fixture |
+| `record_recovery_benchmark` | < 5 s | Synthetic record store |
+| `audit_bundle_benchmark` | < 3 s | Synthetic HMAC bundle |
+| `platform_health_benchmark` | < 5 s | Synthetic probe only |
+| `derived_views_benchmark` | < 3 s | Synthetic audit_chain fixture |
+| `operator_readiness (full)` | < 20 s | Runs pre_release_gate internally |
+
+To capture a fresh baseline after environment changes:
+
+```bash
+python3 scripts/check_pre_release_gate.py --out /tmp/gate_baseline_$(date +%Y%m%d).json --verbose
+```
+
+Store the output alongside release artifacts so future comparisons have a concrete reference point.
 
 ## Troubleshooting
 

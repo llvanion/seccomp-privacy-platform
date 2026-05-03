@@ -140,7 +140,7 @@ pipeline_benchmark/v1
 This benchmark measures the integrated file-mode pipeline entrypoint itself, including the explicit retained file-handoff compatibility mode:
 
 1. `scripts/run_sse_bridge_pipeline.sh` with regular file handoff
-2. `scripts/run_sse_bridge_pipeline.sh --keep-sse-export-handoff-files`
+2. `scripts/run_sse_bridge_pipeline.sh --keep-sse-export-handoff-files --handoff-retention-reason benchmark_file_handoff_retained`
 3. `scripts/run_sse_bridge_pipeline.sh --sse-export-handoff-mode fifo`
 
 Example:
@@ -160,6 +160,7 @@ What it validates on each successful run:
 4. `a_psi_run/public_report.json`, `audit_chain.json`, and `mainline_contract_check.json` exist
 5. `audit_chain.json` embeds the same `mainline_contract_check/v1` payload as the sidecar file
 6. managed `server` / `client` handoff artifacts end in the expected state for the selected mode: `cleaned` for default file handoff, `retained` for explicit compatibility retention, and `removed` for FIFO
+7. retained file-handoff mode also records the expected `retention_reason` in `mainline_contract_check.json`
 
 The emitted benchmark result rows now also carry that owner-facing handoff summary explicitly through `mainline_contract_check_embedded`, `handoff_cleanup_server_status`, `handoff_cleanup_client_status`, `handoff_cleanup_server_exists_after_run`, and `handoff_cleanup_client_exists_after_run`, so downstream smoke checks do not need to infer retained-vs-cleaned-vs-removed semantics from stderr or rerun the pipeline.
 
@@ -218,7 +219,7 @@ live_sse_benchmark/v1
 This benchmark measures the live SSE-backed wrapper over default file cleanup, explicit retained file-handoff compatibility mode, and FIFO handoff:
 
 1. `scripts/run_live_sse_bridge_demo.sh`
-2. `scripts/run_live_sse_bridge_demo.sh --keep-sse-export-handoff-files`
+2. `scripts/run_live_sse_bridge_demo.sh --keep-sse-export-handoff-files --handoff-retention-reason benchmark_live_file_handoff_retained`
 3. `scripts/run_live_sse_bridge_demo.sh --sse-export-handoff-mode fifo`
 
 Example:
@@ -238,6 +239,7 @@ What it validates on each successful run:
 4. the final result still normalizes to `intersection_sum=425`, whether the public report exposes display, raw, or cents fields
 5. `audit_chain.json` embeds the same `mainline_contract_check/v1` payload as the sidecar file
 6. managed `server` / `client` handoff artifacts end in the expected cleanup state for the selected mode: `cleaned` for default file handoff, `retained` for explicit compatibility retention, and `removed` for FIFO
+7. retained live-demo handoff mode also records the expected `retention_reason` in `mainline_contract_check.json`
 
 The emitted benchmark result rows now also carry that owner-facing handoff summary explicitly through `mainline_contract_check_embedded`, `handoff_cleanup_server_status`, `handoff_cleanup_client_status`, `handoff_cleanup_server_exists_after_run`, and `handoff_cleanup_client_exists_after_run`, so downstream smoke checks can assert the retained/default/FIFO cleanup contract directly from the report.
 

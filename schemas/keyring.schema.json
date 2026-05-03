@@ -43,18 +43,44 @@
                   "format": "date-time"
                 },
                 "secret_ref": {
-                  "type": "object",
-                  "required": ["kind", "name"],
-                  "properties": {
-                    "kind": {
-                      "const": "env"
+                  "oneOf": [
+                    {
+                      "type": "object",
+                      "required": ["kind", "name"],
+                      "properties": {
+                        "kind": {
+                          "const": "env"
+                        },
+                        "name": {
+                          "type": "string",
+                          "minLength": 1
+                        }
+                      },
+                      "additionalProperties": false
                     },
-                    "name": {
-                      "type": "string",
-                      "minLength": 1
+                    {
+                      "type": "object",
+                      "required": ["kind", "name"],
+                      "properties": {
+                        "kind": {
+                          "const": "vault_kv"
+                        },
+                        "name": {
+                          "type": "string",
+                          "minLength": 1
+                        },
+                        "version": {
+                          "type": "string",
+                          "minLength": 1
+                        },
+                        "field": {
+                          "type": "string",
+                          "minLength": 1
+                        }
+                      },
+                      "additionalProperties": false
                     }
-                  },
-                  "additionalProperties": false
+                  ]
                 }
               },
               "additionalProperties": false

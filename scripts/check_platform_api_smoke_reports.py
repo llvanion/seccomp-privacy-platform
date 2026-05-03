@@ -63,6 +63,37 @@ def require_mainline_summary_counts(result: dict[str, Any], *, label: str, expec
     )
 
 
+def require_pagination(
+    result: dict[str, Any],
+    *,
+    label: str,
+    limit: int,
+    offset: int,
+    returned_count: int,
+    total_matching_count: int,
+    has_more: bool,
+) -> None:
+    pagination = result.get("pagination") or {}
+    require(pagination.get("limit") == limit, f"{label} returned wrong pagination limit: {result}")
+    require(pagination.get("offset") == offset, f"{label} returned wrong pagination offset: {result}")
+    require(pagination.get("returned_count") == returned_count, f"{label} returned wrong pagination returned_count: {result}")
+    require(
+        pagination.get("total_matching_count") == total_matching_count,
+        f"{label} returned wrong pagination total_matching_count: {result}",
+    )
+    require(pagination.get("has_more") is has_more, f"{label} returned wrong pagination has_more: {result}")
+    expected_next_offset = offset + returned_count if has_more else None
+    expected_previous_offset = max(offset - limit, 0) if offset > 0 else None
+    require(
+        pagination.get("next_offset") == expected_next_offset,
+        f"{label} returned wrong pagination next_offset: {result}",
+    )
+    require(
+        pagination.get("previous_offset") == expected_previous_offset,
+        f"{label} returned wrong pagination previous_offset: {result}",
+    )
+
+
 def expect_query_submission_wrapper(
     payload: dict[str, Any],
     *,
@@ -100,8 +131,12 @@ def expect_query_submission_wrapper(
                 require(required_path in command,
                         f"query workflow wrapper did not resolve request-relative path {required_path}: {payload}")
     else:
+        require(summary.get("handoff_retention_reason") == "contract_keep_fixture",
+                f"query workflow keep wrapper lost handoff retention reason: {payload}")
         require("--keep-sse-export-handoff-files" in command,
                 f"query workflow keep wrapper lost explicit keep handoff flag: {payload}")
+        require("--handoff-retention-reason" in command and "contract_keep_fixture" in command,
+                f"query workflow keep wrapper lost explicit retained handoff reason: {payload}")
         require("--cleanup-sse-export-handoff-files-after-bridge" not in command,
                 f"query workflow keep wrapper emitted conflicting cleanup flag: {payload}")
 
@@ -188,6 +223,7 @@ def validate_metadata_api(tmp_dir: Path) -> None:
     jobs = load(tmp_dir / "metadata_api_jobs.json")
     policies = load(tmp_dir / "metadata_api_policies.json")
     permissions = load(tmp_dir / "metadata_api_permissions.json")
+    permissions_page = load(tmp_dir / "metadata_api_permissions_page.json")
     client_job = load(tmp_dir / "metadata_api_client_job.json")
     client_jobs = load(tmp_dir / "metadata_api_client_jobs.json")
     client_permissions = load(tmp_dir / "metadata_api_client_permissions.json")
@@ -199,7 +235,7 @@ def validate_metadata_api(tmp_dir: Path) -> None:
         require(payload.get("auth_required") is True,
                 f"metadata API health endpoint did not report auth requirement: {payload}")
 
-    for payload in (job, jobs, policies, permissions, client_job, client_jobs, client_permissions):
+    for payload in (job, jobs, policies, permissions, permissions_page, client_job, client_jobs, client_permissions):
         require(payload.get("schema") == "metadata_api_response/v1",
                 f"metadata API returned unexpected response schema: {payload}")
 
@@ -212,6 +248,15 @@ def validate_metadata_api(tmp_dir: Path) -> None:
             f"metadata API jobs list returned unexpected rows: {jobs}")
     require(((jobs.get("result") or {}).get("filters") or {}).get("stage") == "bridge",
             f"metadata API jobs list lost stage filter: {jobs}")
+    require_pagination(
+        jobs.get("result") or {},
+        label="metadata API jobs list",
+        limit=5,
+        offset=0,
+        returned_count=1,
+        total_matching_count=1,
+        has_more=False,
+    )
     require_mainline_summary(jobs_result[0].get("mainline_contract_summary") or {}, label="metadata API jobs list")
     require_mainline_summary_counts(jobs.get("result") or {}, label="metadata API jobs list", expected_job_count=1)
 
@@ -220,16 +265,43 @@ def validate_metadata_api(tmp_dir: Path) -> None:
             f"platform API client metadata jobs returned unexpected rows: {client_jobs}")
     require(((client_jobs.get("result") or {}).get("filters") or {}).get("stage") == "bridge",
             f"platform API client metadata jobs lost stage filter: {client_jobs}")
+    require_pagination(
+        client_jobs.get("result") or {},
+        label="platform API client metadata jobs",
+        limit=5,
+        offset=0,
+        returned_count=1,
+        total_matching_count=1,
+        has_more=False,
+    )
     require_mainline_summary(client_jobs_result[0].get("mainline_contract_summary") or {}, label="platform API client metadata jobs")
     require_mainline_summary_counts(client_jobs.get("result") or {}, label="platform API client metadata jobs", expected_job_count=1)
 
     policy_rows = (policies.get("result") or {}).get("items") or []
     require(any(row.get("schema_name") == "sse_export_policy/v1" for row in policy_rows),
             f"metadata API policy list missing export policy: {policies}")
+    require_pagination(
+        policies.get("result") or {},
+        label="metadata API policy list",
+        limit=5,
+        offset=0,
+        returned_count=len(policy_rows),
+        total_matching_count=len(policy_rows),
+        has_more=False,
+    )
 
     permission_rows = (permissions.get("result") or {}).get("items") or []
     require(any(row.get("permission_key") == "can_run_bridge" for row in permission_rows),
             f"metadata API caller permission list missing can_run_bridge: {permissions}")
+    require_pagination(
+        permissions.get("result") or {},
+        label="metadata API caller permission list",
+        limit=20,
+        offset=0,
+        returned_count=len(permission_rows),
+        total_matching_count=len(permission_rows),
+        has_more=False,
+    )
     permission_summary = ((permissions.get("result") or {}).get("permission_summary") or {})
     require(permission_summary.get("caller_count") == 1, f"metadata API caller permission summary returned wrong caller_count: {permissions}")
     require(permission_summary.get("callers") == ["auto_demo"], f"metadata API caller permission summary returned wrong callers: {permissions}")
@@ -244,6 +316,24 @@ def validate_metadata_api(tmp_dir: Path) -> None:
     require(len(access_profiles) == 1 and access_profiles[0].get("access_profile") == "commerce_ops_owner", f"metadata API caller permission summary returned wrong access profiles: {permissions}")
     permission_flags = permission_summary.get("permissions") or {}
     require(((permission_flags.get("can_run_pjc") or {}).get("true")) == 1, f"metadata API caller permission summary returned wrong can_run_pjc: {permissions}")
+    paged_permission_rows = (permissions_page.get("result") or {}).get("items") or []
+    require(
+        len(paged_permission_rows) == 2 and all(row.get("caller") == "auto_demo" for row in paged_permission_rows),
+        f"metadata API paged permission list returned unexpected rows: {permissions_page}",
+    )
+    require_pagination(
+        permissions_page.get("result") or {},
+        label="metadata API paged permission list",
+        limit=2,
+        offset=2,
+        returned_count=2,
+        total_matching_count=len(permission_rows),
+        has_more=True,
+    )
+    require(
+        ((permissions_page.get("result") or {}).get("permission_summary") or {}).get("caller_count") == 1,
+        f"metadata API paged permission list lost full permission summary: {permissions_page}",
+    )
 
     client_job_result = (client_job.get("result") or {}).get("job") or {}
     require(client_job_result.get("job_id") == "contract-check",
@@ -252,6 +342,15 @@ def validate_metadata_api(tmp_dir: Path) -> None:
     client_permission_rows = (client_permissions.get("result") or {}).get("items") or []
     require(any(row.get("permission_key") == "can_run_bridge" for row in client_permission_rows),
             f"platform API client metadata query missing can_run_bridge: {client_permissions}")
+    require_pagination(
+        client_permissions.get("result") or {},
+        label="platform API client metadata permissions",
+        limit=20,
+        offset=0,
+        returned_count=len(client_permission_rows),
+        total_matching_count=len(client_permission_rows),
+        has_more=False,
+    )
     client_permission_summary = ((client_permissions.get("result") or {}).get("permission_summary") or {})
     require(client_permission_summary.get("caller_count") == 1, f"platform API client caller permission summary returned wrong caller_count: {client_permissions}")
     require(client_permission_summary.get("callers") == ["auto_demo"], f"platform API client caller permission summary returned wrong callers: {client_permissions}")
@@ -461,6 +560,62 @@ def validate_platform_health_cli(tmp_dir: Path) -> None:
     validate_platform_health_payload(load(tmp_dir / "platform_health.json"), label="platform health check")
 
 
+def validate_identity_api_authz(tmp_dir: Path) -> None:
+    metadata_identity = load(tmp_dir / "metadata_api_identity.json")
+    metadata_policies_forbidden = load(tmp_dir / "metadata_api_identity_forbidden_policies.json")
+    query_identity_dry_run = load(tmp_dir / "query_workflow_identity_dry_run.json")
+    query_identity_execute_forbidden = load(tmp_dir / "query_workflow_identity_execute_forbidden.json")
+    audit_identity_public_report = load(tmp_dir / "audit_query_api_identity_public_report.json")
+    audit_identity_include_paths_forbidden = load(tmp_dir / "audit_query_api_identity_include_paths_forbidden.json")
+    platform_health_identity_forbidden = load(tmp_dir / "platform_health_api_identity_forbidden.json")
+
+    require(metadata_identity.get("schema") == "metadata_api_response/v1", f"metadata identity endpoint returned wrong schema: {metadata_identity}")
+    identity_result = metadata_identity.get("result") or {}
+    require(identity_result.get("schema") == "api_identity_resolution/v1", f"metadata identity endpoint returned wrong result: {metadata_identity}")
+    resolved = identity_result.get("identity") or {}
+    access_summary = identity_result.get("access_summary") or {}
+    require(resolved.get("caller") == "commerce_ops_demo", f"metadata identity endpoint returned wrong caller: {metadata_identity}")
+    require(access_summary.get("query_execute_allowed") is True, f"metadata identity endpoint returned wrong execute scope: {metadata_identity}")
+    require(access_summary.get("metadata_privileged") is False, f"metadata identity endpoint returned wrong metadata scope: {metadata_identity}")
+
+    require_error_contains(
+        metadata_policies_forbidden,
+        schema="metadata_api_error/v1",
+        text="privileged platform role",
+        label="metadata identity policies forbidden payload",
+    )
+
+    require(query_identity_dry_run.get("schema") == "query_workflow_api_response/v1", f"identity query dry-run returned wrong schema: {query_identity_dry_run}")
+    dry_run_identity = ((query_identity_dry_run.get("result") or {}).get("authenticated_identity") or {})
+    require(dry_run_identity.get("caller") == "marketing_analyst_demo", f"identity query dry-run returned wrong identity: {query_identity_dry_run}")
+    dry_run_manifest = (query_identity_dry_run.get("result") or {}).get("manifest") or {}
+    require(dry_run_manifest.get("schema") == "query_workflow_submission/v1", f"identity query dry-run returned wrong manifest: {query_identity_dry_run}")
+
+    require_error_contains(
+        query_identity_execute_forbidden,
+        schema="query_workflow_api_error/v1",
+        text="privacy_operator or platform_admin",
+        label="identity query execute forbidden payload",
+    )
+
+    require(audit_identity_public_report.get("schema") == "audit_query_api_response/v1", f"identity audit public report returned wrong schema: {audit_identity_public_report}")
+    audit_identity = audit_identity_public_report.get("authenticated_identity") or {}
+    require(audit_identity.get("caller") == "auto_demo", f"identity audit public report returned wrong identity: {audit_identity_public_report}")
+
+    require_error_contains(
+        audit_identity_include_paths_forbidden,
+        schema="audit_query_api_error/v1",
+        text="include_paths",
+        label="identity audit include-paths forbidden payload",
+    )
+    require_error_contains(
+        platform_health_identity_forbidden,
+        schema="platform_health_api_error/v1",
+        text="platform_admin, platform_auditor, or service_operator",
+        label="identity platform health forbidden payload",
+    )
+
+
 def build_parser() -> argparse.ArgumentParser:
     ap = argparse.ArgumentParser(description="Validate platform API/query smoke reports materialized by check_json_contracts.sh.")
     ap.add_argument("--tmp-dir", required=True)
@@ -479,6 +634,7 @@ def main() -> int:
     validate_audit_query_api(tmp_dir)
     validate_platform_health_api(tmp_dir)
     validate_platform_health_cli(tmp_dir)
+    validate_identity_api_authz(tmp_dir)
     return 0
 
 

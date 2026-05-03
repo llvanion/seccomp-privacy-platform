@@ -63,6 +63,12 @@ def resolve_auth_token(env_name: str) -> str:
     return value
 
 
+def resolve_request_auth_token(*, auth_token_env: str, identity_token_env: str) -> str:
+    if identity_token_env:
+        return resolve_auth_token(identity_token_env)
+    return resolve_auth_token(auth_token_env)
+
+
 def request_json(
     *,
     url: str,
@@ -112,6 +118,7 @@ def add_metadata_http_args(parser: argparse.ArgumentParser) -> None:
         default=DEFAULT_METADATA_AUTH_ENV,
         help=f"Bearer-token env var for metadata API calls (default: {DEFAULT_METADATA_AUTH_ENV})",
     )
+    parser.add_argument("--identity-token-env", default="", help="Optional identity bearer-token env var; overrides --auth-token-env")
 
 
 def add_query_http_args(parser: argparse.ArgumentParser) -> None:
@@ -121,6 +128,7 @@ def add_query_http_args(parser: argparse.ArgumentParser) -> None:
         default=DEFAULT_QUERY_AUTH_ENV,
         help=f"Bearer-token env var for query API calls (default: {DEFAULT_QUERY_AUTH_ENV})",
     )
+    parser.add_argument("--identity-token-env", default="", help="Optional identity bearer-token env var; overrides --auth-token-env")
 
 
 def add_audit_http_args(parser: argparse.ArgumentParser) -> None:
@@ -130,6 +138,7 @@ def add_audit_http_args(parser: argparse.ArgumentParser) -> None:
         default=DEFAULT_AUDIT_AUTH_ENV,
         help=f"Bearer-token env var for audit/public-report API calls (default: {DEFAULT_AUDIT_AUTH_ENV})",
     )
+    parser.add_argument("--identity-token-env", default="", help="Optional identity bearer-token env var; overrides --auth-token-env")
 
 
 def add_platform_health_http_args(parser: argparse.ArgumentParser) -> None:
@@ -139,6 +148,7 @@ def add_platform_health_http_args(parser: argparse.ArgumentParser) -> None:
         default=DEFAULT_PLATFORM_HEALTH_AUTH_ENV,
         help=f"Bearer-token env var for platform health API calls (default: {DEFAULT_PLATFORM_HEALTH_AUTH_ENV})",
     )
+    parser.add_argument("--identity-token-env", default="", help="Optional identity bearer-token env var; overrides --auth-token-env")
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -153,6 +163,10 @@ def build_parser() -> argparse.ArgumentParser:
     add_metadata_http_args(metadata_job)
     metadata_job.add_argument("--job-id", required=True)
     add_output_arg(metadata_job)
+
+    metadata_identity = sub.add_parser("metadata-identity", help="GET /v1/identity from the metadata API")
+    add_metadata_http_args(metadata_identity)
+    add_output_arg(metadata_identity)
 
     metadata_jobs = sub.add_parser("metadata-jobs", help="GET /v1/jobs from the metadata API")
     add_metadata_http_args(metadata_jobs)
@@ -221,7 +235,16 @@ def main() -> int:
         payload, exit_code = request_json(
             url=build_url(args.base_url, f"/v1/jobs/{args.job_id}"),
             method="GET",
-            auth_token=resolve_auth_token(args.auth_token_env),
+            auth_token=resolve_request_auth_token(auth_token_env=args.auth_token_env, identity_token_env=args.identity_token_env),
+        )
+        write_output(payload, args.output_file)
+        return exit_code
+
+    if args.command == "metadata-identity":
+        payload, exit_code = request_json(
+            url=build_url(args.base_url, "/v1/identity"),
+            method="GET",
+            auth_token=resolve_request_auth_token(auth_token_env=args.auth_token_env, identity_token_env=args.identity_token_env),
         )
         write_output(payload, args.output_file)
         return exit_code
@@ -230,7 +253,7 @@ def main() -> int:
         payload, exit_code = request_json(
             url=build_url(args.base_url, "/v1/jobs", parse_params(args.param)),
             method="GET",
-            auth_token=resolve_auth_token(args.auth_token_env),
+            auth_token=resolve_request_auth_token(auth_token_env=args.auth_token_env, identity_token_env=args.identity_token_env),
         )
         write_output(payload, args.output_file)
         return exit_code
@@ -239,7 +262,7 @@ def main() -> int:
         payload, exit_code = request_json(
             url=build_url(args.base_url, f"/v1/entities/{args.entity}", parse_params(args.param)),
             method="GET",
-            auth_token=resolve_auth_token(args.auth_token_env),
+            auth_token=resolve_request_auth_token(auth_token_env=args.auth_token_env, identity_token_env=args.identity_token_env),
         )
         write_output(payload, args.output_file)
         return exit_code
@@ -264,7 +287,7 @@ def main() -> int:
         payload, exit_code = request_json(
             url=build_url(args.base_url, path),
             method="POST",
-            auth_token=resolve_auth_token(args.auth_token_env),
+            auth_token=resolve_request_auth_token(auth_token_env=args.auth_token_env, identity_token_env=args.identity_token_env),
             json_body=read_json(str(request_file)),
             extra_headers=headers,
         )
@@ -280,7 +303,7 @@ def main() -> int:
         payload, exit_code = request_json(
             url=build_url(args.base_url, "/v1/public-report"),
             method="GET",
-            auth_token=resolve_auth_token(args.auth_token_env),
+            auth_token=resolve_request_auth_token(auth_token_env=args.auth_token_env, identity_token_env=args.identity_token_env),
         )
         write_output(payload, args.output_file)
         return exit_code
@@ -289,7 +312,7 @@ def main() -> int:
         payload, exit_code = request_json(
             url=build_url(args.base_url, "/v1/audit-chain"),
             method="GET",
-            auth_token=resolve_auth_token(args.auth_token_env),
+            auth_token=resolve_request_auth_token(auth_token_env=args.auth_token_env, identity_token_env=args.identity_token_env),
         )
         write_output(payload, args.output_file)
         return exit_code
@@ -298,7 +321,7 @@ def main() -> int:
         payload, exit_code = request_json(
             url=build_url(args.base_url, "/v1/observability"),
             method="GET",
-            auth_token=resolve_auth_token(args.auth_token_env),
+            auth_token=resolve_request_auth_token(auth_token_env=args.auth_token_env, identity_token_env=args.identity_token_env),
         )
         write_output(payload, args.output_file)
         return exit_code
@@ -308,7 +331,7 @@ def main() -> int:
         payload, exit_code = request_json(
             url=build_url(args.base_url, "/v1/catalog-lineage", params),
             method="GET",
-            auth_token=resolve_auth_token(args.auth_token_env),
+            auth_token=resolve_request_auth_token(auth_token_env=args.auth_token_env, identity_token_env=args.identity_token_env),
         )
         write_output(payload, args.output_file)
         return exit_code
@@ -322,7 +345,7 @@ def main() -> int:
         payload, exit_code = request_json(
             url=build_url(args.base_url, "/v1/platform-health", parse_params(args.param)),
             method="GET",
-            auth_token=resolve_auth_token(args.auth_token_env),
+            auth_token=resolve_request_auth_token(auth_token_env=args.auth_token_env, identity_token_env=args.identity_token_env),
         )
         write_output(payload, args.output_file)
         return exit_code

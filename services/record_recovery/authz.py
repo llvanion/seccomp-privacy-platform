@@ -1,5 +1,6 @@
 # -*- coding:utf-8 _*-
 import json
+import sqlite3
 from pathlib import Path
 
 from services.record_recovery.bootstrap import ensure_repo_paths
@@ -16,19 +17,131 @@ from toolkit.platform_policy import (  # noqa: E402
 
 POLICY_SCHEMA = "record_recovery_service_policy/v1"
 PLATFORM_POLICY_SCHEMA = "sse_export_policy/v1"
+AUTHZ_SOURCE_SCHEMA = "record_recovery_authz_source/v1"
+
+
+def _load_json_object(path: Path) -> dict:
+    with path.open("r", encoding="utf-8") as f:
+        data = json.load(f)
+    if not isinstance(data, dict):
+        raise ValueError(f"{path} must contain a JSON object")
+    return data
+
+
+def _parse_permission_value(value):
+    if value in (None, ""):
+        return None
+    if not isinstance(value, str):
+        return value
+    try:
+        return json.loads(value)
+    except json.JSONDecodeError:
+        return value
+
+
+def _resolve_source_path(base_dir: Path, raw_path: str) -> str:
+    path = Path(str(raw_path))
+    if path.is_absolute():
+        return str(path.resolve())
+    return str((base_dir / path).resolve())
+
+
+def _load_platform_policy_from_metadata_db(
+    *,
+    db_path: str,
+    source_path: Path,
+    policy_id: str,
+    policy_path: str,
+    policy_schema_name: str,
+) -> dict:
+    db_file = Path(db_path)
+    if not db_file.is_file():
+        raise ValueError(f"record recovery authz metadata DB does not exist: {db_file}")
+    conn = sqlite3.connect(str(db_file))
+    conn.row_factory = sqlite3.Row
+    try:
+        query = """
+            SELECT
+              cp.policy_id,
+              p.path AS policy_path,
+              p.schema_name,
+              cp.caller,
+              cp.permission_key,
+              cp.permission_value,
+              cp.imported_at_utc,
+              cp.id
+            FROM caller_permissions cp
+            JOIN policies p ON p.policy_id = cp.policy_id
+            WHERE p.schema_name = ?
+        """
+        params: list[str] = [policy_schema_name]
+        if policy_id:
+            query += " AND cp.policy_id = ?"
+            params.append(policy_id)
+        if policy_path:
+            query += " AND p.path = ?"
+            params.append(policy_path)
+        query += " ORDER BY cp.imported_at_utc DESC, cp.id DESC"
+        rows = conn.execute(query, tuple(params)).fetchall()
+    finally:
+        conn.close()
+
+    callers: dict[str, dict] = {}
+    seen: set[tuple[str, str]] = set()
+    for row in rows:
+        caller = str(row["caller"] or "")
+        permission_key = str(row["permission_key"] or "")
+        if not caller or not permission_key:
+            continue
+        dedupe_key = (caller, permission_key)
+        if dedupe_key in seen:
+            continue
+        seen.add(dedupe_key)
+        callers.setdefault(caller, {})[permission_key] = _parse_permission_value(row["permission_value"])
+
+    if not callers:
+        details = []
+        if policy_id:
+            details.append(f"policy_id={policy_id}")
+        if policy_path:
+            details.append(f"policy_path={policy_path}")
+        detail_suffix = f" ({', '.join(details)})" if details else ""
+        raise ValueError(
+            f"record recovery authz source {source_path} did not resolve any {policy_schema_name} caller permissions"
+            f" from {db_file}{detail_suffix}"
+        )
+
+    return {
+        "schema": PLATFORM_POLICY_SCHEMA,
+        "callers": callers,
+    }
 
 
 def load_authz_policy(path: str) -> dict:
     if not path:
         return {}
     policy_path = Path(path)
-    with policy_path.open("r", encoding="utf-8") as f:
-        data = json.load(f)
-    if not isinstance(data, dict):
-        raise ValueError("record recovery authz config must be a JSON object")
+    data = _load_json_object(policy_path)
     schema = data.get("schema")
     if schema == PLATFORM_POLICY_SCHEMA:
         return load_platform_policy(path)
+    if schema == AUTHZ_SOURCE_SCHEMA:
+        source_type = str(data.get("source_type", "") or "").strip()
+        if source_type != "metadata_db":
+            raise ValueError(f"unsupported record recovery authz source_type: {source_type!r}")
+        raw_db_path = str(data.get("db_path", "") or "").strip()
+        if not raw_db_path:
+            raise ValueError("record recovery authz source metadata_db requires db_path")
+        resolved_db_path = _resolve_source_path(policy_path.parent, raw_db_path)
+        raw_policy_path = str(data.get("policy_path", "") or "").strip()
+        resolved_policy_path = _resolve_source_path(policy_path.parent, raw_policy_path) if raw_policy_path else ""
+        return _load_platform_policy_from_metadata_db(
+            db_path=resolved_db_path,
+            source_path=policy_path.resolve(),
+            policy_id=str(data.get("policy_id", "") or "").strip(),
+            policy_path=resolved_policy_path,
+            policy_schema_name=str(data.get("policy_schema_name", "") or PLATFORM_POLICY_SCHEMA).strip() or PLATFORM_POLICY_SCHEMA,
+        )
     if schema is not None and schema not in {POLICY_SCHEMA, PLATFORM_POLICY_SCHEMA}:
         raise ValueError(f"unsupported record recovery authz schema: {schema}")
     return data

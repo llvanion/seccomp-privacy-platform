@@ -212,6 +212,10 @@ python3 scripts/archive_audit_bundle.py \
 14. `schemas/platform_health.schema.json` + `scripts/benchmark_platform_health.py`：把 `platform_health/v1` 读侧健康报告 contract 固化下来，并对 `scripts/check_platform_health.py` 的 `pipeline_run` / `metadata_db` synthetic probe 生成 `platform_health_benchmark/v1` 耗时报告；纳入默认 contract smoke，并额外校验各 mode 的 component 集合以及受限环境下的 CLI-only fallback。
 15. `scripts/benchmark_derived_views.py`：对 `scripts/export_observability_events.py` 与 `scripts/export_catalog_lineage.py` 生成 `derived_views_benchmark/v1` 耗时报告，覆盖 observability、catalog 默认脱敏导出和 `--include-paths` 显式路径导出；它基于临时 synthetic audit_chain fixture，纳入默认 contract smoke，并额外校验 observability 事件覆盖与 catalog 路径脱敏分界。
 16. `docs/OPS_RUNBOOK.md`：记录健康检查、审计包校验/恢复、hygiene、dependency、benchmark、CI smoke 和 troubleshooting。
+17. `scripts/check_malformed_input_gate.py` + `schemas/malformed_input_gate.schema.json`（2026-05-01）：系统性负向测试门禁（fuzz/malformed-input block 收口）。对 8 个核心 schema（`platform_health/v1`、`schema_backcompat_check/v1`、`audit_seal/v1`、`bridge_job_meta/v1`、`sse_bridge_export_audit/v1`、`mainline_contract_check/v1`、`pipeline_observability/v1`、`audit_archive_index/v1`）各构造 minimal valid reference payload，然后系统性生成突变（missing_required、const_violation、enum_violation、wrong_type、extra_property、min_length_violation、minimum_violation、invalid_json、null/array/string/number root）；共生成 191 个突变体并全部被拒绝；输出 `malformed_input_gate/v1` 报告并用自身 schema 校验；已接入 `check_ci_smoke.sh` + `check_json_contracts.sh` 双重门禁。
+18. `scripts/check_pre_release_gate.py` + `schemas/pre_release_gate.schema.json` + `schemas/repo_hygiene_scan.schema.json` + `schemas/dependency_hygiene.schema.json`（2026-05-01）：统一发布前检查门禁（benchmark/CI gate block 收口）。单一入口串联 11 个子检查：`repo_hygiene`、`dependency_hygiene`、`schema_backcompat`、`malformed_input`、`record_recovery_boundary`、`query_workflow_benchmark`、`read_adapter_benchmark`、`record_recovery_benchmark`、`audit_bundle_benchmark`、`platform_health_benchmark`、`derived_views_benchmark`；每个子检查有独立计时、exit_code 和 output_schema_valid 标志；输出 `pre_release_gate/v1` 报告，自身用 schema 校验；同时为 `repo_hygiene_scan/v1` 和 `dependency_hygiene/v1` 补写了 schema 文件（此前只有运行时输出、无 schema 约束）；已接入 `check_ci_smoke.sh` + `check_json_contracts.sh` 双重门禁，CI 中 `check_json_contracts.sh` 现在也验证 `repo_hygiene_scan.json` 的 schema。
+19. `scripts/check_operator_readiness.py` + `schemas/operator_readiness.schema.json`（2026-05-01）：Operator 部署前就绪检查门禁（platform health/backup/restore/SLO/checklist block 收口，Block A）。检查 9 个 example config 文件的 schema 合规性、4 个 bridge example 数据文件的存在性、完整 pre_release_gate 子调用；同时输出 8 个 `SECCOMP_*` env var 的 catalog（含是否在当前 shell 已设置）；输出 `operator_readiness/v1` 报告并用 schema 校验；已接入 `check_ci_smoke.sh` + `check_json_contracts.sh` 双重门禁。
+20. `docs/OPS_RUNBOOK.md` 大幅扩展（2026-05-01）：补齐 deployment package runbook（Block B）。新增章节：Operator Readiness Check（运行方式与报告解读）、Pre-Deployment Checklist（6 步部署前清单，含 replay 验证、审计包归档与校验、部署后健康检查）、Failure Recovery Decision Tree（CI smoke 失败分支、审计包完整性失败、Recovery Service 失败、Platform Health Error 四大决策树）、SLO Baseline（12 个 gate 的预期耗时下界）。
 
 已处理的仓库卫生问题：
 
@@ -226,20 +230,23 @@ bash scripts/check_ci_smoke.sh
 
 ## 10. 平台级剩余工作量估算
 
-按 [PLATFORM_LEVEL_REMAINING_ESTIMATE.md](/home/llvanion/Desktop/seccomp-privacy-platform/docs/PLATFORM_LEVEL_REMAINING_ESTIMATE.md) 的统一口径，这条线从“当前 ops/audit sidecar 基线”推进到“平台基线版”还需要：
+按 [PLATFORM_LEVEL_REMAINING_ESTIMATE.md](/home/llvanion/Desktop/seccomp-privacy-platform/docs/PLATFORM_LEVEL_REMAINING_ESTIMATE.md) 的统一口径，这条线从”当前 ops/audit sidecar 基线”推进到”平台基线版”还需要：
 
-1. `4 blocks`
-2. 约 `20h`
+1. `0 blocks`（原 4 blocks；全部已完成）
+2. 约 `0h`
 
 已完成收口：
 
 1. `audit bundle` 已经补到本地 append-only 锚点基线：归档流程除了 `audit_archive_index/v1`，现在还会生成 `audit_archive_anchor/v1`，`verify_audit_bundle.py` 会在 archive-backed verify 时回放整条锚点链，并可选校验 anchor HMAC。
+2. `fuzz / malformed-input / security scan block ✓（2026-05-01）`：`scripts/check_malformed_input_gate.py` 已落地，191 个突变体全部被拒绝，接入 CI double-gate。
+3. `benchmark / CI gate block ✓（2026-05-01）`：`scripts/check_pre_release_gate.py` 已落地，11 个子检查（hygiene × 2、contract × 3、benchmark × 6）全部带计时和 schema 验证，接入 CI double-gate；同时补写了 `repo_hygiene_scan/v1` 和 `dependency_hygiene/v1` 的 schema 文件，`check_json_contracts.sh` 现在额外验证 hygiene scan output。
+4. `platform health / backup / restore / SLO / checklist block ✓（2026-05-01）`：`scripts/check_operator_readiness.py` 已落地（Operator 部署前就绪检查，含 config 合规、bridge example 数据、pre_release_gate 子调用、8 个 env var catalog）；`docs/OPS_RUNBOOK.md` 新增 Operator Readiness Check、Pre-Deployment Checklist（6 步）、Failure Recovery Decision Tree（4 个决策树）、SLO Baseline（12 条）。工程师 1 全部 4 个 block 已完成。
 
-建议拆分：
+建议拆分（已全部完成）：
 
-1. `2 blocks / 10h`：把 platform health、backup/restore、failure recovery、SLO/checklist 再整理成更像 deployment package 的 runbook 和 smoke gate。
-2. `1 block / 5h`：把 fuzz / malformed input / security scan 再补一轮，避免只停留在 dependency/secret hygiene。
-3. `1 block / 5h`：把 benchmark/CI gate 再收成更稳定的发布前检查面，减少“脚本都在但没有固定门禁”的状态。
+1. ~~`2 blocks / 10h`：把 platform health、backup/restore、failure recovery、SLO/checklist 再整理成更像 deployment package 的 runbook 和 smoke gate。~~ **已完成（2026-05-01）**
+2. ~~`1 block / 5h`：把 fuzz / malformed input / security scan 再补一轮，避免只停留在 dependency/secret hygiene。~~ **已完成（2026-05-01）**
+3. ~~`1 block / 5h`：把 benchmark/CI gate 再收成更稳定的发布前检查面，减少”脚本都在但没有固定门禁”的状态。~~ **已完成（2026-05-01）**
 
 不含：
 

@@ -17,6 +17,7 @@ SCHEMAS=(
   "$REPO_ROOT/schemas/sse_bridge_export_audit.schema.json"
   "$REPO_ROOT/schemas/sse_record_recovery_service_audit.schema.json"
   "$REPO_ROOT/schemas/record_recovery_service_config.schema.json"
+  "$REPO_ROOT/schemas/record_recovery_authz_source.schema.json"
   "$REPO_ROOT/schemas/record_recovery_service_policy.schema.json"
   "$REPO_ROOT/schemas/record_recovery_service_health.schema.json"
   "$REPO_ROOT/schemas/record_recovery_service_log.schema.json"
@@ -34,7 +35,10 @@ SCHEMAS=(
   "$REPO_ROOT/schemas/audit_bundle_verification.schema.json"
   "$REPO_ROOT/schemas/key_manifest.schema.json"
   "$REPO_ROOT/schemas/keyring.schema.json"
+  "$REPO_ROOT/schemas/vault_kv_backend.schema.json"
   "$REPO_ROOT/schemas/external_kms_config.schema.json"
+  "$REPO_ROOT/schemas/api_identity_token_map.schema.json"
+  "$REPO_ROOT/schemas/api_identity_resolution.schema.json"
   "$REPO_ROOT/schemas/key_access_audit.schema.json"
   "$REPO_ROOT/schemas/key_lifecycle_audit.schema.json"
   "$REPO_ROOT/schemas/audit_seal.schema.json"
@@ -54,9 +58,23 @@ SCHEMAS=(
   "$REPO_ROOT/schemas/metadata_api_health.schema.json"
   "$REPO_ROOT/schemas/metadata_api_response.schema.json"
   "$REPO_ROOT/schemas/metadata_api_error.schema.json"
+  "$REPO_ROOT/schemas/metadata_schema_portability.schema.json"
+  "$REPO_ROOT/schemas/postgres_ddl_export.schema.json"
+  "$REPO_ROOT/schemas/metadata_import_report.schema.json"
   "$REPO_ROOT/schemas/metadata_db_status.schema.json"
   "$REPO_ROOT/schemas/metadata_db_backup.schema.json"
+  "$REPO_ROOT/schemas/metadata_db_restore.schema.json"
+  "$REPO_ROOT/schemas/metadata_batch_reconcile.schema.json"
+  "$REPO_ROOT/schemas/mutation_log_query.schema.json"
+  "$REPO_ROOT/schemas/oidc_claim_map.schema.json"
+  "$REPO_ROOT/schemas/vault_http_client_result.schema.json"
+  "$REPO_ROOT/schemas/issuer_credential_rotation.schema.json"
+  "$REPO_ROOT/schemas/key_backend_drift.schema.json"
+  "$REPO_ROOT/schemas/policy_drift.schema.json"
+  "$REPO_ROOT/schemas/policy_change_proposal.schema.json"
   "$REPO_ROOT/schemas/metadata_db_export.schema.json"
+  "$REPO_ROOT/schemas/metadata_registry_manifest.schema.json"
+  "$REPO_ROOT/schemas/metadata_registry_apply_report.schema.json"
   "$REPO_ROOT/schemas/authz_tuple_export.schema.json"
   "$REPO_ROOT/schemas/audit_query_api_health.schema.json"
   "$REPO_ROOT/schemas/audit_query_api_response.schema.json"
@@ -88,8 +106,14 @@ python3 "$VALIDATOR" \
   --schema "$REPO_ROOT/schemas/keyring.schema.json" \
   --json "$REPO_ROOT/config/keyring.example.json"
 python3 "$VALIDATOR" \
+  --schema "$REPO_ROOT/schemas/vault_kv_backend.schema.json" \
+  --json "$REPO_ROOT/config/vault_kv_backend.example.json"
+python3 "$VALIDATOR" \
   --schema "$REPO_ROOT/schemas/external_kms_config.schema.json" \
   --json "$REPO_ROOT/config/external_kms.example.json"
+python3 "$VALIDATOR" \
+  --schema "$REPO_ROOT/schemas/api_identity_token_map.schema.json" \
+  --json "$REPO_ROOT/config/api_identity_tokens.example.json"
 python3 "$VALIDATOR" \
   --schema "$REPO_ROOT/schemas/record_recovery_service_policy.schema.json" \
   --json "$REPO_ROOT/config/record_recovery_service_policy.example.json"
@@ -100,8 +124,14 @@ python3 "$VALIDATOR" \
   --schema "$REPO_ROOT/schemas/record_recovery_service_config.schema.json" \
   --json "$REPO_ROOT/config/record_recovery_http_service.example.json"
 python3 "$VALIDATOR" \
+  --schema "$REPO_ROOT/schemas/record_recovery_authz_source.schema.json" \
+  --json "$REPO_ROOT/config/record_recovery_authz_sqlite.example.json"
+python3 "$VALIDATOR" \
   --schema "$REPO_ROOT/schemas/query_workflow_request.schema.json" \
   --json "$REPO_ROOT/docs/examples/query_request.json"
+python3 "$VALIDATOR" \
+  --schema "$REPO_ROOT/schemas/metadata_registry_manifest.schema.json" \
+  --json "$REPO_ROOT/config/metadata_registry.example.json"
 
 tmp="$(mktemp -d /tmp/seccomp_contracts.XXXXXX)"
 record_recovery_service_pid=""
@@ -303,6 +333,38 @@ expect_failure python3 "$TABULAR_VALIDATOR" \
 mkdir -p "$tmp/sse_exports" "$tmp/bridge_job" "$tmp/a_psi_run"
 
 export BRIDGE_TOKEN_SECRET="contract-check-secret"
+cat > "$tmp/vault_kv_backend.json" <<EOF
+{
+  "schema": "vault_kv_backend/v1",
+  "secrets": {
+    "secret/data/bridge-token": {
+      "current_version": "2",
+      "versions": {
+        "1": {
+          "fields": {
+            "value": "vault-bridge-secret-v1"
+          }
+        },
+        "2": {
+          "fields": {
+            "value": "vault-bridge-secret-v2"
+          }
+        }
+      }
+    },
+    "secret/data/audit-integrity": {
+      "current_version": "1",
+      "versions": {
+        "1": {
+          "fields": {
+            "seal_secret": "vault-audit-secret-v1"
+          }
+        }
+      }
+    }
+  }
+}
+EOF
 python3 "$REPO_ROOT/scripts/resolve_key_access.py" \
   --manifest "$REPO_ROOT/config/key_manifest.example.json" \
   --key-id bridge-token-demo-v1 \
@@ -327,12 +389,41 @@ python3 "$REPO_ROOT/scripts/manage_keyring.py" set-status \
   --status retired \
   --caller auto_demo \
   --audit-log "$tmp/key_lifecycle_audit.jsonl" >/dev/null
+cp "$REPO_ROOT/config/keyring.example.json" "$tmp/keyring_vault.json"
+python3 -c 'import json, sys; path=sys.argv[1]; payload=json.load(open(path, "r", encoding="utf-8")); payload["keys"]["bridge-token"]["versions"]["demo-v1"]["secret_ref"]={"kind":"vault_kv","name":"secret/data/bridge-token","version":"1","field":"value"}; json.dump(payload, open(path, "w", encoding="utf-8"), ensure_ascii=False, indent=2); open(path, "a", encoding="utf-8").write("\n")' "$tmp/keyring_vault.json"
+export SECCOMP_KEY_AGENT_TOKEN="contract-key-agent-token"
+python3 "$REPO_ROOT/scripts/key_agent_service.py" \
+  --socket-path "$tmp/key_agent_vault.sock" \
+  --keyring "$tmp/keyring_vault.json" \
+  --auth-token-env SECCOMP_KEY_AGENT_TOKEN \
+  --vault-kv-file "$tmp/vault_kv_backend.json" \
+  --audit-log "$tmp/key_agent_vault_access_audit.jsonl" \
+  --pid-file "$tmp/key_agent_vault.pid" \
+  --ready-file "$tmp/key_agent_vault.ready" \
+  >"$tmp/key_agent_vault.log" 2>&1 &
+key_agent_vault_pid=$!
+if [[ -z "${key_agent_vault_pid:-}" ]]; then
+  echo "[ERROR] failed to start vault-backed key agent" >&2
+  exit 1
+fi
+while [[ ! -s "$tmp/key_agent_vault.ready" ]]; do sleep 0.1; done
+python3 "$REPO_ROOT/scripts/request_key_agent.py" \
+  --socket-path "$tmp/key_agent_vault.sock" \
+  --key-name bridge-token \
+  --purpose bridge_token \
+  --caller auto_demo \
+  --job-id contract-check \
+  --auth-token-env SECCOMP_KEY_AGENT_TOKEN \
+  > "$tmp/key_agent_vault_result.json"
+kill "$key_agent_vault_pid" 2>/dev/null || true
+wait "$key_agent_vault_pid" 2>/dev/null || true
 
 external_kms_port="$(python3 "$RUNTIME_SERVICE_HELPERS" available-port)"
 python3 "$REPO_ROOT/scripts/build_runtime_contract_smoke_configs.py" \
   external-kms \
   --out-config "$tmp/external_kms.json" \
   --state-path "$tmp/keyring_external.json" \
+  --vault-kv-file "$tmp/vault_kv_backend.json" \
   --port "$external_kms_port"
 cp "$REPO_ROOT/config/keyring.example.json" "$tmp/keyring_external.json"
 export SECCOMP_EXTERNAL_KMS_TOKEN="contract-external-kms-token"
@@ -343,12 +434,17 @@ python3 "$REPO_ROOT/scripts/external_kms_service.py" \
   --state-file "$tmp/keyring_external.json" \
   --auth-token-env SECCOMP_EXTERNAL_KMS_TOKEN \
   --admin-auth-token-env SECCOMP_EXTERNAL_KMS_ADMIN_TOKEN \
+  --vault-kv-file "$tmp/vault_kv_backend.json" \
   --lifecycle-audit-log "$tmp/external_kms_lifecycle_audit.jsonl" \
   --pid-file "$tmp/external_kms.pid" \
   --ready-file "$tmp/external_kms.ready" \
   >"$tmp/external_kms.log" 2>&1 &
 external_kms_pid=$!
 cleanup() {
+  if [[ -n "${key_agent_vault_pid:-}" ]] && kill -0 "$key_agent_vault_pid" 2>/dev/null; then
+    kill "$key_agent_vault_pid" 2>/dev/null || true
+    wait "$key_agent_vault_pid" 2>/dev/null || true
+  fi
   if [[ -n "${external_kms_pid:-}" ]] && kill -0 "$external_kms_pid" 2>/dev/null; then
     kill "$external_kms_pid" 2>/dev/null || true
     wait "$external_kms_pid" 2>/dev/null || true
@@ -364,15 +460,27 @@ python3 "$REPO_ROOT/scripts/request_external_kms.py" \
   --purpose bridge_token \
   --caller auto_demo \
   --job-id contract-check \
-  --audit-log "$tmp/external_key_access_audit.jsonl" >/dev/null
+  --audit-log "$tmp/external_key_access_audit.jsonl" \
+  > "$tmp/external_kms_env_result.json"
 python3 "$REPO_ROOT/scripts/manage_external_kms.py" rotate \
   --config "$tmp/external_kms.json" \
   --key-name bridge-token \
   --purpose bridge_token \
   --new-version ext-v2 \
-  --secret-env BRIDGE_TOKEN_SECRET \
+  --secret-ref-kind vault_kv \
+  --secret-ref-name secret/data/bridge-token \
+  --secret-ref-version 2 \
+  --secret-ref-field value \
   --caller auto_demo \
   --activate >/dev/null
+python3 "$REPO_ROOT/scripts/request_external_kms.py" \
+  --config "$tmp/external_kms.json" \
+  --key-name bridge-token \
+  --purpose bridge_token \
+  --caller auto_demo \
+  --job-id contract-check \
+  --audit-log "$tmp/external_key_access_vault_audit.jsonl" \
+  > "$tmp/external_kms_vault_result.json"
 python3 "$REPO_ROOT/scripts/manage_external_kms.py" set-status \
   --config "$tmp/external_kms.json" \
   --key-name bridge-token \
@@ -517,10 +625,18 @@ python3 "$VALIDATOR" --schema "$REPO_ROOT/schemas/public_report.schema.json" --j
 python3 "$VALIDATOR" --schema "$REPO_ROOT/schemas/policy_audit.schema.json" --jsonl "$tmp/a_psi_run/audit_log.jsonl"
 python3 "$VALIDATOR" --schema "$REPO_ROOT/schemas/key_access_audit.schema.json" --jsonl "$tmp/key_access_audit.jsonl"
 python3 "$VALIDATOR" --schema "$REPO_ROOT/schemas/key_access_audit.schema.json" --jsonl "$tmp/external_key_access_audit.jsonl"
+python3 "$VALIDATOR" --schema "$REPO_ROOT/schemas/key_access_audit.schema.json" --jsonl "$tmp/key_agent_vault_access_audit.jsonl"
+python3 "$VALIDATOR" --schema "$REPO_ROOT/schemas/key_access_audit.schema.json" --jsonl "$tmp/external_key_access_vault_audit.jsonl"
 python3 "$VALIDATOR" --schema "$REPO_ROOT/schemas/keyring.schema.json" --json "$tmp/keyring.json"
+python3 "$VALIDATOR" --schema "$REPO_ROOT/schemas/keyring.schema.json" --json "$tmp/keyring_vault.json"
 python3 "$VALIDATOR" --schema "$REPO_ROOT/schemas/key_lifecycle_audit.schema.json" --jsonl "$tmp/key_lifecycle_audit.jsonl"
+python3 "$VALIDATOR" --schema "$REPO_ROOT/schemas/vault_kv_backend.schema.json" --json "$tmp/vault_kv_backend.json"
 python3 "$VALIDATOR" --schema "$REPO_ROOT/schemas/keyring.schema.json" --json "$tmp/keyring_external.json"
 python3 "$VALIDATOR" --schema "$REPO_ROOT/schemas/key_lifecycle_audit.schema.json" --jsonl "$tmp/external_kms_lifecycle_audit.jsonl"
+python3 -c 'import json, sys; payload=json.load(open(sys.argv[1], "r", encoding="utf-8")); assert payload["schema"] == "key_agent_result/v1", payload; assert payload["secret"] == "vault-bridge-secret-v1", payload; assert payload["key_version"] == "demo-v1", payload' "$tmp/key_agent_vault_result.json"
+python3 -c 'import json, sys; payload=json.load(open(sys.argv[1], "r", encoding="utf-8")); assert payload["schema"] == "external_kms_result/v1", payload; assert payload["secret"] == "contract-check-secret", payload; assert payload["key_version"] == "demo-v1", payload' "$tmp/external_kms_env_result.json"
+python3 -c 'import json, sys; payload=json.load(open(sys.argv[1], "r", encoding="utf-8")); assert payload["schema"] == "external_kms_result/v1", payload; assert payload["secret"] == "vault-bridge-secret-v2", payload; assert payload["key_version"] == "ext-v2", payload' "$tmp/external_kms_vault_result.json"
+python3 -c 'import json, sys; payload=json.load(open(sys.argv[1], "r", encoding="utf-8")); entry=payload["keys"]["bridge-token"]["versions"]["ext-v2"]["secret_ref"]; assert entry["kind"] == "vault_kv", entry; assert entry["name"] == "secret/data/bridge-token", entry; assert entry["version"] == "2", entry; assert entry["field"] == "value", entry; assert payload["keys"]["bridge-token"]["active_version"] == "ext-v2", payload["keys"]["bridge-token"]' "$tmp/keyring_external.json"
 python3 "$TABULAR_VALIDATOR" --contract pjc-server-csv --path "$tmp/bridge_job/server.csv"
 python3 "$TABULAR_VALIDATOR" --contract pjc-client-csv --path "$tmp/bridge_job/client.csv"
 
@@ -645,6 +761,19 @@ python3 "$REPO_ROOT/scripts/check_mainline_contract.py" \
 python3 "$VALIDATOR" \
   --schema "$REPO_ROOT/schemas/mainline_contract_check.schema.json" \
   --json "$tmp/mainline_contract_check.json"
+printf '%s\n' '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef,5' \
+  > "$tmp/sse_exports/client.csv"
+python3 "$REPO_ROOT/scripts/check_mainline_contract.py" \
+  --out-base "$tmp" \
+  --job-id contract-check \
+  --allow-retained-managed-handoff \
+  --retained-managed-handoff-reason contract_smoke_retained_handoff \
+  --output "$tmp/mainline_contract_check_retained.json"
+python3 "$VALIDATOR" \
+  --schema "$REPO_ROOT/schemas/mainline_contract_check.schema.json" \
+  --json "$tmp/mainline_contract_check_retained.json"
+python3 -c 'import json, sys; payload=json.load(open(sys.argv[1], "r", encoding="utf-8")); client=(payload.get("handoff_cleanup") or {}).get("client") or {}; assert payload.get("status") == "ok", payload; assert client.get("status") == "retained", client; assert client.get("retention_reason") == "contract_smoke_retained_handoff", client' "$tmp/mainline_contract_check_retained.json"
+rm -f "$tmp/sse_exports/client.csv"
 python3 "$REPO_ROOT/scripts/build_audit_chain.py" --out-base "$tmp" --job-id contract-check
 python3 "$VALIDATOR" --schema "$REPO_ROOT/schemas/audit_chain.schema.json" --json "$tmp/audit_chain.json"
 python3 "$REPO_ROOT/scripts/export_observability_events.py" \
@@ -691,6 +820,53 @@ python3 "$REPO_ROOT/scripts/import_run_metadata.py" \
   --out-base "$tmp" \
   --db-path "$tmp/platform_metadata.db" \
   > "$tmp/platform_metadata_import.json"
+python3 "$REPO_ROOT/scripts/import_run_metadata.py" \
+  --out-base "$tmp" \
+  --db-path "$tmp/platform_metadata.db" \
+  --dry-run \
+  > "$tmp/platform_metadata_import_dry_run.json"
+python3 "$REPO_ROOT/scripts/import_run_metadata.py" \
+  --out-base "$tmp" \
+  --db-path "$tmp/platform_metadata.db" \
+  > "$tmp/platform_metadata_import_replay.json"
+printf '%s\n' "$tmp" > "$tmp/platform_metadata_out_bases.txt"
+python3 "$REPO_ROOT/scripts/import_run_metadata.py" \
+  --out-base-file "$tmp/platform_metadata_out_bases.txt" \
+  --db-path "$tmp/platform_metadata.db" \
+  --dry-run \
+  > "$tmp/platform_metadata_import_batch.json"
+python3 "$REPO_ROOT/scripts/check_metadata_schema_portability.py" \
+  --output "$tmp/platform_metadata_schema_portability.json" \
+  > /dev/null
+python3 "$VALIDATOR" \
+  --schema "$REPO_ROOT/schemas/metadata_import_report.schema.json" \
+  --json "$tmp/platform_metadata_import.json"
+python3 "$VALIDATOR" \
+  --schema "$REPO_ROOT/schemas/metadata_import_report.schema.json" \
+  --json "$tmp/platform_metadata_import_dry_run.json"
+python3 "$VALIDATOR" \
+  --schema "$REPO_ROOT/schemas/metadata_import_report.schema.json" \
+  --json "$tmp/platform_metadata_import_replay.json"
+python3 "$VALIDATOR" \
+  --schema "$REPO_ROOT/schemas/metadata_import_report.schema.json" \
+  --json "$tmp/platform_metadata_import_batch.json"
+python3 "$VALIDATOR" \
+  --schema "$REPO_ROOT/schemas/metadata_schema_portability.schema.json" \
+  --json "$tmp/platform_metadata_schema_portability.json"
+test "$(python3 "$RUNTIME_SERVICE_HELPERS" read-json-field --json-file "$tmp/platform_metadata_import.json" --field summary.inserted_job_count)" = "1"
+python3 -c 'import json, sys; payload=json.load(open(sys.argv[1], "r", encoding="utf-8")); assert payload["mode"] == "apply", payload; assert payload["summary"]["inserted_job_count"] == 1, payload; assert payload["summary"]["replaced_job_count"] == 0, payload; item=payload["imports"][0]; assert item["action"] == "insert", item; assert item["existing_job"]["exists"] is False, item; assert item["job_state_after"]["exists"] is True, item; assert item["job_state_after"]["row_counts"]["audit_events"] >= 6, item' "$tmp/platform_metadata_import.json"
+python3 -c 'import json, sys; payload=json.load(open(sys.argv[1], "r", encoding="utf-8")); assert payload["mode"] == "dry_run", payload; assert payload["summary"]["inserted_job_count"] == 0, payload; assert payload["summary"]["replaced_job_count"] == 1, payload; item=payload["imports"][0]; assert item["action"] == "replace", item; assert item["existing_job"]["exists"] is True, item; assert item["imported_at_utc"] is None, item; assert item["result"] is None, item; assert "job_state_after" not in item, item' "$tmp/platform_metadata_import_dry_run.json"
+python3 -c 'import json, sys; payload=json.load(open(sys.argv[1], "r", encoding="utf-8")); assert payload["mode"] == "apply", payload; assert payload["summary"]["inserted_job_count"] == 0, payload; assert payload["summary"]["replaced_job_count"] == 1, payload; item=payload["imports"][0]; assert item["action"] == "replace", item; assert item["existing_job"]["exists"] is True, item; assert item["job_state_after"]["exists"] is True, item; assert item["job_state_after"]["row_counts"]["job_artifacts"] >= 8, item' "$tmp/platform_metadata_import_replay.json"
+python3 -c 'import json, sys; payload=json.load(open(sys.argv[1], "r", encoding="utf-8")); assert payload["mode"] == "dry_run", payload; assert payload["summary"]["processed_run_count"] == 1, payload; item=payload["imports"][0]; assert item["action"] == "replace", item; assert item["out_base"], item' "$tmp/platform_metadata_import_batch.json"
+python3 -c 'import json, sys; payload=json.load(open(sys.argv[1], "r", encoding="utf-8")); assert payload["status"] == "ok", payload; assert payload["summary"]["sqlite_only_construct_count"] == 0, payload; check_names={item["name"] for item in payload["checks"]}; assert "sqlite_only_constructs" in check_names and "expected_indexes_present" in check_names, payload' "$tmp/platform_metadata_schema_portability.json"
+# Postgres DDL target validation
+python3 "$REPO_ROOT/scripts/export_postgres_ddl.py" \
+  --output "$tmp/postgres_ddl_export.json" \
+  > /dev/null
+python3 "$VALIDATOR" \
+  --schema "$REPO_ROOT/schemas/postgres_ddl_export.schema.json" \
+  --json "$tmp/postgres_ddl_export.json"
+python3 -c 'import json, sys; payload=json.load(open(sys.argv[1], "r", encoding="utf-8")); assert payload["valid"] is True, payload; assert len(payload["sqlite_only_tokens"]) == 0, payload; assert len(payload["type_upgrade_issues"]) == 0, payload; assert len(payload["column_parity_issues"]) == 0, payload; assert len(payload["table_parity"]["missing_in_postgres"]) == 0, payload; assert "TIMESTAMPTZ" in payload["postgres_types_confirmed"], payload; assert "JSONB" in payload["postgres_types_confirmed"], payload; assert "SERIAL" in payload["postgres_types_confirmed"], payload' "$tmp/postgres_ddl_export.json"
 python3 "$REPO_ROOT/scripts/manage_metadata_db.py" \
   status \
   --db-path "$tmp/platform_metadata.db" \
@@ -739,6 +915,104 @@ python3 "$REPO_ROOT/scripts/manage_metadata_db.py" \
 python3 "$VALIDATOR" \
   --schema "$REPO_ROOT/schemas/metadata_db_status.schema.json" \
   --json "$tmp/platform_metadata_backup_status.json"
+python3 "$REPO_ROOT/scripts/manage_metadata_db.py" \
+  restore \
+  --backup-db-path "$tmp/platform_metadata.backup.db" \
+  --out-db-path "$tmp/platform_metadata.restored.db" \
+  --overwrite \
+  > "$tmp/platform_metadata_restore.json"
+python3 "$VALIDATOR" \
+  --schema "$REPO_ROOT/schemas/metadata_db_restore.schema.json" \
+  --json "$tmp/platform_metadata_restore.json"
+platform_metadata_restore_api="$(python3 "$RUNTIME_SERVICE_HELPERS" read-json-field \
+  --json-file "$tmp/platform_metadata_restore.json" \
+  --field used_sqlite_backup_api)"
+[[ "$platform_metadata_restore_api" == "True" ]] || { echo "[ERROR] metadata DB restore did not report SQLite backup API usage" >&2; exit 1; }
+platform_metadata_restored_job_count="$(python3 "$RUNTIME_SERVICE_HELPERS" read-json-field \
+  --json-file "$tmp/platform_metadata_restore.json" \
+  --field restored_status.summary.job_count)"
+[[ "$platform_metadata_restored_job_count" == "1" ]] || { echo "[ERROR] metadata DB restore reported unexpected job_count: $platform_metadata_restored_job_count" >&2; exit 1; }
+# Cross-batch reconcile on the imported DB (fresh import should be clean)
+python3 "$REPO_ROOT/scripts/reconcile_metadata_batches.py" \
+  --db-path "$tmp/platform_metadata.db" \
+  --output "$tmp/platform_metadata_reconcile.json" \
+  > /dev/null
+python3 "$VALIDATOR" \
+  --schema "$REPO_ROOT/schemas/metadata_batch_reconcile.schema.json" \
+  --json "$tmp/platform_metadata_reconcile.json"
+python3 -c 'import json, sys; payload=json.load(open(sys.argv[1], "r", encoding="utf-8")); assert payload["mode"] == "dry_run", payload; assert payload["summary"]["status"] == "ok", payload; assert payload["summary"]["total_issues"] == 0, payload; assert payload["summary"]["job_count"] >= 1, payload' "$tmp/platform_metadata_reconcile.json"
+python3 "$REPO_ROOT/scripts/manage_metadata_db.py" \
+  apply-registry \
+  --db-path "$tmp/platform_registry.db" \
+  --manifest "$REPO_ROOT/config/metadata_registry.example.json" \
+  --dry-run \
+  --output "$tmp/platform_registry_apply_dry_run.json" \
+  > /dev/null
+python3 "$REPO_ROOT/scripts/manage_metadata_db.py" \
+  apply-registry \
+  --db-path "$tmp/platform_registry.db" \
+  --manifest "$REPO_ROOT/config/metadata_registry.example.json" \
+  --output "$tmp/platform_registry_apply.json" \
+  > /dev/null
+python3 "$REPO_ROOT/scripts/manage_metadata_db.py" \
+  apply-registry \
+  --db-path "$tmp/platform_registry.db" \
+  --manifest "$REPO_ROOT/config/metadata_registry.example.json" \
+  --dry-run \
+  --output "$tmp/platform_registry_apply_reconcile.json" \
+  > /dev/null
+python3 "$VALIDATOR" \
+  --schema "$REPO_ROOT/schemas/metadata_registry_apply_report.schema.json" \
+  --json "$tmp/platform_registry_apply_dry_run.json"
+python3 "$VALIDATOR" \
+  --schema "$REPO_ROOT/schemas/metadata_registry_apply_report.schema.json" \
+  --json "$tmp/platform_registry_apply.json"
+python3 "$VALIDATOR" \
+  --schema "$REPO_ROOT/schemas/metadata_registry_apply_report.schema.json" \
+  --json "$tmp/platform_registry_apply_reconcile.json"
+python3 -c 'import json, sys; payload=json.load(open(sys.argv[1], "r", encoding="utf-8")); requested=payload["summary"]["requested_counts"]; assert payload["mode"] == "dry_run", payload; assert requested["tenants"] == 1, requested; assert requested["key_refs"] == 2, requested; assert requested["key_versions"] == 2, requested; assert payload["summary"]["entity_action_counts"]["insert"] >= 13, payload; assert payload["summary"]["policy_action_counts"]["insert"] == 1, payload; assert payload["validation"]["status"] == "ok", payload' "$tmp/platform_registry_apply_dry_run.json"
+python3 -c 'import json, sys; payload=json.load(open(sys.argv[1], "r", encoding="utf-8")); assert payload["mode"] == "apply", payload; assert payload["summary"]["entity_action_counts"]["insert"] >= 13, payload; assert payload["summary"]["policy_action_counts"]["insert"] == 1, payload; key_refs=payload["entities"]["key_refs"]; assert len(key_refs) == 2, key_refs; assert any(item["state_after"]["backend_kind"] == "local_keyring" and item["state_after"]["active_version"] == "demo-v1" for item in key_refs), key_refs; policy=payload["policies"][0]; assert policy["state_after"]["binding_count"] == 5, policy; assert policy["state_after"]["permission_count"] >= 5, policy' "$tmp/platform_registry_apply.json"
+python3 -c 'import json, sys; payload=json.load(open(sys.argv[1], "r", encoding="utf-8")); assert payload["mode"] == "dry_run", payload; assert payload["summary"]["entity_action_counts"]["noop"] >= 13, payload; assert payload["summary"]["policy_action_counts"]["noop"] == 1, payload' "$tmp/platform_registry_apply_reconcile.json"
+python3 "$REPO_ROOT/scripts/query_metadata.py" \
+  --db-path "$tmp/platform_registry.db" \
+  --list-entity policies \
+  --limit 5 \
+  > "$tmp/platform_registry_policies.json"
+python3 "$REPO_ROOT/scripts/query_metadata.py" \
+  --db-path "$tmp/platform_registry.db" \
+  --list-entity caller-identities \
+  --caller recovery_ops_demo \
+  --limit 20 \
+  > "$tmp/platform_registry_caller_identities.json"
+python3 "$REPO_ROOT/scripts/query_metadata.py" \
+  --db-path "$tmp/platform_registry.db" \
+  --list-entity caller-permissions \
+  --caller commerce_ops_demo \
+  --limit 20 \
+  > "$tmp/platform_registry_caller_permissions.json"
+python3 "$REPO_ROOT/scripts/query_metadata.py" \
+  --db-path "$tmp/platform_registry.db" \
+  --list-entity key-refs \
+  --service-id orders-recovery \
+  --limit 20 \
+  > "$tmp/platform_registry_key_refs.json"
+python3 "$REPO_ROOT/scripts/query_metadata.py" \
+  --db-path "$tmp/platform_registry.db" \
+  --list-entity key-versions \
+  --key-name bridge-token \
+  --limit 20 \
+  > "$tmp/platform_registry_key_versions.json"
+python3 "$REPO_ROOT/scripts/export_authz_tuples.py" \
+  --db-path "$tmp/platform_registry.db" \
+  --output "$tmp/platform_registry_authz_tuples.json" \
+  > /dev/null
+python3 -c 'import json, sys; payload=json.load(open(sys.argv[1], "r", encoding="utf-8")); assert payload["count"] == 1, payload; item=payload["items"][0]; assert item["subject_type"] == "service_account", item; assert item["service_id"] == "orders-recovery", item; assert item["enabled"] is True, item; assert "service_operator" in item["platform_roles"], item' "$tmp/platform_registry_caller_identities.json"
+python3 -c 'import json, sys; payload=json.load(open(sys.argv[1], "r", encoding="utf-8")); assert payload["count"] == 2, payload; names={item["key_name"] for item in payload["items"]}; assert names == {"bridge-token", "audit-integrity"}, names; bridge=next(item for item in payload["items"] if item["key_name"] == "bridge-token"); assert bridge["backend_kind"] == "local_keyring", bridge; assert sorted(bridge["allowed_callers"]) == ["commerce_ops_demo", "recovery_ops_demo"], bridge' "$tmp/platform_registry_key_refs.json"
+python3 -c 'import json, sys; payload=json.load(open(sys.argv[1], "r", encoding="utf-8")); assert payload["count"] == 1, payload; item=payload["items"][0]; assert item["key_name"] == "bridge-token", item; assert item["version"] == "demo-v1", item; assert item["enabled"] is True, item; assert item["status"] == "active", item; assert item["secret_ref_kind"] == "env", item; assert item["secret_ref_name"] == "BRIDGE_TOKEN_SECRET", item' "$tmp/platform_registry_key_versions.json"
+python3 "$VALIDATOR" \
+  --schema "$REPO_ROOT/schemas/authz_tuple_export.schema.json" \
+  --json "$tmp/platform_registry_authz_tuples.json"
+python3 -c 'import json, sys; payload=json.load(open(sys.argv[1], "r", encoding="utf-8")); summary=payload["summary"]; assert summary["subject_count"] == 5, summary; assert summary["active_subject_count"] == 3, summary; assert summary["disabled_subject_count"] == 2, summary; assert summary["subject_type_counts"]["service_account"] == 1, summary; assert any(item["subject"] == "service_account:recovery_ops_demo" for item in payload["subjects"]), payload["subjects"]; assert any(item["object"] == "privacy_service:orders-recovery" and item["user"] == "user:commerce_ops_demo" for item in payload["tuples"]), payload["tuples"]' "$tmp/platform_registry_authz_tuples.json"
 python3 "$REPO_ROOT/scripts/export_authz_tuples.py" \
   --db-path "$tmp/platform_metadata.db" \
   --output "$tmp/platform_metadata_authz_tuples.json" \
@@ -747,6 +1021,193 @@ python3 "$VALIDATOR" \
   --schema "$REPO_ROOT/schemas/authz_tuple_export.schema.json" \
   --json "$tmp/platform_metadata_authz_tuples.json"
 python3 -c 'import json, sys; payload=json.load(open(sys.argv[1], "r", encoding="utf-8")); source=payload["source"]; summary=payload["summary"]; assert source["kind"] == "metadata_db", source; assert summary["subject_count"] == 3, summary; assert summary["active_subject_count"] == 2, summary; assert any(item["object"] == "platform_role:privacy_operator" and item["user"] == "user:auto_demo" for item in payload["tuples"]), payload["tuples"]; assert any(item["object"] == "privacy_service:contract-recovery-service" and item["relation"] == "can_recover" for item in payload["tuples"]), payload["tuples"]' "$tmp/platform_metadata_authz_tuples.json"
+# Mutation log query: registry apply should have logged mutations
+python3 "$REPO_ROOT/scripts/query_mutation_log.py" \
+  --db-path "$tmp/platform_registry.db" \
+  --output "$tmp/platform_registry_mutation_log.json" \
+  > /dev/null
+python3 "$VALIDATOR" \
+  --schema "$REPO_ROOT/schemas/mutation_log_query.schema.json" \
+  --json "$tmp/platform_registry_mutation_log.json"
+python3 -c 'import json, sys; payload=json.load(open(sys.argv[1], "r", encoding="utf-8")); assert payload["pagination"]["total_matching_count"] >= 13, payload; ops={m["operation"] for m in payload["mutations"]}; assert "insert" in ops, ops; actors={m["actor"] for m in payload["mutations"]}; assert "apply-registry" in actors, actors; entity_types={m["entity_type"] for m in payload["mutations"]}; assert "policy" in entity_types, entity_types; assert "tenants" in entity_types or "callers" in entity_types, entity_types' "$tmp/platform_registry_mutation_log.json"
+# Issuer registry: apply-registry should have registered the example issuers
+python3 "$REPO_ROOT/scripts/query_mutation_log.py" \
+  --db-path "$tmp/platform_registry.db" \
+  --entity-type issuer_registry \
+  --output "$tmp/platform_registry_issuer_mutations.json" \
+  > /dev/null
+python3 -c 'import json, sys; payload=json.load(open(sys.argv[1], "r", encoding="utf-8")); assert payload["pagination"]["total_matching_count"] >= 2, payload; issuers={m["entity_id"] for m in payload["mutations"]}; assert "https://keycloak.example.com/realms/commerce" in issuers, issuers; assert "local" in issuers, issuers' "$tmp/platform_registry_issuer_mutations.json"
+# OIDC claim mapper smoke: parse a synthetic HS256 JWT with the example Keycloak issuer
+_test_jwt="$(python3 - << 'PYEOF'
+import base64, hmac as _hmac, hashlib, json, time, sys
+s = "test-secret"
+h = base64.urlsafe_b64encode(json.dumps({"alg":"HS256","typ":"JWT"}).encode()).rstrip(b"=").decode()
+p = base64.urlsafe_b64encode(json.dumps({"iss":"https://keycloak.example.com/realms/commerce","sub":"svc-account-recovery","preferred_username":"recovery_ops_demo","azp":"orders-recovery","tenant_id":"demo_tenant","realm_access":{"roles":["service_operator"]},"aud":"seccomp-privacy-platform","exp":int(time.time())+3600,"iat":int(time.time()),"name":"Recovery Ops Demo SA"}).encode()).rstrip(b"=").decode()
+si = f"{h}.{p}".encode()
+sig = base64.urlsafe_b64encode(_hmac.new(s.encode(), si, hashlib.sha256).digest()).rstrip(b"=").decode()
+print(f"{h}.{p}.{sig}")
+PYEOF
+)"
+OIDC_TEST_SECRET=test-secret python3 "$REPO_ROOT/scripts/map_oidc_claims.py" \
+  --token "$_test_jwt" \
+  --claim-mapping-config "$REPO_ROOT/config/oidc_claim_mapping.example.json" \
+  --verify-secret-env OIDC_TEST_SECRET \
+  --db-path "$tmp/platform_registry.db" \
+  --trusted-audience seccomp-privacy-platform \
+  --require-registered-issuer \
+  --output "$tmp/oidc_claim_map.json" \
+  > /dev/null
+python3 "$VALIDATOR" \
+  --schema "$REPO_ROOT/schemas/oidc_claim_map.schema.json" \
+  --json "$tmp/oidc_claim_map.json"
+python3 -c 'import json, sys; payload=json.load(open(sys.argv[1], "r", encoding="utf-8")); assert payload["valid"] is True, payload; assert payload["signature_verified"] is True, payload; assert payload["issuer_registered"] is True, payload; assert payload["issuer_enabled"] is True, payload; assert payload["audience_ok"] is True, payload; mapped=payload["mapped_fields"]; assert mapped["caller"] == "recovery_ops_demo", mapped; assert mapped["tenant_id"] == "demo_tenant", mapped; assert "service_operator" in mapped["platform_roles"], mapped' "$tmp/oidc_claim_map.json"
+# Vault HTTP client mock-mode smoke
+python3 "$REPO_ROOT/scripts/vault_http_client.py" \
+  --mock-file "$REPO_ROOT/config/vault_kv_backend.example.json" \
+  --output "$tmp/vault_http_status.json" \
+  status \
+  > /dev/null
+python3 "$VALIDATOR" \
+  --schema "$REPO_ROOT/schemas/vault_http_client_result.schema.json" \
+  --json "$tmp/vault_http_status.json"
+python3 -c 'import json, sys; payload=json.load(open(sys.argv[1], "r", encoding="utf-8")); assert payload["mode"] == "mock", payload; assert payload["mock_secrets_count"] == 2, payload' "$tmp/vault_http_status.json"
+python3 "$REPO_ROOT/scripts/vault_http_client.py" \
+  --mock-file "$REPO_ROOT/config/vault_kv_backend.example.json" \
+  --output "$tmp/vault_http_get.json" \
+  get --path secret/data/bridge-token --field value --redact \
+  > /dev/null
+python3 "$VALIDATOR" \
+  --schema "$REPO_ROOT/schemas/vault_http_client_result.schema.json" \
+  --json "$tmp/vault_http_get.json"
+python3 -c 'import json, sys; payload=json.load(open(sys.argv[1], "r", encoding="utf-8")); assert payload["ok"] is True, payload; assert payload["value"] == "REDACTED", payload; assert payload["resolved_version"] == "1", payload' "$tmp/vault_http_get.json"
+# Issuer credential rotation dry-run on the registry DB
+python3 "$REPO_ROOT/scripts/rotate_issuer_credentials.py" \
+  --db-path "$tmp/platform_registry.db" \
+  --issuer "https://keycloak.example.com/realms/commerce" \
+  --dry-run \
+  --output "$tmp/issuer_rotation_dry.json" \
+  > /dev/null
+python3 "$VALIDATOR" \
+  --schema "$REPO_ROOT/schemas/issuer_credential_rotation.schema.json" \
+  --json "$tmp/issuer_rotation_dry.json"
+python3 -c 'import json, sys; payload=json.load(open(sys.argv[1], "r", encoding="utf-8")); assert payload["ok"] is True, payload; assert payload["mode"] == "dry_run", payload; assert payload["issuer"] == "https://keycloak.example.com/realms/commerce", payload; assert payload["issuer_type"] == "keycloak", payload' "$tmp/issuer_rotation_dry.json"
+# Key backend drift check: clean manifest → should report status=clean
+python3 "$REPO_ROOT/scripts/check_key_backend_drift.py" \
+  --db-path "$tmp/platform_registry.db" \
+  --manifest "$REPO_ROOT/config/metadata_registry.example.json" \
+  --output "$tmp/key_backend_drift_clean.json" \
+  > /dev/null
+python3 "$VALIDATOR" \
+  --schema "$REPO_ROOT/schemas/key_backend_drift.schema.json" \
+  --json "$tmp/key_backend_drift_clean.json"
+python3 -c 'import json, sys; payload=json.load(open(sys.argv[1], "r", encoding="utf-8")); assert payload["mode"] == "dry_run", payload; assert payload["summary"]["status"] == "clean", payload; assert payload["summary"]["actionable_findings"] == 0, payload; assert payload["summary"]["ref_key_count"] == 2, payload' "$tmp/key_backend_drift_clean.json"
+# Key backend drift check via vault_kv source (informational diffs expected, no actionable failures)
+python3 "$REPO_ROOT/scripts/check_key_backend_drift.py" \
+  --db-path "$tmp/platform_registry.db" \
+  --vault-kv-file "$REPO_ROOT/config/vault_kv_backend.example.json" \
+  --output "$tmp/key_backend_drift_vault.json" \
+  > /dev/null
+python3 "$VALIDATOR" \
+  --schema "$REPO_ROOT/schemas/key_backend_drift.schema.json" \
+  --json "$tmp/key_backend_drift_vault.json"
+python3 -c 'import json, sys; payload=json.load(open(sys.argv[1], "r", encoding="utf-8")); assert payload["mode"] == "dry_run", payload; assert payload["summary"]["ref_key_count"] == 2, payload' "$tmp/key_backend_drift_vault.json"
+# Policy drift check: clean registry DB should report status=clean
+python3 "$REPO_ROOT/scripts/check_policy_drift.py" \
+  --db-path "$tmp/platform_registry.db" \
+  --output "$tmp/policy_drift_clean.json" \
+  > /dev/null
+python3 "$VALIDATOR" \
+  --schema "$REPO_ROOT/schemas/policy_drift.schema.json" \
+  --json "$tmp/policy_drift_clean.json"
+python3 -c 'import json, sys; payload=json.load(open(sys.argv[1], "r", encoding="utf-8")); assert payload["mode"] == "dry_run", payload; assert payload["summary"]["status"] == "clean", payload; assert payload["summary"]["registered_policy_count"] == 1, payload' "$tmp/policy_drift_clean.json"
+# Policy change proposal: unchanged file → approved with no errors
+python3 "$REPO_ROOT/scripts/propose_policy_change.py" \
+  --db-path "$tmp/platform_registry.db" \
+  --policy-file "$REPO_ROOT/sse/config/ecommerce_access_policy.example.json" \
+  --output "$tmp/policy_proposal_approved.json" \
+  > /dev/null
+python3 "$VALIDATOR" \
+  --schema "$REPO_ROOT/schemas/policy_change_proposal.schema.json" \
+  --json "$tmp/policy_proposal_approved.json"
+python3 -c 'import json, sys; payload=json.load(open(sys.argv[1], "r", encoding="utf-8")); assert payload["governance_status"] == "approved", payload; assert payload["error_count"] == 0, payload; assert payload["mode"] == "dry_run", payload; assert payload["applied"] is False, payload; assert len(payload["caller_diff"]["retained"]) == 5, payload' "$tmp/policy_proposal_approved.json"
+# Policy change proposal: removing active bridge caller → blocked
+_blocked_policy="$(python3 - << 'PYEOF'
+import json, tempfile, sys
+p = json.load(open("sse/config/ecommerce_access_policy.example.json"))
+del p["callers"]["commerce_ops_demo"]
+import tempfile; f = tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False)
+json.dump(p, f); f.close(); print(f.name)
+PYEOF
+)"
+python3 "$REPO_ROOT/scripts/propose_policy_change.py" \
+  --db-path "$tmp/platform_registry.db" \
+  --policy-file "$_blocked_policy" \
+  --existing-policy-path "$REPO_ROOT/sse/config/ecommerce_access_policy.example.json" \
+  --output "$tmp/policy_proposal_blocked.json" \
+  > /dev/null
+python3 "$VALIDATOR" \
+  --schema "$REPO_ROOT/schemas/policy_change_proposal.schema.json" \
+  --json "$tmp/policy_proposal_blocked.json"
+python3 -c 'import json, sys; payload=json.load(open(sys.argv[1], "r", encoding="utf-8")); assert payload["governance_status"] == "blocked", payload; assert payload["error_count"] >= 1, payload; rules={v["rule"] for v in payload["governance_violations"]}; assert "no_remove_active_bridge_callers" in rules, rules; assert "commerce_ops_demo" in payload["caller_diff"]["removed"], payload["caller_diff"]' "$tmp/policy_proposal_blocked.json"
+rm -f "$_blocked_policy"
+record_recovery_http_db_authz_port="$(python3 "$RUNTIME_SERVICE_HELPERS" available-port)"
+python3 "$REPO_ROOT/scripts/build_runtime_contract_smoke_configs.py" \
+  record-recovery-authz-db \
+  --out-config "$tmp/record_recovery_authz_db_source.json" \
+  --db-path "$tmp/platform_metadata.db" \
+  --policy-path "$tmp/contract_export_policy.json"
+python3 "$VALIDATOR" \
+  --schema "$REPO_ROOT/schemas/record_recovery_authz_source.schema.json" \
+  --json "$tmp/record_recovery_authz_db_source.json"
+python3 "$REPO_ROOT/scripts/build_runtime_contract_smoke_configs.py" \
+  record-recovery-http \
+  --out-config "$tmp/record_recovery_http_db_authz_service_config.json" \
+  --tmp-dir "$tmp" \
+  --port "$record_recovery_http_db_authz_port" \
+  --service-id contract-recovery-service \
+  --tenant-id contract-tenant \
+  --dataset-id contract-dataset \
+  --authz-config "$tmp/record_recovery_authz_db_source.json"
+rm -f \
+  "$tmp/record_recovery_service_http_runtime_audit.jsonl" \
+  "$tmp/record_recovery_service_http.log" \
+  "$tmp/record_recovery_service_http.pid" \
+  "$tmp/record_recovery_service_http.ready"
+python3 "$VALIDATOR" \
+  --schema "$REPO_ROOT/schemas/record_recovery_service_config.schema.json" \
+  --json "$tmp/record_recovery_http_db_authz_service_config.json"
+python3 "$REPO_ROOT/scripts/manage_record_recovery_service.py" start \
+  --config "$tmp/record_recovery_http_db_authz_service_config.json" \
+  > "$tmp/record_recovery_http_db_authz_service_start.json"
+record_recovery_service_pid="$(python3 "$RUNTIME_SERVICE_HELPERS" read-json-field --json-file "$tmp/record_recovery_http_db_authz_service_start.json" --field started_pid)"
+python3 "$REPO_ROOT/scripts/request_record_recovery_service.py" \
+  --config "$tmp/record_recovery_http_db_authz_service_config.json" \
+  > "$tmp/record_recovery_http_db_authz_service_health.json"
+python3 "$VALIDATOR" \
+  --schema "$REPO_ROOT/schemas/record_recovery_service_health.schema.json" \
+  --json "$tmp/record_recovery_http_db_authz_service_health.json"
+"$SSE_PY" "$REPO_ROOT/scripts/record_recovery_contract_smoke_helpers.py" \
+  run-http-recovery \
+  --store-path "$tmp/http_record_store.enc.jsonl" \
+  --out-csv "$tmp/http_db_authz_recovered_client.csv" \
+  --result-json "$tmp/http_db_authz_recovery_result.json" \
+  --port "$record_recovery_http_db_authz_port" \
+  --job-id contract-db-authz-check \
+  --tenant-id contract-tenant \
+  --dataset-id contract-dataset \
+  --service-id contract-recovery-service
+"$SSE_PY" "$REPO_ROOT/scripts/record_recovery_contract_smoke_helpers.py" \
+  validate-authz-db-source \
+  --health-json "$tmp/record_recovery_http_db_authz_service_health.json" \
+  --audit-jsonl "$tmp/record_recovery_service_http_runtime_audit.jsonl" \
+  --authz-config "$tmp/record_recovery_authz_db_source.json"
+python3 "$VALIDATOR" \
+  --schema "$REPO_ROOT/schemas/sse_record_recovery_service_audit.schema.json" \
+  --jsonl "$tmp/record_recovery_service_http_runtime_audit.jsonl"
+python3 "$REPO_ROOT/scripts/manage_record_recovery_service.py" stop \
+  --config "$tmp/record_recovery_http_db_authz_service_config.json" \
+  > "$tmp/record_recovery_http_db_authz_service_stop.json"
+record_recovery_service_pid=""
 python3 "$REPO_ROOT/scripts/query_metadata.py" \
   --db-path "$tmp/platform_metadata.db" \
   --job-id contract-check \
@@ -849,10 +1310,18 @@ python3 "$REPO_ROOT/scripts/query_metadata.py" \
   --caller auto_demo \
   --limit 20 \
   > "$tmp/platform_metadata_caller_permissions.json"
+python3 "$REPO_ROOT/scripts/query_metadata.py" \
+  --db-path "$tmp/platform_metadata.db" \
+  --list-entity caller-permissions \
+  --caller auto_demo \
+  --limit 2 \
+  --offset 2 \
+  > "$tmp/platform_metadata_caller_permissions_page.json"
 mkdir -p "$tmp/query_requests"
 python3 "$REPO_ROOT/scripts/build_query_workflow_request_fixtures.py" \
   --default-out "$tmp/query_requests/cross_party_match.json" \
-  --keep-out "$tmp/query_requests/cross_party_match_keep.json"
+  --keep-out "$tmp/query_requests/cross_party_match_keep.json" \
+  --ecommerce-out "$tmp/query_requests/ecommerce_cross_party_match.json"
 python3 "$REPO_ROOT/scripts/submit_query_workflow.py" \
   --request-file "$tmp/query_requests/cross_party_match.json" \
   --dry-run \
@@ -1036,9 +1505,91 @@ python3 "$REPO_ROOT/scripts/platform_api_client.py" \
   > /dev/null
 kill "$platform_health_api_pid" 2>/dev/null || true
 wait "$platform_health_api_pid" 2>/dev/null || true
+export SECCOMP_METADATA_COMMERCE_OPS_TOKEN="contract-identity-commerce-ops-token"
+export SECCOMP_METADATA_MARKETING_ANALYST_TOKEN="contract-identity-marketing-analyst-token"
+export SECCOMP_METADATA_AUDITOR_TOKEN="contract-identity-auditor-token"
+export SECCOMP_METADATA_RECOVERY_OPS_TOKEN="contract-identity-recovery-ops-token"
+export SECCOMP_METADATA_AUTO_DEMO_TOKEN="contract-identity-auto-demo-token"
+python3 -c 'import json, sys; path=sys.argv[1]; payload={"schema":"metadata_registry_manifest/v1","caller_identities":[{"caller":"auto_demo","issuer":"local:contract","subject":"user:auto_demo","subject_type":"human_user","display_name":"Contract Auto Demo","platform_roles":["query_submitter","privacy_operator"],"enabled":True,"metadata":{"entity_type":"human_user"},"source":"contract_identity_fixture"}]}; open(path, "w", encoding="utf-8").write(json.dumps(payload, ensure_ascii=False, indent=2) + "\n")' "$tmp/contract_identity_registry_manifest.json"
+python3 -c 'import json, sys; path=sys.argv[1]; payload={"schema":"api_identity_token_map/v1","tokens":[{"token_env":"SECCOMP_METADATA_AUTO_DEMO_TOKEN","issuer":"local:contract","subject":"user:auto_demo","description":"Contract auto demo local bearer token"}]}; open(path, "w", encoding="utf-8").write(json.dumps(payload, ensure_ascii=False, indent=2) + "\n")' "$tmp/contract_identity_tokens.json"
+python3 "$REPO_ROOT/scripts/manage_metadata_db.py" \
+  apply-registry \
+  --db-path "$tmp/platform_metadata.db" \
+  --manifest "$tmp/contract_identity_registry_manifest.json" \
+  > /dev/null
+python3 "$REPO_ROOT/scripts/resolve_api_identity.py" \
+  --db-path "$tmp/platform_registry.db" \
+  --identity-token-config "$REPO_ROOT/config/api_identity_tokens.example.json" \
+  --bearer-token-env SECCOMP_METADATA_COMMERCE_OPS_TOKEN \
+  > "$tmp/api_identity_resolution_bearer.json"
+python3 "$REPO_ROOT/scripts/resolve_api_identity.py" \
+  --db-path "$tmp/platform_registry.db" \
+  --issuer keycloak:commerce \
+  --subject user:marketing_analyst \
+  > "$tmp/api_identity_resolution_subject.json"
+identity_metadata_api_port="$(python3 "$RUNTIME_SERVICE_HELPERS" available-port)"
+python3 "$REPO_ROOT/scripts/serve_metadata_api.py" \
+  --db-path "$tmp/platform_registry.db" \
+  --bind-host 127.0.0.1 \
+  --port "$identity_metadata_api_port" \
+  --identity-token-config "$REPO_ROOT/config/api_identity_tokens.example.json" \
+  > "$tmp/identity_metadata_api.log" 2>&1 &
+identity_metadata_api_pid=$!
+python3 "$RUNTIME_SERVICE_HELPERS" wait-json-health \
+  --url "http://127.0.0.1:$identity_metadata_api_port/healthz"
+identity_query_api_port="$(python3 "$RUNTIME_SERVICE_HELPERS" available-port)"
+python3 "$REPO_ROOT/scripts/serve_query_workflow_api.py" \
+  --bind-host 127.0.0.1 \
+  --port "$identity_query_api_port" \
+  --metadata-db-path "$tmp/platform_registry.db" \
+  --identity-token-config "$REPO_ROOT/config/api_identity_tokens.example.json" \
+  --allow-execute \
+  > "$tmp/identity_query_workflow_api.log" 2>&1 &
+identity_query_api_pid=$!
+python3 "$RUNTIME_SERVICE_HELPERS" wait-json-health \
+  --url "http://127.0.0.1:$identity_query_api_port/healthz"
+identity_audit_api_port="$(python3 "$RUNTIME_SERVICE_HELPERS" available-port)"
+python3 "$REPO_ROOT/scripts/serve_audit_query_api.py" \
+  --out-base "$tmp" \
+  --bind-host 127.0.0.1 \
+  --port "$identity_audit_api_port" \
+  --metadata-db-path "$tmp/platform_metadata.db" \
+  --identity-token-config "$tmp/contract_identity_tokens.json" \
+  > "$tmp/identity_audit_query_api.log" 2>&1 &
+identity_audit_api_pid=$!
+python3 "$RUNTIME_SERVICE_HELPERS" wait-json-health \
+  --url "http://127.0.0.1:$identity_audit_api_port/healthz"
+identity_platform_health_api_port="$(python3 "$RUNTIME_SERVICE_HELPERS" available-port)"
+python3 "$REPO_ROOT/scripts/serve_platform_health_api.py" \
+  --bind-host 127.0.0.1 \
+  --port "$identity_platform_health_api_port" \
+  --metadata-db-path "$tmp/platform_registry.db" \
+  --identity-token-config "$REPO_ROOT/config/api_identity_tokens.example.json" \
+  > "$tmp/identity_platform_health_api.log" 2>&1 &
+identity_platform_health_api_pid=$!
+python3 "$RUNTIME_SERVICE_HELPERS" wait-json-health \
+  --url "http://127.0.0.1:$identity_platform_health_api_port/healthz"
+python3 "$REPO_ROOT/scripts/materialize_platform_api_smoke_reports.py" \
+  --tmp-dir "$tmp" \
+  --identity-metadata-port "$identity_metadata_api_port" \
+  --identity-query-port "$identity_query_api_port" \
+  --identity-query-request-file "$tmp/query_requests/ecommerce_cross_party_match.json" \
+  --identity-audit-port "$identity_audit_api_port" \
+  --identity-platform-health-port "$identity_platform_health_api_port"
+kill "$identity_metadata_api_pid" 2>/dev/null || true
+wait "$identity_metadata_api_pid" 2>/dev/null || true
+kill "$identity_query_api_pid" 2>/dev/null || true
+wait "$identity_query_api_pid" 2>/dev/null || true
+kill "$identity_audit_api_pid" 2>/dev/null || true
+wait "$identity_audit_api_pid" 2>/dev/null || true
+kill "$identity_platform_health_api_pid" 2>/dev/null || true
+wait "$identity_platform_health_api_pid" 2>/dev/null || true
 python3 "$VALIDATOR" \
   --schema "$REPO_ROOT/schemas/query_workflow_request.schema.json" \
   --json "$tmp/query_requests/cross_party_match.json"
+python3 "$VALIDATOR" \
+  --schema "$REPO_ROOT/schemas/query_workflow_request.schema.json" \
+  --json "$tmp/query_requests/ecommerce_cross_party_match.json"
 python3 "$VALIDATOR" \
   --schema "$REPO_ROOT/schemas/query_workflow_submission.schema.json" \
   --json "$tmp/query_workflow_stdout.json"
@@ -1089,6 +1640,9 @@ python3 "$VALIDATOR" \
   --json "$tmp/metadata_api_permissions.json"
 python3 "$VALIDATOR" \
   --schema "$REPO_ROOT/schemas/metadata_api_response.schema.json" \
+  --json "$tmp/metadata_api_permissions_page.json"
+python3 "$VALIDATOR" \
+  --schema "$REPO_ROOT/schemas/metadata_api_response.schema.json" \
   --json "$tmp/metadata_api_client_job.json"
 python3 "$VALIDATOR" \
   --schema "$REPO_ROOT/schemas/metadata_api_response.schema.json" \
@@ -1096,6 +1650,38 @@ python3 "$VALIDATOR" \
 python3 "$VALIDATOR" \
   --schema "$REPO_ROOT/schemas/metadata_api_error.schema.json" \
   --json "$tmp/metadata_api_unauth_error.json"
+python3 "$VALIDATOR" \
+  --schema "$REPO_ROOT/schemas/api_identity_resolution.schema.json" \
+  --json "$tmp/api_identity_resolution_bearer.json"
+python3 "$VALIDATOR" \
+  --schema "$REPO_ROOT/schemas/api_identity_resolution.schema.json" \
+  --json "$tmp/api_identity_resolution_subject.json"
+python3 "$VALIDATOR" \
+  --schema "$REPO_ROOT/schemas/api_identity_token_map.schema.json" \
+  --json "$tmp/contract_identity_tokens.json"
+python3 "$VALIDATOR" \
+  --schema "$REPO_ROOT/schemas/metadata_registry_manifest.schema.json" \
+  --json "$tmp/contract_identity_registry_manifest.json"
+python3 "$VALIDATOR" \
+  --schema "$REPO_ROOT/schemas/metadata_api_response.schema.json" \
+  --json "$tmp/metadata_api_identity.json"
+python3 "$VALIDATOR" \
+  --schema "$REPO_ROOT/schemas/metadata_api_error.schema.json" \
+  --json "$tmp/metadata_api_identity_forbidden_policies.json"
+python3 "$VALIDATOR" \
+  --schema "$REPO_ROOT/schemas/query_workflow_api_response.schema.json" \
+  --json "$tmp/query_workflow_identity_dry_run.json"
+python3 "$VALIDATOR" \
+  --schema "$REPO_ROOT/schemas/query_workflow_api_error.schema.json" \
+  --json "$tmp/query_workflow_identity_execute_forbidden.json"
+test "$(python3 "$RUNTIME_SERVICE_HELPERS" read-json-field --json-file "$tmp/platform_metadata_caller_permissions_page.json" --field pagination.limit)" = "2"
+test "$(python3 "$RUNTIME_SERVICE_HELPERS" read-json-field --json-file "$tmp/platform_metadata_caller_permissions_page.json" --field pagination.offset)" = "2"
+test "$(python3 "$RUNTIME_SERVICE_HELPERS" read-json-field --json-file "$tmp/platform_metadata_caller_permissions_page.json" --field pagination.returned_count)" = "2"
+test "$(python3 "$RUNTIME_SERVICE_HELPERS" read-json-field --json-file "$tmp/platform_metadata_caller_permissions_page.json" --field pagination.has_more)" = "True"
+test "$(python3 "$RUNTIME_SERVICE_HELPERS" read-json-field --json-file "$tmp/platform_metadata_caller_permissions_page.json" --field permission_summary.caller_count)" = "1"
+test "$(python3 "$RUNTIME_SERVICE_HELPERS" read-json-field --json-file "$tmp/platform_metadata_stage.json" --field pagination.limit)" = "5"
+test "$(python3 "$RUNTIME_SERVICE_HELPERS" read-json-field --json-file "$tmp/platform_metadata_stage.json" --field pagination.offset)" = "0"
+test "$(python3 "$RUNTIME_SERVICE_HELPERS" read-json-field --json-file "$tmp/platform_metadata_stage.json" --field pagination.total_matching_count)" = "1"
 python3 "$VALIDATOR" \
   --schema "$REPO_ROOT/schemas/audit_query_api_health.schema.json" \
   --json "$tmp/audit_query_api_health.json"
@@ -1136,6 +1722,12 @@ python3 "$VALIDATOR" \
   --schema "$REPO_ROOT/schemas/audit_query_api_error.schema.json" \
   --json "$tmp/audit_query_api_bad_query_error.json"
 python3 "$VALIDATOR" \
+  --schema "$REPO_ROOT/schemas/audit_query_api_response.schema.json" \
+  --json "$tmp/audit_query_api_identity_public_report.json"
+python3 "$VALIDATOR" \
+  --schema "$REPO_ROOT/schemas/audit_query_api_error.schema.json" \
+  --json "$tmp/audit_query_api_identity_include_paths_forbidden.json"
+python3 "$VALIDATOR" \
   --schema "$REPO_ROOT/schemas/platform_health_api_health.schema.json" \
   --json "$tmp/platform_health_api_health.json"
 python3 "$VALIDATOR" \
@@ -1150,6 +1742,9 @@ python3 "$VALIDATOR" \
 python3 "$VALIDATOR" \
   --schema "$REPO_ROOT/schemas/platform_health_api_error.schema.json" \
   --json "$tmp/platform_health_api_unauth_error.json"
+python3 "$VALIDATOR" \
+  --schema "$REPO_ROOT/schemas/platform_health_api_error.schema.json" \
+  --json "$tmp/platform_health_api_identity_forbidden.json"
 
 python3 "$REPO_ROOT/scripts/check_platform_health.py" \
   --out-base "$tmp" \
@@ -1164,6 +1759,28 @@ python3 "$REPO_ROOT/scripts/check_platform_api_smoke_reports.py" \
 python3 "$REPO_ROOT/scripts/scan_repo_hygiene.py" \
   --max-findings 50 \
   > "$tmp/repo_hygiene_scan.json"
+python3 "$VALIDATOR" \
+  --schema "$REPO_ROOT/schemas/repo_hygiene_scan.schema.json" \
+  --json "$tmp/repo_hygiene_scan.json"
+
+python3 "$REPO_ROOT/scripts/check_malformed_input_gate.py" \
+  --out "$tmp/malformed_input_gate.json"
+python3 "$VALIDATOR" \
+  --schema "$REPO_ROOT/schemas/malformed_input_gate.schema.json" \
+  --json "$tmp/malformed_input_gate.json"
+
+python3 "$REPO_ROOT/scripts/check_pre_release_gate.py" \
+  --out "$tmp/pre_release_gate.json"
+python3 "$VALIDATOR" \
+  --schema "$REPO_ROOT/schemas/pre_release_gate.schema.json" \
+  --json "$tmp/pre_release_gate.json"
+
+python3 "$REPO_ROOT/scripts/check_operator_readiness.py" \
+  --out "$tmp/operator_readiness.json"
+python3 "$VALIDATOR" \
+  --schema "$REPO_ROOT/schemas/operator_readiness.schema.json" \
+  --json "$tmp/operator_readiness.json"
+
 python3 "$REPO_ROOT/scripts/check_contract_smoke_reports.py" \
   --tmp-dir "$tmp"
 

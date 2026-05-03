@@ -64,7 +64,7 @@
       "required": ["kind", "name"],
       "properties": {
         "kind": {
-          "const": "env"
+          "enum": ["env", "vault_kv"]
         },
         "name": {
           "type": ["string", "null"]

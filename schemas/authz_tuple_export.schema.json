@@ -91,7 +91,7 @@
             "enum": ["user", "service_account"]
           },
           "subject_type_source": {
-            "enum": ["default_user", "role_or_profile_inference"]
+            "enum": ["default_user", "role_or_profile_inference", "caller_identity"]
           },
           "enabled": { "type": ["boolean", "null"] },
           "tenant_id": { "type": ["string", "null"] },

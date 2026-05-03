@@ -9,6 +9,7 @@ from typing import Any, Dict, Tuple
 KEYRING_SCHEMA = "keyring/v1"
 KEY_LIFECYCLE_AUDIT_SCHEMA = "key_lifecycle_audit/v1"
 KEY_ACCESS_AUDIT_SCHEMA = "key_access_audit/v1"
+VAULT_KV_BACKEND_SCHEMA = "vault_kv_backend/v1"
 
 
 def utc_now_iso() -> str:
@@ -85,11 +86,95 @@ def resolve_active_key(keyring: Dict[str, Any], *, key_name: str) -> Tuple[str, 
     return version, key_value, version_value
 
 
+def normalize_secret_ref(secret_ref: Any) -> Dict[str, Any]:
+    if not isinstance(secret_ref, dict):
+        raise ValueError("secret_ref must be an object")
+    kind = str(secret_ref.get("kind", "") or "").strip()
+    name = str(secret_ref.get("name", "") or "").strip()
+    if not kind:
+        raise ValueError("secret_ref.kind is required")
+    if not name:
+        raise ValueError("secret_ref.name is required")
+    if kind == "env":
+        return {
+            "kind": kind,
+            "name": name,
+        }
+    if kind in ("vault_kv", "vault_http"):
+        value: Dict[str, Any] = {
+            "kind": kind,
+            "name": name,
+        }
+        version = str(secret_ref.get("version", "") or "").strip()
+        field = str(secret_ref.get("field", "") or "").strip()
+        if version:
+            value["version"] = version
+        if field:
+            value["field"] = field
+        return value
+    raise ValueError(f"unsupported secret_ref kind {kind}")
+
+
+def load_vault_kv_backend(path: str) -> Dict[str, Any]:
+    payload = load_json_object(path)
+    if payload.get("schema") != VAULT_KV_BACKEND_SCHEMA:
+        raise ValueError(f"unsupported vault backend schema: {payload.get('schema')}")
+    secrets = payload.get("secrets")
+    if not isinstance(secrets, dict):
+        raise ValueError("vault backend must contain a secrets object")
+    return payload
+
+
+def resolve_secret_ref(*, secret_ref: Dict[str, Any], vault_kv_file: str = "", vault_http_config: Dict[str, Any] | None = None) -> str:
+    normalized = normalize_secret_ref(secret_ref)
+    kind = normalized["kind"]
+    if kind == "env":
+        secret = os.environ.get(normalized["name"])
+        if secret is None:
+            raise PermissionError(f"environment variable for secret_ref {normalized['name']} is not set")
+        return secret
+    if kind == "vault_kv":
+        if not vault_kv_file:
+            raise PermissionError("vault_kv secret_ref requires a vault backend file")
+        backend = load_vault_kv_backend(vault_kv_file)
+        secret_entry = backend["secrets"].get(normalized["name"])
+        if not isinstance(secret_entry, dict):
+            raise PermissionError(f"vault_kv secret path not found: {normalized['name']}")
+        versions = secret_entry.get("versions")
+        if not isinstance(versions, dict):
+            raise ValueError(f"vault_kv secret path {normalized['name']} is missing versions")
+        version = str(normalized.get("version") or secret_entry.get("current_version") or "").strip()
+        if not version:
+            raise ValueError(f"vault_kv secret path {normalized['name']} is missing current_version")
+        version_entry_value = versions.get(version)
+        if not isinstance(version_entry_value, dict):
+            raise PermissionError(f"vault_kv secret version not found: {normalized['name']}#{version}")
+        fields = version_entry_value.get("fields")
+        if not isinstance(fields, dict):
+            raise ValueError(f"vault_kv secret path {normalized['name']} version {version} is missing fields")
+        field = str(normalized.get("field") or "value")
+        secret = fields.get(field)
+        if not isinstance(secret, str):
+            raise PermissionError(f"vault_kv secret field not found: {normalized['name']}#{version}:{field}")
+        return secret
+    if kind == "vault_http":
+        # Import here to avoid circular dependency at module load time
+        import importlib
+        vh = importlib.import_module("scripts.vault_http_client")
+        value, _ = vh.resolve_vault_http_secret_ref(
+            secret_ref=normalized,
+            client_config=vault_http_config,
+            mock_file=vault_kv_file,
+        )
+        return value
+    raise ValueError(f"unsupported secret_ref kind {kind}")
+
+
 def ensure_key_access_allowed(*,
                               keyring: Dict[str, Any],
                               key_name: str,
                               purpose: str,
-                              caller: str) -> Tuple[str, Dict[str, Any], Dict[str, Any], str]:
+                              caller: str) -> Tuple[str, Dict[str, Any], Dict[str, Any], Dict[str, Any]]:
     version, key_value, version_value = resolve_active_key(keyring, key_name=key_name)
 
     key_purpose = str(key_value.get("purpose", ""))
@@ -112,18 +197,8 @@ def ensure_key_access_allowed(*,
         raise PermissionError(f"caller {caller} is not allowed to access key {key_name}")
 
     secret_ref = version_value.get("secret_ref")
-    if not isinstance(secret_ref, dict):
-        raise ValueError(f"key {key_name} version {version} is missing secret_ref")
-    if secret_ref.get("kind") != "env":
-        raise ValueError(f"key {key_name} version {version} has unsupported secret_ref kind {secret_ref.get('kind')}")
-    env_name = str(secret_ref.get("name", ""))
-    if not env_name:
-        raise ValueError(f"key {key_name} version {version} is missing secret_ref.name")
-    secret = os.environ.get(env_name)
-    if secret is None:
-        raise PermissionError(f"environment variable for key {key_name} version {version} is not set")
-
-    return version, key_value, version_value, env_name
+    normalized_secret_ref = normalize_secret_ref(secret_ref)
+    return version, key_value, version_value, normalized_secret_ref
 
 
 def promote_version(*, keyring: Dict[str, Any], key_name: str, version: str) -> None:
@@ -166,9 +241,10 @@ def rotate_key(*,
                key_name: str,
                purpose: str,
                new_version: str,
-               secret_env: str,
                caller: str,
                activate: bool,
+               secret_env: str = "",
+               secret_ref: Dict[str, Any] | None = None,
                create_key: bool = False) -> None:
     keys = _keys_object(keyring)
     key_value = keys.get(key_name)
@@ -194,14 +270,21 @@ def rotate_key(*,
     if new_version in versions:
         raise ValueError(f"key {key_name} version {new_version} already exists")
 
+    if secret_ref is None:
+        if not secret_env:
+            raise ValueError("secret_env or secret_ref is required")
+        secret_ref_value = {
+            "kind": "env",
+            "name": secret_env,
+        }
+    else:
+        secret_ref_value = normalize_secret_ref(secret_ref)
+
     versions[new_version] = {
         "enabled": True,
         "status": "active" if activate else "inactive",
         "created_at_utc": utc_now_iso(),
-        "secret_ref": {
-            "kind": "env",
-            "name": secret_env,
-        },
+        "secret_ref": secret_ref_value,
     }
     if activate:
         promote_version(keyring=keyring, key_name=key_name, version=new_version)
@@ -262,7 +345,8 @@ def append_key_lifecycle_audit(*,
                                status: str,
                                decision: str,
                                reason_code: str,
-                               secret_env: str | None = None,
+                               secret_source_kind: str = "env",
+                               secret_source_name: str | None = None,
                                reason: str | None = None) -> None:
     record: Dict[str, Any] = {
         "schema": KEY_LIFECYCLE_AUDIT_SCHEMA,
@@ -278,8 +362,8 @@ def append_key_lifecycle_audit(*,
         "keyring_file": os.path.abspath(keyring_file),
         "keyring_sha256": sha256_file(keyring_file),
         "secret_source": {
-            "kind": "env",
-            "name": secret_env,
+            "kind": secret_source_kind,
+            "name": secret_source_name,
         },
     }
     if reason is not None:

@@ -77,7 +77,7 @@ No crypto construction needed — this is rate limiting at the policy layer.
 
 **Problem:** `server.csv` / `client.csv` sit on disk unencrypted between SSE export and bridge execution.
 
-**Application fix:** Make FIFO handoff the default in `run_sse_bridge_pipeline.sh`. File mode becomes an explicit `--sse-export-handoff-mode file` flag. FIFO streams through a named pipe and never persists the CSV. This is already implemented — just change the default.
+**Application fix:** Prefer FIFO handoff when the caller can tolerate a non-persistent bridge-ready boundary, but keep file mode as the owner-controlled compatibility default until the wider interface surface is explicitly re-frozen. Today the safer path is already available as `--sse-export-handoff-mode fifo`, while retained file mode is further constrained behind `--keep-sse-export-handoff-files --handoff-retention-reason <text>`.
 
 ---
 
@@ -128,15 +128,21 @@ python3 moduleA_psi/scripts/policy_release.py \
   --bucket-intersection-size
 ```
 
-### B4 — FIFO Handoff as Default ✓ FIXED
+### B4 — FIFO Handoff Path ✓ IMPLEMENTED, Default Still File
 
 **File changed:** `scripts/run_sse_bridge_pipeline.sh`
 
-Changed `SSE_EXPORT_HANDOFF_MODE` default from `"file"` to `"fifo"`.
-Bridge-ready join-key data now streams through a named pipe and is never written to disk.
-File mode remains available as an explicit compatibility flag:
+FIFO handoff is implemented and owner-audited, but the stable pipeline baseline still keeps default `file` handoff for compatibility with the documented replay and benchmark surface. The safer non-persistent path is available as an explicit flag:
 ```bash
-bash scripts/run_sse_bridge_pipeline.sh ... --sse-export-handoff-mode file
+bash scripts/run_sse_bridge_pipeline.sh ... --sse-export-handoff-mode fifo
+```
+
+Managed file mode is still cleaned after bridge ingestion by default. If plaintext handoff files must be retained for debugging or compatibility, that path is now explicit and must carry a reason:
+
+```bash
+bash scripts/run_sse_bridge_pipeline.sh ... \
+  --keep-sse-export-handoff-files \
+  --handoff-retention-reason debug_or_compatibility_case
 ```
 
 ### B5 — Recovery Service Rate Limiting ✓ FIXED

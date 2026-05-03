@@ -175,6 +175,23 @@ python3 scripts/import_run_metadata.py \
   --db-path tmp/platform_metadata.db
 ```
 
+当前 importer 也支持两种更贴近长期 sidecar 运维的模式：
+
+```bash
+python3 scripts/import_run_metadata.py \
+  --out-base tmp/sse_bridge_pipeline_demo \
+  --db-path tmp/platform_metadata.db \
+  --dry-run
+
+python3 scripts/import_run_metadata.py \
+  --out-base tmp/run_a \
+  --out-base tmp/run_b \
+  --out-base-file tmp/run_roots.txt \
+  --db-path tmp/platform_metadata.db
+```
+
+`--dry-run` 只做 bundle 读取、scope 推断和 reconcile report，不写数据库；多次 `--out-base` 与 `--out-base-file` 则用于批量 replay/import。输出固定为 `metadata_import_report/v1`，会标明每个 run 是 `insert` 还是 `replace`，并附带导入前已有 job 行状态与各子表 row count。
+
 ### 查询某个 job
 
 ```bash
@@ -195,20 +212,42 @@ python3 scripts/manage_metadata_db.py backup \
   --db-path tmp/platform_metadata.db \
   --out-path tmp/platform_metadata.backup.db
 
+python3 scripts/manage_metadata_db.py restore \
+  --backup-db-path tmp/platform_metadata.backup.db \
+  --out-db-path tmp/platform_metadata.restored.db
+
 python3 scripts/manage_metadata_db.py export-json \
   --db-path tmp/platform_metadata.db \
   --out-path tmp/platform_metadata.export.json
+
+python3 scripts/manage_metadata_db.py apply-registry \
+  --db-path tmp/platform_metadata.db \
+  --manifest config/metadata_registry.example.json
 ```
 
-这三个入口的边界是：
+这四个入口的边界是：
 
 1. `status`：检查 migration、核心表计数、最近导入时间和 DB 文件摘要
 2. `backup`：通过 SQLite backup API 生成一致性副本，不要求主链路停机
-3. `export-json`：导出一份便于审计/迁移/对外检查的 sidecar JSON snapshot
+3. `restore`：从 backup DB 恢复一份新的 SQLite 副本，并附带 `restored_status` 自检
+4. `export-json`：导出一份便于审计/迁移/对外检查的 sidecar JSON snapshot
+5. `apply-registry`：通过 `metadata_registry_manifest/v1` 受控 upsert tenant / dataset / service / caller，并导入 policy 文件
 
 它们不让主链路直接写库，也不改变 importer/query 的冻结语义。
 
-当前 sidecar migration 已扩展到阶段/事件耗时：`job_stage_status.duration_ms` 保存阶段聚合时长，`audit_events.duration_ms` 保存原始审计记录里的阶段时长；`query_metadata.py` 当前已经直接输出 `timing_summary`、`stage_duration_summary` 和 `total_stage_duration_ms`，便于只读查询层直接展示 stage timing；新增 `--stage <name>` 后，列表查询还会返回每个 job 的 `matched_stage` 和整个结果集的 `stage_summary`，并支持再叠加 `--stage-status` 过滤和 `--stage-sort duration_desc|duration_asc` 排序；`--group-by stage` 会把当前返回 jobs 的各 stage 汇总成 `grouped_stage_summary`，`--group-by status` 会把这些 jobs 的整体状态汇总成 `grouped_status_summary`，`--output-format csv|tsv` 则可以把这两类聚合直接导出成分隔文本，`--columns` 可裁剪 grouped delimited 字段，`--output-file` 可直接写结果文件。
+`apply-registry` 输出 `metadata_registry_apply_report/v1`。当前默认示例 manifest 是 `config/metadata_registry.example.json`，它会显式注册 scope 实体，再导入 `sse_export_policy/v1` 文件，把 `policy_bindings` / `caller_permissions` 展开进 sidecar。dry-run 模式只做引用校验和 reconcile，不落库；重复 apply 同一 manifest 时，registry 行会收敛成 `noop`，policy 行也会在 hash、path、binding/permission row count 一致时收敛成 `noop`。如果同一路径 policy 内容变化，sidecar 现在会先删除旧 `policy_id` 行，再写入新 hash 对应的 policy，并重建 child rows，而不会再被 `policies.path UNIQUE` 卡住。
+
+围绕 PostgreSQL-ready baseline，当前 sidecar 还补了一条 DDL portability gate：
+
+```bash
+python3 scripts/check_metadata_schema_portability.py \
+  --output tmp/platform_metadata_schema_portability.json
+```
+
+它会在临时 SQLite DB 上重放 metadata migrations，并检查 migration SQL 里是否仍然包含 SQLite-only `PRAGMA` / `AUTOINCREMENT`，同时验证主键、外键目标、关键索引、`*_utc` / `*_json` 列类型约束。当前 `001_init.sql` 已经把 `PRAGMA foreign_keys = ON` 收回到 runtime `connect_db()`，并把 surrogate row-id 表从 `AUTOINCREMENT` 收紧到普通 `INTEGER PRIMARY KEY`。
+
+当前 sidecar migration 已扩展到阶段/事件耗时：`job_stage_status.duration_ms` 保存阶段聚合时长，`audit_events.duration_ms` 保存原始审计记录里的阶段时长；`query_metadata.py` 当前已经直接输出 `timing_summary`、`stage_duration_summary` 和 `total_stage_duration_ms`，便于只读查询层直接展示 stage timing；新增 `--stage <name>` 后，列表查询还会返回每个 job 的 `matched_stage` 和整个结果集的 `stage_summary`，并支持再叠加 `--stage-status` 过滤和 `--stage-sort duration_desc|duration_asc` 排序；`--group-by stage` 会把当前返回 jobs 的各 stage 汇总成 `grouped_stage_summary`，`--group-by status` 会把这些 jobs 的整体状态汇总成 `grouped_status_summary`，`--output-format csv|tsv` 则可以把这两类聚合直接导出成分隔文本，`--columns` 可裁剪 grouped delimited 字段，`--output-file` 可直接写结果文件。现在 jobs/entity 列表 JSON 输出也统一带 `count` 和 `pagination`（`limit`、`offset`、`returned_count`、`total_matching_count`、`has_more`、`next_offset`、`previous_offset`），供 UI / SDK / admin shell 稳定翻页；`caller-permissions` 的 `permission_summary` 继续按完整匹配集合汇总，而不是只看当前页。
+同一层 importer 现在也不再只是“一次性导入一个 run”：`metadata_import_report/v1` 会在 apply/dry-run 两种模式下稳定输出 `summary`、逐 run `action=insert|replace`、导入前 `existing_job.row_counts`、预期导入的 artifact/audit/policy 计数，以及 apply 后 `job_state_after`。它导入 policy 时也已经与 `apply-registry` 共用同一套 replace/repair helper：同路径 policy 改内容时会替换旧 hash 对应的 parent row，并重建 `policy_bindings` / `caller_permissions`，避免 replay/import 被 path 唯一键卡住或留下陈旧 permission rows。这让 sidecar 可以先做 reconcile/dry-run，再做正式 replay/import，而不是只能盲目覆盖。
 
 ### 按 caller 查询任务
 
@@ -289,6 +328,13 @@ python3 scripts/query_metadata.py \
   --db-path tmp/platform_metadata.db \
   --list-entity caller-permissions \
   --caller auto_demo
+
+python3 scripts/query_metadata.py \
+  --db-path tmp/platform_metadata.db \
+  --list-entity caller-permissions \
+  --caller auto_demo \
+  --limit 2 \
+  --offset 2
 ```
 
 ### 本地只读 HTTP API
@@ -311,7 +357,7 @@ python3 scripts/serve_metadata_api.py \
 3. `GET /v1/jobs?...`
 4. `GET /v1/entities/<entity>?...`
 
-这个 API 直接复用 `query_metadata.py` 的查询函数，读取同一个 SQLite sidecar；它不让主链路写库，也不绕过已有 JSON/JSONL import contract。它的 health/success/error envelope 现在也冻结到了 `schemas/metadata_api_*.schema.json`，并纳入默认 contract smoke 与 schema backcompat guard。
+这个 API 直接复用 `query_metadata.py` 的查询函数，读取同一个 SQLite sidecar；它不让主链路写库，也不绕过已有 JSON/JSONL import contract。`GET /v1/jobs?...` 和 `GET /v1/entities/<entity>?...` 当前都支持 `limit=<n>&offset=<n>` 并把分页状态写进 `result.pagination`。它的 health/success/error envelope 现在也冻结到了 `schemas/metadata_api_*.schema.json`，并纳入默认 contract smoke 与 schema backcompat guard。
 
 当前仓库还补了一个相邻但不同职责的 sidecar：`scripts/submit_query_workflow.py`。它不读数据库，而是把受限请求 JSON 转成 `scripts/run_sse_bridge_pipeline.sh` 的现有 CLI 调用，供后续 UI / SDK 做 job submit adapter。这个 wrapper 属于查询入口 / workflow 侧车，不属于 SQL metadata sidecar 自身。
 
@@ -362,18 +408,31 @@ python3 scripts/serve_metadata_api.py \
 
 ## 11. 平台级剩余工作量估算
 
-按 [PLATFORM_LEVEL_REMAINING_ESTIMATE.md](/home/llvanion/Desktop/seccomp-privacy-platform/docs/PLATFORM_LEVEL_REMAINING_ESTIMATE.md) 的统一口径，这条线从“当前 SQLite sidecar/read-only 基线”推进到“平台基线版”还需要：
+按 [PLATFORM_LEVEL_REMAINING_ESTIMATE.md](/home/llvanion/Desktop/seccomp-privacy-platform/docs/PLATFORM_LEVEL_REMAINING_ESTIMATE.md) 的统一口径，这条线从”当前 SQLite sidecar/read-only 基线”推进到”平台基线版”还需要：
 
-1. `8 blocks`
-2. 约 `40h`
+1. `0 blocks`（原 2 blocks；全部已完成）
+2. 约 `0h`
 
-建议拆分：
+已完成收口（2026-05-03）：
 
-1. `2 blocks / 10h`：把 migration、DDL、初始化流程进一步收成 PostgreSQL-ready baseline，同时保留 SQLite sidecar 兼容。
-2. `2 blocks / 10h`：把 importer 做到更稳定的 idempotent / reconcile / replay 形态，而不只是“一次性导入一个 run”。
-3. `1 block / 5h`：把只读 CLI / HTTP API 的分页、筛选、输出 contract 和回归样例再收一轮。
-4. `2 blocks / 10h`：补 registry / policy / permission 的写侧 ownership 或受控管理入口，避免 sidecar 永远只有只读视角。
-5. `1 block / 5h`：补 metadata DB 的 health/export/backup 基线和运维文档，形成可长期运行的 sidecar 包。
+1. **Postgres DDL target ownership ✓（2026-05-03）**：新增 `migrations/postgres/001_init.sql`——使用 `SERIAL`、`TIMESTAMPTZ`、`JSONB`、`BOOLEAN` 等 Postgres 原生类型的完整目标 DDL；新增 `scripts/export_postgres_ddl.py` 与 `schemas/postgres_ddl_export.schema.json`，输出 `postgres_ddl_export/v1`；并做 SQLite 注释 strip、类型升级校验、表/列 parity 检查；`check_json_contracts.sh` 现在固定验证 Postgres DDL 无 SQLite-only token、`TIMESTAMPTZ`/`JSONB`/`SERIAL`/`BOOLEAN` 已启用、无缺失表。还额外包含 `control_plane_mutations` 新表（与工程师 A mutation log 联动）。
+2. **Cross-batch reconcile / repair ✓（2026-05-03）**：新增 `scripts/reconcile_metadata_batches.py` 与 `schemas/metadata_batch_reconcile.schema.json`，输出 `metadata_batch_reconcile/v1`；覆盖 6 种一致性检查（orphaned child rows、incomplete imports、policy drift、duplicate permissions、stale key refs、migration gaps）；`--repair` 模式安全删除孤立子行；`check_json_contracts.sh` 固定验证新导入的 DB 在 dry-run 下为 `status=ok`，`total_issues=0`。
+
+建议拆分（全部已完成）：
+
+1. ~~`1 block / 5h`：继续把 migration、DDL、初始化流程进一步收成 PostgreSQL-ready baseline；当前已完成 portability gate 和 SQLite-only DDL 关键字清理，后续还差更明确的 Postgres 目标 DDL/迁移 ownership。~~ **已完成（2026-05-03）**
+2. ~~`1 block / 5h`：继续把 importer 做到更稳定的 idempotent / reconcile / replay 形态；当前已完成 dry-run、批量 replay、replace-vs-insert report 和 policy same-path replace/child-row rebuild，后续还差更强的跨批次对账/修复策略。~~ **已完成（2026-05-03）**
+3. ~~`1 block / 5h`：把只读 CLI / HTTP API 的分页、筛选、输出 contract 和回归样例再收一轮。~~ **已完成（2026-05-01）**：`query_metadata.py` 与 `serve_metadata_api.py` 统一支持 `offset`，jobs/entity 列表固定输出 `pagination` 元数据；`check_json_contracts.sh`、`materialize_platform_api_smoke_reports.py`、`check_platform_api_smoke_reports.py`、`benchmark_read_adapters.py` 已补分页回归断言。
+4. ~~`1 block / 5h`：把 importer 做到更稳定的 idempotent / reconcile / replay 形态，而不只是”一次性导入一个 run”。~~ **已完成（2026-05-01）**：`import_run_metadata.py` 新增 `--dry-run`、多 `--out-base` / `--out-base-file` 批量 replay、`metadata_import_report/v1`、existing-job row-count reconcile report；`check_json_contracts.sh` 固定验证初次 import、dry-run replace、重复 replay replace 三条路径。
+5. ~~`1 block / 5h`：把 migration、DDL、初始化流程进一步收成 PostgreSQL-ready baseline，同时保留 SQLite sidecar 兼容。~~ **已完成（2026-05-01）**：`001_init.sql` 去掉 SQLite-only `PRAGMA` / `AUTOINCREMENT`，新增 `check_metadata_schema_portability.py` 与 `metadata_schema_portability/v1`，并接入 `check_json_contracts.sh` 和 schema backcompat baseline。
+6. ~~`1 block / 5h`：继续补 registry / policy / permission 的写侧 ownership；当前已完成 manifest 驱动的 `apply-registry` 受控入口、引用校验、DB->tuple smoke 和 policy replace/noop 语义；`2026-05-03` 又补上了 `key_refs / key_versions` managed write + read baseline，后续主要还差更细粒度 mutation 治理。~~ **已被工程师 A mutation log（2026-05-03）覆盖**
+7. ~~`1 block / 5h`：补 metadata DB 的 health/export/backup 基线和运维文档，形成可长期运行的 sidecar 包。~~ **已完成（2026-05-03）**：`manage_metadata_db.py restore`、`metadata_db_restore/v1`、contract smoke、OPS_RUNBOOK 生命周期说明已补齐，metadata lifecycle 现收口为 `status / backup / restore / export-json / apply-registry`。
+
+已完成新增：
+
+1. ~~`1 block / 5h`：补 registry / policy / permission 的写侧 ownership 或受控管理入口，避免 sidecar 永远只有只读视角。~~ **已完成（2026-05-01）**：`manage_metadata_db.py apply-registry` 新增 `metadata_registry_manifest/v1` 和 `metadata_registry_apply_report/v1`，支持显式 upsert registry entities、导入 policy 文件、dry-run reconcile 与 policy same-path replace；`check_json_contracts.sh` 固定验证空 DB dry-run、首次 apply、重复 reconcile noop，以及 DB -> `authz_tuple_export/v1` 的贯通。
+2. **`1 block / 5h`：key registry / key version control-plane baseline（已完成，2026-05-03）**：新增 `migrations/metadata/004_add_key_registry.sql`，在 sidecar 中落地 `key_refs` / `key_versions`；`config/metadata_registry.example.json` 与 `metadata_registry_manifest/v1` 现支持受控声明 `key_refs`；`manage_metadata_db.py apply-registry` 支持 dry-run/apply/noop；`query_metadata.py --list-entity key-refs|key-versions` 与 `serve_metadata_api.py /v1/entities/key-refs|key-versions` 提供只读查询；`check_json_contracts.sh` 与 `check_contract_smoke_reports.py` 已固定验证 key registry 贯通。
+3. **`1 block / 5h`：metadata DB restore / ops lifecycle baseline（已完成，2026-05-03）**：新增 `manage_metadata_db.py restore` 与 `metadata_db_restore/v1`；默认 contract smoke 现在固定验证 backup -> restore -> restored-status 闭环；`docs/OPS_RUNBOOK.md` 与本任务书的 lifecycle 段落已同步更新。
 
 不含：
 

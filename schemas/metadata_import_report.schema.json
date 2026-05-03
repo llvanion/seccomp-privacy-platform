@@ -1,0 +1,230 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "metadata_import_report/v1",
+  "title": "Metadata sidecar import and reconcile report",
+  "type": "object",
+  "required": [
+    "schema",
+    "generated_at_utc",
+    "db_path",
+    "mode",
+    "applied_migrations",
+    "summary",
+    "imports",
+    "imported"
+  ],
+  "properties": {
+    "schema": {
+      "const": "metadata_import_report/v1"
+    },
+    "generated_at_utc": {
+      "type": "string",
+      "minLength": 1
+    },
+    "db_path": {
+      "type": "string",
+      "minLength": 1
+    },
+    "mode": {
+      "type": "string",
+      "enum": ["apply", "dry_run"]
+    },
+    "applied_migrations": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "summary": {
+      "type": "object",
+      "required": [
+        "requested_run_count",
+        "processed_run_count",
+        "inserted_job_count",
+        "replaced_job_count"
+      ],
+      "properties": {
+        "requested_run_count": { "type": "integer", "minimum": 0 },
+        "processed_run_count": { "type": "integer", "minimum": 0 },
+        "inserted_job_count": { "type": "integer", "minimum": 0 },
+        "replaced_job_count": { "type": "integer", "minimum": 0 }
+      },
+      "additionalProperties": false
+    },
+    "imports": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "out_base",
+          "job_id",
+          "correlation_id",
+          "caller",
+          "tenant_id",
+          "dataset_id",
+          "service_id",
+          "action",
+          "existing_job",
+          "incoming",
+          "imported_at_utc",
+          "result"
+        ],
+        "properties": {
+          "out_base": { "type": "string", "minLength": 1 },
+          "job_id": { "type": "string", "minLength": 1 },
+          "correlation_id": { "type": "string", "minLength": 1 },
+          "caller": { "type": ["string", "null"] },
+          "tenant_id": { "type": ["string", "null"] },
+          "dataset_id": { "type": ["string", "null"] },
+          "service_id": { "type": ["string", "null"] },
+          "action": {
+            "type": "string",
+            "enum": ["insert", "replace"]
+          },
+          "existing_job": {
+            "type": "object",
+            "required": ["exists", "job_id", "row_counts"],
+            "properties": {
+              "exists": { "type": "boolean" },
+              "job_id": { "type": "string", "minLength": 1 },
+              "correlation_id": { "type": ["string", "null"] },
+              "caller": { "type": ["string", "null"] },
+              "tenant_id": { "type": ["string", "null"] },
+              "dataset_id": { "type": ["string", "null"] },
+              "service_id": { "type": ["string", "null"] },
+              "status": { "type": ["string", "null"] },
+              "release_reason_code": { "type": ["string", "null"] },
+              "public_report_released": { "type": ["integer", "null"] },
+              "imported_at_utc": { "type": ["string", "null"] },
+              "out_base": { "type": ["string", "null"] },
+              "row_counts": {
+                "type": "object",
+                "additionalProperties": {
+                  "type": "integer",
+                  "minimum": 0
+                }
+              }
+            },
+            "additionalProperties": false
+          },
+          "incoming": {
+            "type": "object",
+            "required": [
+              "artifact_count_expected",
+              "artifact_count_existing_on_disk",
+              "artifact_types",
+              "stage_status_count_expected",
+              "stage_record_counts",
+              "audit_event_count_expected",
+              "key_access_event_count_expected",
+              "policy_reference_count",
+              "policy_paths"
+            ],
+            "properties": {
+              "artifact_count_expected": { "type": "integer", "minimum": 0 },
+              "artifact_count_existing_on_disk": { "type": "integer", "minimum": 0 },
+              "artifact_types": {
+                "type": "array",
+                "items": { "type": "string", "minLength": 1 }
+              },
+              "stage_status_count_expected": { "type": "integer", "minimum": 0 },
+              "stage_record_counts": {
+                "type": "object",
+                "additionalProperties": {
+                  "type": "integer",
+                  "minimum": 0
+                }
+              },
+              "audit_event_count_expected": { "type": "integer", "minimum": 0 },
+              "key_access_event_count_expected": { "type": "integer", "minimum": 0 },
+              "policy_reference_count": { "type": "integer", "minimum": 0 },
+              "policy_paths": {
+                "type": "array",
+                "items": { "type": "string", "minLength": 1 }
+              }
+            },
+            "additionalProperties": false
+          },
+          "imported_at_utc": { "type": ["string", "null"] },
+          "result": {
+            "type": ["object", "null"],
+            "properties": {
+              "job_id": { "type": "string", "minLength": 1 },
+              "correlation_id": { "type": "string", "minLength": 1 },
+              "caller": { "type": ["string", "null"] },
+              "tenant_id": { "type": ["string", "null"] },
+              "dataset_id": { "type": ["string", "null"] },
+              "service_id": { "type": ["string", "null"] },
+              "out_base": { "type": "string", "minLength": 1 },
+              "imported_at_utc": { "type": "string", "minLength": 1 }
+            },
+            "required": [
+              "job_id",
+              "correlation_id",
+              "caller",
+              "tenant_id",
+              "dataset_id",
+              "service_id",
+              "out_base",
+              "imported_at_utc"
+            ],
+            "additionalProperties": false
+          },
+          "job_state_after": {
+            "type": "object",
+            "required": ["exists", "job_id", "row_counts"],
+            "properties": {
+              "exists": { "type": "boolean" },
+              "job_id": { "type": "string", "minLength": 1 },
+              "correlation_id": { "type": ["string", "null"] },
+              "caller": { "type": ["string", "null"] },
+              "tenant_id": { "type": ["string", "null"] },
+              "dataset_id": { "type": ["string", "null"] },
+              "service_id": { "type": ["string", "null"] },
+              "status": { "type": ["string", "null"] },
+              "release_reason_code": { "type": ["string", "null"] },
+              "public_report_released": { "type": ["integer", "null"] },
+              "imported_at_utc": { "type": ["string", "null"] },
+              "out_base": { "type": ["string", "null"] },
+              "row_counts": {
+                "type": "object",
+                "additionalProperties": {
+                  "type": "integer",
+                  "minimum": 0
+                }
+              }
+            },
+            "additionalProperties": false
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    "imported": {
+      "type": ["object", "null"],
+      "properties": {
+        "job_id": { "type": "string", "minLength": 1 },
+        "correlation_id": { "type": "string", "minLength": 1 },
+        "caller": { "type": ["string", "null"] },
+        "tenant_id": { "type": ["string", "null"] },
+        "dataset_id": { "type": ["string", "null"] },
+        "service_id": { "type": ["string", "null"] },
+        "out_base": { "type": "string", "minLength": 1 },
+        "imported_at_utc": { "type": "string", "minLength": 1 }
+      },
+      "required": [
+        "job_id",
+        "correlation_id",
+        "caller",
+        "tenant_id",
+        "dataset_id",
+        "service_id",
+        "out_base",
+        "imported_at_utc"
+      ],
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false
+}

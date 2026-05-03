@@ -1,5 +1,6 @@
 # -*- coding:utf-8 _*-
 import argparse
+import hmac
 import hashlib
 import json
 import os
@@ -27,6 +28,7 @@ from services.record_recovery.runtime import (
     parse_socket_mode,
     write_text_file,
 )
+from api_identity import resolve_identity_context
 
 
 ensure_repo_paths()
@@ -69,6 +71,8 @@ class RecordRecoveryUnixStreamServer(socketserver.ThreadingMixIn, socketserver.U
         self.tenant_id = service_state.tenant_id
         self.dataset_id = service_state.dataset_id
         self.auth_token = service_state.auth_token
+        self.metadata_db_path = service_state.metadata_db_path
+        self.identity_token_config = service_state.identity_token_config
         self.allowed_callers = service_state.allowed_callers
         self.authz_policy = service_state.authz_policy
         self.authz_policy_path_value = service_state.authz_policy_path_value
@@ -164,6 +168,73 @@ class RecordRecoveryRequestHandler(socketserver.StreamRequestHandler):
         )
 
 
+def _authenticate_request(
+    payload: dict,
+    service_state: RecordRecoveryServiceState | RecordRecoveryUnixStreamServer,
+) -> dict | None:
+    provided_auth_token = str(payload.get("auth_token", "") or "")
+    if service_state.auth_token and provided_auth_token:
+        if hmac.compare_digest(provided_auth_token, service_state.auth_token):
+            return None
+    identity_bearer_token = str(payload.get("identity_bearer_token", "") or "").strip()
+    if service_state.identity_token_config:
+        if not identity_bearer_token:
+            if service_state.auth_token:
+                raise PermissionError("record recovery service auth failed")
+            raise PermissionError("record recovery service identity auth failed")
+        return resolve_identity_context(
+            db_path=service_state.metadata_db_path,
+            identity_token_config=service_state.identity_token_config,
+            bearer_token=identity_bearer_token,
+        )
+    if service_state.auth_token:
+        raise PermissionError("record recovery service auth failed")
+    return None
+
+
+def _apply_authenticated_identity(
+    payload: dict,
+    service_state: RecordRecoveryServiceState | RecordRecoveryUnixStreamServer,
+    identity: dict | None,
+) -> tuple[str, str, str, str]:
+    caller = str(payload.get("caller", ""))
+    tenant_id = str(payload.get("tenant_id", "")).strip()
+    dataset_id = str(payload.get("dataset_id", "")).strip()
+    service_id = str(payload.get("service_id", "")).strip()
+    if identity is None:
+        return caller, tenant_id, dataset_id, service_id
+
+    identity_caller = str(identity.get("caller") or "")
+    if caller and caller != identity_caller:
+        raise PermissionError("record recovery caller does not match authenticated identity")
+    caller = identity_caller
+
+    identity_tenant_id = str(identity.get("tenant_id") or "")
+    if identity_tenant_id:
+        if tenant_id and tenant_id != identity_tenant_id:
+            raise PermissionError("record recovery tenant_id does not match authenticated identity")
+        tenant_id = identity_tenant_id
+
+    identity_service_id = str(identity.get("service_id") or "")
+    if identity_service_id:
+        if service_id and service_id != identity_service_id:
+            raise PermissionError("record recovery service_id does not match authenticated identity")
+        if service_state.service_id and service_state.service_id != identity_service_id:
+            raise PermissionError("record recovery identity is not bound to this service instance")
+        service_id = identity_service_id
+
+    payload["caller"] = caller
+    if tenant_id:
+        payload["tenant_id"] = tenant_id
+    if service_id:
+        payload["service_id"] = service_id
+    payload["auth_subject"] = identity.get("subject")
+    payload["auth_issuer"] = identity.get("issuer")
+    payload["auth_entity_type"] = identity.get("subject_type")
+    payload["auth_platform_roles"] = identity.get("platform_roles") or []
+    return caller, tenant_id, dataset_id, service_id
+
+
 def handle_record_recovery_service_payload(
     payload: dict,
     service_state: RecordRecoveryServiceState | RecordRecoveryUnixStreamServer,
@@ -172,10 +243,7 @@ def handle_record_recovery_service_payload(
         raise ValueError("record recovery service request must be a JSON object")
 
     op = str(payload.get("op", "recover") or "recover")
-    if service_state.auth_token:
-        provided = str(payload.get("auth_token", ""))
-        if not provided or provided != service_state.auth_token:
-            raise PermissionError("record recovery service auth failed")
+    identity = _authenticate_request(payload, service_state)
     if op == "health":
         return build_health_result(
             service_id=service_state.service_id,
@@ -186,7 +254,7 @@ def handle_record_recovery_service_payload(
             if service_state.transport == "unix_socket" and service_state.server_address
             else None,
             endpoint_url=service_state.endpoint_url,
-            auth_required=bool(service_state.auth_token),
+            auth_required=bool(service_state.auth_token or service_state.identity_token_config),
             authz_policy_config=service_state.authz_policy_path_value,
             allowed_callers=sorted(service_state.allowed_callers),
             allowed_output_roots=[str(root.resolve()) for root in service_state.allowed_output_roots],
@@ -221,10 +289,7 @@ def handle_record_recovery_service_payload(
         ):
             raise PermissionError("record recovery request signature verification failed")
 
-    caller = str(payload.get("caller", ""))
-    tenant_id = str(payload.get("tenant_id", "")).strip()
-    dataset_id = str(payload.get("dataset_id", "")).strip()
-    service_id = str(payload.get("service_id", "")).strip()
+    caller, tenant_id, dataset_id, service_id = _apply_authenticated_identity(payload, service_state, identity)
     if service_state.allowed_callers and caller not in service_state.allowed_callers:
         raise PermissionError(f"caller {caller or '<missing>'} is not allowed to use record recovery service")
     if service_state.service_id and service_id and service_id != service_state.service_id:
@@ -392,7 +457,14 @@ def append_record_recovery_service_audit(
         "correlation_id": job_id,
         "job_id": job_id,
         "role": str(payload.get("role", "")) or "unknown",
-        "auth_mode": "env_token" if service_state.auth_token else "socket_acl_only",
+        "auth_mode": (
+            "identity_bearer"
+            if str(payload.get("identity_bearer_token", "") or "").strip() or str(payload.get("auth_subject", "") or "").strip()
+            else "env_token" if service_state.auth_token else "socket_acl_only"
+        ),
+        "auth_subject": str(payload.get("auth_subject", "") or "") or None,
+        "auth_issuer": str(payload.get("auth_issuer", "") or "") or None,
+        "auth_entity_type": str(payload.get("auth_entity_type", "") or "") or None,
         "transport": service_state.transport,
         "socket_path": str(service_state.server_address)
         if service_state.transport == "unix_socket" and service_state.server_address
@@ -441,6 +513,8 @@ def main() -> int:
     ap.add_argument("--socket-path", required=True)
     ap.add_argument("--socket-mode", default="600")
     ap.add_argument("--auth-token-env", default="")
+    ap.add_argument("--metadata-db-path", default="")
+    ap.add_argument("--identity-token-config", default="")
     ap.add_argument("--allowed-caller", action="append", default=[])
     ap.add_argument("--authz-config", default="")
     ap.add_argument("--allowed-output-root", action="append", default=[])
@@ -451,6 +525,8 @@ def main() -> int:
     ap.add_argument("--max-rows-per-request", type=int, default=0,
                     help="Hard cap on rows returned per recovery request (0 = unlimited)")
     args = ap.parse_args()
+    if args.identity_token_config and not args.metadata_db_path:
+        raise SystemExit("[ERROR] --identity-token-config requires --metadata-db-path")
 
     socket_path = Path(args.socket_path)
     pid_file = Path(args.pid_file) if args.pid_file else None
@@ -464,6 +540,8 @@ def main() -> int:
         tenant_id=str(args.tenant_id or ""),
         dataset_id=str(args.dataset_id or ""),
         auth_token_env=args.auth_token_env,
+        metadata_db_path=args.metadata_db_path,
+        identity_token_config=args.identity_token_config,
         allowed_callers=list(args.allowed_caller),
         authz_config=args.authz_config,
         allowed_output_roots=list(args.allowed_output_root),

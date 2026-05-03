@@ -65,6 +65,31 @@
         "embedded_in_audit_chain": {
           "type": "boolean"
         },
+        "handoff_mode": {
+          "type": ["string", "null"],
+          "enum": ["file", "fifo", null]
+        },
+        "handoff_exposure": {
+          "type": "object",
+          "required": [
+            "plaintext_exposure_risk",
+            "server",
+            "client"
+          ],
+          "properties": {
+            "plaintext_exposure_risk": {
+              "type": ["string", "null"],
+              "enum": ["none", "low", "elevated", "unknown", null]
+            },
+            "server": {
+              "type": ["string", "null"]
+            },
+            "client": {
+              "type": ["string", "null"]
+            }
+          },
+          "additionalProperties": false
+        },
         "handoff_cleanup": {
           "type": "object",
           "required": [

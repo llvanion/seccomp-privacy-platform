@@ -258,6 +258,58 @@ def handoff_cleanup_events(mainline_contract_check: dict[str, Any], scope: dict[
     return events
 
 
+def handoff_exposure_assessment_events(mainline_contract_check: dict[str, Any], scope: dict[str, Any]) -> list[dict[str, Any]]:
+    if mainline_contract_check.get("schema") != "mainline_contract_check/v1":
+        return []
+    assessment = mainline_contract_check.get("handoff_exposure_assessment")
+    if not isinstance(assessment, dict):
+        return []
+    generated_at = mainline_contract_check.get("generated_at_utc")
+    overall_risk = assessment.get("plaintext_exposure_risk")
+    overall_status = "ok" if overall_risk in {"none", "low"} else (
+        "error" if overall_risk == "elevated" else "unknown"
+    )
+    events: list[dict[str, Any]] = [
+        event(
+            scope,
+            stage="handoff_exposure_assessment",
+            status=overall_status,
+            ts_utc=generated_at,
+            role=None,
+            decision=None,
+            reason_code=overall_risk,
+            duration_ms=None,
+            row_count=None,
+            artifact_sha256=None,
+            source_event="mainline_contract_check",
+        )
+    ]
+    for role_name in ("server", "client"):
+        entry = assessment.get(f"{role_name}_exposure")
+        if not isinstance(entry, dict):
+            continue
+        role_risk = entry.get("exposure_risk")
+        role_status = "ok" if role_risk in {"none", "low"} else (
+            "error" if role_risk == "elevated" else "unknown"
+        )
+        events.append(
+            event(
+                scope,
+                stage="handoff_exposure_assessment",
+                status=role_status,
+                ts_utc=generated_at,
+                role=role_name,
+                decision=None,
+                reason_code=role_risk,
+                duration_ms=None,
+                row_count=None,
+                artifact_sha256=None,
+                source_event="mainline_contract_check",
+            )
+        )
+    return events
+
+
 def service_audit_consistency_events(chain: dict[str, Any], mainline_contract_check: dict[str, Any], scope: dict[str, Any]) -> list[dict[str, Any]]:
     if mainline_contract_check.get("schema") != "mainline_contract_check/v1":
         return []
@@ -347,6 +399,7 @@ def build_observability(chain: dict[str, Any]) -> dict[str, Any]:
     events.extend(pjc_events(chain, scope))
     events.extend(policy_events(chain, scope))
     events.extend(handoff_cleanup_events(mainline_contract_check, scope))
+    events.extend(handoff_exposure_assessment_events(mainline_contract_check, scope))
     events.extend(service_audit_consistency_events(chain, mainline_contract_check, scope))
     return {
         "schema": "pipeline_observability/v1",

@@ -208,10 +208,10 @@ bash scripts/check_json_contracts.sh
 
 ## 9. 平台级剩余工作量估算
 
-按 [PLATFORM_LEVEL_REMAINING_ESTIMATE.md](/home/llvanion/Desktop/seccomp-privacy-platform/docs/PLATFORM_LEVEL_REMAINING_ESTIMATE.md) 的统一口径，这条 owner 主线从“当前原型”推进到“平台基线版”还需要：
+按 [PLATFORM_LEVEL_REMAINING_ESTIMATE.md](/home/llvanion/Desktop/seccomp-privacy-platform/docs/PLATFORM_LEVEL_REMAINING_ESTIMATE.md) 的统一口径，这条 owner 主线从”当前原型”推进到”平台基线版”还需要：
 
-1. `4 blocks`（原 10，Block3 + Block4 已完成，Block1 完成 3/4）
-2. 约 `20h`
+1. `0 blocks`（原 10，Block1 + Block2 + Block3 + Block4 + Block5 + Block6 均已完成）
+2. 约 `0h`
 
 这里的“平台基线版”指：
 
@@ -222,17 +222,21 @@ bash scripts/check_json_contracts.sh
 已完成收口：
 
 1. `audit seal / archive` 已经补到本地 append-only 锚点基线：`audit_chain_index.jsonl` 之外，归档流程现在还会生成 `audit_chain_anchor.jsonl`，并在 archive-backed verify 时回放整条锚点链。
-2. **Block1 2/4 ✓（2026-05-01）**：
+2. **Block1 ✓（2026-05-01）**：
    - (1/4) record recovery 请求级时间戳反重放校验：`validate_request_timestamp(±30s)`，client 强制携带 `request_timestamp_utc`，写入审计。
    - (2/4) systemd 主机级 hardening：`render-systemd` 现输出 `ProtectSystem=strict` + `ProtectHome` + `PrivateDevices` + `ProtectKernelTunables/Modules/ControlGroups` + `LockPersonality` + `RestrictSUIDSGID` + `SystemCallFilter=@system-service`；`ReadWritePaths=` 由 `derive_writable_paths(runtime)` 自动推导；contract smoke 校验所有指令。
    - (3/4) HMAC-SHA256 请求签名：client 生成 `request_id`（UUID）并计算 `HMAC-SHA256(token, "{request_id}:{ts}:{op}")`；服务端常数时间校验（`hmac.compare_digest`）；`request_signature_verified` + `signature_algorithm` 写入审计并冻结为 stable properties；HTTP transport 通过 `X-Request-Signature` 头传递。
-   - 剩余 1 block：authz SQL 后端（当前仍为 JSON 文件策略）。
-3. **Block3 ✓（2026-05-01）**：bridge/PJC compatibility 与 normalization version 治理基线已完成。bridge 现在在 `job_meta.json` 和 bridge audit 中嵌入 `NORMALIZER_SCHEMA_VERSION = "normalizer-schema/v1"` 作为代码级常量（区别于调用方提供的 `normalize_version`）；`bridge_job_meta.schema.json` 现在要求 `normalizer_schema_version` 并对 `bridge.server` / `bridge.client` 的 `normalizer` 字段强制限定为已知枚举值；`validate_bridge_job.py` 在 PJC 运行前检查 `KNOWN_NORMALIZER_SCHEMA_VERSIONS` 和 `KNOWN_NORMALIZERS`，拒绝任何来自未知 normalizer 实现的 job。
+   - (4/4) authz SQL 后端：新增 `record_recovery_authz_source/v1`，允许 recovery service 从 metadata SQLite 重建 `sse_export_policy/v1` caller 权限视图；contract smoke 现覆盖 DB-backed authz source。
+3. **Block2 ✓（2026-05-01）**：record recovery 的 external-service replay 已固定。新增 `scripts/verify_record_recovery_manual_service_replay.sh`：先启动 standalone HTTP recovery service，再让 `run_live_sse_bridge_demo.sh` 走 `--record-recovery-service-mode manual`，并校验 `record_recovery_service_health.json`、有效 runtime config、`mainline_contract_check.json`、manager-captured `record_recovery_service_log/v1`，最后 stop 服务并确认 pid/ready 生命周期文件回收。这样 recovery 线的 deploy/authn/lifecycle/replay 已不再只依赖 pipeline auto-start 路径。
+4. **Block3 ✓（2026-05-01）**：bridge/PJC compatibility 与 normalization version 治理基线已完成。bridge 现在在 `job_meta.json` 和 bridge audit 中嵌入 `NORMALIZER_SCHEMA_VERSION = "normalizer-schema/v1"` 作为代码级常量（区别于调用方提供的 `normalize_version`）；`bridge_job_meta.schema.json` 现在要求 `normalizer_schema_version` 并对 `bridge.server` / `bridge.client` 的 `normalizer` 字段强制限定为已知枚举值；`validate_bridge_job.py` 在 PJC 运行前检查 `KNOWN_NORMALIZER_SCHEMA_VERSIONS` 和 `KNOWN_NORMALIZERS`，拒绝任何来自未知 normalizer 实现的 job。
+5. **Block5 ✓（2026-05-01）**：FIFO handoff 回放验证与 Phase 1 文档已完成。新增 `scripts/verify_fifo_handoff_replay.sh`：运行 `--sse-export-handoff-mode fifo`，断言 `intersection_size=2`、`intersection_sum=425`、`output_file_type=fifo`、bridge 完成后 CSV 不存在、`mainline_contract_check.json` 两角色均为 `status=removed`。已接入 `check_ci_smoke.sh`（syntax check + 实际运行）。`mainline_contract_check.json` 新增顶层 `handoff_mode` 字段，schema 及 backcompat baseline 同步更新。
+6. **Block6 ✓（2026-05-01）**：handoff 明文暴露评估与 Phase 2 文档已完成。`mainline_contract_check.json` 新增 `handoff_exposure_assessment`（`handoff_mode`、`plaintext_exposure_risk`、`server_exposure`、`client_exposure`），评估逻辑在 `check_mainline_contract.py:role_exposure_risk()` 中实现；schema 和 backcompat baseline 已更新；`docs/OPS_RUNBOOK.md` 补充"Bridge Handoff Exposure Assessment"段落；BRIDGE_HANDOFF_HARDENING_PLAN Phase 1 和 Phase 2 均已收口。
+7. **Block6 派生视图收口 ✓（2026-05-01，归 Block6）**：handoff 暴露评估已贯通到归档与派生视图链路：`scripts/archive_audit_bundle.py:summarize_mainline_contract` 在 `audit_archive_index/v1` 的 `mainline_contract_summary` 中输出 `handoff_mode` 与 `handoff_exposure`（`plaintext_exposure_risk` + `server` + `client`）；`schemas/audit_archive_index.schema.json`、`schemas/audit_bundle_verification.schema.json`、`schemas/catalog_lineage.schema.json` 同步加 optional 字段；`scripts/check_pipeline_artifact_smoke_reports.py` 对三事件 `handoff_exposure_assessment` 与 catalog_lineage `handoff_mode`/`handoff_exposure` 增加正向断言；`scripts/benchmark_derived_views.py` 的 `EXPECTED_STAGES` 加入 `handoff_exposure_assessment`。`bash scripts/check_ci_smoke.sh` 在 file 与 FIFO 两种模式下均把 `handoff_mode`、`handoff_exposure` 写到归档索引，回放与归档链全绿。
 
 建议拆分：
 
-1. `4 blocks / 20h`：把 record recovery 从本地受控进程推进到更独立的 service-user / external-service 边界，补更强 authn、lifecycle 和回放验证。
-2. `3 blocks / 15h`：继续收紧 `bridge-ready` 明文 handoff，至少补一条比当前 file/FIFO 更接近平台边界的受控路径。
+1. ~~`1 block / 5h`：继续把 record recovery 从本地受控进程推进到更独立的 service-user / external-service 边界，补更强 authn、lifecycle 和回放验证。~~ **已完成（Block2，2026-05-01）**：manual external HTTP recovery service replay 已固定到 `scripts/verify_record_recovery_manual_service_replay.sh`。
+2. ~~`2 blocks / 10h`：继续收紧 `bridge-ready` 明文 handoff，至少补一条比当前 file/FIFO 更接近平台边界的受控路径。~~ **已完成（Block5 + Block6，2026-05-01）**：FIFO 回放已固定到 `scripts/verify_fifo_handoff_replay.sh` 并接入 CI smoke；`mainline_contract_check.json` 新增 `handoff_mode` 和 `handoff_exposure_assessment`；BRIDGE_HANDOFF_HARDENING_PLAN Phase 1 + Phase 2 均已收口。
 3. ~~`2 blocks / 10h`：补 bridge/PJC compatibility 与 normalization version 的长期治理基线。~~ **已完成（Block3）**
 4. ~~`1 block / 5h`：把 replay、benchmark、change-process 和 owner checklist 再收一轮，形成平台基线签收点。~~ **已完成（Block4，2026-05-01）**：`verify_pipeline_replay.sh` 已加入 CI smoke；benchmark fixture 修复；freeze matrix 和 owner checklist 更新了 normalizer 治理条目。
 

@@ -42,7 +42,7 @@
 能力：
 
 1. `keyring/v1` 记录 key name、purpose、active_version、allowed_callers 和版本状态。
-2. 每个版本的 secret 仍然通过 `secret_ref.kind=env` 指向环境变量。
+2. 每个版本的 secret 现在可以通过 `secret_ref.kind=env|vault_kv` 指向环境变量或 Vault KV 兼容 backend。
 3. key agent 通过 Unix socket 暴露受控解析接口。
 4. key access 会写入 `key_access_audit/v1`。
 5. key rotation / status 变更会写入 `key_lifecycle_audit/v1`。
@@ -62,8 +62,9 @@
 
 1. client 通过 `external_kms_config/v1` 指向 HTTP endpoint。
 2. service 提供 `/healthz`、`/v1/resolve`、`/v1/admin/rotate`、`/v1/admin/set-status`。
-3. 解析结果仍沿用 keyring 的 `purpose`、`allowed_callers`、`active_version` 语义。
+3. 解析结果仍沿用 keyring 的 `purpose`、`allowed_callers`、`active_version` 语义，并且现在能解析 `vault_kv` secret ref。
 4. HTTP 模式也会写 key access / lifecycle audit。
+5. `auto_start` 现在除了 `state_file`，还支持可选 `vault_kv_file`，供本地 Vault KV 兼容 backend fixture 使用。
 
 ## 3. 当前模型的核心约束
 
@@ -129,11 +130,15 @@ KMS 不负责：
 
 1. `kind=env`
 2. `name=<ENV_VAR>`
+3. `kind=vault_kv`
+4. `name=<vault path>`
+5. 可选 `version` 与 `field`
 
 这意味着本地 keyring 当前更像：
 
 1. 访问控制和版本目录
 2. 不是最终安全存储
+3. 对于 `vault_kv`，它保存的是 backend 引用，不是 secret material
 
 ## 4.2 `external_kms_config/v1`
 
@@ -148,8 +153,29 @@ KMS 不负责：
 `auto_start` 目前仍然依赖一个本地 state file：
 
 1. `state_file`
+2. 可选 `vault_kv_file`
 
-这说明当前 external KMS 仍是 mock service / adapter，而不是独立可信根。
+这说明当前 external KMS 已经不再只会读取本地 env-backed keyring，但仍然是 compatibility adapter，而不是独立可信根。
+
+## 4.3 当前已落地的 Vault KV 兼容层
+
+当前仓库已经补了一层本地可验证的 Vault KV 兼容 backend：
+
+1. `schemas/vault_kv_backend.schema.json`
+2. `config/vault_kv_backend.example.json`
+3. `scripts/keyring_lib.py` 新增 `vault_kv_backend/v1` 解析逻辑
+4. `scripts/key_agent_service.py --vault-kv-file`
+5. `scripts/external_kms_service.py --vault-kv-file`
+6. `scripts/manage_keyring.py rotate --secret-ref-kind vault_kv ...`
+7. `scripts/manage_external_kms.py rotate --secret-ref-kind vault_kv ...`
+
+当前语义是：
+
+1. key metadata、allowlist、active version 仍由 `keyring/v1` 管
+2. secret material 不再必须来自本地 env，也可以来自 `vault_kv_backend/v1`
+3. `vault_kv_backend/v1` 当前是本地 file-backed compatibility fixture，用来模拟 Vault KV 的 path/version/field 读取语义
+4. key agent 与 external KMS 两条解析路径现在共用这套 backend 语义
+5. 默认 contract smoke 已固定验证 key agent 读取 `vault_kv` ref，以及 external KMS 从 env-backed version rotate 到 `vault_kv` backed version 再成功 resolve
 
 ## 5. 风险与缺口
 
@@ -157,7 +183,7 @@ KMS 不负责：
 
 ### 5.1 secret 仍可回落到本地 env
 
-无论是 key agent 还是 external KMS，最终解析仍来自环境变量。
+无论是 key agent 还是 external KMS，当前 secret material 仍可能回落到本地环境变量；虽然现在已经支持 `vault_kv` backend，但那一层仍是本地 compatibility fixture，而不是真实远端 Vault。
 
 风险：
 
@@ -183,6 +209,7 @@ KMS 不负责：
 2. Vault Transit
 3. cloud KMS decrypt/sign
 4. mTLS 级别服务身份
+5. 真实远端 Vault policy / token 生命周期
 
 ### 5.4 生命周期仍偏本地文件模式
 
@@ -219,9 +246,10 @@ KMS 不负责：
 
 推荐接入模式：
 
-1. `keyring/v1` 继续存在，但 `secret_ref.kind` 扩展为 `vault`
-2. `secret_ref.name` 保存 Vault path 或 key reference
-3. key agent / external KMS adapter 读取 Vault，再返回兼容结果
+1. `keyring/v1` 继续存在，当前已支持 `secret_ref.kind=vault_kv`
+2. `secret_ref.name` 保存 Vault path 或等价 key reference
+3. 可选 `secret_ref.version` / `secret_ref.field` 对齐 KV path/version/field 读取语义
+4. key agent / external KMS adapter 读取 backend，再返回兼容结果
 
 这样做的好处：
 
@@ -259,9 +287,10 @@ KMS 不负责：
 
 后续可扩展：
 
-1. `vault`
-2. `external_kms`
-3. `file`
+1. `vault_kv`
+2. `vault`
+3. `external_kms`
+4. `file`
 
 但新 kind 上线前需要：
 
@@ -300,7 +329,7 @@ KMS 不负责：
 
 动作：
 
-1. 扩展 `secret_ref.kind`
+1. ~~扩展 `secret_ref.kind`~~ **已完成（2026-05-03）**：`keyring/v1` 现支持 `env|vault_kv`；`key_agent_service.py` 与 `external_kms_service.py` 都能解析 `vault_kv_backend/v1`
 2. 保留 `key_name`、`purpose`、`active_version`、`allowed_callers`
 3. 新 backend 先由 key agent / external KMS adapter 消费
 
@@ -373,22 +402,32 @@ KMS 不负责：
 
 作为本地 lifecycle CLI 保留，后续可扩展：
 
-1. backend 校验
-2. version expiry
-3. policy guard
+1. 现在已经支持 `--identity-token-env --metadata-db-path --identity-token-config` 这条 admin 身份路径
+2. `platform_admin` 可全量管理；`service_operator` 只允许管理 `allowed_callers` 包含自身 caller 的既有 key，且不能 `create_key`
+3. 后续再补 backend 校验、version expiry、policy guard
 
 ### `scripts/manage_external_kms.py`
 
-继续作为 admin adapter 保留，后续优先让它面向真实远端 KMS，而不是本地 JSON state。
+继续作为 admin adapter 保留。当前它已经支持通过 `--secret-ref-kind vault_kv --secret-ref-name ... [--secret-ref-version ... --secret-ref-field ...]` 管理 backend 引用；后续优先让它面向真实远端 KMS，而不是本地 JSON state。
 
 ## 11. 审计与控制面联动
 
-当前 metadata sidecar 已有 `key_access_events` 表，建议后续继续补：
+当前 metadata sidecar 已有两层 key control-plane 基线：
 
-1. key registry 只读视图
-2. key version 状态导入
-3. key backend 类型统计
-4. rotation 历史只读查询
+1. `key_access_events`：导入运行时的 key access audit
+2. `key_refs` / `key_versions`：通过 `manage_metadata_db.py apply-registry` 受控登记 key registry 与 version state
+
+当前已经能做：
+
+1. key registry 只读视图（`query_metadata.py --list-entity key-refs|key-versions`）
+2. key version 状态导入/登记
+3. key backend 类型登记（`backend_kind` / `backend_ref`）
+
+后续还建议继续补：
+
+1. key backend 类型统计
+2. rotation 历史只读查询
+3. 与 `manage_keyring.py` / `manage_external_kms.py` 的更细粒度 drift/reconcile 规则
 
 但第一阶段不要让 metadata DB 成为 secret 读取依赖。
 
@@ -403,7 +442,8 @@ KMS 不负责：
 
 ## 13. 建议的下一步
 
-1. 先把 keyring 文档和 external KMS 文档固定为统一 backend 语义。
-2. 再为 `secret_ref.kind` 扩展准备 change request。
-3. 然后实现 Vault 或真实 KMS adapter，复用现有 access/lifecycle audit contract。
-4. 只有在上述路径稳定后，再评估是否值得推动 remote tokenization 取代本地 secret 暴露。
+1. ~~先把 keyring 文档和 external KMS 文档固定为统一 backend 语义。~~ **已完成（2026-05-03）**
+2. ~~再为 `secret_ref.kind` 扩展准备 change request。~~ **已完成（2026-05-03）**：当前仓库内基线已经收敛为 `env|vault_kv`
+3. 下一步把 `vault_kv_backend/v1` 从本地 compatibility fixture 换成真实 Vault / cloud KMS adapter，复用现有 access/lifecycle audit contract。
+4. 然后补 service identity、OIDC/mTLS、远端 policy 与 token 生命周期治理。
+5. 只有在上述路径稳定后，再评估是否值得推动 remote tokenization 取代本地 secret 暴露。

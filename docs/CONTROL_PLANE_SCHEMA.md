@@ -14,11 +14,13 @@
 
 1. `migrations/metadata/001_init.sql`
 2. `migrations/metadata/002_add_stage_duration_columns.sql`
-3. `scripts/init_metadata_db.py`
-4. `scripts/import_run_metadata.py`
-5. `scripts/query_metadata.py`
-6. `scripts/serve_metadata_api.py`
-7. `scripts/manage_metadata_db.py`
+3. `migrations/metadata/004_add_key_registry.sql`
+4. `scripts/init_metadata_db.py`
+5. `scripts/import_run_metadata.py`
+6. `scripts/query_metadata.py`
+7. `scripts/serve_metadata_api.py`
+8. `scripts/manage_metadata_db.py`
+9. `scripts/check_metadata_schema_portability.py`
 
 ## 2. 设计约束
 
@@ -64,6 +66,11 @@
 2. JSON 先作为 `TEXT` 保存原始 payload。
 3. 时间统一保存 ISO8601 UTC 字符串。
 4. 通过 migration 文件管理 schema 版本，而不是 ORM 自动建表。
+
+当前基线已经额外做了两件收口：
+
+1. `migrations/metadata/001_init.sql` 不再包含 SQLite-only `PRAGMA foreign_keys = ON`，外键约束启用统一留在 Python runtime 的 `connect_db()`。
+2. surrogate row id 表从 `INTEGER PRIMARY KEY AUTOINCREMENT` 收紧到 `INTEGER PRIMARY KEY`，避免在第一阶段 DDL 里继续保留不必要的 SQLite-only 关键字。
 
 ## 3. 当前表结构
 
@@ -359,11 +366,67 @@
 
 1. `UNIQUE(policy_id, caller, permission_key)`
 
-当前这两张表不仅服务于只读查询，也已经成为第一阶段关系同步源：`scripts/export_authz_tuples.py` 可以直接从 policy 文件或 sidecar DB 中的 `policy_bindings` / `caller_permissions` 重建 `authz_tuple_export/v1`，把当前 caller/tenant/dataset/service scope、平台角色和 coarse capability 映射成可供 OpenFGA 一类系统消费的 tuple baseline，而不要求主链路在线依赖外部授权服务。
+当前这两张表不仅服务于只读查询，也已经成为第一阶段关系同步源：`scripts/export_authz_tuples.py` 可以直接从 policy 文件或 sidecar DB 中的 `policy_bindings` / `caller_permissions` 重建 `authz_tuple_export/v1`，把当前 caller/tenant/dataset/service scope、平台角色和 coarse capability 映射成可供 OpenFGA 一类系统消费的 tuple baseline，而不要求主链路在线依赖外部授权服务。与此同时，`scripts/manage_metadata_db.py apply-registry` 也把它们作为受控写侧的展开目标：manifest 只显式维护 registry entities 和 policy 文件路径，不直接要求调用方手写 permission rows。
+
+### 3.5 Key Registry 表
+
+#### `key_refs`
+
+用途：
+
+1. 保存不含 secret material 的 key registry 元数据。
+2. 给 keyring / external KMS / future Vault adapter 提供统一 control-plane 落点。
+
+关键列：
+
+1. `key_name` `PRIMARY KEY`
+2. `purpose`
+3. `service_id`
+4. `backend_kind`
+5. `backend_ref`
+6. `active_version`
+7. `allowed_callers_json`
+8. `source`
+9. `created_at_utc`
+10. `updated_at_utc`
+
+#### `key_versions`
+
+用途：
+
+1. 保存 key 的版本级状态视图，而不是 secret 本体。
+2. 让 sidecar 可以回答“某个 key 当前有哪些 version、哪一个 active、状态是什么”。
+
+关键列：
+
+1. `key_name`
+2. `version`
+3. `enabled`
+4. `status`
+5. `secret_ref_kind`
+6. `secret_ref_name`
+7. `backend_key_version`
+8. `created_at_utc`
+9. `source`
+10. `metadata_json`
+
+约束：
+
+1. `UNIQUE(key_name, version)`
+
+当前这组表由 `migrations/metadata/004_add_key_registry.sql` 创建，第一阶段通过 `scripts/manage_metadata_db.py apply-registry` 从 `metadata_registry_manifest/v1` 的 `key_refs` 段受控写入；`scripts/query_metadata.py --list-entity key-refs|key-versions` 和 `scripts/serve_metadata_api.py /v1/entities/key-refs|key-versions` 则提供只读查询面。这个 baseline 只做 key metadata / version registry，不让 metadata sidecar 变成 secret source。
 
 ## 4. 导入映射规则
 
 当前 importer 的核心逻辑位于 `scripts/import_run_metadata.py`。
+
+当前 importer 输出 contract 已冻结到 `metadata_import_report/v1`：
+
+1. apply 模式会对每个 run 标明 `action=insert|replace`
+2. dry-run 模式只做 bundle 读取、scope 推断和 reconcile，不写 DB
+3. 报告里会带导入前 `existing_job` 快照和各 job 级子表 `row_counts`
+4. apply 完成后还会写回 `job_state_after`
+5. 可通过多次 `--out-base` 或 `--out-base-file` 做批量 replay/import
 
 ### 4.1 `job_id` 与 `correlation_id`
 
@@ -408,6 +471,65 @@
 7. `grouped_status_summary`
 
 这部分已经由 `query_metadata.py` 暴露，不要求主链路改成直接写 SQL。
+
+### 4.4 replay / reconcile 规则
+
+当前 importer 的运行语义是：
+
+1. 先根据 run bundle 推断 `job_id`、`correlation_id` 和 scope。
+2. 如果目标 `job_id` 已存在，则当前 run 被判定为 `replace`；否则为 `insert`。
+3. `replace` 只清理该 job 的从属表：`job_artifacts`、`job_stage_status`、`audit_events`、`audit_chains`、`audit_seals`、`key_access_events`。
+4. registry / policy 相关表继续走 upsert，不把 sidecar 退回成“每次 replay 都新增脏行”。
+5. policy 导入已切到 shared replace/repair helper：同一路径 policy 如果内容变化，会先删除旧 `policy_id` parent row，再写入新 hash 对应的 row，并重建 `policy_bindings` / `caller_permissions`，避免 `policies.path` 唯一键冲突和陈旧 child rows 残留。
+5. 同一批次里如果多个 `out_base` 推断出相同 `job_id`，当前会直接拒绝，避免批量 replay 时发生静默覆盖。
+
+这意味着第一阶段 sidecar 已经具备：
+
+1. 单 run dry-run reconcile
+2. 单 run replace replay
+3. 多 run batch replay
+
+但它仍然没有完整的跨批次修复/差异合并策略，那部分仍属于后续 importer 治理工作。
+
+### 4.5 DDL portability gate
+
+当前 sidecar 还补了一条专门针对 migration/DDL 的快速检查：
+
+```bash
+python3 scripts/check_metadata_schema_portability.py \
+  --output tmp/platform_metadata_schema_portability.json
+```
+
+它当前固定检查：
+
+1. migration SQL 中是否仍然出现 `PRAGMA`、`AUTOINCREMENT` 这类 SQLite-only 关键字
+2. 所有表是否都有主键
+3. 所有 `*_utc` 列是否统一为 `TEXT`
+4. 所有 `*_json` 列是否统一为 `TEXT`
+5. 当前声明的关键索引是否都存在
+6. 外键目标表是否全部存在
+
+输出 contract 已冻结到 `metadata_schema_portability/v1`，并纳入默认 `check_json_contracts.sh`。
+
+### 4.6 managed registry / policy apply
+
+当前 sidecar 已经不再只有 post-run importer 一条写入路：
+
+```bash
+python3 scripts/manage_metadata_db.py apply-registry \
+  --db-path tmp/platform_metadata.db \
+  --manifest config/metadata_registry.example.json
+```
+
+这条入口当前语义是：
+
+1. 输入使用 `metadata_registry_manifest/v1`
+2. 显式 upsert `tenants`、`datasets`、`services`、`callers`
+3. policy 文件当前按 `path` + `sha256(policy)` 推断 identity，并写入 `policies`
+4. `sse_export_policy/v1` 里的 caller scope 会展开成 `policy_bindings` / `caller_permissions`
+5. dry-run 只做引用校验和 reconcile，输出 `metadata_registry_apply_report/v1`
+6. 重复 apply 同一 manifest 时，如果 registry 字段、policy path/hash 和 child row count 一致，会收敛成 `noop`
+7. `check_json_contracts.sh` 当前固定验证空 DB dry-run、首次 apply、重复 reconcile noop，以及 sidecar DB 到 `authz_tuple_export/v1` 的贯通
 
 ## 5. 查询面
 

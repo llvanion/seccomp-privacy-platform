@@ -13,6 +13,7 @@ def main() -> int:
     ap.add_argument("--caller", required=True)
     ap.add_argument("--job-id", default="")
     ap.add_argument("--auth-token-env", default="")
+    ap.add_argument("--identity-token-env", default="")
     args = ap.parse_args()
 
     payload = {
@@ -26,6 +27,11 @@ def main() -> int:
         if not auth_token:
             raise SystemExit(f"[ERROR] environment variable {args.auth_token_env} is not set")
         payload["auth_token"] = auth_token
+    if args.identity_token_env:
+        identity_token = os.environ.get(args.identity_token_env)
+        if not identity_token:
+            raise SystemExit(f"[ERROR] environment variable {args.identity_token_env} is not set")
+        payload["identity_bearer_token"] = identity_token
 
     client = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
     try:

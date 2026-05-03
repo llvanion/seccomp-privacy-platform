@@ -1,0 +1,85 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "metadata_db_restore/v1",
+  "title": "Metadata sidecar DB restore report",
+  "type": "object",
+  "required": [
+    "schema",
+    "generated_at_utc",
+    "status",
+    "backup_db_path",
+    "restored_db_path",
+    "backup_sha256",
+    "restored_sha256",
+    "backup_size_bytes",
+    "restored_size_bytes",
+    "overwrite",
+    "used_sqlite_backup_api",
+    "restored_status"
+  ],
+  "properties": {
+    "schema": {
+      "const": "metadata_db_restore/v1"
+    },
+    "generated_at_utc": {
+      "type": "string",
+      "minLength": 1
+    },
+    "status": {
+      "type": "string",
+      "enum": ["ok", "error"]
+    },
+    "backup_db_path": {
+      "type": "string",
+      "minLength": 1
+    },
+    "restored_db_path": {
+      "type": "string",
+      "minLength": 1
+    },
+    "backup_sha256": {
+      "type": ["string", "null"]
+    },
+    "restored_sha256": {
+      "type": ["string", "null"]
+    },
+    "backup_size_bytes": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "restored_size_bytes": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "overwrite": {
+      "type": "boolean"
+    },
+    "used_sqlite_backup_api": {
+      "type": "boolean"
+    },
+    "restored_status": {
+      "type": "object",
+      "required": [
+        "schema",
+        "generated_at_utc",
+        "db_path",
+        "status",
+        "sqlite_version",
+        "size_bytes",
+        "sha256",
+        "applied_migrations",
+        "expected_migrations",
+        "pending_migrations",
+        "summary",
+        "warnings"
+      ],
+      "properties": {
+        "schema": {
+          "const": "metadata_db_status/v1"
+        }
+      },
+      "additionalProperties": true
+    }
+  },
+  "additionalProperties": false
+}

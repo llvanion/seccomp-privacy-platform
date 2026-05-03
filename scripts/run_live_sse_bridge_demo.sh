@@ -33,6 +33,7 @@ K_THRESHOLD="${K_THRESHOLD:-1}"
 RATE_N="${RATE_N:-5}"
 SSE_EXPORT_HANDOFF_MODE="${SSE_EXPORT_HANDOFF_MODE:-file}"
 CLEANUP_SSE_EXPORT_HANDOFF_FILES_AFTER_BRIDGE="${CLEANUP_SSE_EXPORT_HANDOFF_FILES_AFTER_BRIDGE:-1}"
+HANDOFF_RETENTION_REASON="${HANDOFF_RETENTION_REASON:-}"
 RECORD_RECOVERY_SERVICE_MODE="${RECORD_RECOVERY_SERVICE_MODE:-auto}"
 RECORD_RECOVERY_SERVICE_CONFIG="${RECORD_RECOVERY_SERVICE_CONFIG:-}"
 
@@ -82,6 +83,7 @@ Options:
   --record-recovery-authz-config <p>   optional authz policy for auto-started recovery service
   --sse-export-handoff-mode <m>        file|fifo, default: file
   --keep-sse-export-handoff-files      keep file-mode SSE plaintext handoff files after bridge prepare-job
+  --handoff-retention-reason <text>    required with --keep-sse-export-handoff-files
   --bootstrap-only                     prepare live SSE state but do not run pipeline
   --keep-server                        do not stop the SSE server on exit when this script started it
   -h|--help                            show help
@@ -110,6 +112,7 @@ while [[ $# -gt 0 ]]; do
     --record-recovery-authz-config) RECORD_RECOVERY_AUTHZ_CONFIG="$2"; shift 2 ;;
     --sse-export-handoff-mode) SSE_EXPORT_HANDOFF_MODE="$2"; shift 2 ;;
     --keep-sse-export-handoff-files) CLEANUP_SSE_EXPORT_HANDOFF_FILES_AFTER_BRIDGE=0; shift ;;
+    --handoff-retention-reason) HANDOFF_RETENTION_REASON="$2"; shift 2 ;;
     --bootstrap-only) BOOTSTRAP_ONLY=1; shift ;;
     --keep-server) KEEP_SERVER=1; shift ;;
     -h|--help) usage; exit 0 ;;
@@ -129,6 +132,12 @@ done
 [[ "$SSE_EXPORT_HANDOFF_MODE" == "file" || "$SSE_EXPORT_HANDOFF_MODE" == "fifo" ]] || die "--sse-export-handoff-mode must be file or fifo"
 [[ "$RECORD_RECOVERY_SERVICE_MODE" == "auto" || "$RECORD_RECOVERY_SERVICE_MODE" == "manual" || "$RECORD_RECOVERY_SERVICE_MODE" == "subprocess" ]] || die "--record-recovery-service-mode must be auto, manual, or subprocess"
 [[ "$EXTERNAL_KMS_MODE" == "auto" || "$EXTERNAL_KMS_MODE" == "manual" ]] || die "--external-kms-mode must be auto or manual"
+if [[ "$CLEANUP_SSE_EXPORT_HANDOFF_FILES_AFTER_BRIDGE" != "1" ]]; then
+  [[ "$SSE_EXPORT_HANDOFF_MODE" == "file" ]] || die "--keep-sse-export-handoff-files requires --sse-export-handoff-mode=file"
+  [[ -n "$HANDOFF_RETENTION_REASON" ]] || die "--handoff-retention-reason is required with --keep-sse-export-handoff-files"
+else
+  [[ -z "$HANDOFF_RETENTION_REASON" ]] || die "--handoff-retention-reason is only valid with --keep-sse-export-handoff-files"
+fi
 
 if [[ -n "$RECORD_RECOVERY_AUTHZ_CONFIG" && "$RUN_ROOT_EXPLICIT" == "0" && "$STATE_BASE_EXPLICIT" == "0" && "$OUT_BASE_EXPLICIT" == "0" && "$RUN_ROOT" == "$DEFAULT_RUN_ROOT" ]]; then
   RUN_ROOT="$AUTHZ_DEFAULT_RUN_ROOT"
@@ -327,7 +336,7 @@ write_manifest() {
   local audit_chain_path="$OUT_BASE/audit_chain.json"
   local mainline_contract_check_path="$OUT_BASE/mainline_contract_check.json"
   local audit_seal_path="$OUT_BASE/audit_chain.seal.json"
-  python3 - "$MANIFEST_PATH" "$STATE_BASE" "$OUT_BASE" "$JOB_ID" "$SERVICE_NAME" "$public_report_path" "$export_audit_path" "$recovery_audit_path" "$recovery_health_path" "$recovery_runtime_config_path" "$recovery_log_path" "$bridge_meta_path" "$bridge_audit_path" "$audit_chain_path" "$mainline_contract_check_path" "$audit_seal_path" "$SERVER_LOG" "$SERVER_SOURCE_NORMALIZED" "$CLIENT_SOURCE_NORMALIZED" "$SSE_DB_PATH" "$SERVER_RECORD_STORE_PATH" "$CLIENT_RECORD_STORE_PATH" "$PIPELINE_RECOVERY_PID_FILE" "$PIPELINE_RECOVERY_READY_FILE" "$RECORD_STORE_KEY_ENV" "$RECORD_RECOVERY_SERVICE_MODE" "$SSE_EXPORT_HANDOFF_MODE" "$RECORD_RECOVERY_SERVICE_CONFIG" "$RECORD_RECOVERY_AUTHZ_CONFIG" "$TOKEN_SECRET_KEY_NAME" "$KEYRING" "$EXTERNAL_KMS_CONFIG" "$EXTERNAL_KMS_MODE" "$CLEANUP_SSE_EXPORT_HANDOFF_FILES_AFTER_BRIDGE" <<'PY'
+  python3 - "$MANIFEST_PATH" "$STATE_BASE" "$OUT_BASE" "$JOB_ID" "$SERVICE_NAME" "$public_report_path" "$export_audit_path" "$recovery_audit_path" "$recovery_health_path" "$recovery_runtime_config_path" "$recovery_log_path" "$bridge_meta_path" "$bridge_audit_path" "$audit_chain_path" "$mainline_contract_check_path" "$audit_seal_path" "$SERVER_LOG" "$SERVER_SOURCE_NORMALIZED" "$CLIENT_SOURCE_NORMALIZED" "$SSE_DB_PATH" "$SERVER_RECORD_STORE_PATH" "$CLIENT_RECORD_STORE_PATH" "$PIPELINE_RECOVERY_PID_FILE" "$PIPELINE_RECOVERY_READY_FILE" "$RECORD_STORE_KEY_ENV" "$RECORD_RECOVERY_SERVICE_MODE" "$SSE_EXPORT_HANDOFF_MODE" "$RECORD_RECOVERY_SERVICE_CONFIG" "$RECORD_RECOVERY_AUTHZ_CONFIG" "$TOKEN_SECRET_KEY_NAME" "$KEYRING" "$EXTERNAL_KMS_CONFIG" "$EXTERNAL_KMS_MODE" "$CLEANUP_SSE_EXPORT_HANDOFF_FILES_AFTER_BRIDGE" "$HANDOFF_RETENTION_REASON" <<'PY'
 import json
 import sys
 from pathlib import Path
@@ -361,6 +370,7 @@ manifest = {
         "external_kms_config": sys.argv[32] or None,
         "external_kms_mode": sys.argv[33] or None,
         "cleanup_sse_export_handoff_files_after_bridge": sys.argv[34] == "1",
+        "handoff_retention_reason": sys.argv[35] or None,
     },
     "state_artifacts": {
         "sse_server_log": str(Path(sys.argv[17]).resolve()),
@@ -507,6 +517,7 @@ run_pipeline() {
     pipeline_cmd+=(--cleanup-sse-export-handoff-files-after-bridge)
   else
     pipeline_cmd+=(--keep-sse-export-handoff-files)
+    pipeline_cmd+=(--handoff-retention-reason "$HANDOFF_RETENTION_REASON")
   fi
   "${pipeline_cmd[@]}"
 }

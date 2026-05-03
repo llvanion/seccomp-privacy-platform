@@ -31,16 +31,16 @@
 
 | 任务 | 剩余 block | 约合工时 | 说明 |
 | --- | ---: | ---: | --- |
-| owner：隐私内核与接口治理 | 4 | 20h | ~~Block3~~ ✓, ~~Block4~~ ✓, Block1 3/4 ✓；还差 record recovery SQL authz、handoff 收紧 |
-| 工程师 A：控制面、身份、权限与密钥 | 10 | 50h | 还差统一身份映射、Vault/KMS、control-plane 写路径 |
+| owner：隐私内核与接口治理 | 0 | 0h | ~~Block1~~ ✓, ~~Block2~~ ✓, ~~Block3~~ ✓, ~~Block4~~ ✓, ~~Block5~~ ✓, ~~Block6~~ ✓；owner 主线已完成平台基线 |
+| 工程师 A：控制面、身份、权限与密钥 | 0 | 0h | ~~mutation governance log~~ ✓, ~~OIDC + issuer registry~~ ✓, ~~Vault HTTP + rotation~~ ✓, ~~key backend drift~~ ✓, ~~policy mutation governance~~ ✓（全部 2026-05-03）；工程师 A 主线已完成平台基线 |
 | 工程师 B：查询入口、目录、工作流、观测 | 8 | 40h | 还差 execute 级权限、durable workflow、dashboard/UI 壳 |
-| 工程师 1：审计、运维与稳定性工具 | 4 | 20h | 还差部署/恢复/SLO 包、fuzz/安全门禁收口 |
-| 工程师 2：SQL 控制面侧车 | 8 | 40h | 还差 Postgres-ready、写侧 ownership、导入一致性与运维化 |
+| 工程师 1：审计、运维与稳定性工具 | 0 | 0h | ~~fuzz/安全门禁~~ ✓, ~~benchmark CI gate~~ ✓, ~~部署/恢复/SLO 包~~ ✓；工程师 1 主线已完成平台基线 |
+| 工程师 2：SQL 控制面侧车 | 0 | 0h | ~~Postgres DDL target~~ ✓（2026-05-03）, ~~cross-batch reconcile~~ ✓（2026-05-03）；工程师 2 全部 block 已完成 |
 
 合计：
 
-1. 串行视角：`34 blocks = 170h`（owner 已完成 Block3 + Block4 + Block1 3/4）
-2. 并行视角：如果 5 条线都有人并行推进，关键路径大致落在 `10-12 blocks = 50h-60h`，再加联调缓冲
+1. 串行视角：`8 blocks = 40h`（owner 已完成 Block1~6；工程师 1 全部已完成；工程师 2 全部已完成；工程师 A 全部 5 blocks 已完成）
+2. 并行视角：剩余全部在工程师 B 线，关键路径 `8 blocks = 40h`
 
 ## owner 已完成 block 记录
 
@@ -52,14 +52,52 @@
 | 2026-05-01 | Block1 (1/4): request timestamp anti-replay on recovery service | `validate_request_timestamp`, client timestamp injection, audit schema | `check_ci_smoke.sh` ✓ |
 | 2026-05-01 | Block1 (2/4): systemd host-level hardening for recovery service | `derive_writable_paths`, full Linux security directives, smoke assertions | `check_ci_smoke.sh` ✓ |
 | 2026-05-01 | Block1 (3/4): HMAC-SHA256 request signing for recovery service | `sign_request`, `verify_request_signature`, client request_id+sig, audit fields | `check_ci_smoke.sh` ✓ |
+| 2026-05-01 | Block1 (4/4): SQLite-backed recovery authz source | `record_recovery_authz_source/v1`, `services/record_recovery/authz.py`, contract smoke | `check_json_contracts.sh` ✓ |
+| 2026-05-01 | Block2 (1/1): manual external recovery-service replay | `verify_record_recovery_manual_service_replay.sh`, `run_live_sse_bridge_demo.sh --record-recovery-service-mode manual` | targeted replay ✓ |
+| 2026-05-01 | Block5 (1/2): FIFO handoff replay + handoff_mode field | `verify_fifo_handoff_replay.sh`, `handoff_mode` in `mainline_contract_check.json`, schema + backcompat baseline update | `check_ci_smoke.sh` ✓ |
+| 2026-05-01 | Block6 (2/2): handoff_exposure_assessment + Phase 2 docs | `handoff_exposure_assessment` in `mainline_contract_check.json`, OPS_RUNBOOK handoff section, BRIDGE_HANDOFF_HARDENING_PLAN Phase 1+2 sign-off | `check_ci_smoke.sh` ✓ |
+| 2026-05-01 | Block6 派生视图收口（同次完成，归 Block6）：handoff exposure 贯通归档/派生视图链路 | `archive_audit_bundle.py` summary fields `handoff_mode`/`handoff_exposure`, schema updates (`audit_archive_index`, `audit_bundle_verification`, `catalog_lineage`), positive smoke assertions in `check_pipeline_artifact_smoke_reports.py`, `EXPECTED_STAGES` += `handoff_exposure_assessment` in `benchmark_derived_views.py` | `check_ci_smoke.sh` ✓ |
+
+## 工程师 1 已完成 block 记录
+
+| 完成时间 | Block | 入口 | 验证 |
+| --- | --- | --- | --- |
+| 2026-05-01 | fuzz/malformed-input/security scan gate（1/3）：系统性负向测试门禁 | `scripts/check_malformed_input_gate.py`, `schemas/malformed_input_gate.schema.json`, `config/schema_backcompat_baseline.json` backcompat entry | `check_ci_smoke.sh` ✓ (`check_json_contracts.sh` double-gate ✓) |
+| 2026-05-01 | benchmark/CI gate（2/3）：统一发布前检查门禁 | `scripts/check_pre_release_gate.py`, `schemas/pre_release_gate.schema.json`, `schemas/repo_hygiene_scan.schema.json`, `schemas/dependency_hygiene.schema.json`, backcompat baseline entries × 3 | `check_ci_smoke.sh` ✓ (`check_json_contracts.sh` double-gate ✓) |
+| 2026-05-01 | platform health/backup/restore/SLO/checklist block（3/3 + runbook Block B）：Operator 就绪门禁 + deployment package runbook | `scripts/check_operator_readiness.py`, `schemas/operator_readiness.schema.json`, backcompat baseline entry; OPS_RUNBOOK.md 新增 Operator Readiness Check、Pre-Deployment Checklist、Failure Recovery Decision Tree、SLO Baseline 四章 | `check_ci_smoke.sh` ✓ (`check_json_contracts.sh` double-gate ✓) |
+
+## 工程师 2 已完成 block 记录
+
+| 完成时间 | Block | 入口 | 验证 |
+| --- | --- | --- | --- |
+| 2026-05-01 | read-only CLI / HTTP API pagination + output contract baseline | `scripts/query_metadata.py`, `scripts/serve_metadata_api.py`, metadata pagination smoke/benchmark assertions | `check_json_contracts.sh` ✓ |
+| 2026-05-01 | importer dry-run / reconcile / replay baseline | `scripts/import_run_metadata.py`, `schemas/metadata_import_report.schema.json`, import dry-run + replay smoke assertions | `check_json_contracts.sh` ✓ |
+| 2026-05-01 | Postgres-ready DDL portability baseline | `migrations/metadata/001_init.sql`, `scripts/check_metadata_schema_portability.py`, `schemas/metadata_schema_portability.schema.json` | `check_json_contracts.sh` ✓ |
+| 2026-05-01 | managed registry / policy / permission write baseline | `scripts/manage_metadata_db.py apply-registry`, `scripts/metadata_registry.py`, `schemas/metadata_registry_manifest.schema.json`, `schemas/metadata_registry_apply_report.schema.json`, example manifest + DB->tuple smoke | `check_json_contracts.sh` ✓ |
+| 2026-05-03 | key registry / key version control-plane baseline | `migrations/metadata/004_add_key_registry.sql`, `config/metadata_registry.example.json`, `scripts/manage_metadata_db.py`, `scripts/query_metadata.py`, `scripts/serve_metadata_api.py` | `check_json_contracts.sh` ✓ |
+| 2026-05-03 | metadata DB restore / ops lifecycle baseline | `scripts/manage_metadata_db.py restore`, `schemas/metadata_db_restore.schema.json`, `scripts/check_json_contracts.sh`, `docs/OPS_RUNBOOK.md` | `check_json_contracts.sh` ✓ |
+| 2026-05-03 | unified identity resolution + sidecar API authz baseline | `scripts/api_identity.py`, `scripts/resolve_api_identity.py`, metadata `/v1/identity`, query execute-vs-dry-run gate, audit `include_paths` gate, identity contract smoke | `check_json_contracts.sh` ✓ |
+| 2026-05-03 | Vault KV / external KMS compatibility baseline | `schemas/vault_kv_backend.schema.json`, `scripts/keyring_lib.py`, `scripts/key_agent_service.py`, `scripts/external_kms_service.py`, `scripts/manage_keyring.py`, `scripts/manage_external_kms.py`, pipeline auto-start + vault-backed smoke | `check_json_contracts.sh` ✓ |
+| 2026-05-03 | Postgres DDL target ownership（Block A）：完整 Postgres 类型升级 DDL + 导出验证工具 | `migrations/postgres/001_init.sql`（SERIAL/TIMESTAMPTZ/JSONB/BOOLEAN），`scripts/export_postgres_ddl.py`，`schemas/postgres_ddl_export.schema.json`，portability gate + backcompat baseline 同步更新 | `check_json_contracts.sh` ✓ |
+| 2026-05-03 | Cross-batch reconcile/repair（Block B）：跨批次对账与修复工具 | `scripts/reconcile_metadata_batches.py`，`schemas/metadata_batch_reconcile.schema.json`，backcompat baseline entry，contract smoke 验证新导入的 DB 为 clean 状态 | `check_json_contracts.sh` ✓ |
+
+## 工程师 A 已完成 block 记录
+
+| 完成时间 | Block | 入口 | 验证 |
+| --- | --- | --- | --- |
+| 2026-05-03 | Control-plane mutation governance log（Block 1/5）：写操作审计日志 | `migrations/metadata/005_add_mutation_log.sql`，`log_mutation()` / `log_entity_mutations()` 集成进 `manage_metadata_db.py apply-registry`，`scripts/query_mutation_log.py`，`schemas/mutation_log_query.schema.json`，backcompat baseline entry，contract smoke 验证 apply-registry 后 mutation log 含 ≥13 条记录 | `check_json_contracts.sh` ✓ |
+| 2026-05-03 | OIDC claim mapper + issuer registry（Block 2A/5）：JWT 解析 + 发行方注册 | `migrations/metadata/006_add_issuer_registry.sql`（含 `service_id` FK），`manage_metadata_db.py` 支持 `issuer_registry` manifest 条目，`api_identity.py` 新增 issuer registry 查表，`scripts/map_oidc_claims.py` + `schemas/oidc_claim_map.schema.json`，`config/oidc_claim_mapping.example.json`；Postgres DDL 同步更新；contract smoke 验证 HS256 JWT 映射全链路 | `check_json_contracts.sh` ✓ |
+| 2026-05-03 | Vault HTTP adapter + credential rotation governance（Block 2B/5）：远端 KMS 适配器 + 凭证轮换 | `scripts/vault_http_client.py` + `schemas/vault_http_client_result.schema.json`（real/mock 两模式），`keyring_lib.py` 新增 `vault_http` secret_ref kind，`config/vault_http_client.example.json`，`scripts/rotate_issuer_credentials.py` + `schemas/issuer_credential_rotation.schema.json`（按 issuer→key_refs 轮换版本 + mutation log）；backcompat baseline + contract smoke 全覆盖 | `check_json_contracts.sh` ✓ |
+| 2026-05-03 | Key backend drift detection + reconcile（Block 3A/5）：key_refs/key_versions 漂移检测与修复 | `scripts/check_key_backend_drift.py` + `schemas/key_backend_drift.schema.json`；支持 manifest 和 vault_kv 两种参照源；检测 `key_ref_missing/field_drift/version_missing/version_field_drift/key_ref_extra/version_extra` 六类漂移；`--repair` 安全修复 drifted 字段和缺失版本并写入 mutation log；contract smoke 验证 clean manifest → `status=clean`，vault_kv 源 → schema 有效 | `check_json_contracts.sh` ✓ |
+| 2026-05-03 | Write-side policy mutation governance（Block 3B/5）：策略变更治理 | `scripts/check_policy_drift.py` + `schemas/policy_drift.schema.json`（sha256 比对、`--repair` 重新导入并写 mutation log）；`scripts/propose_policy_change.py` + `schemas/policy_change_proposal.schema.json`（4 条治理规则：no_remove_active_bridge_callers(error), no_remove_enabled_callers(warn), frozen_field_semantics(error), caller_count_regression(warn)；`--existing-policy-path` 指定被替换策略；`--apply` 在无 error 时执行并写 mutation log）；contract smoke 验证 clean drift、unchanged file → approved、移除 active bridge caller → blocked | `check_json_contracts.sh` ✓ |
 
 ## 4. 解释
 
-为什么 owner 和工程师 A 仍然高：
+为什么工程师 A 仍然高，owner 已清零：
 
-1. 当前真正没补齐的，不再是“能不能跑通”，而是“能不能作为平台边界长期存在”。
-2. owner 线已经补完本地 append-only 审计锚点，剩下更贵的是 recovery deploy/handoff/compatibility/replay 治理。
-3. 工程师 A 这条线也已经越过 demo 阶段，剩下的是最贵的 authz/KMS/control-plane 写路径工作。
+1. owner 线所有 6 个 block 均已完成。主链路 contract 冻结、recovery external-service replay、normalizer 版本治理、handoff 明文暴露评估与 FIFO 回放均已收口。
+2. 工程师 A 线当前真正没补齐的，不再是”能不能跑通”，而是”能不能作为平台边界长期存在”（真实 OIDC/issuer 入口、远端 Vault/KMS 权威源、control-plane 写路径）。
+3. 工程师 A 这条线也已经越过 demo 阶段，统一 identity 与 Vault KV / external KMS 兼容基线已经完成，剩下的是更贵的 issuer/remote-KMS/control-plane 写路径工作。
 
 为什么工程师 B、工程师 1、工程师 2 稍低：
 

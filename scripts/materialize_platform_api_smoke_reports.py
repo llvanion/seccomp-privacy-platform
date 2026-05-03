@@ -120,6 +120,14 @@ def materialize_metadata_api(tmp_dir: Path, *, port: int) -> None:
         fetch_json(opener, f"{base}/v1/entities/caller-permissions?caller=auto_demo&limit=20", token="contract-metadata-api-token"),
     )
     dump(
+        tmp_dir / "metadata_api_permissions_page.json",
+        fetch_json(
+            opener,
+            f"{base}/v1/entities/caller-permissions?caller=auto_demo&limit=2&offset=2",
+            token="contract-metadata-api-token",
+        ),
+    )
+    dump(
         tmp_dir / "metadata_api_unauth_error.json",
         expect_http_error(
             lambda: fetch_json(opener, f"{base}/v1/jobs/contract-check"),
@@ -191,6 +199,88 @@ def materialize_platform_health_api(tmp_dir: Path, *, port: int) -> None:
     )
 
 
+def materialize_identity_metadata_api(tmp_dir: Path, *, port: int) -> None:
+    opener = json_opener()
+    base = f"http://127.0.0.1:{port}"
+    dump(
+        tmp_dir / "metadata_api_identity.json",
+        fetch_json(opener, f"{base}/v1/identity", token="contract-identity-commerce-ops-token"),
+    )
+    dump(
+        tmp_dir / "metadata_api_identity_forbidden_policies.json",
+        expect_http_error(
+            lambda: fetch_json(opener, f"{base}/v1/entities/policies?limit=5", token="contract-identity-commerce-ops-token"),
+            code=403,
+            label="metadata API identity policies request",
+        ),
+    )
+
+
+def materialize_identity_query_api(tmp_dir: Path, *, port: int, request_file: Path) -> None:
+    opener = json_opener()
+    base = f"http://127.0.0.1:{port}"
+    request_payload = json.load(request_file.open("r", encoding="utf-8"))
+    request_base_dir = str(request_file.resolve().parent)
+    dump(
+        tmp_dir / "query_workflow_identity_dry_run.json",
+        post_json(
+            opener,
+            f"{base}/v1/query-workflows/dry-run",
+            request_payload,
+            token="contract-identity-marketing-analyst-token",
+            request_base_dir=request_base_dir,
+        ),
+    )
+    dump(
+        tmp_dir / "query_workflow_identity_execute_forbidden.json",
+        expect_http_error(
+            lambda: post_json(
+                opener,
+                f"{base}/v1/query-workflows/execute",
+                request_payload,
+                token="contract-identity-marketing-analyst-token",
+                request_base_dir=request_base_dir,
+            ),
+            code=403,
+            label="query workflow API identity execute request",
+        ),
+    )
+
+
+def materialize_identity_audit_query_api(tmp_dir: Path, *, port: int) -> None:
+    opener = json_opener()
+    base = f"http://127.0.0.1:{port}"
+    dump(
+        tmp_dir / "audit_query_api_identity_public_report.json",
+        fetch_json(opener, f"{base}/v1/public-report", token="contract-identity-auto-demo-token"),
+    )
+    dump(
+        tmp_dir / "audit_query_api_identity_include_paths_forbidden.json",
+        expect_http_error(
+            lambda: fetch_json(
+                opener,
+                f"{base}/v1/catalog-lineage?include_paths=true",
+                token="contract-identity-auto-demo-token",
+            ),
+            code=403,
+            label="audit query API identity include-paths request",
+        ),
+    )
+
+
+def materialize_identity_platform_health_api(tmp_dir: Path, *, port: int) -> None:
+    opener = json_opener()
+    base = f"http://127.0.0.1:{port}"
+    dump(
+        tmp_dir / "platform_health_api_identity_forbidden.json",
+        expect_http_error(
+            lambda: fetch_json(opener, f"{base}/v1/platform-health", token="contract-identity-marketing-analyst-token"),
+            code=403,
+            label="platform health API identity request",
+        ),
+    )
+
+
 def build_parser() -> argparse.ArgumentParser:
     ap = argparse.ArgumentParser(description="Materialize platform API smoke reports for contract smoke.")
     ap.add_argument("--tmp-dir", required=True)
@@ -199,6 +289,11 @@ def build_parser() -> argparse.ArgumentParser:
     ap.add_argument("--metadata-port", type=int)
     ap.add_argument("--audit-port", type=int)
     ap.add_argument("--platform-health-port", type=int)
+    ap.add_argument("--identity-metadata-port", type=int)
+    ap.add_argument("--identity-query-port", type=int)
+    ap.add_argument("--identity-query-request-file")
+    ap.add_argument("--identity-audit-port", type=int)
+    ap.add_argument("--identity-platform-health-port", type=int)
     return ap
 
 
@@ -215,13 +310,29 @@ def main() -> int:
         materialize_audit_query_api(tmp_dir, port=args.audit_port)
     if args.platform_health_port is not None:
         materialize_platform_health_api(tmp_dir, port=args.platform_health_port)
+    if args.identity_metadata_port is not None:
+        materialize_identity_metadata_api(tmp_dir, port=args.identity_metadata_port)
+    if args.identity_query_port is not None:
+        if not args.identity_query_request_file:
+            raise SystemExit("--identity-query-request-file is required with --identity-query-port")
+        materialize_identity_query_api(tmp_dir, port=args.identity_query_port, request_file=Path(args.identity_query_request_file))
+    if args.identity_audit_port is not None:
+        materialize_identity_audit_query_api(tmp_dir, port=args.identity_audit_port)
+    if args.identity_platform_health_port is not None:
+        materialize_identity_platform_health_api(tmp_dir, port=args.identity_platform_health_port)
     if (
         args.query_port is None
         and args.metadata_port is None
         and args.audit_port is None
         and args.platform_health_port is None
+        and args.identity_metadata_port is None
+        and args.identity_query_port is None
+        and args.identity_audit_port is None
+        and args.identity_platform_health_port is None
     ):
-        raise SystemExit("at least one of --query-port, --metadata-port, --audit-port, or --platform-health-port is required")
+        raise SystemExit(
+            "at least one platform API port flag is required"
+        )
     return 0
 
 

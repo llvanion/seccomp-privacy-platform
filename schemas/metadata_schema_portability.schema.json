@@ -1,0 +1,92 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "metadata_schema_portability/v1",
+  "title": "Metadata sidecar schema portability report",
+  "type": "object",
+  "required": [
+    "schema",
+    "generated_at_utc",
+    "status",
+    "migrations_dir",
+    "applied_migrations",
+    "summary",
+    "checks"
+  ],
+  "properties": {
+    "schema": {
+      "const": "metadata_schema_portability/v1"
+    },
+    "generated_at_utc": {
+      "type": "string",
+      "minLength": 1
+    },
+    "status": {
+      "type": "string",
+      "enum": ["ok", "fail"]
+    },
+    "migrations_dir": {
+      "type": "string",
+      "minLength": 1
+    },
+    "applied_migrations": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "summary": {
+      "type": "object",
+      "required": [
+        "table_count",
+        "index_count",
+        "foreign_key_count",
+        "utc_text_column_count",
+        "json_text_column_count",
+        "sqlite_only_construct_count"
+      ],
+      "properties": {
+        "table_count": { "type": "integer", "minimum": 0 },
+        "index_count": { "type": "integer", "minimum": 0 },
+        "foreign_key_count": { "type": "integer", "minimum": 0 },
+        "utc_text_column_count": { "type": "integer", "minimum": 0 },
+        "json_text_column_count": { "type": "integer", "minimum": 0 },
+        "sqlite_only_construct_count": { "type": "integer", "minimum": 0 }
+      },
+      "additionalProperties": false
+    },
+    "checks": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "name",
+          "status",
+          "details"
+        ],
+        "properties": {
+          "name": {
+            "type": "string",
+            "enum": [
+              "sqlite_only_constructs",
+              "primary_keys_present",
+              "utc_columns_use_text",
+              "json_columns_use_text",
+              "expected_indexes_present",
+              "foreign_key_targets_present"
+            ]
+          },
+          "status": {
+            "type": "string",
+            "enum": ["ok", "fail"]
+          },
+          "details": {
+            "type": "object"
+          }
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  "additionalProperties": false
+}

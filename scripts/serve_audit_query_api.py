@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import parse_qs, urlparse
 
+from api_identity import enforce_audit_result_access, resolve_request_identity
 from export_catalog_lineage import build_catalog_lineage, load_json_object as load_catalog_json_object, repo_path as catalog_repo_path
 from export_observability_events import build_observability, load_json_object as load_observability_json_object, repo_path as observability_repo_path
 
@@ -75,6 +76,8 @@ class AuditQueryApiServer(ThreadingHTTPServer):
         *,
         out_base: str,
         auth_token: str,
+        metadata_db_path: str,
+        identity_token_config: str,
         pid_file: str,
         ready_file: str,
     ) -> None:
@@ -82,6 +85,8 @@ class AuditQueryApiServer(ThreadingHTTPServer):
         self.audit_chain_path = str(Path(self.out_base) / "audit_chain.json")
         self.public_report_path = str(Path(self.out_base) / "a_psi_run" / "public_report.json")
         self.auth_token = auth_token
+        self.metadata_db_path = str(Path(metadata_db_path).resolve()) if metadata_db_path else ""
+        self.identity_token_config = str(Path(identity_token_config).resolve()) if identity_token_config else ""
         self.pid_file = pid_file
         self.ready_file = ready_file
         super().__init__(server_address, handler_cls)
@@ -112,16 +117,14 @@ class AuditQueryApiHandler(BaseHTTPRequestHandler):
             },
         )
 
-    def _require_auth(self) -> None:
-        expected = self.server.auth_token
-        if not expected:
-            return
-        header = self.headers.get("Authorization", "")
-        if not header.startswith("Bearer "):
-            raise PermissionError("missing bearer token")
-        provided = header[len("Bearer "):]
-        if provided != expected:
-            raise PermissionError("audit query API auth failed")
+    def _require_auth(self) -> dict[str, Any] | None:
+        return resolve_request_identity(
+            auth_header=self.headers.get("Authorization", ""),
+            expected_bearer_token=self.server.auth_token,
+            db_path=self.server.metadata_db_path,
+            identity_token_config=self.server.identity_token_config,
+            auth_failure_label="audit query API",
+        )
 
     def _load_audit_chain(self) -> dict[str, Any]:
         return load_observability_json_object(observability_repo_path(self.server.audit_chain_path))
@@ -129,8 +132,15 @@ class AuditQueryApiHandler(BaseHTTPRequestHandler):
     def _load_public_report(self) -> dict[str, Any]:
         return load_catalog_json_object(catalog_repo_path(self.server.public_report_path))
 
-    def _success_payload(self, *, parsed, payload: dict[str, Any]) -> dict[str, Any]:
-        return {
+    def _success_payload(
+        self,
+        *,
+        parsed,
+        payload: dict[str, Any],
+        identity: dict[str, Any] | None,
+        access_scope: dict[str, Any] | None,
+    ) -> dict[str, Any]:
+        response = {
             "schema": RESPONSE_SCHEMA,
             "method": self.command,
             "path": parsed.path,
@@ -138,6 +148,50 @@ class AuditQueryApiHandler(BaseHTTPRequestHandler):
             "result_schema": payload.get("schema"),
             "result": payload,
         }
+        if identity is not None:
+            response["authenticated_identity"] = identity
+        if access_scope:
+            response["access_scope"] = access_scope
+        return response
+
+    def _audit_scope(self, chain: dict[str, Any]) -> dict[str, Any]:
+        public_report = chain.get("public_report") if isinstance(chain.get("public_report"), dict) else {}
+        records: list[dict[str, Any]] = []
+        for key in (
+            "sse_export_audit",
+            "record_recovery_service_audit",
+            "bridge_audit",
+            "pjc_audit",
+            "policy_audit",
+            "key_access_audit",
+        ):
+            value = chain.get(key)
+            if isinstance(value, list):
+                records.extend(record for record in value if isinstance(record, dict))
+        return {
+            "job_id": chain.get("job_id") or public_report.get("job_id"),
+            "correlation_id": chain.get("correlation_id") or public_report.get("correlation_id"),
+            "caller": public_report.get("caller") or next((record.get("caller") for record in records if record.get("caller")), None),
+            "tenant_id": next((record.get("tenant_id") for record in records if record.get("tenant_id")), None),
+            "dataset_id": next((record.get("dataset_id") for record in records if record.get("dataset_id")), None),
+            "service_id": next((record.get("service_id") for record in records if record.get("service_id")), None),
+        }
+
+    def _enforce_audit_scope(
+        self,
+        identity: dict[str, Any] | None,
+        scope: dict[str, Any],
+        *,
+        include_paths: bool,
+    ) -> dict[str, str] | None:
+        if identity is None:
+            return None
+        return enforce_audit_result_access(
+            identity,
+            caller=str(scope.get("caller") or ""),
+            tenant_id=str(scope.get("tenant_id") or ""),
+            include_paths=include_paths,
+        )
 
     def do_GET(self) -> None:
         parsed = urlparse(self.path)
@@ -150,7 +204,7 @@ class AuditQueryApiHandler(BaseHTTPRequestHandler):
                         "schema": HEALTH_SCHEMA,
                         "ok": True,
                         "out_base": self.server.out_base,
-                        "auth_required": bool(self.server.auth_token),
+                        "auth_required": bool(self.server.auth_token or self.server.identity_token_config),
                         "available_results": [
                             "public_report/v2",
                             "audit_chain/v1",
@@ -161,20 +215,59 @@ class AuditQueryApiHandler(BaseHTTPRequestHandler):
                 )
                 return
 
-            self._require_auth()
+            identity = self._require_auth()
+            chain = self._load_audit_chain()
+            access_scope = self._audit_scope(chain)
             if parsed.path == "/v1/public-report":
-                self._send_json(HTTPStatus.OK, self._success_payload(parsed=parsed, payload=self._load_public_report()))
+                self._enforce_audit_scope(identity, access_scope, include_paths=False)
+                self._send_json(
+                    HTTPStatus.OK,
+                    self._success_payload(
+                        parsed=parsed,
+                        payload=self._load_public_report(),
+                        identity=identity,
+                        access_scope=access_scope,
+                    ),
+                )
                 return
             if parsed.path == "/v1/audit-chain":
-                self._send_json(HTTPStatus.OK, self._success_payload(parsed=parsed, payload=self._load_audit_chain()))
+                self._enforce_audit_scope(identity, access_scope, include_paths=False)
+                self._send_json(
+                    HTTPStatus.OK,
+                    self._success_payload(
+                        parsed=parsed,
+                        payload=chain,
+                        identity=identity,
+                        access_scope=access_scope,
+                    ),
+                )
                 return
             if parsed.path == "/v1/observability":
-                payload = build_observability(self._load_audit_chain())
-                self._send_json(HTTPStatus.OK, self._success_payload(parsed=parsed, payload=payload))
+                self._enforce_audit_scope(identity, access_scope, include_paths=False)
+                payload = build_observability(chain)
+                self._send_json(
+                    HTTPStatus.OK,
+                    self._success_payload(
+                        parsed=parsed,
+                        payload=payload,
+                        identity=identity,
+                        access_scope=access_scope,
+                    ),
+                )
                 return
             if parsed.path == "/v1/catalog-lineage":
-                payload = build_catalog_lineage(self._load_audit_chain(), include_paths=parse_bool_param(params, "include_paths", False))
-                self._send_json(HTTPStatus.OK, self._success_payload(parsed=parsed, payload=payload))
+                include_paths = parse_bool_param(params, "include_paths", False)
+                self._enforce_audit_scope(identity, access_scope, include_paths=include_paths)
+                payload = build_catalog_lineage(chain, include_paths=include_paths)
+                self._send_json(
+                    HTTPStatus.OK,
+                    self._success_payload(
+                        parsed=parsed,
+                        payload=payload,
+                        identity=identity,
+                        access_scope=access_scope,
+                    ),
+                )
                 return
             self._error(HTTPStatus.NOT_FOUND, "not found")
         except PermissionError as exc:
@@ -193,6 +286,8 @@ def build_parser() -> argparse.ArgumentParser:
     ap.add_argument("--bind-host", default="127.0.0.1")
     ap.add_argument("--port", type=int, default=18092)
     ap.add_argument("--auth-token-env", default="", help="Optional bearer-token env var for non-health endpoints")
+    ap.add_argument("--metadata-db-path", default="", help="Metadata DB path required when --identity-token-config is used")
+    ap.add_argument("--identity-token-config", default="", help="Optional bearer-token to caller-identity mapping config")
     ap.add_argument("--pid-file", default="")
     ap.add_argument("--ready-file", default="")
     return ap
@@ -209,6 +304,8 @@ def main() -> int:
         raise SystemExit(f"[ERROR] audit chain does not exist: {audit_chain_path}")
     if not public_report_path.is_file():
         raise SystemExit(f"[ERROR] public report does not exist: {public_report_path}")
+    if args.identity_token_config and not args.metadata_db_path:
+        raise SystemExit("[ERROR] --identity-token-config requires --metadata-db-path")
 
     auth_token = read_auth_token(args.auth_token_env)
     server = AuditQueryApiServer(
@@ -216,6 +313,8 @@ def main() -> int:
         AuditQueryApiHandler,
         out_base=str(out_base),
         auth_token=auth_token,
+        metadata_db_path=args.metadata_db_path,
+        identity_token_config=args.identity_token_config,
         pid_file=args.pid_file,
         ready_file=args.ready_file,
     )

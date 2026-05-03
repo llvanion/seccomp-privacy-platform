@@ -16,6 +16,9 @@ LIST_ENTITY_CHOICES = (
     "datasets",
     "services",
     "callers",
+    "caller-identities",
+    "key-refs",
+    "key-versions",
     "policies",
     "policy-bindings",
     "caller-permissions",
@@ -67,6 +70,50 @@ ENTITY_COLUMNS = {
         "last_seen_job_id",
         "job_count",
         "latest_imported_at_utc",
+        "identity_count",
+        "enabled_identity_count",
+    ],
+    "caller-identities": [
+        "id",
+        "caller",
+        "issuer",
+        "subject",
+        "subject_type",
+        "service_id",
+        "display_name",
+        "platform_roles",
+        "enabled",
+        "source",
+        "created_at_utc",
+    ],
+    "key-refs": [
+        "key_name",
+        "purpose",
+        "service_id",
+        "backend_kind",
+        "backend_ref",
+        "active_version",
+        "allowed_callers",
+        "source",
+        "created_at_utc",
+        "updated_at_utc",
+        "version_count",
+    ],
+    "key-versions": [
+        "id",
+        "key_name",
+        "purpose",
+        "service_id",
+        "backend_kind",
+        "version",
+        "enabled",
+        "status",
+        "secret_ref_kind",
+        "secret_ref_name",
+        "backend_key_version",
+        "created_at_utc",
+        "source",
+        "metadata",
     ],
     "policies": [
         "policy_id",
@@ -106,6 +153,25 @@ def fetch_all_dicts(conn: sqlite3.Connection, query: str, params: tuple = ()) ->
     return [row_to_dict(row) for row in conn.execute(query, params).fetchall()]
 
 
+def fetch_scalar(conn: sqlite3.Connection, query: str, params: tuple = ()) -> Any:
+    row = conn.execute(query, params).fetchone()
+    if row is None:
+        return None
+    if isinstance(row, sqlite3.Row):
+        return row[0]
+    return row[0]
+
+
+def table_exists(conn: sqlite3.Connection, table_name: str) -> bool:
+    return bool(
+        fetch_scalar(
+            conn,
+            "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?",
+            (table_name,),
+        )
+    )
+
+
 def as_int(value) -> int | None:
     if value in (None, ""):
         return None
@@ -113,6 +179,16 @@ def as_int(value) -> int | None:
         return int(value)
     except (TypeError, ValueError):
         return None
+
+
+def as_bool(value: Any) -> bool | None:
+    if value in (None, ""):
+        return None
+    if isinstance(value, bool):
+        return value
+    if value in (0, 1):
+        return bool(value)
+    return None
 
 
 def build_timing_summary(stage_status_rows: list[dict]) -> dict:
@@ -397,6 +473,56 @@ def build_permission_summary(rows: list[dict]) -> dict:
     }
 
 
+def decode_json_object(value: Any) -> Any:
+    if value in (None, ""):
+        return None
+    if not isinstance(value, str):
+        return value
+    try:
+        return json.loads(value)
+    except json.JSONDecodeError:
+        return value
+
+
+def normalize_issuer(value: Any) -> str | None:
+    if value in (None, ""):
+        return None
+    return str(value)
+
+
+def enrich_caller_rows_with_identity_counts(conn: sqlite3.Connection, rows: list[dict]) -> None:
+    if not rows:
+        return
+    if not table_exists(conn, "caller_identities"):
+        for row in rows:
+            row["identity_count"] = 0
+            row["enabled_identity_count"] = 0
+        return
+    caller_names = [str(row.get("caller") or "") for row in rows if row.get("caller") not in (None, "")]
+    if not caller_names:
+        return
+    placeholders = ",".join("?" for _ in caller_names)
+    counts = {
+        str(row["caller"]): row
+        for row in conn.execute(
+            f"""
+            SELECT
+              caller,
+              COUNT(*) AS identity_count,
+              SUM(CASE WHEN enabled = 1 THEN 1 ELSE 0 END) AS enabled_identity_count
+            FROM caller_identities
+            WHERE caller IN ({placeholders})
+            GROUP BY caller
+            """,
+            tuple(caller_names),
+        ).fetchall()
+    }
+    for row in rows:
+        summary = counts.get(str(row.get("caller") or ""))
+        row["identity_count"] = int(summary["identity_count"]) if summary is not None else 0
+        row["enabled_identity_count"] = int(summary["enabled_identity_count"]) if summary is not None else 0
+
+
 def grouped_stage_rows(grouped_stage_summary: list[dict]) -> tuple[list[str], list[dict]]:
     columns = [
         "stage",
@@ -571,6 +697,66 @@ def render_entity_delimited(result: dict, *, output_format: str, columns_arg: st
     return buffer.getvalue()
 
 
+def build_pagination(*, limit: int, offset: int, returned_count: int, total_matching_count: int) -> dict:
+    next_offset = offset + returned_count if (offset + returned_count) < total_matching_count else None
+    previous_offset = max(offset - limit, 0) if offset > 0 else None
+    return {
+        "limit": limit,
+        "offset": offset,
+        "returned_count": returned_count,
+        "total_matching_count": total_matching_count,
+        "has_more": next_offset is not None,
+        "next_offset": next_offset,
+        "previous_offset": previous_offset,
+    }
+
+
+def validate_limit_offset(limit: int, offset: int) -> tuple[int, int]:
+    if limit <= 0:
+        raise SystemExit("[ERROR] --limit must be greater than 0")
+    if limit > 1000:
+        raise SystemExit("[ERROR] --limit must be <= 1000")
+    if offset < 0:
+        raise SystemExit("[ERROR] --offset must be >= 0")
+    return limit, offset
+
+
+def build_jobs_where_clause(
+    *,
+    caller: str,
+    tenant_id: str,
+    dataset_id: str,
+    service_id: str,
+    stage: str,
+    stage_status: str,
+) -> tuple[str, list[object]]:
+    filters: list[str] = []
+    params: list[object] = []
+    if caller:
+        filters.append("caller = ?")
+        params.append(caller)
+    if tenant_id:
+        filters.append("tenant_id = ?")
+        params.append(tenant_id)
+    if dataset_id:
+        filters.append("dataset_id = ?")
+        params.append(dataset_id)
+    if service_id:
+        filters.append("service_id = ?")
+        params.append(service_id)
+    if stage and stage_status:
+        filters.append("job_id IN (SELECT job_id FROM job_stage_status WHERE stage = ? AND status = ?)")
+        params.extend((stage, stage_status))
+    elif stage:
+        filters.append("job_id IN (SELECT job_id FROM job_stage_status WHERE stage = ?)")
+        params.append(stage)
+    elif stage_status:
+        filters.append("job_id IN (SELECT job_id FROM job_stage_status WHERE status = ?)")
+        params.append(stage_status)
+    where = f"WHERE {' AND '.join(filters)}" if filters else ""
+    return where, params
+
+
 def query_job_detail(conn: sqlite3.Connection, job_id: str) -> dict:
     job = row_to_dict(conn.execute("SELECT * FROM jobs WHERE job_id = ?", (job_id,)).fetchone())
     if not job:
@@ -602,36 +788,30 @@ def query_jobs(
     stage_sort: str = "recent",
     group_by: str = "",
     limit: int = 50,
+    offset: int = 0,
 ) -> dict:
-    filters: list[str] = []
-    params: list[object] = []
-    if caller:
-        filters.append("caller = ?")
-        params.append(caller)
-    if tenant_id:
-        filters.append("tenant_id = ?")
-        params.append(tenant_id)
-    if dataset_id:
-        filters.append("dataset_id = ?")
-        params.append(dataset_id)
-    if service_id:
-        filters.append("service_id = ?")
-        params.append(service_id)
-    if stage and stage_status:
-        filters.append("job_id IN (SELECT job_id FROM job_stage_status WHERE stage = ? AND status = ?)")
-        params.extend((stage, stage_status))
-    elif stage:
-        filters.append("job_id IN (SELECT job_id FROM job_stage_status WHERE stage = ?)")
-        params.append(stage)
-    elif stage_status:
-        filters.append("job_id IN (SELECT job_id FROM job_stage_status WHERE status = ?)")
-        params.append(stage_status)
-    where = f"WHERE {' AND '.join(filters)}" if filters else ""
+    limit, offset = validate_limit_offset(limit, offset)
+    where, params = build_jobs_where_clause(
+        caller=caller,
+        tenant_id=tenant_id,
+        dataset_id=dataset_id,
+        service_id=service_id,
+        stage=stage,
+        stage_status=stage_status,
+    )
+    total_matching_count = int(
+        fetch_scalar(
+            conn,
+            f"SELECT COUNT(*) FROM jobs {where}",
+            tuple(params),
+        )
+        or 0
+    )
     query_params = list(params)
-    limit_clause = ""
+    pagination_clause = ""
     if stage_sort == "recent":
-        query_params.append(limit)
-        limit_clause = "LIMIT ?"
+        query_params.extend((limit, offset))
+        pagination_clause = "LIMIT ? OFFSET ?"
     jobs = fetch_all_dicts(
         conn,
         f"""
@@ -642,56 +822,95 @@ def query_jobs(
         FROM jobs
         {where}
         ORDER BY imported_at_utc DESC
-        {limit_clause}
+        {pagination_clause}
         """,
         tuple(query_params),
     )
     all_stage_rows: list[dict] = []
     if jobs:
         summary_cache: dict[str, dict | None] = {}
-        job_ids = [str(job["job_id"]) for job in jobs if job.get("job_id")]
-        placeholders = ", ".join("?" for _ in job_ids)
-        stage_rows = fetch_all_dicts(
-            conn,
-            f"""
-            SELECT job_id, stage, status, ts_utc, duration_ms, details_json
-            FROM job_stage_status
-            WHERE job_id IN ({placeholders})
-            ORDER BY job_id, stage
-            """,
-            tuple(job_ids),
-        )
-        all_stage_rows = stage_rows
-        stage_rows_by_job: dict[str, list[dict]] = {}
-        for row in stage_rows:
-            stage_rows_by_job.setdefault(str(row["job_id"]), []).append(row)
-        for job in jobs:
-            job_stage_rows = stage_rows_by_job.get(str(job["job_id"]), [])
-            timing_summary = build_timing_summary(job_stage_rows)
-            job["stage_duration_summary"] = timing_summary["stage_duration_summary"]
-            job["total_stage_duration_ms"] = timing_summary["total_stage_duration_ms"]
-            job["missing_duration_stages"] = timing_summary["missing_duration_stages"]
-            job["mainline_contract_summary"] = load_mainline_contract_summary(
-                str(job.get("audit_chain_path") or ""),
-                cache=summary_cache,
-            )
-            for row in job_stage_rows:
-                row["mainline_contract_summary"] = job["mainline_contract_summary"]
-            if stage:
-                matched_stage = next((row for row in job_stage_rows if str(row.get("stage") or "") == stage), None)
-                job["matched_stage"] = {
-                    "stage": matched_stage.get("stage"),
-                    "status": matched_stage.get("status"),
-                    "ts_utc": matched_stage.get("ts_utc"),
-                    "duration_ms": matched_stage.get("duration_ms"),
-                    "details_json": matched_stage.get("details_json"),
-                } if matched_stage else None
-        if stage_sort == "duration_desc":
-            jobs = sort_jobs_by_duration(jobs, stage=stage, descending=True)
-        elif stage_sort == "duration_asc":
-            jobs = sort_jobs_by_duration(jobs, stage=stage, descending=False)
+        all_jobs = jobs
         if stage_sort != "recent":
-            jobs = jobs[:limit]
+            all_job_ids = [str(job["job_id"]) for job in all_jobs if job.get("job_id")]
+            all_placeholders = ", ".join("?" for _ in all_job_ids)
+            all_stage_rows = fetch_all_dicts(
+                conn,
+                f"""
+                SELECT job_id, stage, status, ts_utc, duration_ms, details_json
+                FROM job_stage_status
+                WHERE job_id IN ({all_placeholders})
+                ORDER BY job_id, stage
+                """,
+                tuple(all_job_ids),
+            )
+            stage_rows_by_job: dict[str, list[dict]] = {}
+            for row in all_stage_rows:
+                stage_rows_by_job.setdefault(str(row["job_id"]), []).append(row)
+            for job in all_jobs:
+                job_stage_rows = stage_rows_by_job.get(str(job["job_id"]), [])
+                timing_summary = build_timing_summary(job_stage_rows)
+                job["stage_duration_summary"] = timing_summary["stage_duration_summary"]
+                job["total_stage_duration_ms"] = timing_summary["total_stage_duration_ms"]
+                job["missing_duration_stages"] = timing_summary["missing_duration_stages"]
+                job["mainline_contract_summary"] = load_mainline_contract_summary(
+                    str(job.get("audit_chain_path") or ""),
+                    cache=summary_cache,
+                )
+                if stage:
+                    matched_stage = next((row for row in job_stage_rows if str(row.get("stage") or "") == stage), None)
+                    job["matched_stage"] = {
+                        "stage": matched_stage.get("stage"),
+                        "status": matched_stage.get("status"),
+                        "ts_utc": matched_stage.get("ts_utc"),
+                        "duration_ms": matched_stage.get("duration_ms"),
+                        "details_json": matched_stage.get("details_json"),
+                    } if matched_stage else None
+            if stage_sort == "duration_desc":
+                all_jobs = sort_jobs_by_duration(all_jobs, stage=stage, descending=True)
+            elif stage_sort == "duration_asc":
+                all_jobs = sort_jobs_by_duration(all_jobs, stage=stage, descending=False)
+            jobs = all_jobs[offset:offset + limit]
+        job_ids = [str(job["job_id"]) for job in jobs if job.get("job_id")]
+        if not job_ids:
+            jobs = []
+        else:
+            placeholders = ", ".join("?" for _ in job_ids)
+            stage_rows = fetch_all_dicts(
+                conn,
+                f"""
+                SELECT job_id, stage, status, ts_utc, duration_ms, details_json
+                FROM job_stage_status
+                WHERE job_id IN ({placeholders})
+                ORDER BY job_id, stage
+                """,
+                tuple(job_ids),
+            )
+            all_stage_rows = stage_rows
+            stage_rows_by_job = {}
+            for row in stage_rows:
+                stage_rows_by_job.setdefault(str(row["job_id"]), []).append(row)
+            for job in jobs:
+                job_stage_rows = stage_rows_by_job.get(str(job["job_id"]), [])
+                if stage_sort == "recent":
+                    timing_summary = build_timing_summary(job_stage_rows)
+                    job["stage_duration_summary"] = timing_summary["stage_duration_summary"]
+                    job["total_stage_duration_ms"] = timing_summary["total_stage_duration_ms"]
+                    job["missing_duration_stages"] = timing_summary["missing_duration_stages"]
+                    job["mainline_contract_summary"] = load_mainline_contract_summary(
+                        str(job.get("audit_chain_path") or ""),
+                        cache=summary_cache,
+                    )
+                    if stage:
+                        matched_stage = next((row for row in job_stage_rows if str(row.get("stage") or "") == stage), None)
+                        job["matched_stage"] = {
+                            "stage": matched_stage.get("stage"),
+                            "status": matched_stage.get("status"),
+                            "ts_utc": matched_stage.get("ts_utc"),
+                            "duration_ms": matched_stage.get("duration_ms"),
+                            "details_json": matched_stage.get("details_json"),
+                        } if matched_stage else None
+                for row in job_stage_rows:
+                    row["mainline_contract_summary"] = job.get("mainline_contract_summary")
     matched_stage_rows = []
     if stage and jobs:
         for job in jobs:
@@ -709,7 +928,15 @@ def query_jobs(
             "stage_sort": stage_sort,
             "group_by": group_by or None,
             "limit": limit,
+            "offset": offset,
         },
+        "count": len(jobs),
+        "pagination": build_pagination(
+            limit=limit,
+            offset=offset,
+            returned_count=len(jobs),
+            total_matching_count=total_matching_count,
+        ),
         "jobs": jobs,
         "mainline_contract_summary_counts": build_mainline_contract_summary_counts(jobs),
         "stage_summary": build_stage_summary(stage, matched_stage_rows) if stage else None,
@@ -729,17 +956,41 @@ def query_entities(
     policy_id: str = "",
     binding_kind: str = "",
     permission_key: str = "",
+    subject_type: str = "",
+    issuer: str = "",
+    key_name: str = "",
+    purpose: str = "",
     limit: int = 50,
+    offset: int = 0,
 ) -> dict:
+    limit, offset = validate_limit_offset(limit, offset)
     filters: list[str] = []
     params: list[object] = []
     rows: list[dict]
+    permission_summary_rows: list[dict] | None = None
 
     if entity == "tenants":
         if tenant_id:
             filters.append("t.tenant_id = ?")
             params.append(tenant_id)
         where = f"WHERE {' AND '.join(filters)}" if filters else ""
+        total_matching_count = int(
+            fetch_scalar(
+                conn,
+                f"""
+                SELECT COUNT(*)
+                FROM (
+                  SELECT t.tenant_id
+                  FROM tenants t
+                  LEFT JOIN jobs j ON j.tenant_id = t.tenant_id
+                  {where}
+                  GROUP BY t.tenant_id, t.created_at_utc, t.source, t.last_seen_job_id
+                )
+                """,
+                tuple(params),
+            )
+            or 0
+        )
         rows = fetch_all_dicts(
             conn,
             f"""
@@ -755,9 +1006,9 @@ def query_entities(
             {where}
             GROUP BY t.tenant_id, t.created_at_utc, t.source, t.last_seen_job_id
             ORDER BY latest_imported_at_utc DESC, t.tenant_id ASC
-            LIMIT ?
+            LIMIT ? OFFSET ?
             """,
-            tuple(params + [limit]),
+            tuple(params + [limit, offset]),
         )
     elif entity == "datasets":
         if tenant_id:
@@ -767,6 +1018,23 @@ def query_entities(
             filters.append("d.dataset_id = ?")
             params.append(dataset_id)
         where = f"WHERE {' AND '.join(filters)}" if filters else ""
+        total_matching_count = int(
+            fetch_scalar(
+                conn,
+                f"""
+                SELECT COUNT(*)
+                FROM (
+                  SELECT d.dataset_id
+                  FROM datasets d
+                  LEFT JOIN jobs j ON j.dataset_id = d.dataset_id
+                  {where}
+                  GROUP BY d.dataset_id, d.tenant_id, d.created_at_utc, d.source, d.last_seen_job_id
+                )
+                """,
+                tuple(params),
+            )
+            or 0
+        )
         rows = fetch_all_dicts(
             conn,
             f"""
@@ -783,9 +1051,9 @@ def query_entities(
             {where}
             GROUP BY d.dataset_id, d.tenant_id, d.created_at_utc, d.source, d.last_seen_job_id
             ORDER BY latest_imported_at_utc DESC, d.dataset_id ASC
-            LIMIT ?
+            LIMIT ? OFFSET ?
             """,
-            tuple(params + [limit]),
+            tuple(params + [limit, offset]),
         )
     elif entity == "services":
         if tenant_id:
@@ -798,6 +1066,25 @@ def query_entities(
             filters.append("s.service_id = ?")
             params.append(service_id)
         where = f"WHERE {' AND '.join(filters)}" if filters else ""
+        total_matching_count = int(
+            fetch_scalar(
+                conn,
+                f"""
+                SELECT COUNT(*)
+                FROM (
+                  SELECT s.service_id
+                  FROM services s
+                  LEFT JOIN jobs j ON j.service_id = s.service_id
+                  {where}
+                  GROUP BY
+                    s.service_id, s.tenant_id, s.dataset_id, s.service_type, s.transport,
+                    s.config_path, s.created_at_utc, s.last_seen_job_id
+                )
+                """,
+                tuple(params),
+            )
+            or 0
+        )
         rows = fetch_all_dicts(
             conn,
             f"""
@@ -819,9 +1106,9 @@ def query_entities(
               s.service_id, s.tenant_id, s.dataset_id, s.service_type, s.transport,
               s.config_path, s.created_at_utc, s.last_seen_job_id
             ORDER BY latest_imported_at_utc DESC, s.service_id ASC
-            LIMIT ?
+            LIMIT ? OFFSET ?
             """,
-            tuple(params + [limit]),
+            tuple(params + [limit, offset]),
         )
     elif entity == "callers":
         if caller:
@@ -831,6 +1118,23 @@ def query_entities(
             filters.append("c.tenant_id = ?")
             params.append(tenant_id)
         where = f"WHERE {' AND '.join(filters)}" if filters else ""
+        total_matching_count = int(
+            fetch_scalar(
+                conn,
+                f"""
+                SELECT COUNT(*)
+                FROM (
+                  SELECT c.caller
+                  FROM callers c
+                  LEFT JOIN jobs j ON j.caller = c.caller
+                  {where}
+                  GROUP BY c.caller, c.tenant_id, c.created_at_utc, c.source, c.last_seen_job_id
+                )
+                """,
+                tuple(params),
+            )
+            or 0
+        )
         rows = fetch_all_dicts(
             conn,
             f"""
@@ -847,15 +1151,193 @@ def query_entities(
             {where}
             GROUP BY c.caller, c.tenant_id, c.created_at_utc, c.source, c.last_seen_job_id
             ORDER BY latest_imported_at_utc DESC, c.caller ASC
-            LIMIT ?
+            LIMIT ? OFFSET ?
             """,
-            tuple(params + [limit]),
+            tuple(params + [limit, offset]),
         )
+        enrich_caller_rows_with_identity_counts(conn, rows)
+    elif entity == "caller-identities":
+        if caller:
+            filters.append("caller = ?")
+            params.append(caller)
+        if service_id:
+            filters.append("service_id = ?")
+            params.append(service_id)
+        if subject_type:
+            filters.append("subject_type = ?")
+            params.append(subject_type)
+        if issuer:
+            filters.append("issuer = ?")
+            params.append(issuer)
+        where = f"WHERE {' AND '.join(filters)}" if filters else ""
+        total_matching_count = int(
+            fetch_scalar(
+                conn,
+                f"SELECT COUNT(*) FROM caller_identities {where}",
+                tuple(params),
+            )
+            or 0
+        )
+        rows = fetch_all_dicts(
+            conn,
+            f"""
+            SELECT
+              id,
+              caller,
+              issuer,
+              subject,
+              subject_type,
+              service_id,
+              display_name,
+              platform_roles_json,
+              enabled,
+              source,
+              created_at_utc
+            FROM caller_identities
+            {where}
+            ORDER BY created_at_utc DESC, id DESC
+            LIMIT ? OFFSET ?
+            """,
+            tuple(params + [limit, offset]),
+        )
+        for row in rows:
+            row["issuer"] = normalize_issuer(row.get("issuer"))
+            row["platform_roles"] = decode_json_object(row.pop("platform_roles_json"))
+            row["enabled"] = as_bool(row.get("enabled"))
+    elif entity == "key-refs":
+        if key_name:
+            filters.append("kr.key_name = ?")
+            params.append(key_name)
+        if service_id:
+            filters.append("kr.service_id = ?")
+            params.append(service_id)
+        if purpose:
+            filters.append("kr.purpose = ?")
+            params.append(purpose)
+        where = f"WHERE {' AND '.join(filters)}" if filters else ""
+        total_matching_count = int(
+            fetch_scalar(
+                conn,
+                f"""
+                SELECT COUNT(*)
+                FROM (
+                  SELECT kr.key_name
+                  FROM key_refs kr
+                  LEFT JOIN key_versions kv ON kv.key_name = kr.key_name
+                  {where}
+                  GROUP BY
+                    kr.key_name, kr.purpose, kr.service_id, kr.backend_kind, kr.backend_ref,
+                    kr.active_version, kr.allowed_callers_json, kr.source, kr.created_at_utc, kr.updated_at_utc
+                )
+                """,
+                tuple(params),
+            )
+            or 0
+        )
+        rows = fetch_all_dicts(
+            conn,
+            f"""
+            SELECT
+              kr.key_name,
+              kr.purpose,
+              kr.service_id,
+              kr.backend_kind,
+              kr.backend_ref,
+              kr.active_version,
+              kr.allowed_callers_json,
+              kr.source,
+              kr.created_at_utc,
+              kr.updated_at_utc,
+              COUNT(DISTINCT kv.id) AS version_count
+            FROM key_refs kr
+            LEFT JOIN key_versions kv ON kv.key_name = kr.key_name
+            {where}
+            GROUP BY
+              kr.key_name, kr.purpose, kr.service_id, kr.backend_kind, kr.backend_ref,
+              kr.active_version, kr.allowed_callers_json, kr.source, kr.created_at_utc, kr.updated_at_utc
+            ORDER BY kr.updated_at_utc DESC, kr.key_name ASC
+            LIMIT ? OFFSET ?
+            """,
+            tuple(params + [limit, offset]),
+        )
+        for row in rows:
+            row["allowed_callers"] = decode_json_object(row.pop("allowed_callers_json"))
+    elif entity == "key-versions":
+        if key_name:
+            filters.append("kv.key_name = ?")
+            params.append(key_name)
+        if service_id:
+            filters.append("kr.service_id = ?")
+            params.append(service_id)
+        if purpose:
+            filters.append("kr.purpose = ?")
+            params.append(purpose)
+        where = f"WHERE {' AND '.join(filters)}" if filters else ""
+        total_matching_count = int(
+            fetch_scalar(
+                conn,
+                f"""
+                SELECT COUNT(*)
+                FROM key_versions kv
+                JOIN key_refs kr ON kr.key_name = kv.key_name
+                {where}
+                """,
+                tuple(params),
+            )
+            or 0
+        )
+        rows = fetch_all_dicts(
+            conn,
+            f"""
+            SELECT
+              kv.id,
+              kv.key_name,
+              kr.purpose,
+              kr.service_id,
+              kr.backend_kind,
+              kv.version,
+              kv.enabled,
+              kv.status,
+              kv.secret_ref_kind,
+              kv.secret_ref_name,
+              kv.backend_key_version,
+              kv.created_at_utc,
+              kv.source,
+              kv.metadata_json
+            FROM key_versions kv
+            JOIN key_refs kr ON kr.key_name = kv.key_name
+            {where}
+            ORDER BY kv.created_at_utc DESC, kv.id DESC
+            LIMIT ? OFFSET ?
+            """,
+            tuple(params + [limit, offset]),
+        )
+        for row in rows:
+            row["enabled"] = as_bool(row.get("enabled"))
+            row["metadata"] = decode_json_object(row.pop("metadata_json"))
     elif entity == "policies":
         if policy_id:
             filters.append("p.policy_id = ?")
             params.append(policy_id)
         where = f"WHERE {' AND '.join(filters)}" if filters else ""
+        total_matching_count = int(
+            fetch_scalar(
+                conn,
+                f"""
+                SELECT COUNT(*)
+                FROM (
+                  SELECT p.policy_id
+                  FROM policies p
+                  LEFT JOIN policy_bindings pb ON pb.policy_id = p.policy_id
+                  LEFT JOIN caller_permissions cp ON cp.policy_id = p.policy_id
+                  {where}
+                  GROUP BY p.policy_id, p.policy_kind, p.path, p.sha256, p.schema_name, p.imported_at_utc
+                )
+                """,
+                tuple(params),
+            )
+            or 0
+        )
         rows = fetch_all_dicts(
             conn,
             f"""
@@ -874,9 +1356,9 @@ def query_entities(
             {where}
             GROUP BY p.policy_id, p.policy_kind, p.path, p.sha256, p.schema_name, p.imported_at_utc
             ORDER BY p.imported_at_utc DESC, p.policy_id ASC
-            LIMIT ?
+            LIMIT ? OFFSET ?
             """,
-            tuple(params + [limit]),
+            tuple(params + [limit, offset]),
         )
     elif entity == "policy-bindings":
         if policy_id:
@@ -898,6 +1380,14 @@ def query_entities(
             filters.append("service_id = ?")
             params.append(service_id)
         where = f"WHERE {' AND '.join(filters)}" if filters else ""
+        total_matching_count = int(
+            fetch_scalar(
+                conn,
+                f"SELECT COUNT(*) FROM policy_bindings {where}",
+                tuple(params),
+            )
+            or 0
+        )
         rows = fetch_all_dicts(
             conn,
             f"""
@@ -915,9 +1405,9 @@ def query_entities(
             FROM policy_bindings
             {where}
             ORDER BY imported_at_utc DESC, id DESC
-            LIMIT ?
+            LIMIT ? OFFSET ?
             """,
-            tuple(params + [limit]),
+            tuple(params + [limit, offset]),
         )
     elif entity == "caller-permissions":
         if policy_id:
@@ -930,6 +1420,31 @@ def query_entities(
             filters.append("permission_key = ?")
             params.append(permission_key)
         where = f"WHERE {' AND '.join(filters)}" if filters else ""
+        total_matching_count = int(
+            fetch_scalar(
+                conn,
+                f"SELECT COUNT(*) FROM caller_permissions {where}",
+                tuple(params),
+            )
+            or 0
+        )
+        permission_summary_rows = fetch_all_dicts(
+            conn,
+            f"""
+            SELECT
+              id,
+              policy_id,
+              caller,
+              permission_key,
+              permission_value,
+              source_file,
+              imported_at_utc
+            FROM caller_permissions
+            {where}
+            ORDER BY imported_at_utc DESC, id DESC
+            """,
+            tuple(params),
+        )
         rows = fetch_all_dicts(
             conn,
             f"""
@@ -944,9 +1459,9 @@ def query_entities(
             FROM caller_permissions
             {where}
             ORDER BY imported_at_utc DESC, id DESC
-            LIMIT ?
+            LIMIT ? OFFSET ?
             """,
-            tuple(params + [limit]),
+            tuple(params + [limit, offset]),
         )
     else:
         raise SystemExit(f"[ERROR] unsupported --list-entity value: {entity}")
@@ -961,11 +1476,22 @@ def query_entities(
             "policy_id": policy_id or None,
             "binding_kind": binding_kind or None,
             "permission_key": permission_key or None,
+            "subject_type": subject_type or None,
+            "issuer": issuer or None,
+            "key_name": key_name or None,
+            "purpose": purpose or None,
             "limit": limit,
+            "offset": offset,
         },
         "count": len(rows),
+        "pagination": build_pagination(
+            limit=limit,
+            offset=offset,
+            returned_count=len(rows),
+            total_matching_count=total_matching_count,
+        ),
         "items": rows,
-        "permission_summary": build_permission_summary(rows) if entity == "caller-permissions" else None,
+        "permission_summary": build_permission_summary(permission_summary_rows or rows) if entity == "caller-permissions" else None,
     }
 
 
@@ -986,6 +1512,9 @@ def validate_list_entity_args(args: argparse.Namespace) -> None:
         "datasets": {"tenant_id", "dataset_id"},
         "services": {"tenant_id", "dataset_id", "service_id"},
         "callers": {"caller", "tenant_id"},
+        "caller-identities": {"caller", "service_id", "subject_type", "issuer"},
+        "key-refs": {"service_id", "key_name", "purpose"},
+        "key-versions": {"service_id", "key_name", "purpose"},
         "policies": {"policy_id"},
         "policy-bindings": {"policy_id", "binding_kind", "caller", "tenant_id", "dataset_id", "service_id"},
         "caller-permissions": {"policy_id", "caller", "permission_key"},
@@ -998,6 +1527,10 @@ def validate_list_entity_args(args: argparse.Namespace) -> None:
         "policy_id": args.policy_id,
         "binding_kind": args.binding_kind,
         "permission_key": args.permission_key,
+        "subject_type": args.subject_type,
+        "issuer": args.issuer,
+        "key_name": args.key_name,
+        "purpose": args.purpose,
     }
     unsupported = [
         name
@@ -1022,6 +1555,10 @@ def main() -> int:
     ap.add_argument("--policy-id", default="")
     ap.add_argument("--binding-kind", default="")
     ap.add_argument("--permission-key", default="")
+    ap.add_argument("--subject-type", default="")
+    ap.add_argument("--issuer", default="")
+    ap.add_argument("--key-name", default="")
+    ap.add_argument("--purpose", default="")
     ap.add_argument("--stage", default="")
     ap.add_argument("--stage-status", default="")
     ap.add_argument("--stage-sort", choices=("recent", "duration_desc", "duration_asc"), default="recent")
@@ -1030,6 +1567,7 @@ def main() -> int:
     ap.add_argument("--columns", default="")
     ap.add_argument("--output-file", default="")
     ap.add_argument("--limit", type=int, default=50)
+    ap.add_argument("--offset", type=int, default=0)
     args = ap.parse_args()
 
     conn = connect_db(args.db_path)
@@ -1045,9 +1583,14 @@ def main() -> int:
                 service_id=args.service_id,
                 policy_id=args.policy_id,
                 binding_kind=args.binding_kind,
-                permission_key=args.permission_key,
-                limit=args.limit,
-            )
+            permission_key=args.permission_key,
+            subject_type=args.subject_type,
+            issuer=args.issuer,
+            key_name=args.key_name,
+            purpose=args.purpose,
+            limit=args.limit,
+            offset=args.offset,
+        )
         elif args.job_id:
             result = query_job_detail(conn, args.job_id)
         else:
@@ -1062,6 +1605,7 @@ def main() -> int:
                 stage_sort=args.stage_sort,
                 group_by=args.group_by,
                 limit=args.limit,
+                offset=args.offset,
             )
     finally:
         conn.close()

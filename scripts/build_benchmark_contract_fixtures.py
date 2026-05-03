@@ -50,7 +50,11 @@ def validate_pipeline_surface(pipeline_module: Any) -> None:
             job_id=f"contract_{mode}",
         )
         if mode == "file_handoff_retained":
-            if "--keep-sse-export-handoff-files" not in command or "--sse-export-handoff-mode" in command:
+            if (
+                "--keep-sse-export-handoff-files" not in command
+                or "--sse-export-handoff-mode" in command
+                or "--handoff-retention-reason" not in command
+            ):
                 raise SystemExit(f"pipeline retained benchmark command mismatch: {command}")
         elif mode == "fifo_handoff":
             if "--sse-export-handoff-mode" not in command or "fifo" not in command:
@@ -72,7 +76,11 @@ def validate_live_surface(live_module: Any) -> None:
             run_id=f"contract_{mode}",
         )
         if mode == "file_handoff_retained":
-            if "--keep-sse-export-handoff-files" not in command or "--sse-export-handoff-mode" in command:
+            if (
+                "--keep-sse-export-handoff-files" not in command
+                or "--sse-export-handoff-mode" in command
+                or "--handoff-retention-reason" not in command
+            ):
                 raise SystemExit(f"live retained benchmark command mismatch: {command}")
         elif mode == "fifo_handoff":
             if "--sse-export-handoff-mode" not in command or "fifo" not in command:

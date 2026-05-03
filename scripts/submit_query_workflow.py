@@ -134,6 +134,9 @@ def validate_request(payload: dict[str, Any]) -> None:
         "cleanup_sse_export_handoff_files_after_bridge",
     ):
         optional_bool(payload, bool_field)
+    handoff_retention_reason = payload.get("handoff_retention_reason")
+    if handoff_retention_reason not in (None, ""):
+        require_nonempty_str(payload, "handoff_retention_reason")
 
     secret_method_count = sum(
         1
@@ -163,6 +166,14 @@ def validate_request(payload: dict[str, Any]) -> None:
     handoff_mode = payload.get("sse_export_handoff_mode", "file")
     if handoff_mode not in {"file", "fifo"}:
         raise SystemExit("[ERROR] sse_export_handoff_mode must be file or fifo")
+    cleanup_handoff = optional_bool(payload, "cleanup_sse_export_handoff_files_after_bridge")
+    if cleanup_handoff is False:
+        if handoff_mode != "file":
+            raise SystemExit("[ERROR] cleanup_sse_export_handoff_files_after_bridge=false requires sse_export_handoff_mode=file")
+        if not handoff_retention_reason:
+            raise SystemExit("[ERROR] handoff_retention_reason is required when cleanup_sse_export_handoff_files_after_bridge=false")
+    elif handoff_retention_reason:
+        raise SystemExit("[ERROR] handoff_retention_reason is only valid when cleanup_sse_export_handoff_files_after_bridge=false")
 
     recovery_mode = payload.get("record_recovery_service_mode", "auto")
     if recovery_mode not in {"auto", "manual", "subprocess"}:
@@ -230,6 +241,7 @@ def build_command(payload: dict[str, Any]) -> list[str]:
     add_arg("sse-export-policy-config", payload.get("sse_export_policy_config"))
     add_arg("sse-export-audit-log", payload.get("sse_export_audit_log"))
     add_arg("sse-export-handoff-mode", payload.get("sse_export_handoff_mode", "file"))
+    add_arg("handoff-retention-reason", payload.get("handoff_retention_reason"))
     add_arg("job-id", payload.get("job_id"))
     add_arg("out-base", payload.get("out_base"))
     add_arg("caller", payload.get("caller"))

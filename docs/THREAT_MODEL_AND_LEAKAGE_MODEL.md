@@ -292,6 +292,8 @@ Implemented mitigations:
 10. audit-chain build, seal, archive, and verification helpers
 11. FIFO handoff option to reduce persisted plaintext
 12. default path-redacted catalog/lineage export
+13. `handoff_mode` and `handoff_exposure_assessment` in `mainline_contract_check.json` make the plaintext exposure surface auditable per run (`none` / `low` / `elevated` / `unknown`), with per-role `server_exposure` / `client_exposure` breakdown
+14. dedicated FIFO handoff replay (`scripts/verify_fifo_handoff_replay.sh`) wired into CI smoke; both file-mode and FIFO-mode replays assert the exposure assessment so regressions that elevate plaintext exposure fail the build
 
 ## 8. Residual Risks
 
@@ -314,6 +316,7 @@ Until stronger deployment isolation exists, treat the following as mandatory ope
 4. avoid long-lived bridge-ready plaintext artifacts
 5. use production-mode bridge secret handling in realistic runs
 6. archive and verify audit bundles for any run used outside local development, and use `--anchor-key-env` when you want signed append-only archive entries
+7. inspect `mainline_contract_check.json:handoff_exposure_assessment.plaintext_exposure_risk` after every run; treat any `elevated` value without a matching documented `handoff_retention_reason` as a regression, and any `unknown` value as an audit gap to investigate
 
 ## 10. Exit Criteria For A Stronger Boundary
 

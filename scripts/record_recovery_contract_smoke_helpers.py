@@ -48,17 +48,28 @@ def validate_unix_status(status_json: Path) -> None:
     )
 
 
-def run_http_recovery(store_path: Path, out_csv: Path, result_json: Path, port: int) -> None:
+def run_http_recovery(
+    store_path: Path,
+    out_csv: Path,
+    result_json: Path,
+    port: int,
+    *,
+    caller: str = "auto_demo",
+    job_id: str = "contract-http-check",
+    tenant_id: str = "demo_tenant",
+    dataset_id: str = "bridge_demo_dataset",
+    service_id: str = "bridge-demo-recovery",
+) -> None:
     from services.record_recovery.client import request_record_recovery
 
     result = request_record_recovery(
         endpoint_url=f"http://127.0.0.1:{port}",
         auth_env="SSE_RECORD_RECOVERY_TOKEN",
-        caller="auto_demo",
-        job_id="contract-http-check",
-        tenant_id="demo_tenant",
-        dataset_id="bridge_demo_dataset",
-        service_id="bridge-demo-recovery",
+        caller=caller,
+        job_id=job_id,
+        tenant_id=tenant_id,
+        dataset_id=dataset_id,
+        service_id=service_id,
         record_store_path=store_path,
         record_store_key_env="SSE_RECORD_STORE_PASSPHRASE",
         out_path=out_csv,
@@ -165,6 +176,27 @@ def validate_http_export(out_csv: Path, audit_jsonl: Path) -> None:
     )
 
 
+def validate_authz_db_source(health_json: Path, audit_jsonl: Path, authz_config: Path) -> None:
+    health = load_json(health_json)
+    with audit_jsonl.open("r", encoding="utf-8") as handle:
+        audit_records = [json.loads(line) for line in handle if line.strip()]
+
+    expected_authz_config = str(authz_config.resolve())
+    require(
+        health.get("authz_policy_config") == expected_authz_config,
+        f"unexpected authz_policy_config in health payload: {health}",
+    )
+    require(audit_records, "record recovery service audit log is empty")
+    require(
+        audit_records[0].get("authz_policy_config") == expected_authz_config,
+        f"unexpected authz_policy_config in audit payload: {audit_records}",
+    )
+    require(
+        audit_records[0].get("decision") == "allow",
+        f"unexpected authz DB recovery audit decision: {audit_records}",
+    )
+
+
 def build_parser() -> argparse.ArgumentParser:
     ap = argparse.ArgumentParser(description="Record-recovery contract-smoke helpers.")
     sub = ap.add_subparsers(dest="cmd", required=True)
@@ -180,6 +212,11 @@ def build_parser() -> argparse.ArgumentParser:
     run_recovery.add_argument("--out-csv", required=True)
     run_recovery.add_argument("--result-json", required=True)
     run_recovery.add_argument("--port", type=int, required=True)
+    run_recovery.add_argument("--caller", default="auto_demo")
+    run_recovery.add_argument("--job-id", default="contract-http-check")
+    run_recovery.add_argument("--tenant-id", default="demo_tenant")
+    run_recovery.add_argument("--dataset-id", default="bridge_demo_dataset")
+    run_recovery.add_argument("--service-id", default="bridge-demo-recovery")
 
     validate_recovery = sub.add_parser("validate-http-recovery")
     validate_recovery.add_argument("--status-json", required=True)
@@ -200,6 +237,11 @@ def build_parser() -> argparse.ArgumentParser:
     validate_export = sub.add_parser("validate-http-export")
     validate_export.add_argument("--out-csv", required=True)
     validate_export.add_argument("--audit-jsonl", required=True)
+
+    validate_authz = sub.add_parser("validate-authz-db-source")
+    validate_authz.add_argument("--health-json", required=True)
+    validate_authz.add_argument("--audit-jsonl", required=True)
+    validate_authz.add_argument("--authz-config", required=True)
     return ap
 
 
@@ -210,7 +252,17 @@ def main() -> int:
     elif args.cmd == "validate-unix-status":
         validate_unix_status(Path(args.status_json))
     elif args.cmd == "run-http-recovery":
-        run_http_recovery(Path(args.store_path), Path(args.out_csv), Path(args.result_json), args.port)
+        run_http_recovery(
+            Path(args.store_path),
+            Path(args.out_csv),
+            Path(args.result_json),
+            args.port,
+            caller=args.caller,
+            job_id=args.job_id,
+            tenant_id=args.tenant_id,
+            dataset_id=args.dataset_id,
+            service_id=args.service_id,
+        )
     elif args.cmd == "validate-http-recovery":
         validate_http_recovery(Path(args.status_json), Path(args.health_json), Path(args.result_json), Path(args.out_csv))
     elif args.cmd == "expect-http-deny":
@@ -219,6 +271,12 @@ def main() -> int:
         run_http_export(Path(args.store_path), Path(args.out_csv), Path(args.audit_jsonl), args.port)
     elif args.cmd == "validate-http-export":
         validate_http_export(Path(args.out_csv), Path(args.audit_jsonl))
+    elif args.cmd == "validate-authz-db-source":
+        validate_authz_db_source(
+            Path(args.health_json),
+            Path(args.audit_jsonl),
+            Path(args.authz_config),
+        )
     else:
         raise SystemExit(f"unknown command: {args.cmd}")
     return 0

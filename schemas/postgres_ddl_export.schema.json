@@ -1,0 +1,43 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "postgres_ddl_export/v1",
+  "type": "object",
+  "required": [
+    "schema",
+    "postgres_ddl_path",
+    "tables_count",
+    "indexes_count",
+    "tables",
+    "indexes",
+    "postgres_types_confirmed",
+    "sqlite_only_tokens",
+    "table_parity",
+    "type_upgrade_issues",
+    "column_parity_issues",
+    "total_issues",
+    "valid"
+  ],
+  "properties": {
+    "schema": { "type": "string", "const": "postgres_ddl_export/v1" },
+    "postgres_ddl_path": { "type": "string" },
+    "tables_count": { "type": "integer", "minimum": 1 },
+    "indexes_count": { "type": "integer", "minimum": 0 },
+    "tables": { "type": "array", "items": { "type": "string" } },
+    "indexes": { "type": "array", "items": { "type": "string" } },
+    "postgres_types_confirmed": { "type": "array", "items": { "type": "string" } },
+    "sqlite_only_tokens": { "type": "array", "items": { "type": "string" } },
+    "table_parity": {
+      "type": "object",
+      "required": ["missing_in_postgres", "extra_in_postgres"],
+      "properties": {
+        "missing_in_postgres": { "type": "array", "items": { "type": "string" } },
+        "extra_in_postgres": { "type": "array", "items": { "type": "string" } }
+      }
+    },
+    "type_upgrade_issues": { "type": "array" },
+    "column_parity_issues": { "type": "array" },
+    "total_issues": { "type": "integer", "minimum": 0 },
+    "valid": { "type": "boolean" }
+  },
+  "additionalProperties": false
+}

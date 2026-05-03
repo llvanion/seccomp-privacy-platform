@@ -20,6 +20,12 @@ This layout keeps the three responsibilities separated:
 
 The current implementation is suitable for a works-competition prototype and local integration demo. It is not yet a production multi-tenant database platform; the remaining work is tracked in `review.md` and summarized in `CODEX_CONTEXT.md`.
 
+If you need the fastest repo context with the lowest token cost, start here instead of reading `docs/*.md` broadly:
+
+- [docs/COMPACT_PLATFORM_BRIEF.md](/home/llvanion/Desktop/seccomp-privacy-platform/docs/COMPACT_PLATFORM_BRIEF.md)
+- [docs/PLATFORM_LEVEL_REMAINING_ESTIMATE.md](/home/llvanion/Desktop/seccomp-privacy-platform/docs/PLATFORM_LEVEL_REMAINING_ESTIMATE.md)
+- [docs/NEXT_SESSION_READING_GUIDE.md](/home/llvanion/Desktop/seccomp-privacy-platform/docs/NEXT_SESSION_READING_GUIDE.md)
+
 The current control-plane baseline now includes caller-scoped tenant/dataset/service authorization in `sse/config/export_policy.example.json`, and the recovery-service runtime contract now binds `service_id`, `tenant_id`, and `dataset_id` so the SSE export path, the long-running recovery service, and the integrated pipeline all resolve the same scope.
 The first SQL control-plane sidecar step now also exists as a separate SQLite metadata layer under `migrations/metadata/` and `scripts/{init,import,query}_metadata.py`. It imports existing run artifacts into a durable jobs/audits/services catalog without making the main SSE -> bridge -> A-PSI pipeline depend on a database.
 
@@ -111,7 +117,7 @@ intersection_sum=425
 ```
 
 This is the simplest end-to-end path: local source files feed the SSE export boundary, then `bridge`, `a-psi`, and policy release.
-Managed file-mode SSE handoff artifacts under `sse_exports/` are now cleaned after `bridge prepare-job` by default. Use `--keep-sse-export-handoff-files` only for compatibility or debugging when those plaintext files need to remain on disk; that mode is still audited as an explicit retained-handoff exception rather than a silent drift in the default path.
+Managed file-mode SSE handoff artifacts under `sse_exports/` are now cleaned after `bridge prepare-job` by default. Use `--keep-sse-export-handoff-files --handoff-retention-reason <text>` only for compatibility or debugging when those plaintext files need to remain on disk; that mode is still audited as an explicit retained-handoff exception rather than a silent drift in the default path.
 
 ### 4. Run the live SSE-backed demo end-to-end
 
@@ -128,7 +134,7 @@ Outputs are written under `tmp/live_sse_bridge_demo/`. The most useful artifact 
 - `tmp/live_sse_bridge_demo/run-*/mainline_contract_check.json`
 - `tmp/live_sse_bridge_demo/run-*/audit_chain.json`
 
-`live_demo_manifest.json` now also records runtime options, including whether managed file-mode SSE handoff artifacts should be cleaned after bridge ingestion, plus normalized demo inputs, encrypted record-store paths, recovery-service lifecycle artifacts, final release status, and the released sum in display/raw/cents forms when the public report exposes them.
+`live_demo_manifest.json` now also records runtime options, including whether managed file-mode SSE handoff artifacts should be cleaned after bridge ingestion and any explicit retained-handoff reason, plus normalized demo inputs, encrypted record-store paths, recovery-service lifecycle artifacts, final release status, and the released sum in display/raw/cents forms when the public report exposes them.
 
 Useful flags:
 
@@ -139,7 +145,7 @@ Useful flags:
 - `--record-recovery-service-mode auto|manual|subprocess`: override the recovery boundary used by the integrated run
 - `--record-recovery-authz-config <path>`: optional authz policy for the auto-started recovery service
 - `--sse-export-handoff-mode file|fifo`: choose bridge handoff persistence vs FIFO streaming
-- `--keep-sse-export-handoff-files`: opt out of the default live-demo and pipeline cleanup of managed file-mode SSE handoff artifacts after `bridge prepare-job`; `mainline_contract_check.json` records that compatibility mode as `retained`
+- `--keep-sse-export-handoff-files` plus `--handoff-retention-reason <text>`: opt out of the default live-demo and pipeline cleanup of managed file-mode SSE handoff artifacts after `bridge prepare-job`; `mainline_contract_check.json` records that compatibility mode as `retained` together with the explicit retention reason
 
 When `--record-recovery-authz-config` is supplied and no explicit `--run-root` / `--state-base` / `--out-base` is given, the live demo now defaults its run root to `/tmp/seccomp_live_sse_bridge_demo` so the example authz policy's `/tmp` prefix constraints line up with the generated output paths.
 
@@ -207,7 +213,7 @@ python3 scripts/run_record_recovery_service.py serve \
   --ready-file "$PWD/tmp/record_recovery_service.ready"
 ```
 
-The default aligned policy is now `sse/config/export_policy.example.json`, validated by `schemas/sse_export_policy.schema.json`. It carries the export/bridge/PJC/release booleans plus caller-scoped `tenant_id`, `allowed_dataset_ids`, `allowed_service_ids`, and `can_use_record_recovery_service`, so the recovery-service boundary reuses the same caller/tenant/dataset/service contract as the rest of the pipeline. The same schema now also accepts optional `platform_roles` plus `access_profile`, so callers can be tagged with coarse-grained control-plane roles like `query_submitter`, `privacy_operator`, `platform_auditor`, or `service_operator` without changing the frozen pipeline field names. A fuller multi-caller example lives at `sse/config/ecommerce_access_policy.example.json`, and the corresponding role matrix is documented in [docs/ECOMMERCE_ACCESS_MODEL.md](/home/llvanion/Desktop/seccomp-privacy-platform/docs/ECOMMERCE_ACCESS_MODEL.md). The older `config/record_recovery_service_policy.example.json` remains as a narrower service-only compatibility example. For aligned manual operations, `config/record_recovery_service.example.json` and `schemas/record_recovery_service_config.schema.json` now act as the shared runtime contract for `scripts/run_record_recovery_service.py serve --config`, `run_client.py serve-record-recovery --config`, `scripts/request_record_recovery_service.py --config`, `scripts/manage_record_recovery_service.py --config`, `run_client.py export-bridge-records --record-recovery-service-config`, and pipeline-side `--record-recovery-service-config`.
+The default aligned policy is now `sse/config/export_policy.example.json`, validated by `schemas/sse_export_policy.schema.json`. It carries the export/bridge/PJC/release booleans plus caller-scoped `tenant_id`, `allowed_dataset_ids`, `allowed_service_ids`, and `can_use_record_recovery_service`, so the recovery-service boundary reuses the same caller/tenant/dataset/service contract as the rest of the pipeline. The same schema now also accepts optional `platform_roles` plus `access_profile`, so callers can be tagged with coarse-grained control-plane roles like `query_submitter`, `privacy_operator`, `platform_auditor`, or `service_operator` without changing the frozen pipeline field names. A fuller multi-caller example lives at `sse/config/ecommerce_access_policy.example.json`, and the corresponding role matrix is documented in [docs/ECOMMERCE_ACCESS_MODEL.md](/home/llvanion/Desktop/seccomp-privacy-platform/docs/ECOMMERCE_ACCESS_MODEL.md). The older `config/record_recovery_service_policy.example.json` remains as a narrower service-only compatibility example. For aligned manual operations, `config/record_recovery_service.example.json` and `schemas/record_recovery_service_config.schema.json` now act as the shared runtime contract for `scripts/run_record_recovery_service.py serve --config`, `run_client.py serve-record-recovery --config`, `scripts/request_record_recovery_service.py --config`, `scripts/manage_record_recovery_service.py --config`, `run_client.py export-bridge-records --record-recovery-service-config`, and pipeline-side `--record-recovery-service-config`. When service-side authz should come from the imported SQLite metadata sidecar instead of a raw policy JSON, point `authz_config` at `config/record_recovery_authz_sqlite.example.json` (`record_recovery_authz_source/v1`), which rebuilds the current `sse_export_policy/v1` caller view from `caller_permissions`.
 For the HTTP transport variant of that same runtime contract, `config/record_recovery_http_service.example.json` shows the recommended `endpoint_url`, `http_listener`, auth token env, and lifecycle file layout for the standalone launcher.
 
 To verify that the pre-started service is the one the pipeline expects:
@@ -226,6 +232,12 @@ python3 scripts/manage_record_recovery_service.py status \
   --config config/record_recovery_service.example.json
 python3 scripts/manage_record_recovery_service.py stop \
   --config config/record_recovery_service.example.json
+```
+
+To replay the full live SSE-backed path against a pre-started external HTTP recovery service and assert the manual service boundary stays aligned with the documented health/runtime/mainline contracts:
+
+```bash
+bash scripts/verify_record_recovery_manual_service_replay.sh
 ```
 
 If the service should move from an operator shell into a long-running host-level deploy unit, the same runtime config can now be rendered into a baseline `systemd` service file and env template without changing the launcher contract:
@@ -708,9 +720,9 @@ Operational sidecar tools:
 - `scripts/benchmark_query_workflow.py`: benchmarks CLI/HTTP/client dry-run query-workflow entrypoints and emits `query_workflow_benchmark/v1`.
 - `scripts/benchmark_read_adapters.py`: benchmarks metadata job/jobs/entity and completed-run audit-chain/public-report/observability/catalog-lineage read adapters over a synthetic completed-run fixture and emits `read_adapter_benchmark/v1`.
 - `scripts/benchmark_record_recovery.py`: benchmarks standalone record-recovery health and recover operations over Unix-socket and HTTP transports and emits `record_recovery_benchmark/v1`.
-- `scripts/benchmark_pipeline.py`: benchmarks the integrated file-mode pipeline over default file cleanup, explicit retained file handoff, and FIFO handoff modes, and now emits the per-role handoff cleanup summary directly in `pipeline_benchmark/v1` result rows.
+- `scripts/benchmark_pipeline.py`: benchmarks the integrated file-mode pipeline over default file cleanup, explicit retained file handoff with a recorded retention reason, and FIFO handoff modes, and now emits the per-role handoff cleanup summary directly in `pipeline_benchmark/v1` result rows.
 - `scripts/benchmark_pjc.py`: benchmarks the standalone PJC runner over a prepared bridge fixture and emits `pjc_benchmark/v1`.
-- `scripts/benchmark_live_sse_demo.py`: benchmarks the live SSE-backed wrapper over default file cleanup, explicit retained file handoff, and FIFO handoff modes, and now emits the per-role handoff cleanup summary directly in `live_sse_benchmark/v1` result rows.
+- `scripts/benchmark_live_sse_demo.py`: benchmarks the live SSE-backed wrapper over default file cleanup, explicit retained file handoff with a recorded retention reason, and FIFO handoff modes, and now emits the per-role handoff cleanup summary directly in `live_sse_benchmark/v1` result rows.
 - `scripts/benchmark_audit_bundle.py`: benchmarks audit archive, direct verification, archive-index verification, and restore flows and emits `audit_bundle_benchmark/v1`.
 - `scripts/benchmark_platform_health.py`: benchmarks read-only platform-health CLI, HTTP API, and client entrypoints over pipeline-run and metadata-db summaries and emits `platform_health_benchmark/v1`.
 - `scripts/benchmark_derived_views.py`: benchmarks derived observability and catalog/lineage exporters and emits `derived_views_benchmark/v1`.

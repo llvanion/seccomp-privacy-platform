@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
 
+from api_identity import bind_query_request_to_identity, resolve_request_identity
 from submit_query_workflow import REPO_ROOT, submit_request_payload
 
 
@@ -54,11 +55,15 @@ class QueryWorkflowApiServer(ThreadingHTTPServer):
         handler_cls,
         *,
         auth_token: str,
+        metadata_db_path: str,
+        identity_token_config: str,
         allow_execute: bool,
         pid_file: str,
         ready_file: str,
     ) -> None:
         self.auth_token = auth_token
+        self.metadata_db_path = str(Path(metadata_db_path).resolve()) if metadata_db_path else ""
+        self.identity_token_config = str(Path(identity_token_config).resolve()) if identity_token_config else ""
         self.allow_execute = allow_execute
         self.pid_file = pid_file
         self.ready_file = ready_file
@@ -90,16 +95,14 @@ class QueryWorkflowApiHandler(BaseHTTPRequestHandler):
             },
         )
 
-    def _require_auth(self) -> None:
-        expected = self.server.auth_token
-        if not expected:
-            return
-        header = self.headers.get("Authorization", "")
-        if not header.startswith("Bearer "):
-            raise PermissionError("missing bearer token")
-        provided = header[len("Bearer "):]
-        if provided != expected:
-            raise PermissionError("query workflow API auth failed")
+    def _require_auth(self) -> dict[str, Any] | None:
+        return resolve_request_identity(
+            auth_header=self.headers.get("Authorization", ""),
+            expected_bearer_token=self.server.auth_token,
+            db_path=self.server.metadata_db_path,
+            identity_token_config=self.server.identity_token_config,
+            auth_failure_label="query workflow API",
+        )
 
     def _read_json_body(self) -> dict[str, Any]:
         length = int(self.headers.get("Content-Length", "0"))
@@ -124,7 +127,7 @@ class QueryWorkflowApiHandler(BaseHTTPRequestHandler):
             {
                 "schema": HEALTH_SCHEMA,
                 "ok": True,
-                "auth_required": bool(self.server.auth_token),
+                "auth_required": bool(self.server.auth_token or self.server.identity_token_config),
                 "allow_execute": self.server.allow_execute,
                 "request_base_dir_default": str(REPO_ROOT),
             },
@@ -133,15 +136,15 @@ class QueryWorkflowApiHandler(BaseHTTPRequestHandler):
     def do_POST(self) -> None:
         parsed = urlparse(self.path)
         try:
-            self._require_auth()
+            identity = self._require_auth()
             if parsed.path == "/v1/query-workflows/dry-run":
-                payload = self._handle_submit(execute=False)
+                payload = self._handle_submit(execute=False, identity=identity)
                 self._send_json(HTTPStatus.OK, self._success_payload(parsed.path, payload))
                 return
             if parsed.path == "/v1/query-workflows/execute":
                 if not self.server.allow_execute:
                     raise PermissionError("query workflow execute endpoint is disabled")
-                payload = self._handle_submit(execute=True)
+                payload = self._handle_submit(execute=True, identity=identity)
                 status = HTTPStatus.OK if payload.get("manifest", {}).get("exit_code") in (None, 0) else HTTPStatus.BAD_GATEWAY
                 self._send_json(status, self._success_payload(parsed.path, payload))
                 return
@@ -155,8 +158,10 @@ class QueryWorkflowApiHandler(BaseHTTPRequestHandler):
         except Exception as exc:
             self._error(HTTPStatus.INTERNAL_SERVER_ERROR, str(exc))
 
-    def _handle_submit(self, *, execute: bool) -> dict[str, Any]:
+    def _handle_submit(self, *, execute: bool, identity: dict[str, Any] | None) -> dict[str, Any]:
         payload = self._read_json_body()
+        if identity is not None:
+            payload = bind_query_request_to_identity(identity, payload, execute=execute)
         request_base_dir = self.headers.get("X-Request-Base-Dir", "").strip()
         if request_base_dir:
             request_dir = Path(request_base_dir).expanduser()
@@ -173,6 +178,7 @@ class QueryWorkflowApiHandler(BaseHTTPRequestHandler):
         )
         return {
             "request_base_dir": str(request_dir),
+            "authenticated_identity": identity,
             "manifest": manifest,
             "exit_code": exit_code,
         }
@@ -191,6 +197,8 @@ def build_parser() -> argparse.ArgumentParser:
     ap.add_argument("--bind-host", default="127.0.0.1")
     ap.add_argument("--port", type=int, default=18091)
     ap.add_argument("--auth-token-env", default="", help="Optional bearer-token env var for non-health endpoints")
+    ap.add_argument("--metadata-db-path", default="", help="Metadata DB path required when --identity-token-config is used")
+    ap.add_argument("--identity-token-config", default="", help="Optional bearer-token to caller-identity mapping config")
     ap.add_argument("--allow-execute", action="store_true", help="Enable the /v1/query-workflows/execute endpoint")
     ap.add_argument("--pid-file", default="")
     ap.add_argument("--ready-file", default="")
@@ -199,11 +207,15 @@ def build_parser() -> argparse.ArgumentParser:
 
 def main() -> int:
     args = build_parser().parse_args()
+    if args.identity_token_config and not args.metadata_db_path:
+        raise SystemExit("[ERROR] --identity-token-config requires --metadata-db-path")
     auth_token = read_auth_token(args.auth_token_env)
     server = QueryWorkflowApiServer(
         (args.bind_host, args.port),
         QueryWorkflowApiHandler,
         auth_token=auth_token,
+        metadata_db_path=args.metadata_db_path,
+        identity_token_config=args.identity_token_config,
         allow_execute=args.allow_execute,
         pid_file=args.pid_file,
         ready_file=args.ready_file,
