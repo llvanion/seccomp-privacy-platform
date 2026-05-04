@@ -84,9 +84,17 @@ SCHEMAS=(
   "$REPO_ROOT/schemas/platform_health_api_error.schema.json"
   "$REPO_ROOT/schemas/query_workflow_request.schema.json"
   "$REPO_ROOT/schemas/query_workflow_submission.schema.json"
+  "$REPO_ROOT/schemas/query_workflow_receipt.schema.json"
+  "$REPO_ROOT/schemas/query_workflow_status.schema.json"
   "$REPO_ROOT/schemas/query_workflow_api_health.schema.json"
   "$REPO_ROOT/schemas/query_workflow_api_response.schema.json"
+  "$REPO_ROOT/schemas/query_workflow_status_api_response.schema.json"
   "$REPO_ROOT/schemas/query_workflow_api_error.schema.json"
+  "$REPO_ROOT/schemas/observability_dashboard.schema.json"
+  "$REPO_ROOT/schemas/observability_alert_report.schema.json"
+  "$REPO_ROOT/schemas/query_workflow_status_list.schema.json"
+  "$REPO_ROOT/schemas/workflow_retry_eligibility.schema.json"
+  "$REPO_ROOT/schemas/operator_triage_report.schema.json"
 )
 
 for schema in "${SCHEMAS[@]}"; do
@@ -970,9 +978,9 @@ python3 "$VALIDATOR" \
 python3 "$VALIDATOR" \
   --schema "$REPO_ROOT/schemas/metadata_registry_apply_report.schema.json" \
   --json "$tmp/platform_registry_apply_reconcile.json"
-python3 -c 'import json, sys; payload=json.load(open(sys.argv[1], "r", encoding="utf-8")); requested=payload["summary"]["requested_counts"]; assert payload["mode"] == "dry_run", payload; assert requested["tenants"] == 1, requested; assert requested["key_refs"] == 2, requested; assert requested["key_versions"] == 2, requested; assert payload["summary"]["entity_action_counts"]["insert"] >= 13, payload; assert payload["summary"]["policy_action_counts"]["insert"] == 1, payload; assert payload["validation"]["status"] == "ok", payload' "$tmp/platform_registry_apply_dry_run.json"
-python3 -c 'import json, sys; payload=json.load(open(sys.argv[1], "r", encoding="utf-8")); assert payload["mode"] == "apply", payload; assert payload["summary"]["entity_action_counts"]["insert"] >= 13, payload; assert payload["summary"]["policy_action_counts"]["insert"] == 1, payload; key_refs=payload["entities"]["key_refs"]; assert len(key_refs) == 2, key_refs; assert any(item["state_after"]["backend_kind"] == "local_keyring" and item["state_after"]["active_version"] == "demo-v1" for item in key_refs), key_refs; policy=payload["policies"][0]; assert policy["state_after"]["binding_count"] == 5, policy; assert policy["state_after"]["permission_count"] >= 5, policy' "$tmp/platform_registry_apply.json"
-python3 -c 'import json, sys; payload=json.load(open(sys.argv[1], "r", encoding="utf-8")); assert payload["mode"] == "dry_run", payload; assert payload["summary"]["entity_action_counts"]["noop"] >= 13, payload; assert payload["summary"]["policy_action_counts"]["noop"] == 1, payload' "$tmp/platform_registry_apply_reconcile.json"
+python3 -c 'import json, sys; payload=json.load(open(sys.argv[1], "r", encoding="utf-8")); requested=payload["summary"]["requested_counts"]; assert payload["mode"] == "dry_run", payload; assert requested["tenants"] == 1, requested; assert requested["key_refs"] == 2, requested; assert requested["key_versions"] == 2, requested; assert requested["issuer_registry"] == 2, requested; assert payload["summary"]["entity_action_counts"]["insert"] >= 21, payload; assert payload["summary"]["policy_action_counts"]["insert"] == 1, payload; assert payload["validation"]["status"] == "ok", payload' "$tmp/platform_registry_apply_dry_run.json"
+python3 -c 'import json, sys; payload=json.load(open(sys.argv[1], "r", encoding="utf-8")); assert payload["mode"] == "apply", payload; assert payload["summary"]["entity_action_counts"]["insert"] >= 21, payload; assert payload["summary"]["policy_action_counts"]["insert"] == 1, payload; key_refs=payload["entities"]["key_refs"]; assert len(key_refs) == 2, key_refs; assert any(item["state_after"]["backend_kind"] == "local_keyring" and item["state_after"]["active_version"] == "demo-v1" for item in key_refs), key_refs; issuer_registry=payload["entities"]["issuer_registry"]; assert len(issuer_registry) == 2, issuer_registry; policy=payload["policies"][0]; assert policy["state_after"]["binding_count"] == 5, policy; assert policy["state_after"]["permission_count"] >= 5, policy' "$tmp/platform_registry_apply.json"
+python3 -c 'import json, sys; payload=json.load(open(sys.argv[1], "r", encoding="utf-8")); assert payload["mode"] == "dry_run", payload; assert payload["summary"]["entity_action_counts"]["noop"] >= 21, payload; assert payload["summary"]["policy_action_counts"]["noop"] == 1, payload' "$tmp/platform_registry_apply_reconcile.json"
 python3 "$REPO_ROOT/scripts/query_metadata.py" \
   --db-path "$tmp/platform_registry.db" \
   --list-entity policies \
@@ -1360,6 +1368,14 @@ python3 "$REPO_ROOT/scripts/platform_api_client.py" \
   --request-file "$tmp/query_requests/cross_party_match.json" \
   --output-file "$tmp/query_workflow_client_dry_run.json" \
   > /dev/null
+python3 "$REPO_ROOT/scripts/platform_api_client.py" \
+  query-status \
+  --base-url "http://127.0.0.1:$query_workflow_api_port" \
+  --auth-token-env SECCOMP_QUERY_WORKFLOW_API_TOKEN \
+  --out-base "$tmp/query_workflow_out" \
+  --job-id contract-query-workflow \
+  --output-file "$tmp/query_workflow_client_status.json" \
+  > /dev/null
 if python3 "$REPO_ROOT/scripts/platform_api_client.py" \
   query-submit \
   --base-url "http://127.0.0.1:$query_workflow_api_port" \
@@ -1373,6 +1389,41 @@ if python3 "$REPO_ROOT/scripts/platform_api_client.py" \
 fi
 kill "$query_workflow_api_pid" 2>/dev/null || true
 wait "$query_workflow_api_pid" 2>/dev/null || true
+query_workflow_execute_api_port="$(python3 "$RUNTIME_SERVICE_HELPERS" available-port)"
+python3 "$REPO_ROOT/scripts/serve_query_workflow_api.py" \
+  --bind-host 127.0.0.1 \
+  --port "$query_workflow_execute_api_port" \
+  --auth-token-env SECCOMP_QUERY_WORKFLOW_API_TOKEN \
+  --allow-execute \
+  > "$tmp/query_workflow_execute_api.log" 2>&1 &
+query_workflow_execute_api_pid=$!
+python3 "$RUNTIME_SERVICE_HELPERS" wait-json-health \
+  --url "http://127.0.0.1:$query_workflow_execute_api_port/healthz"
+python3 "$REPO_ROOT/scripts/materialize_platform_api_smoke_reports.py" \
+  --tmp-dir "$tmp" \
+  --query-execute-port "$query_workflow_execute_api_port" \
+  --query-execute-request-file "$tmp/query_requests/cross_party_match.json"
+if python3 "$REPO_ROOT/scripts/platform_api_client.py" \
+  query-submit \
+  --base-url "http://127.0.0.1:$query_workflow_execute_api_port" \
+  --auth-token-env SECCOMP_QUERY_WORKFLOW_API_TOKEN \
+  --request-file "$tmp/query_requests/cross_party_match_execute_run_failed.json" \
+  --execute \
+  --output-file "$tmp/query_workflow_client_execute_run_failed.json" \
+  > /dev/null; then
+  echo "[ERROR] platform API client unexpectedly returned success for run-failed query execute" >&2
+  exit 1
+fi
+python3 "$REPO_ROOT/scripts/platform_api_client.py" \
+  query-status \
+  --base-url "http://127.0.0.1:$query_workflow_execute_api_port" \
+  --auth-token-env SECCOMP_QUERY_WORKFLOW_API_TOKEN \
+  --out-base "$tmp/query_workflow_execute_fail_out" \
+  --job-id contract-query-workflow-execute-run-failed \
+  --output-file "$tmp/query_workflow_client_execute_run_failed_status.json" \
+  > /dev/null
+kill "$query_workflow_execute_api_pid" 2>/dev/null || true
+wait "$query_workflow_execute_api_pid" 2>/dev/null || true
 metadata_api_port="$(python3 "$RUNTIME_SERVICE_HELPERS" available-port)"
 export SECCOMP_METADATA_API_TOKEN="contract-metadata-api-token"
 python3 "$REPO_ROOT/scripts/serve_metadata_api.py" \
@@ -1591,11 +1642,41 @@ python3 "$VALIDATOR" \
   --schema "$REPO_ROOT/schemas/query_workflow_request.schema.json" \
   --json "$tmp/query_requests/ecommerce_cross_party_match.json"
 python3 "$VALIDATOR" \
+  --schema "$REPO_ROOT/schemas/query_workflow_request.schema.json" \
+  --json "$tmp/query_requests/cross_party_match_execute_run_failed.json"
+python3 "$VALIDATOR" \
   --schema "$REPO_ROOT/schemas/query_workflow_submission.schema.json" \
   --json "$tmp/query_workflow_stdout.json"
 python3 "$VALIDATOR" \
   --schema "$REPO_ROOT/schemas/query_workflow_submission.schema.json" \
   --json "$tmp/query_workflow_manifest.json"
+python3 "$VALIDATOR" \
+  --schema "$REPO_ROOT/schemas/query_workflow_submission.schema.json" \
+  --json "$tmp/query_workflow_out/query_workflow/submission_manifest.json"
+python3 "$VALIDATOR" \
+  --schema "$REPO_ROOT/schemas/query_workflow_receipt.schema.json" \
+  --jsonl "$tmp/query_workflow_out/query_workflow/execution_receipts.jsonl"
+python3 "$VALIDATOR" \
+  --schema "$REPO_ROOT/schemas/query_workflow_status.schema.json" \
+  --json "$tmp/query_workflow_out/query_workflow/status.json"
+python3 "$VALIDATOR" \
+  --schema "$REPO_ROOT/schemas/query_workflow_submission.schema.json" \
+  --json "$tmp/query_workflow_out_keep/query_workflow/submission_manifest.json"
+python3 "$VALIDATOR" \
+  --schema "$REPO_ROOT/schemas/query_workflow_receipt.schema.json" \
+  --jsonl "$tmp/query_workflow_out_keep/query_workflow/execution_receipts.jsonl"
+python3 "$VALIDATOR" \
+  --schema "$REPO_ROOT/schemas/query_workflow_status.schema.json" \
+  --json "$tmp/query_workflow_out_keep/query_workflow/status.json"
+python3 "$VALIDATOR" \
+  --schema "$REPO_ROOT/schemas/query_workflow_submission.schema.json" \
+  --json "$tmp/query_workflow_execute_fail_out/query_workflow/submission_manifest.json"
+python3 "$VALIDATOR" \
+  --schema "$REPO_ROOT/schemas/query_workflow_receipt.schema.json" \
+  --jsonl "$tmp/query_workflow_execute_fail_out/query_workflow/execution_receipts.jsonl"
+python3 "$VALIDATOR" \
+  --schema "$REPO_ROOT/schemas/query_workflow_status.schema.json" \
+  --json "$tmp/query_workflow_execute_fail_out/query_workflow/status.json"
 python3 "$VALIDATOR" \
   --schema "$REPO_ROOT/schemas/query_workflow_api_health.schema.json" \
   --json "$tmp/query_workflow_api_health.json"
@@ -1609,8 +1690,29 @@ python3 "$VALIDATOR" \
   --schema "$REPO_ROOT/schemas/query_workflow_api_response.schema.json" \
   --json "$tmp/query_workflow_client_dry_run.json"
 python3 "$VALIDATOR" \
+  --schema "$REPO_ROOT/schemas/query_workflow_status_api_response.schema.json" \
+  --json "$tmp/query_workflow_api_status.json"
+python3 "$VALIDATOR" \
+  --schema "$REPO_ROOT/schemas/query_workflow_status_api_response.schema.json" \
+  --json "$tmp/query_workflow_client_status.json"
+python3 "$VALIDATOR" \
+  --schema "$REPO_ROOT/schemas/query_workflow_api_response.schema.json" \
+  --json "$tmp/query_workflow_api_execute_run_failed.json"
+python3 "$VALIDATOR" \
+  --schema "$REPO_ROOT/schemas/query_workflow_status_api_response.schema.json" \
+  --json "$tmp/query_workflow_api_execute_run_failed_status.json"
+python3 "$VALIDATOR" \
+  --schema "$REPO_ROOT/schemas/query_workflow_api_response.schema.json" \
+  --json "$tmp/query_workflow_client_execute_run_failed.json"
+python3 "$VALIDATOR" \
+  --schema "$REPO_ROOT/schemas/query_workflow_status_api_response.schema.json" \
+  --json "$tmp/query_workflow_client_execute_run_failed_status.json"
+python3 "$VALIDATOR" \
   --schema "$REPO_ROOT/schemas/query_workflow_api_error.schema.json" \
   --json "$tmp/query_workflow_client_execute_disabled_error.json"
+python3 "$VALIDATOR" \
+  --schema "$REPO_ROOT/schemas/query_workflow_api_error.schema.json" \
+  --json "$tmp/query_workflow_api_execute_validation_error.json"
 python3 "$VALIDATOR" \
   --schema "$REPO_ROOT/schemas/query_workflow_api_error.schema.json" \
   --json "$tmp/query_workflow_api_unauth_error.json"
@@ -1671,6 +1773,9 @@ python3 "$VALIDATOR" \
 python3 "$VALIDATOR" \
   --schema "$REPO_ROOT/schemas/query_workflow_api_response.schema.json" \
   --json "$tmp/query_workflow_identity_dry_run.json"
+python3 "$VALIDATOR" \
+  --schema "$REPO_ROOT/schemas/query_workflow_status_api_response.schema.json" \
+  --json "$tmp/query_workflow_identity_status.json"
 python3 "$VALIDATOR" \
   --schema "$REPO_ROOT/schemas/query_workflow_api_error.schema.json" \
   --json "$tmp/query_workflow_identity_execute_forbidden.json"
@@ -1753,6 +1858,89 @@ python3 "$REPO_ROOT/scripts/check_platform_health.py" \
 python3 "$VALIDATOR" \
   --schema "$REPO_ROOT/schemas/platform_health.schema.json" \
   --json "$tmp/platform_health.json"
+python3 "$REPO_ROOT/scripts/build_observability_dashboard.py" \
+  --observability "$tmp/pipeline_observability.json" \
+  --platform-health "$tmp/platform_health.json" \
+  --out "$tmp/observability_dashboard.json" \
+  > /dev/null
+python3 "$VALIDATOR" \
+  --schema "$REPO_ROOT/schemas/observability_dashboard.schema.json" \
+  --json "$tmp/observability_dashboard.json"
+python3 -c 'import json, sys; p=json.load(open(sys.argv[1], "r", encoding="utf-8")); panels=p["panels"]; assert panels["stage_timeline"]["type"] == "stage_timeline", p; assert panels["stage_summary"]["type"] == "stage_summary", p; assert panels["stage_duration"]["type"] == "stage_duration", p; assert panels["release_outcomes"]["type"] == "release_outcomes", p; assert panels["failure_summary"]["type"] == "failure_summary", p; hs=p["health_summary"]; assert hs is not None, p; assert hs["status"] in {"ok","warn","error"}, hs; assert isinstance(hs["check_count"], int), hs' "$tmp/observability_dashboard.json"
+python3 "$REPO_ROOT/scripts/build_observability_dashboard.py" \
+  --observability "$tmp/pipeline_observability.json" \
+  --out "$tmp/observability_dashboard_no_health.json" \
+  > /dev/null
+python3 "$VALIDATOR" \
+  --schema "$REPO_ROOT/schemas/observability_dashboard.schema.json" \
+  --json "$tmp/observability_dashboard_no_health.json"
+python3 -c 'import json, sys; p=json.load(open(sys.argv[1], "r", encoding="utf-8")); assert p["health_summary"] is None, p' "$tmp/observability_dashboard_no_health.json"
+# B4: alert check — with and without health
+python3 "$REPO_ROOT/scripts/check_observability_alerts.py" \
+  --dashboard "$tmp/observability_dashboard.json" \
+  --platform-health "$tmp/platform_health.json" \
+  --out "$tmp/observability_alert_report.json" \
+  > /dev/null
+python3 "$VALIDATOR" \
+  --schema "$REPO_ROOT/schemas/observability_alert_report.schema.json" \
+  --json "$tmp/observability_alert_report.json"
+python3 -c 'import json, sys; p=json.load(open(sys.argv[1], "r", encoding="utf-8")); assert p["schema"] == "observability_alert_report/v1", p; assert p["overall_status"] in {"ok","warn","error"}, p; assert p["alert_count"] >= 4, p; assert isinstance(p["firing_count"], int), p; assert any(a["alert_id"] == "release_failure_after_success" and a["firing"] for a in p["alerts"]), p' "$tmp/observability_alert_report.json"
+python3 "$REPO_ROOT/scripts/check_observability_alerts.py" \
+  --dashboard "$tmp/observability_dashboard_no_health.json" \
+  --out "$tmp/observability_alert_report_no_health.json" \
+  > /dev/null
+python3 "$VALIDATOR" \
+  --schema "$REPO_ROOT/schemas/observability_alert_report.schema.json" \
+  --json "$tmp/observability_alert_report_no_health.json"
+# B5: status list scan
+python3 "$REPO_ROOT/scripts/list_query_workflow_status.py" \
+  --search-dir "$tmp" \
+  --limit 20 \
+  --out "$tmp/workflow_status_list.json" \
+  > /dev/null
+python3 "$VALIDATOR" \
+  --schema "$REPO_ROOT/schemas/query_workflow_status_list.schema.json" \
+  --json "$tmp/workflow_status_list.json"
+python3 -c 'import json, sys; p=json.load(open(sys.argv[1], "r", encoding="utf-8")); assert p["schema"] == "query_workflow_status_list/v1", p; assert p["total_found"] >= 2, p; assert len(p["statuses"]) >= 2, p' "$tmp/workflow_status_list.json"
+python3 "$REPO_ROOT/scripts/list_query_workflow_status.py" \
+  --search-dir "$tmp" \
+  --state failed \
+  --limit 20 \
+  --out "$tmp/workflow_status_list_failed.json" \
+  > /dev/null
+python3 "$VALIDATOR" \
+  --schema "$REPO_ROOT/schemas/query_workflow_status_list.schema.json" \
+  --json "$tmp/workflow_status_list_failed.json"
+python3 -c 'import json, sys; p=json.load(open(sys.argv[1], "r", encoding="utf-8")); assert p["filter_state"] == "failed", p; assert all((s.get("state") == "failed") for s in p["statuses"]), p' "$tmp/workflow_status_list_failed.json"
+# B6: retry eligibility — failed run
+python3 "$REPO_ROOT/scripts/check_workflow_retry_eligibility.py" \
+  --status-file "$tmp/query_workflow_execute_fail_out/query_workflow/status.json" \
+  --receipts-file "$tmp/query_workflow_execute_fail_out/query_workflow/execution_receipts.jsonl" \
+  --out "$tmp/retry_eligibility_run_failed.json" \
+  > /dev/null
+python3 "$VALIDATOR" \
+  --schema "$REPO_ROOT/schemas/workflow_retry_eligibility.schema.json" \
+  --json "$tmp/retry_eligibility_run_failed.json"
+python3 -c 'import json, sys; p=json.load(open(sys.argv[1], "r", encoding="utf-8")); assert p["schema"] == "workflow_retry_eligibility/v1", p; assert p["retryable"] is False, p; assert p["resubmit_required"] is True, p; assert p["recommended_action"] == "resubmit", p' "$tmp/retry_eligibility_run_failed.json"
+# B6: retry eligibility — completed dry-run (should be "none" action)
+python3 "$REPO_ROOT/scripts/check_workflow_retry_eligibility.py" \
+  --status-file "$tmp/query_workflow_out/query_workflow/status.json" \
+  --out "$tmp/retry_eligibility_dry_run.json" \
+  > /dev/null
+python3 "$VALIDATOR" \
+  --schema "$REPO_ROOT/schemas/workflow_retry_eligibility.schema.json" \
+  --json "$tmp/retry_eligibility_dry_run.json"
+# B7: triage report — full run via out-base
+python3 "$REPO_ROOT/scripts/run_operator_triage.py" \
+  --observability "$tmp/pipeline_observability.json" \
+  --platform-health "$tmp/platform_health.json" \
+  --dashboard "$tmp/observability_dashboard.json" \
+  --out "$tmp/operator_triage.json" \
+  > /dev/null
+python3 "$VALIDATOR" \
+  --schema "$REPO_ROOT/schemas/operator_triage_report.schema.json" \
+  --json "$tmp/operator_triage.json"
+python3 -c 'import json, sys; p=json.load(open(sys.argv[1], "r", encoding="utf-8")); secs=p["sections"]; assert secs["dashboard"]["available"] is True, secs["dashboard"]; assert secs["alerts"]["available"] is True, secs["alerts"]; assert secs["platform_health"]["available"] is True, secs["platform_health"]; assert p["overall_status"] in {"ok","warn","error"}, p' "$tmp/operator_triage.json"
 python3 "$REPO_ROOT/scripts/check_platform_api_smoke_reports.py" \
   --tmp-dir "$tmp"
 

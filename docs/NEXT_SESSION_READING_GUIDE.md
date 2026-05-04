@@ -86,3 +86,112 @@
 3. 按角色只补读 2-4 份深文档
 
 这样最省 token，也最不容易把主线、外围 sidecar 和远期平台化计划混在一起。
+
+## 5. 最小可复现 Operator 流程（2026-05-03 基线）
+
+工程师 B 全部 8 个 block 已完成。下面是一个已经可以完整执行的 operator 流程：
+
+### 前提条件
+
+已完成一次 pipeline 运行，产物在 `tmp/sse_bridge_pipeline_demo/` 下：
+
+```
+tmp/sse_bridge_pipeline_demo/
+├── audit_chain.json
+├── a_psi_run/public_report.json
+└── mainline_contract_check.json   (可选)
+```
+
+### Step 1 — 导出 observability
+
+```bash
+python3 scripts/export_observability_events.py \
+  --out-base tmp/sse_bridge_pipeline_demo \
+  --out tmp/sse_bridge_pipeline_demo/pipeline_observability.json
+```
+
+### Step 2 — 生成 operator 面板
+
+```bash
+python3 scripts/build_observability_dashboard.py \
+  --out-base tmp/sse_bridge_pipeline_demo \
+  --out tmp/sse_bridge_pipeline_demo/observability_dashboard.json
+```
+
+面板：`stage_timeline` / `stage_summary` / `stage_duration` / `release_outcomes` / `failure_summary`。
+
+### Step 3 — 运行告警检查
+
+```bash
+python3 scripts/check_observability_alerts.py \
+  --out-base tmp/sse_bridge_pipeline_demo \
+  --out tmp/sse_bridge_pipeline_demo/observability_alert_report.json
+```
+
+四条告警：`repeated_stage_error` / `release_failure_after_success` / `platform_health_degraded` / `stage_coverage_gap`。
+
+### Step 3b — 启动 Web 面板（可选）
+
+```bash
+python3 scripts/serve_operator_dashboard.py \
+  --out-base tmp/sse_bridge_pipeline_demo \
+  --port 18094
+# 浏览器打开 http://127.0.0.1:18094/
+```
+
+自动 15s 刷新，展示全部面板（Alerts / Stage Summary / Duration / Release Outcomes / Failure Summary / Stage Timeline）。
+
+### Step 4 — 检查 platform health
+
+```bash
+python3 scripts/check_platform_health.py \
+  --out-base tmp/sse_bridge_pipeline_demo \
+  --metadata-db tmp/platform_metadata.db \
+  --output tmp/sse_bridge_pipeline_demo/platform_health.json
+```
+
+### Step 5 — 一键 triage
+
+```bash
+python3 scripts/run_operator_triage.py \
+  --out-base tmp/sse_bridge_pipeline_demo \
+  --out tmp/sse_bridge_pipeline_demo/operator_triage.json
+```
+
+输出 `operator_triage_report/v1`，四个 section：`dashboard` / `alerts` / `platform_health` / `workflow_status`。
+
+### Step 6（可选）— 查看 query workflow 状态
+
+如果曾通过 `submit_query_workflow.py --execute` 运行过，检查状态：
+
+```bash
+python3 scripts/check_workflow_retry_eligibility.py \
+  --status-file tmp/sse_bridge_pipeline_demo/query_workflow/status.json
+
+python3 scripts/list_query_workflow_status.py \
+  --search-dir tmp \
+  --state failed \
+  --limit 10
+```
+
+### 关键规则回顾
+
+1. 所有上述脚本只读现有 sidecar 产物，不改变主链路语义。
+2. `operator_triage_report/v1` 是整个 operator 面的顶层入口，它的 `overall_status` 汇总了 dashboard / alerts / health 三个维度。
+3. 当 `retry_eligibility.recommended_action == "resubmit"` 时，必须使用新的 `job_id`，否则 duplicate-query guard 会拒绝。
+4. 当 `retry_eligibility.recommended_action == "retry"` 时（仅 `launch_failed`），可以用相同的请求内容重试，但建议仍使用新的 `job_id`。
+
+## 6. 关键契约文件（快速索引）
+
+| Contract | Schema | 生成脚本 |
+| -------- | ------ | -------- |
+| `pipeline_observability/v1` | `schemas/pipeline_observability.schema.json` | `export_observability_events.py` |
+| `catalog_lineage/v1` | `schemas/catalog_lineage.schema.json` | `export_catalog_lineage.py` |
+| `observability_dashboard/v1` | `schemas/observability_dashboard.schema.json` | `build_observability_dashboard.py` |
+| `observability_alert_report/v1` | `schemas/observability_alert_report.schema.json` | `check_observability_alerts.py` |
+| `operator_triage_report/v1` | `schemas/operator_triage_report.schema.json` | `run_operator_triage.py` |
+| `query_workflow_status/v1` | `schemas/query_workflow_status.schema.json` | `submit_query_workflow.py` |
+| `query_workflow_status_list/v1` | `schemas/query_workflow_status_list.schema.json` | `list_query_workflow_status.py` |
+| `workflow_retry_eligibility/v1` | `schemas/workflow_retry_eligibility.schema.json` | `check_workflow_retry_eligibility.py` |
+| `platform_health/v1` | `schemas/platform_health.schema.json` | `check_platform_health.py` |
+| Web UI (no schema) | — | `serve_operator_dashboard.py` → http://127.0.0.1:18094/ |

@@ -1,0 +1,71 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "query_workflow_status_api_response/v1",
+  "title": "Status response envelope for the local query/workflow HTTP adapter",
+  "type": "object",
+  "required": [
+    "schema",
+    "method",
+    "path",
+    "result"
+  ],
+  "properties": {
+    "schema": {
+      "const": "query_workflow_status_api_response/v1"
+    },
+    "method": {
+      "type": "string",
+      "minLength": 1
+    },
+    "path": {
+      "type": "string",
+      "minLength": 1
+    },
+    "result": {
+      "type": "object",
+      "required": [
+        "authenticated_identity",
+        "out_base",
+        "submission_manifest_path",
+        "execution_receipts_path",
+        "status_path",
+        "status"
+      ],
+      "properties": {
+        "authenticated_identity": {
+          "type": ["object", "null"]
+        },
+        "out_base": {
+          "type": "string",
+          "minLength": 1
+        },
+        "submission_manifest_path": {
+          "type": "string",
+          "minLength": 1
+        },
+        "execution_receipts_path": {
+          "type": "string",
+          "minLength": 1
+        },
+        "status_path": {
+          "type": "string",
+          "minLength": 1
+        },
+        "status": {
+          "type": "object",
+          "required": [
+            "schema"
+          ],
+          "properties": {
+            "schema": {
+              "const": "query_workflow_status/v1"
+            }
+          },
+          "additionalProperties": true
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false
+}

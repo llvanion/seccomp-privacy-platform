@@ -54,6 +54,9 @@ SSE candidate export
 2. 真实远端 Vault / cloud KMS 权威源与 service identity
 3. durable workflow / dashboard 壳
 4. SQL sidecar 更深的 Postgres 迁移与 importer repair
+5. caller 画像仍然主要停留在“平台操作者 / 查询发起者”层级，还没细化成买家、商家店员、客服、快递员这类更贴近日常电商业务的人群模型
+6. SQL sidecar 当前保存的是 control-plane metadata / audit / policy / permission，而不是完整电商业务事实表；像“买了什么商品”“在哪个平台成交”“从哪个投放入口点击进来”这类字段目前不作为 sidecar 的主存储目标
+7. 面向真实电商订单分析的一整套 SQL 事实层还没落地；当前没有正式的 `orders / order_items / order_attribution / order_payment / order_fulfillment / customer_service_interactions` 这类业务表基线
 
 剩余估算以 [PLATFORM_LEVEL_REMAINING_ESTIMATE.md](/home/llvanion/Desktop/seccomp-privacy-platform/docs/PLATFORM_LEVEL_REMAINING_ESTIMATE.md) 为准。
 
@@ -79,6 +82,8 @@ SSE candidate export
 8. metadata/query/audit/platform-health sidecar API 已统一走 identity resolver，并收紧 query execute / audit include_paths / platform health role gate
 9. `keyring/v1` 现支持 `secret_ref.kind=env|vault_kv`，key agent / external KMS / pipeline auto-start 已贯通 Vault KV 兼容 backend
 
+当前这一层更像“谁能发起或审核隐私查询”的平台权限模型，而不是完整电商业务人员身份模型。
+
 ### 3.3 SQL sidecar
 
 1. 初始化 metadata DB
@@ -89,6 +94,14 @@ SSE candidate export
 6. `apply-registry` 受控写 key registry / key version metadata
 7. backup / restore / export-json / status
 8. migration portability check
+
+当前 SQL sidecar 主要回答：
+
+1. 哪个 caller 在什么 scope 下跑过什么 job
+2. 哪个阶段 allow / deny、耗时多少、产物 hash 是什么
+3. 当前 policy、permission、key registry 是什么状态
+
+它当前不直接充当电商事实库，不默认保存完整订单明细、商品维度、投放来源、点击链路、物流节点或客服工单明细。
 
 ### 3.4 验证与 benchmark
 
@@ -107,6 +120,8 @@ SSE candidate export
 3. 作为 HA PostgreSQL control plane 运行
 4. 提供成熟 dashboard、workflow、admin UI
 5. 提供完整的大规模真实性能压测体系
+6. 作为完整电商业务明细仓库或统一 customer 360 数据底座使用
+7. 用当前 caller 模型直接覆盖所有真实业务身份，如买家、客服、快递员、门店运营、商家店员等
 
 这不是缺陷陈述，而是当前阶段边界。
 
@@ -121,6 +136,8 @@ SSE candidate export
 3. `fraud_analyst`
 4. `compliance_auditor`
 5. `recovery_service_operator`
+
+这套画像已经够支撑“比赛版隐私查询平台”，但还不是完整电商组织身份树。
 
 权限层次：
 
@@ -143,6 +160,7 @@ SSE candidate export
 1. 不要求主链路直接写库
 2. 当前重心是 import/query/manage，而不是 DB-first 重构
 3. 未来可以迁移到 PostgreSQL，但现在不强绑主链路
+4. 当前不把完整电商事实字段作为 sidecar 查询目标，例如商品 SKU、类目、成交平台、投放平台、点击来源、收货地址、物流节点、客服会话明细
 
 最重要的现有入口：
 

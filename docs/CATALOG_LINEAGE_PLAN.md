@@ -303,3 +303,50 @@ This plan does not currently propose:
 2. Continue validating default redaction and `--include-paths` behavior in contract smoke.
 3. Add read adapters or UI views that consume this derived contract rather than scraping raw run directories.
 4. If richer catalog entities are needed, enrich from metadata sidecar data first instead of expanding the main pipeline outputs.
+
+## 17. Remaining Implementation Blocks
+
+On the engineer B line, catalog/lineage still has one main job: become a usable operator read surface without relaxing the privacy boundary.
+
+Current position on the engineer B plan:
+
+1. query/workflow `B1/B2` is already complete enough that catalog/lineage no longer depends on a missing status contract
+2. the next catalog/lineage work should be treated as the `B7` admin shell/read-surface block, with `C1/C2` as the concrete sub-shape
+
+### Block C1: Registry-Enriched Read View
+
+The next useful step is not a new metadata platform. It is a read adapter that joins:
+
+1. file-derived `catalog_lineage/v1`
+2. metadata-sidecar registry entities
+3. imported job summaries where they help operator navigation
+
+The purpose is to answer:
+
+1. which dataset/service a completed run touched
+2. which policy-bound scope that run belonged to
+3. which artifacts and released reports came out of it
+
+without:
+
+1. copying plaintext into the catalog
+2. making the pipeline write directly into a lineage database
+3. making `--include-paths` the default
+
+### Block C2: Operator Shell Views
+
+The first shell or UI views should be built from the existing contract rather than from ad hoc filesystem reads.
+
+Recommended minimum views:
+
+1. completed job summary
+2. dataset -> artifact lineage list
+3. service -> recovery artifact view
+4. release provenance view
+5. privileged path-inclusive troubleshooting view gated separately from the default read path
+
+Expected write-back for this line:
+
+1. `docs/CATALOG_LINEAGE_PLAN.md`
+2. `docs/TASK_ENGINEER_B_QUERY_CATALOG_WORKFLOW_OBSERVABILITY.md`
+3. `docs/OPS_RUNBOOK.md` when a troubleshooting path is formalized

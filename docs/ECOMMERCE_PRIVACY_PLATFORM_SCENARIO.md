@@ -112,6 +112,25 @@
 
 这些字段通常不应出现在商家查询、广告协作、普通分析结果中。
 
+## 3.5 当前还没正式落地到 SQL 的订单事实层
+
+当前仓库的 SQL sidecar 仍然主要保存 control-plane metadata / audit / policy / permission。
+
+也就是说，下面这些“真实电商订单分析会期望直接进 SQL 的事实数据”，截至当前版本还没有形成正式 migration + importer + query baseline：
+
+1. 订单头：订单号、平台、店铺、订单状态、支付状态、金额拆分
+2. 订单商品行：SKU、SPU、类目、数量、成交价、成本价
+3. 归因链路：campaign、channel platform、click/referrer、landing page、conversion path
+4. 支付事实：支付渠道、支付流水、失败原因、风控复核
+5. 履约事实：仓库、发货方式、物流公司、签收状态、退货状态
+6. 物流轨迹：每个 shipment event 的时间、节点、站点、城市
+7. 买家身份快照：手机号 hash、邮箱 hash、device hash、会员等级、新老客标记
+8. 地址快照：省市区、街道脱敏信息、邮编、近似地理编码
+9. 售后与客服：退款/退货/投诉工单、客服接触记录、满意度
+10. 风控：risk score、risk tags、chargeback、人工审核结论
+
+所以当前平台可以讲“隐私查询链路”和“权限审计链路”，但还不能讲“已经有完整电商订单事实 SQL 底座”。
+
 ## 4. 典型业务情景
 
 ## 4.1 情景 A：平台内部细粒度查询

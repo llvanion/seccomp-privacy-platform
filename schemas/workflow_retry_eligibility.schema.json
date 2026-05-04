@@ -1,0 +1,46 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "workflow_retry_eligibility/v1",
+  "title": "Retry eligibility assessment for a query workflow job",
+  "type": "object",
+  "required": [
+    "schema",
+    "generated_at_utc",
+    "job_id",
+    "correlation_id",
+    "caller",
+    "tenant_id",
+    "current_state",
+    "terminal",
+    "last_exit_code",
+    "receipt_count",
+    "retryable",
+    "resubmit_required",
+    "recommended_action",
+    "reason",
+    "triage_steps"
+  ],
+  "properties": {
+    "schema":               { "const": "workflow_retry_eligibility/v1" },
+    "generated_at_utc":     { "type": "string", "format": "date-time" },
+    "job_id":               { "type": ["string", "null"] },
+    "correlation_id":       { "type": ["string", "null"] },
+    "caller":               { "type": ["string", "null"] },
+    "tenant_id":            { "type": ["string", "null"] },
+    "current_state":        { "type": ["string", "null"] },
+    "terminal":             { "type": ["boolean", "null"] },
+    "last_exit_code":       { "type": ["integer", "null"] },
+    "receipt_count":        { "type": ["integer", "null"], "minimum": 0 },
+    "retryable":            { "type": "boolean" },
+    "resubmit_required":    { "type": "boolean" },
+    "recommended_action": {
+      "type": "string",
+      "enum": ["none", "wait", "retry", "resubmit", "investigate"]
+    },
+    "reason":       { "type": "string" },
+    "triage_steps": {
+      "type": "array",
+      "items": { "type": "string" }
+    }
+  }
+}

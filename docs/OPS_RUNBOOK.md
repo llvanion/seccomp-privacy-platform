@@ -184,6 +184,52 @@ python3 scripts/check_platform_health.py \
 
 The command exits non-zero if any requested check has `status=error`. Use `--allow-errors` when collecting diagnostics should not fail the surrounding script.
 
+## Operator Dashboard Web UI
+
+Start the operator dashboard — a self-contained web UI that reads sidecar artifacts and renders live operator panels in the browser:
+
+```bash
+# Step 1: generate the required sidecar files (if not already present)
+python3 scripts/export_observability_events.py \
+  --out-base tmp/live_sse_bridge_demo/run-<timestamp> \
+  --out tmp/live_sse_bridge_demo/run-<timestamp>/pipeline_observability.json
+
+python3 scripts/check_platform_health.py \
+  --out-base tmp/live_sse_bridge_demo/run-<timestamp> \
+  --output tmp/live_sse_bridge_demo/run-<timestamp>/platform_health.json
+
+# Step 2: start the dashboard server
+python3 scripts/serve_operator_dashboard.py \
+  --out-base tmp/live_sse_bridge_demo/run-<timestamp> \
+  --bind-host 127.0.0.1 \
+  --port 18094
+```
+
+Then open **http://127.0.0.1:18094/** in a browser.
+
+The dashboard auto-refreshes every 15 seconds and shows:
+
+| Panel | Content |
+| ----- | ------- |
+| **Alerts** | 4 alert conditions with firing/ok status and triage message |
+| **Platform Health** | Per-component health badges (ok / warn / error) |
+| **Stage Summary** | Per-stage ok/error mini bar chart |
+| **Stage Duration** | min / mean / p50 / p95 / max per stage |
+| **Release Outcomes** | Per-tenant policy-release counts and last outcome |
+| **Failure Summary** | All `status=error` events with caller, stage, reason_code |
+| **Stage Timeline** | Chronological event list with timestamps and durations |
+| **Workflow Status** | Query workflow state and recommended action (if a job was submitted) |
+
+Endpoints:
+
+| Route | Returns |
+| ----- | ------- |
+| `GET /` | The dashboard HTML (no auth required) |
+| `GET /healthz` | `{"status":"ok","schema":"operator_dashboard_health/v1"}` |
+| `GET /v1/dashboard` | Aggregated JSON: dashboard panels + alerts + health + workflow status |
+
+The `/v1/dashboard` response is cached for 5 seconds. The server is read-only and has no auth requirement; run it only on loopback.
+
 ## Platform Health HTTP API
 
 For local UI / SDK / operations tooling that should reuse the existing `platform_health/v1` report over HTTP instead of shelling out directly:
@@ -332,6 +378,9 @@ For a thin local SDK/CLI shell over the metadata, query, audit/public-report, an
 ```bash
 python3 scripts/platform_api_client.py query-submit \
   --request-file docs/examples/query_request.json
+python3 scripts/platform_api_client.py query-status \
+  --out-base /abs/path/to/query_out_base \
+  --job-id query_demo_job
 python3 scripts/platform_api_client.py metadata-entity \
   --entity caller-permissions \
   --param caller=auto_demo \
@@ -346,10 +395,65 @@ The local contract smoke now validates:
 
 1. `docs/examples/query_request.json` against `schemas/query_workflow_request.schema.json`
 2. CLI dry-run output against `schemas/query_workflow_submission.schema.json`
-3. `/healthz`, dry-run success envelopes, and API error envelopes against `schemas/query_workflow_api_*.schema.json`
-4. `scripts/platform_api_client.py` against the query submit API including the disabled `--execute` path, metadata health/job/jobs/entity reads, audit health/audit-chain/public-report/observability/catalog-lineage reads including `--include-paths`, and the platform-health API
+3. `submission_manifest.json`, `execution_receipts.jsonl`, and `status.json` under `out_base/query_workflow/` against the frozen query-workflow sidecar schemas
+4. `/healthz`, dry-run success envelopes, status envelopes, execute run-failed envelopes, and API error envelopes against `schemas/query_workflow_api_*.schema.json`
+5. `scripts/platform_api_client.py` against the query submit API including the disabled `--execute` path, status reads, execute run-failed status reads, metadata health/job/jobs/entity reads, audit health/audit-chain/public-report/observability/catalog-lineage reads including `--include-paths`, and the platform-health API
 
 Those metadata job/job-list reads now also preserve the compact `mainline_contract_summary`, and jobs-list reads also expose `mainline_contract_summary_counts`, so both direct HTTP callers and `platform_api_client.py metadata-job` / `metadata-jobs` can see the owner-scope handoff cleanup and recovery-service consistency verdicts through the metadata surface without client-side rescans.
+
+### Execute Governance Checklist
+
+When moving from `dry-run` to `execute`, use the wrapper as an operator gate, not as a shortcut around the frozen pipeline.
+
+Recommended checklist:
+
+1. run `dry-run` first using the same request body or request file
+2. confirm the authenticated identity is allowed to execute, not just submit
+3. confirm `caller`, `tenant_id`, `dataset_id`, and `record_recovery_service_id` remain within the identity-bound scope
+4. prefer `token_secret_env` or KMS-backed secret resolution over inline `token_secret`
+5. prefer FIFO handoff; treat retained file handoff as an exceptional debugging path only
+6. do not execute requests that rely on `unsafe_allow_no_sse_export_policy`
+
+For the current repo baseline, execute is still limited to the same `cross_party_match` wrapper shape described in `docs/QUERY_INTERFACE_PLAN.md`. It is not a general SQL execute surface.
+
+### Current Execute Triage
+
+The wrapper now has a dedicated receipt/status sidecar, so use this triage order after an execute attempt:
+
+1. inspect the returned `receipt` / `status` pair and the resolved sidecar paths from the API or CLI response
+2. inspect `<out_base>/query_workflow/status.json` and `<out_base>/query_workflow/execution_receipts.jsonl`
+3. inspect the redacted `query_workflow_submission/v1` manifest and command
+4. inspect `audit_chain.json` and `public_report.json` when the pipeline actually launched
+5. inspect `platform_health/v1` if launch/runtime failure looks environmental rather than request-specific
+
+Use the following failure classes as the operator mental model:
+
+| Class | Meaning | First place to inspect |
+| --- | --- | --- |
+| `validation_rejected` | request/secret/semantic validation failed before launch | wrapper stderr or API error envelope |
+| `authz_rejected` | role/permission/scope gate failed before launch | wrapper stderr or API error envelope |
+| `launch_failed` | wrapper could not start the pipeline command | wrapper stderr, process environment, `platform_health/v1` |
+| `run_failed` | pipeline launched but exited non-zero | `out_base`, `audit_chain.json`, stage-local audit files |
+| `completed` | pipeline exited zero | `public_report.json`, `audit_chain.json`, derived views |
+
+### Current Receipt/Status Layout
+
+The wrapper currently materializes lifecycle state under:
+
+1. `<out_base>/query_workflow/submission_manifest.json`
+2. `<out_base>/query_workflow/execution_receipts.jsonl`
+3. `<out_base>/query_workflow/status.json`
+
+That layout is a sidecar convenience for operators. It does not replace:
+
+1. `audit_chain.json`
+2. `public_report.json`
+3. `mainline_contract_check.json`
+
+Current read path:
+
+1. `GET /v1/query-workflows/status?out_base=<abs-path>[&job_id=<job-id>]`
+2. `python3 scripts/platform_api_client.py query-status --out-base <abs-path> --job-id <job-id>`
 
 ## Audit/Public-Report Query Adapter
 
@@ -750,6 +854,148 @@ python3 scripts/validate_json_contract.py \
   --schema schemas/pipeline_observability.schema.json \
   --json tmp/sse_bridge_pipeline_demo/pipeline_observability.json
 ```
+
+## Observability Dashboard
+
+Build operator-facing panels from `pipeline_observability/v1`:
+
+```bash
+python3 scripts/build_observability_dashboard.py \
+  --observability tmp/sse_bridge_pipeline_demo/pipeline_observability.json \
+  --platform-health tmp/sse_bridge_pipeline_demo/platform_health.json \
+  --out tmp/sse_bridge_pipeline_demo/observability_dashboard.json
+```
+
+Or point at a completed run directory and let the script infer both inputs:
+
+```bash
+python3 scripts/build_observability_dashboard.py \
+  --out-base tmp/sse_bridge_pipeline_demo \
+  --out tmp/sse_bridge_pipeline_demo/observability_dashboard.json
+```
+
+The output schema is `observability_dashboard/v1`. It contains five fixed panels:
+
+| Panel | Content |
+| ----- | ------- |
+| `stage_timeline` | Chronological stage events: stage name, role, status, ts_utc, duration_ms, row_count, decision |
+| `stage_summary` | Per-stage `ok / error / unknown / total` event counts |
+| `stage_duration` | Per-stage min / mean / p50 / p95 / max `duration_ms` (only stages with at least one non-null timing) |
+| `release_outcomes` | Per-`tenant_id` policy-release ok/error/unknown counts and last outcome |
+| `failure_summary` | All `status=error` events, sorted `ts_utc` descending, showing `caller`, `stage`, `reason_code` |
+
+The optional `health_summary` block is populated when `platform_health/v1` is provided; otherwise it is `null`.
+
+Validate with:
+
+```bash
+python3 scripts/validate_json_contract.py \
+  --schema schemas/observability_dashboard.schema.json \
+  --json tmp/sse_bridge_pipeline_demo/observability_dashboard.json
+```
+
+The dashboard is sidecar-only. It derives from `pipeline_observability/v1` and does not change the frozen audit contracts or the main pipeline.
+
+## Alert Check
+
+Evaluate the four standard operator alert conditions against an existing dashboard:
+
+```bash
+python3 scripts/check_observability_alerts.py \
+  --dashboard tmp/sse_bridge_pipeline_demo/observability_dashboard.json \
+  --platform-health tmp/sse_bridge_pipeline_demo/platform_health.json \
+  --out tmp/sse_bridge_pipeline_demo/observability_alert_report.json
+```
+
+Or via `--out-base` to infer both inputs:
+
+```bash
+python3 scripts/check_observability_alerts.py \
+  --out-base tmp/sse_bridge_pipeline_demo \
+  --out tmp/sse_bridge_pipeline_demo/observability_alert_report.json
+```
+
+The output schema is `observability_alert_report/v1`. Each alert entry has `alert_id`, `severity`, `firing`, `message`, and `triage_path`.
+
+| Alert ID | Fires When |
+| -------- | ---------- |
+| `repeated_stage_error` | Same stage has ≥2 `status=error` events |
+| `release_failure_after_success` | Policy release failed but bridge and PJC succeeded |
+| `platform_health_degraded` | `health_summary.status` is `warn` or `error` |
+| `stage_coverage_gap` | Any of the 5 core pipeline stages is absent from the dashboard |
+
+## Query Workflow Status List
+
+Scan a directory tree for `query_workflow/status.json` files:
+
+```bash
+python3 scripts/list_query_workflow_status.py \
+  --search-dir tmp \
+  --limit 20 \
+  --out tmp/workflow_status_list.json
+```
+
+Filter by state:
+
+```bash
+python3 scripts/list_query_workflow_status.py \
+  --search-dir tmp \
+  --state failed \
+  --limit 20 \
+  --out tmp/workflow_status_list_failed.json
+```
+
+The output schema is `query_workflow_status_list/v1`. Each entry includes `out_base`, `job_id`, `state`, `terminal`, `last_exit_code`, and `last_updated_at_utc`. Results are sorted by `last_updated_at_utc` descending.
+
+## Retry Eligibility Check
+
+Determine whether a failed job can be retried or must be re-submitted:
+
+```bash
+python3 scripts/check_workflow_retry_eligibility.py \
+  --status-file tmp/my_job/query_workflow/status.json \
+  --out tmp/my_job/retry_eligibility.json
+```
+
+The output schema is `workflow_retry_eligibility/v1`. It carries:
+
+| Field | Values |
+| ----- | ------ |
+| `recommended_action` | `none` (completed), `wait` (running), `retry` (launch_failed), `resubmit` (run_failed / validation / authz), `investigate` |
+| `retryable` | `true` only for `launch_failed` transient errors |
+| `resubmit_required` | `true` for all failures that need a new job_id or a corrected request |
+| `triage_steps` | Ordered list of steps to diagnose and resolve the issue |
+
+## Operator Triage Report
+
+Run the full triage chain — dashboard + alerts + health + workflow status — in one call:
+
+```bash
+python3 scripts/run_operator_triage.py \
+  --out-base tmp/sse_bridge_pipeline_demo \
+  --out tmp/sse_bridge_pipeline_demo/operator_triage.json
+```
+
+Or with explicit paths when sidecar files are not in a standard layout:
+
+```bash
+python3 scripts/run_operator_triage.py \
+  --observability tmp/sse_bridge_pipeline_demo/pipeline_observability.json \
+  --platform-health tmp/sse_bridge_pipeline_demo/platform_health.json \
+  --dashboard tmp/sse_bridge_pipeline_demo/observability_dashboard.json \
+  --out tmp/sse_bridge_pipeline_demo/operator_triage.json
+```
+
+The output schema is `operator_triage_report/v1`. It has four sections:
+
+| Section | Source | Available When |
+| ------- | ------ | -------------- |
+| `dashboard` | `pipeline_observability.json` | `pipeline_observability.json` exists |
+| `alerts` | `observability_dashboard.json` | Dashboard can be built or was provided |
+| `platform_health` | `platform_health.json` | `platform_health.json` exists |
+| `workflow_status` | `query_workflow/status.json` | A query workflow was submitted under `out_base` |
+
+Each section sets `available: true` or `available: false` so the report is always structurally valid even when some sidecar files are absent.
 
 ## Catalog And Lineage Export
 

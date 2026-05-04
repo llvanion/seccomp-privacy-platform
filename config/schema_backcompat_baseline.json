@@ -261,6 +261,86 @@
       ]
     },
     {
+      "path": "schemas/query_workflow_receipt.schema.json",
+      "schema_id": "query_workflow_receipt/v1",
+      "required": [
+        "schema",
+        "receipt_id",
+        "event",
+        "event_at_utc",
+        "workflow",
+        "mode",
+        "job_id",
+        "out_base",
+        "request_digest",
+        "request_summary",
+        "command",
+        "exit_code",
+        "artifacts"
+      ],
+      "stable_properties": [
+        "artifacts",
+        "caller",
+        "command",
+        "correlation_id",
+        "dataset_id",
+        "event",
+        "event_at_utc",
+        "exit_code",
+        "job_id",
+        "mode",
+        "out_base",
+        "query_type",
+        "receipt_id",
+        "request_digest",
+        "request_summary",
+        "schema",
+        "tenant_id",
+        "workflow"
+      ]
+    },
+    {
+      "path": "schemas/query_workflow_status.schema.json",
+      "schema_id": "query_workflow_status/v1",
+      "required": [
+        "schema",
+        "workflow",
+        "mode",
+        "job_id",
+        "out_base",
+        "state",
+        "terminal",
+        "last_updated_at_utc",
+        "latest_receipt_id",
+        "receipt_count",
+        "last_exit_code",
+        "artifact_summary",
+        "public_report_available",
+        "audit_chain_available"
+      ],
+      "stable_properties": [
+        "artifact_summary",
+        "audit_chain_available",
+        "caller",
+        "correlation_id",
+        "dataset_id",
+        "job_id",
+        "last_exit_code",
+        "last_updated_at_utc",
+        "latest_receipt_id",
+        "mode",
+        "out_base",
+        "public_report_available",
+        "query_type",
+        "receipt_count",
+        "schema",
+        "state",
+        "tenant_id",
+        "terminal",
+        "workflow"
+      ]
+    },
+    {
       "path": "schemas/query_workflow_api_health.schema.json",
       "schema_id": "query_workflow_api_health/v1",
       "required": [
@@ -281,6 +361,22 @@
     {
       "path": "schemas/query_workflow_api_response.schema.json",
       "schema_id": "query_workflow_api_response/v1",
+      "required": [
+        "schema",
+        "method",
+        "path",
+        "result"
+      ],
+      "stable_properties": [
+        "method",
+        "path",
+        "result",
+        "schema"
+      ]
+    },
+    {
+      "path": "schemas/query_workflow_status_api_response.schema.json",
+      "schema_id": "query_workflow_status_api_response/v1",
       "required": [
         "schema",
         "method",
@@ -1867,6 +1963,70 @@
         "generated_at_utc", "governance_status", "governance_violations",
         "is_new_policy", "mode", "permission_diffs",
         "policy_path", "proposed_sha256", "schema", "warning_count"
+      ]
+    },
+    {
+      "path": "schemas/observability_dashboard.schema.json",
+      "schema_id": "observability_dashboard/v1",
+      "required": [
+        "schema", "generated_at_utc", "job_id", "correlation_id", "caller",
+        "tenant_id", "dataset_id", "service_id", "summary", "panels", "health_summary"
+      ],
+      "stable_properties": [
+        "caller", "correlation_id", "dataset_id", "generated_at_utc",
+        "health_summary", "job_id", "panels", "schema", "service_id",
+        "summary", "tenant_id"
+      ]
+    },
+    {
+      "path": "schemas/observability_alert_report.schema.json",
+      "schema_id": "observability_alert_report/v1",
+      "required": [
+        "schema", "generated_at_utc", "job_id", "correlation_id", "caller",
+        "tenant_id", "alert_count", "firing_count", "overall_status", "alerts"
+      ],
+      "stable_properties": [
+        "alert_count", "alerts", "caller", "correlation_id",
+        "firing_count", "generated_at_utc", "job_id", "overall_status",
+        "schema", "tenant_id"
+      ]
+    },
+    {
+      "path": "schemas/query_workflow_status_list.schema.json",
+      "schema_id": "query_workflow_status_list/v1",
+      "required": [
+        "schema", "generated_at_utc", "search_dir", "filter_state",
+        "filter_job_id", "total_found", "returned_count", "limit", "statuses"
+      ],
+      "stable_properties": [
+        "filter_job_id", "filter_state", "generated_at_utc", "limit",
+        "returned_count", "schema", "search_dir", "statuses", "total_found"
+      ]
+    },
+    {
+      "path": "schemas/workflow_retry_eligibility.schema.json",
+      "schema_id": "workflow_retry_eligibility/v1",
+      "required": [
+        "schema", "generated_at_utc", "job_id", "correlation_id", "caller",
+        "tenant_id", "current_state", "terminal", "last_exit_code",
+        "receipt_count", "retryable", "resubmit_required",
+        "recommended_action", "reason", "triage_steps"
+      ],
+      "stable_properties": [
+        "caller", "correlation_id", "current_state", "generated_at_utc",
+        "job_id", "last_exit_code", "reason", "receipt_count",
+        "recommended_action", "resubmit_required", "retryable",
+        "schema", "tenant_id", "terminal", "triage_steps"
+      ]
+    },
+    {
+      "path": "schemas/operator_triage_report.schema.json",
+      "schema_id": "operator_triage_report/v1",
+      "required": [
+        "schema", "generated_at_utc", "out_base", "overall_status", "sections"
+      ],
+      "stable_properties": [
+        "generated_at_utc", "out_base", "overall_status", "schema", "sections"
       ]
     }
   ]

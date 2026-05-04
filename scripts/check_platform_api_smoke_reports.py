@@ -9,13 +9,35 @@ def load(path: Path) -> dict[str, Any]:
     return json.load(path.open("r", encoding="utf-8"))
 
 
+def load_jsonl(path: Path) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    with path.open("r", encoding="utf-8") as handle:
+        for line in handle:
+            line = line.strip()
+            if not line:
+                continue
+            payload = json.loads(line)
+            require(isinstance(payload, dict), f"JSONL row was not an object: {path}")
+            rows.append(payload)
+    return rows
+
+
 def require(condition: bool, message: str) -> None:
     if not condition:
         raise SystemExit(message)
 
 
-def require_error_contains(payload: dict[str, Any], *, schema: str, text: str, label: str) -> None:
+def require_error_contains(
+    payload: dict[str, Any],
+    *,
+    schema: str,
+    text: str,
+    label: str,
+    error_class: str | None = None,
+) -> None:
     require(payload.get("schema") == schema, f"{label} returned wrong schema: {payload}")
+    if error_class is not None:
+        require(payload.get("error_class") == error_class, f"{label} returned wrong error_class: {payload}")
     require(text in (payload.get("error") or ""), f"{label} returned wrong error payload: {payload}")
 
 
@@ -141,6 +163,40 @@ def expect_query_submission_wrapper(
                 f"query workflow keep wrapper emitted conflicting cleanup flag: {payload}")
 
 
+def require_query_status_payload(
+    payload: dict[str, Any],
+    *,
+    label: str,
+    expected_job_id: str,
+    expected_caller: str,
+    expected_state: str,
+    expected_mode: str = "dry_run",
+    expected_terminal: bool = True,
+    expected_public_report_available: bool = False,
+    expected_audit_chain_available: bool = False,
+) -> None:
+    require(payload.get("schema") == "query_workflow_status/v1", f"{label} returned wrong status schema: {payload}")
+    require(payload.get("workflow") == "sse_bridge_pipeline", f"{label} returned wrong workflow: {payload}")
+    require(payload.get("mode") == expected_mode, f"{label} returned wrong mode: {payload}")
+    require(payload.get("job_id") == expected_job_id, f"{label} returned wrong job_id: {payload}")
+    require(payload.get("caller") == expected_caller, f"{label} returned wrong caller: {payload}")
+    require(payload.get("state") == expected_state, f"{label} returned wrong state: {payload}")
+    require(payload.get("terminal") is expected_terminal, f"{label} returned wrong terminal flag: {payload}")
+    require(payload.get("receipt_count") >= 1, f"{label} returned wrong receipt_count: {payload}")
+    require(
+        payload.get("public_report_available") is expected_public_report_available,
+        f"{label} unexpectedly reported public report availability: {payload}",
+    )
+    require(
+        payload.get("audit_chain_available") is expected_audit_chain_available,
+        f"{label} unexpectedly reported audit chain availability: {payload}",
+    )
+    artifact_summary = payload.get("artifact_summary") or {}
+    require(artifact_summary.get("submission_manifest_available") is True, f"{label} missing submission manifest availability: {payload}")
+    require(artifact_summary.get("execution_receipts_available") is True, f"{label} missing execution receipt availability: {payload}")
+    require(artifact_summary.get("status_available") is True, f"{label} missing status availability: {payload}")
+
+
 def validate_query_submissions(tmp_dir: Path, repo_root: Path) -> None:
     for name in ("query_workflow_stdout.json", "query_workflow_manifest.json"):
         expect_query_submission_wrapper(
@@ -156,16 +212,56 @@ def validate_query_submissions(tmp_dir: Path, repo_root: Path) -> None:
             repo_root=repo_root,
             require_resolved_paths=False,
         )
+    default_out_base = tmp_dir / "query_workflow_out"
+    keep_out_base = tmp_dir / "query_workflow_out_keep"
+    require((default_out_base / "query_workflow" / "submission_manifest.json").is_file(), "default query workflow sidecar submission manifest missing")
+    require((default_out_base / "query_workflow" / "execution_receipts.jsonl").is_file(), "default query workflow sidecar receipts missing")
+    require((default_out_base / "query_workflow" / "status.json").is_file(), "default query workflow sidecar status missing")
+    require((keep_out_base / "query_workflow" / "submission_manifest.json").is_file(), "keep query workflow sidecar submission manifest missing")
+    require((keep_out_base / "query_workflow" / "execution_receipts.jsonl").is_file(), "keep query workflow sidecar receipts missing")
+    require((keep_out_base / "query_workflow" / "status.json").is_file(), "keep query workflow sidecar status missing")
+
+    require_query_status_payload(
+        load(default_out_base / "query_workflow" / "status.json"),
+        label="default query workflow sidecar status",
+        expected_job_id="contract-query-workflow",
+        expected_caller="auto_demo",
+        expected_state="accepted",
+    )
+    require_query_status_payload(
+        load(keep_out_base / "query_workflow" / "status.json"),
+        label="keep query workflow sidecar status",
+        expected_job_id="contract-query-workflow-keep",
+        expected_caller="auto_demo",
+        expected_state="accepted",
+    )
+    default_receipts = load_jsonl(default_out_base / "query_workflow" / "execution_receipts.jsonl")
+    keep_receipts = load_jsonl(keep_out_base / "query_workflow" / "execution_receipts.jsonl")
+    require(
+        len(default_receipts) >= 1 and all(receipt.get("event") == "accepted" for receipt in default_receipts),
+        f"default query workflow receipts returned wrong events: {default_receipts}",
+    )
+    require(
+        len(keep_receipts) >= 1 and all(receipt.get("event") == "accepted" for receipt in keep_receipts),
+        f"keep query workflow receipts returned wrong events: {keep_receipts}",
+    )
 
 
 def validate_query_api(tmp_dir: Path) -> None:
     health = load(tmp_dir / "query_workflow_api_health.json")
     client_health = load(tmp_dir / "query_workflow_client_health.json")
     dry_run = load(tmp_dir / "query_workflow_api_dry_run.json")
+    status_payload = load(tmp_dir / "query_workflow_api_status.json")
     client_dry_run = load(tmp_dir / "query_workflow_client_dry_run.json")
+    client_status_payload = load(tmp_dir / "query_workflow_client_status.json")
     unauth_error = load(tmp_dir / "query_workflow_api_unauth_error.json")
     execute_disabled_error = load(tmp_dir / "query_workflow_api_execute_disabled_error.json")
     client_execute_disabled_error = load(tmp_dir / "query_workflow_client_execute_disabled_error.json")
+    execute_validation_error = load(tmp_dir / "query_workflow_api_execute_validation_error.json")
+    execute_run_failed = load(tmp_dir / "query_workflow_api_execute_run_failed.json")
+    execute_run_failed_status = load(tmp_dir / "query_workflow_api_execute_run_failed_status.json")
+    client_execute_run_failed = load(tmp_dir / "query_workflow_client_execute_run_failed.json")
+    client_execute_run_failed_status = load(tmp_dir / "query_workflow_client_execute_run_failed_status.json")
 
     for payload in (health, client_health):
         require(payload.get("schema") == "query_workflow_api_health/v1" and payload.get("ok") is True,
@@ -198,18 +294,102 @@ def validate_query_api(tmp_dir: Path) -> None:
         schema="query_workflow_api_error/v1",
         text="missing bearer token",
         label="query workflow API unauthenticated error payload",
+        error_class="authz_rejected",
     )
     require_error_contains(
         execute_disabled_error,
         schema="query_workflow_api_error/v1",
         text="disabled",
         label="query workflow API execute-disabled error payload",
+        error_class="endpoint_disabled",
     )
     require_error_contains(
         client_execute_disabled_error,
         schema="query_workflow_api_error/v1",
         text="disabled",
         label="platform API client query execute-disabled error payload",
+        error_class="endpoint_disabled",
+    )
+    require_error_contains(
+        execute_validation_error,
+        schema="query_workflow_api_error/v1",
+        text="query_type is required",
+        label="query workflow API execute validation error payload",
+        error_class="validation_rejected",
+    )
+
+    require(status_payload.get("schema") == "query_workflow_status_api_response/v1",
+            f"query workflow API status returned wrong schema: {status_payload}")
+    require_query_status_payload(
+        ((status_payload.get("result") or {}).get("status") or {}),
+        label="query workflow API status payload",
+        expected_job_id="contract-query-workflow",
+        expected_caller="auto_demo",
+        expected_state="accepted",
+    )
+    require(client_status_payload.get("schema") == "query_workflow_status_api_response/v1",
+            f"platform API client query status returned wrong schema: {client_status_payload}")
+    require_query_status_payload(
+        ((client_status_payload.get("result") or {}).get("status") or {}),
+        label="platform API client query status payload",
+        expected_job_id="contract-query-workflow",
+        expected_caller="auto_demo",
+        expected_state="accepted",
+    )
+
+    for payload, label in (
+        (execute_run_failed, "query workflow API execute run-failed payload"),
+        (client_execute_run_failed, "platform API client execute run-failed payload"),
+    ):
+        require(payload.get("schema") == "query_workflow_api_response/v1", f"{label} returned wrong schema: {payload}")
+        result = payload.get("result") or {}
+        manifest = result.get("manifest") or {}
+        require(manifest.get("schema") == "query_workflow_submission/v1", f"{label} returned wrong manifest: {payload}")
+        require(manifest.get("mode") == "execute", f"{label} returned wrong mode: {payload}")
+        require((manifest.get("exit_code") or 0) != 0, f"{label} unexpectedly reported zero exit code: {payload}")
+        receipt = result.get("receipt") or {}
+        require(receipt.get("event") == "failed", f"{label} returned wrong receipt event: {payload}")
+        require((receipt.get("exit_code") or 0) != 0, f"{label} returned wrong receipt exit code: {payload}")
+        require_query_status_payload(
+            result.get("status") or {},
+            label=f"{label} embedded status",
+            expected_job_id="contract-query-workflow-execute-run-failed",
+            expected_caller="auto_demo",
+            expected_state="failed",
+            expected_mode="execute",
+        )
+        require((result.get("status") or {}).get("last_exit_code") == manifest.get("exit_code"), f"{label} returned mismatched status exit code: {payload}")
+
+    require(execute_run_failed_status.get("schema") == "query_workflow_status_api_response/v1",
+            f"query workflow API execute run-failed status returned wrong schema: {execute_run_failed_status}")
+    require(client_execute_run_failed_status.get("schema") == "query_workflow_status_api_response/v1",
+            f"platform API client execute run-failed status returned wrong schema: {client_execute_run_failed_status}")
+    require_query_status_payload(
+        ((execute_run_failed_status.get("result") or {}).get("status") or {}),
+        label="query workflow API execute run-failed status payload",
+        expected_job_id="contract-query-workflow-execute-run-failed",
+        expected_caller="auto_demo",
+        expected_state="failed",
+        expected_mode="execute",
+    )
+    require_query_status_payload(
+        ((client_execute_run_failed_status.get("result") or {}).get("status") or {}),
+        label="platform API client execute run-failed status payload",
+        expected_job_id="contract-query-workflow-execute-run-failed",
+        expected_caller="auto_demo",
+        expected_state="failed",
+        expected_mode="execute",
+    )
+    execute_receipts = load_jsonl(tmp_dir / "query_workflow_execute_fail_out" / "query_workflow" / "execution_receipts.jsonl")
+    require(
+        len(execute_receipts) >= 2
+        and len(execute_receipts) % 2 == 0
+        and all(
+            execute_receipts[index].get("event") == "started"
+            and execute_receipts[index + 1].get("event") == "failed"
+            for index in range(0, len(execute_receipts), 2)
+        ),
+        f"execute query workflow receipts returned wrong events: {execute_receipts}",
     )
 
     for lifecycle_name in ("query_workflow_api.pid", "query_workflow_api.ready"):
@@ -564,6 +744,7 @@ def validate_identity_api_authz(tmp_dir: Path) -> None:
     metadata_identity = load(tmp_dir / "metadata_api_identity.json")
     metadata_policies_forbidden = load(tmp_dir / "metadata_api_identity_forbidden_policies.json")
     query_identity_dry_run = load(tmp_dir / "query_workflow_identity_dry_run.json")
+    query_identity_status = load(tmp_dir / "query_workflow_identity_status.json")
     query_identity_execute_forbidden = load(tmp_dir / "query_workflow_identity_execute_forbidden.json")
     audit_identity_public_report = load(tmp_dir / "audit_query_api_identity_public_report.json")
     audit_identity_include_paths_forbidden = load(tmp_dir / "audit_query_api_identity_include_paths_forbidden.json")
@@ -590,12 +771,21 @@ def validate_identity_api_authz(tmp_dir: Path) -> None:
     require(dry_run_identity.get("caller") == "marketing_analyst_demo", f"identity query dry-run returned wrong identity: {query_identity_dry_run}")
     dry_run_manifest = (query_identity_dry_run.get("result") or {}).get("manifest") or {}
     require(dry_run_manifest.get("schema") == "query_workflow_submission/v1", f"identity query dry-run returned wrong manifest: {query_identity_dry_run}")
+    require(query_identity_status.get("schema") == "query_workflow_status_api_response/v1", f"identity query status returned wrong schema: {query_identity_status}")
+    require_query_status_payload(
+        ((query_identity_status.get("result") or {}).get("status") or {}),
+        label="identity query status payload",
+        expected_job_id="ecommerce-query-workflow",
+        expected_caller="marketing_analyst_demo",
+        expected_state="accepted",
+    )
 
     require_error_contains(
         query_identity_execute_forbidden,
         schema="query_workflow_api_error/v1",
         text="privacy_operator or platform_admin",
         label="identity query execute forbidden payload",
+        error_class="authz_rejected",
     )
 
     require(audit_identity_public_report.get("schema") == "audit_query_api_response/v1", f"identity audit public report returned wrong schema: {audit_identity_public_report}")

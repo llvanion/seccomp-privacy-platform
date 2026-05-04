@@ -1,0 +1,79 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "operator_triage_report/v1",
+  "title": "Unified operator triage: dashboard + alerts + health + workflow status",
+  "type": "object",
+  "required": [
+    "schema",
+    "generated_at_utc",
+    "out_base",
+    "overall_status",
+    "sections"
+  ],
+  "properties": {
+    "schema":           { "const": "operator_triage_report/v1" },
+    "generated_at_utc": { "type": "string", "format": "date-time" },
+    "out_base":         { "type": "string", "minLength": 1 },
+    "overall_status":   { "type": "string", "enum": ["ok", "warn", "error"] },
+    "sections": {
+      "type": "object",
+      "required": ["dashboard", "alerts", "platform_health", "workflow_status"],
+      "properties": {
+        "dashboard": {
+          "type": "object",
+          "required": ["available"],
+          "properties": {
+            "available":      { "type": "boolean" },
+            "overall_status": { "type": ["string", "null"] },
+            "total_events":   { "type": ["integer", "null"] },
+            "panel_count":    { "type": ["integer", "null"] },
+            "has_failures":   { "type": ["boolean", "null"] },
+            "reason":         { "type": "string" }
+          }
+        },
+        "alerts": {
+          "type": "object",
+          "required": ["available"],
+          "properties": {
+            "available":        { "type": "boolean" },
+            "overall_status":   { "type": ["string", "null"] },
+            "alert_count":      { "type": ["integer", "null"] },
+            "firing_count":     { "type": ["integer", "null"] },
+            "firing_alert_ids": { "type": "array", "items": { "type": "string" } },
+            "reason":           { "type": "string" }
+          }
+        },
+        "platform_health": {
+          "type": "object",
+          "required": ["available"],
+          "properties": {
+            "available":   { "type": "boolean" },
+            "status":      { "type": ["string", "null"] },
+            "ok":          { "type": ["integer", "null"] },
+            "warn":        { "type": ["integer", "null"] },
+            "error":       { "type": ["integer", "null"] },
+            "check_count": { "type": ["integer", "null"] },
+            "reason":      { "type": "string" }
+          }
+        },
+        "workflow_status": {
+          "type": "object",
+          "required": ["available"],
+          "properties": {
+            "available":            { "type": "boolean" },
+            "job_id":               { "type": ["string", "null"] },
+            "state":                { "type": ["string", "null"] },
+            "terminal":             { "type": ["boolean", "null"] },
+            "last_exit_code":       { "type": ["integer", "null"] },
+            "receipt_count":        { "type": ["integer", "null"] },
+            "last_updated_at_utc":  { "type": ["string", "null"] },
+            "retryable":            { "type": ["boolean", "null"] },
+            "resubmit_required":    { "type": ["boolean", "null"] },
+            "recommended_action":   { "type": ["string", "null"] },
+            "reason":               { "type": "string" }
+          }
+        }
+      }
+    }
+  }
+}

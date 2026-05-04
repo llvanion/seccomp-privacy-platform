@@ -245,3 +245,101 @@ This plan does not currently propose:
 2. Continue validating stage coverage and timing propagation in contract smoke.
 3. Add dashboard and alert examples around the existing export rather than around raw audit JSONL.
 4. When a stronger telemetry stack is introduced, make it consume this derived contract first instead of redefining the fields.
+
+## 16. Remaining Implementation Blocks
+
+For the current repo state, the observability line still has `1` practical block before it behaves like an operator-facing platform shell instead of a set of raw exports.
+
+Current position on the engineer B plan:
+
+1. query/workflow `B1/B2` is already complete
+2. dashboard example pack (`B3`) is now complete — see section 17
+3. the remaining observability work is `B4` (alert / triage baseline)
+
+### ~~Block O1: Dashboard Example Pack~~ ✓
+
+Implemented `2026-05-03` as engineer B `B3`.
+
+Entry: `scripts/build_observability_dashboard.py`
+
+The dashboard consumes `pipeline_observability/v1` and the optional `platform_health/v1` and produces `observability_dashboard/v1` with five panels:
+
+1. `stage_timeline` — chronological per-stage events with timing, status, role, decision
+2. `stage_summary` — per-stage `ok / error / unknown` count table
+3. `stage_duration` — per-stage duration stats: min / mean / p50 / p95 / max (only for stages with non-null `duration_ms`)
+4. `release_outcomes` — per-`tenant_id` policy-release counts and last outcome
+5. `failure_summary` — all `status=error` events sorted by `ts_utc` descending, attributed to `caller`
+
+Plus an optional `health_summary` block drawn from `platform_health/v1` when provided.
+
+The contract is frozen in `schemas/observability_dashboard.schema.json` and covered by `scripts/check_json_contracts.sh` (two smoke paths: with and without `platform_health`).
+
+```bash
+python3 scripts/build_observability_dashboard.py \
+  --observability tmp/sse_bridge_pipeline_demo/pipeline_observability.json \
+  --platform-health tmp/sse_bridge_pipeline_demo/platform_health.json \
+  --out tmp/sse_bridge_pipeline_demo/observability_dashboard.json
+```
+
+Or using a completed run directory directly:
+
+```bash
+python3 scripts/build_observability_dashboard.py \
+  --out-base tmp/sse_bridge_pipeline_demo \
+  --out tmp/sse_bridge_pipeline_demo/observability_dashboard.json
+```
+
+(The `--out-base` form automatically reads both `pipeline_observability.json` and `platform_health.json` from the directory if they exist.)
+
+### ~~Block O2: Alert And Triage Pack~~ ✓
+
+Implemented `2026-05-03` as engineer B `B4`.
+
+Entry: `scripts/check_observability_alerts.py`
+
+Four alert conditions are evaluated, each producing an entry in `observability_alert_report/v1`:
+
+| Alert ID | Fires When | Severity | Triage Read Path |
+| -------- | ---------- | -------- | ---------------- |
+| `repeated_stage_error` | Same stage appears with `status=error` in ≥2 events | error | `failure_summary` panel → audit read adapter → stage audit records |
+| `release_failure_after_success` | `policy_release` is error but `bridge` and `pjc` were all ok | error | `release_outcomes` panel → `GET /v1/public-report` → release policy config |
+| `platform_health_degraded` | `health_summary.status` is `warn` or `error` | warn/error | `GET /v1/platform-health` → `check_platform_health.py --verbose` |
+| `stage_coverage_gap` | Any core stage (sse_export, record_recovery_service, bridge, pjc, policy_release) is absent | warn | Re-export observability → verify audit_chain.json was built after full pipeline |
+
+Contract frozen in `schemas/observability_alert_report.schema.json`. Two smoke paths in `check_json_contracts.sh` (with and without platform health). Backcompat baseline entry added.
+
+```bash
+python3 scripts/check_observability_alerts.py \
+  --dashboard tmp/sse_bridge_pipeline_demo/observability_dashboard.json \
+  --platform-health tmp/sse_bridge_pipeline_demo/platform_health.json \
+  --out tmp/sse_bridge_pipeline_demo/observability_alert_report.json
+
+# or via out-base
+python3 scripts/check_observability_alerts.py \
+  --out-base tmp/sse_bridge_pipeline_demo \
+  --out tmp/sse_bridge_pipeline_demo/observability_alert_report.json
+```
+
+## 17. Operator Triage Report
+
+`scripts/run_operator_triage.py` chains dashboard + alert check + platform health + workflow status into a single `operator_triage_report/v1` document.
+
+```bash
+python3 scripts/run_operator_triage.py \
+  --out-base tmp/sse_bridge_pipeline_demo \
+  --out tmp/sse_bridge_pipeline_demo/operator_triage.json
+```
+
+Or with explicit paths:
+
+```bash
+python3 scripts/run_operator_triage.py \
+  --observability tmp/sse_bridge_pipeline_demo/pipeline_observability.json \
+  --platform-health tmp/sse_bridge_pipeline_demo/platform_health.json \
+  --dashboard tmp/sse_bridge_pipeline_demo/observability_dashboard.json \
+  --out tmp/sse_bridge_pipeline_demo/operator_triage.json
+```
+
+The triage report has four sections: `dashboard`, `alerts`, `platform_health`, `workflow_status`. Each section reports `available: true/false` (so it works even when some sidecar files are absent) and a compact summary.
+
+Contract frozen in `schemas/operator_triage_report.schema.json` and covered by contract smoke.

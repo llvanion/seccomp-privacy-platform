@@ -61,6 +61,7 @@ def materialize_query_api(tmp_dir: Path, *, port: int, request_file: Path) -> No
     base = f"http://127.0.0.1:{port}"
     request_payload = json.load(request_file.open("r", encoding="utf-8"))
     request_base_dir = str(request_file.resolve().parent)
+    out_base = str(Path(request_base_dir, str(request_payload["out_base"])).resolve())
 
     dump(tmp_dir / "query_workflow_api_health.json", fetch_json(opener, f"{base}/healthz"))
     dump(
@@ -98,6 +99,69 @@ def materialize_query_api(tmp_dir: Path, *, port: int, request_file: Path) -> No
             ),
             code=403,
             label="query workflow API execute-disabled request",
+        ),
+    )
+    dump(
+        tmp_dir / "query_workflow_api_status.json",
+        fetch_json(
+            opener,
+            f"{base}/v1/query-workflows/status?{urllib.parse.urlencode([('out_base', out_base), ('job_id', str(request_payload['job_id']))])}",
+            token="contract-query-workflow-api-token",
+        ),
+    )
+
+
+def materialize_query_execute_api(tmp_dir: Path, *, port: int, request_file: Path) -> None:
+    opener = json_opener()
+    base = f"http://127.0.0.1:{port}"
+    request_payload = json.load(request_file.open("r", encoding="utf-8"))
+    request_base_dir = str(request_file.resolve().parent)
+
+    invalid_payload = dict(request_payload)
+    invalid_payload.pop("query_type", None)
+    dump(
+        tmp_dir / "query_workflow_api_execute_validation_error.json",
+        expect_http_error(
+            lambda: post_json(
+                opener,
+                f"{base}/v1/query-workflows/execute",
+                invalid_payload,
+                token="contract-query-workflow-api-token",
+                request_base_dir=request_base_dir,
+            ),
+            code=400,
+            label="query workflow API execute validation request",
+        ),
+    )
+
+    run_failed_payload = dict(request_payload)
+    run_failed_payload["job_id"] = "contract-query-workflow-execute-run-failed"
+    run_failed_payload["out_base"] = "../query_workflow_execute_fail_out"
+    run_failed_payload["token_scope"] = "contract-query-execute-run-failed"
+    run_failed_payload["server_source"] = "../missing_execute_server_records.jsonl"
+    run_failed_request_file = tmp_dir / "query_requests" / "cross_party_match_execute_run_failed.json"
+    dump(run_failed_request_file, run_failed_payload)
+    run_failed_out_base = str(Path(request_base_dir, str(run_failed_payload["out_base"])).resolve())
+    dump(
+        tmp_dir / "query_workflow_api_execute_run_failed.json",
+        expect_http_error(
+            lambda: post_json(
+                opener,
+                f"{base}/v1/query-workflows/execute",
+                run_failed_payload,
+                token="contract-query-workflow-api-token",
+                request_base_dir=request_base_dir,
+            ),
+            code=502,
+            label="query workflow API execute run-failed request",
+        ),
+    )
+    dump(
+        tmp_dir / "query_workflow_api_execute_run_failed_status.json",
+        fetch_json(
+            opener,
+            f"{base}/v1/query-workflows/status?{urllib.parse.urlencode([('out_base', run_failed_out_base), ('job_id', str(run_failed_payload['job_id']))])}",
+            token="contract-query-workflow-api-token",
         ),
     )
 
@@ -221,6 +285,7 @@ def materialize_identity_query_api(tmp_dir: Path, *, port: int, request_file: Pa
     base = f"http://127.0.0.1:{port}"
     request_payload = json.load(request_file.open("r", encoding="utf-8"))
     request_base_dir = str(request_file.resolve().parent)
+    out_base = str(Path(request_base_dir, str(request_payload["out_base"])).resolve())
     dump(
         tmp_dir / "query_workflow_identity_dry_run.json",
         post_json(
@@ -243,6 +308,14 @@ def materialize_identity_query_api(tmp_dir: Path, *, port: int, request_file: Pa
             ),
             code=403,
             label="query workflow API identity execute request",
+        ),
+    )
+    dump(
+        tmp_dir / "query_workflow_identity_status.json",
+        fetch_json(
+            opener,
+            f"{base}/v1/query-workflows/status?{urllib.parse.urlencode([('out_base', out_base), ('job_id', str(request_payload['job_id']))])}",
+            token="contract-identity-marketing-analyst-token",
         ),
     )
 
@@ -286,6 +359,8 @@ def build_parser() -> argparse.ArgumentParser:
     ap.add_argument("--tmp-dir", required=True)
     ap.add_argument("--query-port", type=int)
     ap.add_argument("--query-request-file")
+    ap.add_argument("--query-execute-port", type=int)
+    ap.add_argument("--query-execute-request-file")
     ap.add_argument("--metadata-port", type=int)
     ap.add_argument("--audit-port", type=int)
     ap.add_argument("--platform-health-port", type=int)
@@ -304,6 +379,10 @@ def main() -> int:
         if not args.query_request_file:
             raise SystemExit("--query-request-file is required with --query-port")
         materialize_query_api(tmp_dir, port=args.query_port, request_file=Path(args.query_request_file))
+    if args.query_execute_port is not None:
+        if not args.query_execute_request_file:
+            raise SystemExit("--query-execute-request-file is required with --query-execute-port")
+        materialize_query_execute_api(tmp_dir, port=args.query_execute_port, request_file=Path(args.query_execute_request_file))
     if args.metadata_port is not None:
         materialize_metadata_api(tmp_dir, port=args.metadata_port)
     if args.audit_port is not None:
@@ -322,6 +401,7 @@ def main() -> int:
         materialize_identity_platform_health_api(tmp_dir, port=args.identity_platform_health_port)
     if (
         args.query_port is None
+        and args.query_execute_port is None
         and args.metadata_port is None
         and args.audit_port is None
         and args.platform_health_port is None

@@ -190,6 +190,12 @@ def build_parser() -> argparse.ArgumentParser:
     query_submit.add_argument("--execute", action="store_true", help="Call /execute instead of /dry-run")
     add_output_arg(query_submit)
 
+    query_status = sub.add_parser("query-status", help="GET /v1/query-workflows/status from the query-workflow API")
+    add_query_http_args(query_status)
+    query_status.add_argument("--out-base", required=True, help="Absolute out_base path for the query workflow sidecar")
+    query_status.add_argument("--job-id", default="", help="Optional job_id to assert against the loaded status")
+    add_output_arg(query_status)
+
     audit_health = sub.add_parser("audit-health", help="GET /healthz from the audit/public-report API")
     add_audit_http_args(audit_health)
     add_output_arg(audit_health)
@@ -290,6 +296,21 @@ def main() -> int:
             auth_token=resolve_request_auth_token(auth_token_env=args.auth_token_env, identity_token_env=args.identity_token_env),
             json_body=read_json(str(request_file)),
             extra_headers=headers,
+        )
+        write_output(payload, args.output_file)
+        return exit_code
+
+    if args.command == "query-status":
+        out_base = Path(args.out_base).expanduser()
+        if not out_base.is_absolute():
+            raise SystemExit("[ERROR] --out-base must be an absolute path")
+        params = [("out_base", str(out_base))]
+        if args.job_id:
+            params.append(("job_id", args.job_id))
+        payload, exit_code = request_json(
+            url=build_url(args.base_url, "/v1/query-workflows/status", params),
+            method="GET",
+            auth_token=resolve_request_auth_token(auth_token_env=args.auth_token_env, identity_token_env=args.identity_token_env),
         )
         write_output(payload, args.output_file)
         return exit_code

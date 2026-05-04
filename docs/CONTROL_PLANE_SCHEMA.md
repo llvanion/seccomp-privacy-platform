@@ -22,6 +22,255 @@
 8. `scripts/manage_metadata_db.py`
 9. `scripts/check_metadata_schema_portability.py`
 
+先明确一个容易误解的边界：
+
+1. 这里的 SQL sidecar 不是完整电商业务库。
+2. 它当前不以保存“买了什么商品”“在哪个平台购买”“从哪个广告或页面点击进来”“物流流转到了哪里”为目标。
+3. 它保存的是控制面、运行面和审计面的元数据，用来解释一条隐私查询是怎么被授权、执行、审计和回放的。
+4. 截至当前版本，下面这套“每订单业务事实层”仍然没有正式落地到 migration 或 importer 中，只能视为后续应该补齐的业务数仓 / 事实库设计目标。
+
+## 1.1 尚未落地的订单事实层
+
+如果未来要让 SQL 层真的能回答：
+
+1. 用户买了什么商品
+2. 在哪个平台成交
+3. 从哪个广告、页面或渠道点击进来
+4. 支付是否成功、退款是否发生
+5. 货从哪里发、物流走到了哪里
+6. 客服或售后是否介入
+
+那么至少需要补下面这些业务表。当前仓库里这些表**都还没做成正式 schema**。
+
+### `orders`
+
+一笔订单一行，保存订单头信息。建议至少包括：
+
+1. `order_id`
+2. `parent_order_id`
+3. `tenant_id`
+4. `merchant_id`
+5. `store_id`
+6. `platform_name`
+7. `platform_order_id`
+8. `order_status`
+9. `order_created_at`
+10. `order_paid_at`
+11. `order_completed_at`
+12. `order_cancelled_at`
+13. `currency`
+14. `total_amount`
+15. `item_amount`
+16. `shipping_amount`
+17. `discount_amount`
+18. `coupon_amount`
+19. `refund_amount`
+20. `payable_amount`
+21. `payment_status`
+22. `fulfillment_status`
+23. `refund_status`
+24. `buyer_id`
+25. `buyer_hash_id`
+26. `region_code`
+27. `source_system`
+28. `etl_batch_id`
+29. `data_version`
+
+### `order_items`
+
+一笔订单对应的商品行。建议至少包括：
+
+1. `order_item_id`
+2. `order_id`
+3. `sku_id`
+4. `spu_id`
+5. `product_id`
+6. `product_name_snapshot`
+7. `brand_id`
+8. `category_lv1`
+9. `category_lv2`
+10. `category_lv3`
+11. `sku_attrs_snapshot`
+12. `quantity`
+13. `list_price`
+14. `sale_price`
+15. `discount_amount`
+16. `item_total_amount`
+17. `cost_amount`
+18. `is_gift`
+19. `is_preorder`
+20. `item_status`
+
+### `order_attribution`
+
+回答“从哪里点击进来”和“在哪个平台转化”的归因表。建议至少包括：
+
+1. `order_id`
+2. `session_id`
+3. `visit_id`
+4. `traffic_source`
+5. `traffic_medium`
+6. `campaign_id`
+7. `campaign_name`
+8. `ad_group_id`
+9. `creative_id`
+10. `channel_platform`
+11. `landing_page`
+12. `referrer_url`
+13. `referrer_domain`
+14. `entry_page_type`
+15. `click_id`
+16. `impression_id`
+17. `conversion_path`
+18. `is_first_touch`
+19. `is_last_touch`
+20. `attribution_model`
+21. `attributed_at`
+
+### `order_payment`
+
+支付与支付失败信息。建议至少包括：
+
+1. `payment_id`
+2. `order_id`
+3. `payment_channel`
+4. `payment_method`
+5. `payment_provider_txn_id`
+6. `payment_status`
+7. `paid_amount`
+8. `paid_at`
+9. `payment_fail_reason`
+10. `installment_flag`
+11. `risk_review_result`
+
+### `order_fulfillment`
+
+履约与物流头信息。建议至少包括：
+
+1. `fulfillment_id`
+2. `order_id`
+3. `warehouse_id`
+4. `fulfillment_mode`
+5. `shipment_id`
+6. `carrier_name`
+7. `tracking_no_hash`
+8. `shipped_at`
+9. `delivered_at`
+10. `delivery_status`
+11. `delivery_region_code`
+12. `pickup_flag`
+13. `sign_status`
+14. `return_requested_at`
+15. `return_completed_at`
+
+### `shipment_events`
+
+更细的物流轨迹节点。建议至少包括：
+
+1. `shipment_id`
+2. `event_time`
+3. `event_type`
+4. `event_city`
+5. `event_station`
+6. `event_desc`
+
+### `buyer_identity_snapshot`
+
+订单关联的买家身份快照。建议至少包括：
+
+1. `buyer_id`
+2. `buyer_hash_id`
+3. `platform_buyer_id`
+4. `phone_hash`
+5. `email_hash`
+6. `device_hash`
+7. `name_tokenized`
+8. `default_region_code`
+9. `registration_channel`
+10. `member_level`
+11. `is_new_customer`
+12. `risk_segment`
+
+### `order_address_snapshot`
+
+收货信息快照。建议至少包括：
+
+1. `order_id`
+2. `receiver_name_tokenized`
+3. `receiver_phone_hash`
+4. `province_code`
+5. `city_code`
+6. `district_code`
+7. `street_tokenized`
+8. `postal_code`
+9. `geo_hash_approx`
+
+### `sales_after_service`
+
+售后工单。建议至少包括：
+
+1. `service_ticket_id`
+2. `order_id`
+3. `ticket_type`
+4. `ticket_status`
+5. `opened_at`
+6. `closed_at`
+7. `reason_code`
+8. `responsible_team`
+
+### `customer_service_interactions`
+
+客服接触记录。建议至少包括：
+
+1. `interaction_id`
+2. `order_id`
+3. `buyer_id`
+4. `channel`
+5. `agent_id`
+6. `opened_at`
+7. `closed_at`
+8. `intent_label`
+9. `resolution_label`
+10. `satisfaction_score`
+
+### `order_risk_events`
+
+风控和拒付信息。建议至少包括：
+
+1. `order_id`
+2. `risk_case_id`
+3. `risk_score`
+4. `risk_tags`
+5. `device_hash`
+6. `ip_hash`
+7. `geo_risk_level`
+8. `payment_risk_level`
+9. `chargeback_flag`
+10. `chargeback_amount`
+11. `manual_review_flag`
+12. `manual_review_result`
+
+### 对当前隐私平台特别重要的补充字段
+
+为了让这套事实层真正接到当前 `dataset_id / service_id / caller / policy` 模型上，还需要预留：
+
+1. `join_key_type`
+2. `join_key_normalized`
+3. `join_key_hash`
+4. `consent_status`
+5. `consent_version`
+6. `data_retention_class`
+7. `data_sensitivity_level`
+8. `allowed_query_profile`
+9. `dataset_id`
+10. `service_id`
+
+其中高敏字段不应该在普通查询路径里以明文广泛铺开，更适合：
+
+1. 用 hash / token / normalized join key 保存联结标识
+2. 用 snapshot 保存订单时点信息
+3. 把真实明文限制在更小的恢复边界或专门服务里
+
 ## 2. 设计约束
 
 ### 2.1 冻结字段
@@ -57,6 +306,12 @@
 10. `out-base/key_access_audit.jsonl`
 11. `out-base/audit_chain.json`
 12. `out-base/audit_chain.seal.json`
+
+这直接决定了当前 sidecar 更像“run metadata importer”，而不是“业务事实明细 ETL”：
+
+1. 它能导入 job、artifact、audit、policy、permission、key access 信息。
+2. 它不能凭空补出完整订单事实、商品维度、流量来源、渠道平台、物流轨迹、客服会话等业务字段。
+3. 如果未来要让 SQL 层承载这些信息，需要新增明确的数据 contract、采集入口和脱敏边界，而不是继续把它们塞进当前 importer。
 
 ### 2.3 SQLite now, PostgreSQL later
 
@@ -96,6 +351,9 @@
 
 1. 记录数据集与租户关系。
 2. 为 `jobs`、`services`、policy binding 提供 scope 锚点。
+
+这里的 `dataset` 当前是控制面 scope 概念，不等价于“完整业务主题宽表”。
+例如 `orders_analytics` 可以表示订单分析数据域，但这不意味着 sidecar 里已经直接存放订单商品明细、渠道来源和全量用户行为事实。
 
 关键列：
 
@@ -147,6 +405,8 @@
 1. 作为控制面主表。
 2. 汇总一次运行的 scope、输出目录、发布结果和导入时间。
 
+它记录的是“跑过什么查询 / 结果如何”，不是“订单本体长什么样”。
+
 关键列：
 
 1. `job_id` `PRIMARY KEY`
@@ -193,6 +453,8 @@
 约束：
 
 1. `UNIQUE(job_id, artifact_type, path)`
+
+`metadata_json` 可以挂少量与 artifact 有关的辅助元数据，但当前设计并不把它当作业务明细字段的大仓库。
 
 #### `job_stage_status`
 
@@ -366,6 +628,8 @@
 
 1. `UNIQUE(policy_id, caller, permission_key)`
 
+这张表保存的是展开后的权限键值，不是 CRM/OMS/WMS 里的人员主数据表。
+
 当前这两张表不仅服务于只读查询，也已经成为第一阶段关系同步源：`scripts/export_authz_tuples.py` 可以直接从 policy 文件或 sidecar DB 中的 `policy_bindings` / `caller_permissions` 重建 `authz_tuple_export/v1`，把当前 caller/tenant/dataset/service scope、平台角色和 coarse capability 映射成可供 OpenFGA 一类系统消费的 tuple baseline，而不要求主链路在线依赖外部授权服务。与此同时，`scripts/manage_metadata_db.py apply-registry` 也把它们作为受控写侧的展开目标：manifest 只显式维护 registry entities 和 policy 文件路径，不直接要求调用方手写 permission rows。
 
 ### 3.5 Key Registry 表
@@ -458,6 +722,15 @@
 3. `dataset_id`
 4. `service_id`
 
+当前 importer 不会从运行产物中自动推断下列更细的业务字段，除非未来先为这些字段单独冻结 contract：
+
+1. 商品 SKU / SPU / 类目
+2. 购买平台 / 渠道平台
+3. 广告点击入口 / 页面来源 / campaign source
+4. 城市 / 门店 / 履约站点
+5. 物流轨迹节点
+6. 客服会话或售后工单维度
+
 ### 4.3 阶段状态与时长
 
 当前阶段聚合以导入的 audit records 为准，目标是给查询层提供：
@@ -488,6 +761,8 @@
 1. 单 run dry-run reconcile
 2. 单 run replace replay
 3. 多 run batch replay
+
+但它仍然是“围绕隐私查询运行产物”的 sidecar，而不是“完整电商业务事实仓”的替代品。
 
 但它仍然没有完整的跨批次修复/差异合并策略，那部分仍属于后续 importer 治理工作。
 

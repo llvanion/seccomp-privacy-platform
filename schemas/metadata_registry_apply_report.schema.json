@@ -74,6 +74,7 @@
         "services": { "$ref": "#/$defs/entityResults" },
         "callers": { "$ref": "#/$defs/entityResults" },
         "caller_identities": { "$ref": "#/$defs/entityResults" },
+        "issuer_registry": { "$ref": "#/$defs/entityResults" },
         "key_refs": { "$ref": "#/$defs/entityResults" },
         "key_versions": { "$ref": "#/$defs/entityResults" }
       },

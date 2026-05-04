@@ -21,6 +21,16 @@
       "type": "string",
       "minLength": 1
     },
+    "error_class": {
+      "type": "string",
+      "enum": [
+        "authz_rejected",
+        "endpoint_disabled",
+        "internal_error",
+        "not_found",
+        "validation_rejected"
+      ]
+    },
     "error": {
       "type": "string",
       "minLength": 1

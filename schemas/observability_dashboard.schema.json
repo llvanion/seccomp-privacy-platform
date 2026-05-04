@@ -1,0 +1,221 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "observability_dashboard/v1",
+  "title": "Operator dashboard panels derived from pipeline_observability/v1",
+  "type": "object",
+  "required": [
+    "schema",
+    "generated_at_utc",
+    "job_id",
+    "correlation_id",
+    "caller",
+    "tenant_id",
+    "dataset_id",
+    "service_id",
+    "summary",
+    "panels",
+    "health_summary"
+  ],
+  "properties": {
+    "schema": {
+      "const": "observability_dashboard/v1"
+    },
+    "generated_at_utc": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "job_id": {
+      "type": ["string", "null"]
+    },
+    "correlation_id": {
+      "type": ["string", "null"]
+    },
+    "caller": {
+      "type": ["string", "null"]
+    },
+    "tenant_id": {
+      "type": ["string", "null"]
+    },
+    "dataset_id": {
+      "type": ["string", "null"]
+    },
+    "service_id": {
+      "type": ["string", "null"]
+    },
+    "summary": {
+      "type": "object",
+      "required": ["total_events", "overall_status", "panel_count"],
+      "properties": {
+        "total_events": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "overall_status": {
+          "type": "string"
+        },
+        "panel_count": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    },
+    "panels": {
+      "type": "object",
+      "required": [
+        "stage_timeline",
+        "stage_summary",
+        "stage_duration",
+        "release_outcomes",
+        "failure_summary"
+      ],
+      "properties": {
+        "stage_timeline": {
+          "type": "object",
+          "required": ["type", "row_count", "rows"],
+          "properties": {
+            "type": {"const": "stage_timeline"},
+            "row_count": {"type": "integer", "minimum": 0},
+            "rows": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "required": [
+                  "stage", "role", "status", "ts_utc",
+                  "duration_ms", "row_count", "decision", "reason_code"
+                ],
+                "properties": {
+                  "stage":       {"type": ["string", "null"]},
+                  "role":        {"type": ["string", "null"]},
+                  "status":      {"type": ["string", "null"]},
+                  "ts_utc":      {"type": ["string", "null"]},
+                  "duration_ms": {"type": ["number", "null"], "minimum": 0},
+                  "row_count":   {"type": ["integer", "null"], "minimum": 0},
+                  "decision":    {"type": ["string", "null"]},
+                  "reason_code": {"type": ["string", "null"]}
+                }
+              }
+            }
+          }
+        },
+        "stage_summary": {
+          "type": "object",
+          "required": ["type", "row_count", "rows"],
+          "properties": {
+            "type": {"const": "stage_summary"},
+            "row_count": {"type": "integer", "minimum": 0},
+            "rows": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "required": ["stage", "ok", "error", "unknown", "total"],
+                "properties": {
+                  "stage":   {"type": "string"},
+                  "ok":      {"type": "integer", "minimum": 0},
+                  "error":   {"type": "integer", "minimum": 0},
+                  "unknown": {"type": "integer", "minimum": 0},
+                  "total":   {"type": "integer", "minimum": 0}
+                }
+              }
+            }
+          }
+        },
+        "stage_duration": {
+          "type": "object",
+          "required": ["type", "row_count", "rows"],
+          "properties": {
+            "type": {"const": "stage_duration"},
+            "row_count": {"type": "integer", "minimum": 0},
+            "rows": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "required": [
+                  "stage", "sample_count",
+                  "min_ms", "mean_ms", "p50_ms", "p95_ms", "max_ms"
+                ],
+                "properties": {
+                  "stage":        {"type": "string"},
+                  "sample_count": {"type": "integer", "minimum": 1},
+                  "min_ms":       {"type": "number", "minimum": 0},
+                  "mean_ms":      {"type": "number", "minimum": 0},
+                  "p50_ms":       {"type": "number", "minimum": 0},
+                  "p95_ms":       {"type": "number", "minimum": 0},
+                  "max_ms":       {"type": "number", "minimum": 0}
+                }
+              }
+            }
+          }
+        },
+        "release_outcomes": {
+          "type": "object",
+          "required": ["type", "row_count", "rows"],
+          "properties": {
+            "type": {"const": "release_outcomes"},
+            "row_count": {"type": "integer", "minimum": 0},
+            "rows": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "required": [
+                  "tenant_id", "ok_count", "error_count",
+                  "unknown_count", "last_status", "last_ts_utc"
+                ],
+                "properties": {
+                  "tenant_id":     {"type": "string"},
+                  "ok_count":      {"type": "integer", "minimum": 0},
+                  "error_count":   {"type": "integer", "minimum": 0},
+                  "unknown_count": {"type": "integer", "minimum": 0},
+                  "last_status":   {"type": ["string", "null"]},
+                  "last_ts_utc":   {"type": ["string", "null"]}
+                }
+              }
+            }
+          }
+        },
+        "failure_summary": {
+          "type": "object",
+          "required": ["type", "row_count", "rows"],
+          "properties": {
+            "type": {"const": "failure_summary"},
+            "row_count": {"type": "integer", "minimum": 0},
+            "rows": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "required": [
+                  "caller", "stage", "role", "status",
+                  "reason_code", "ts_utc", "duration_ms"
+                ],
+                "properties": {
+                  "caller":      {"type": ["string", "null"]},
+                  "stage":       {"type": ["string", "null"]},
+                  "role":        {"type": ["string", "null"]},
+                  "status":      {"type": ["string", "null"]},
+                  "reason_code": {"type": ["string", "null"]},
+                  "ts_utc":      {"type": ["string", "null"]},
+                  "duration_ms": {"type": ["number", "null"], "minimum": 0}
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "health_summary": {
+      "oneOf": [
+        {"type": "null"},
+        {
+          "type": "object",
+          "required": ["status", "ok", "warn", "error", "check_count"],
+          "properties": {
+            "status":      {"type": "string"},
+            "ok":          {"type": ["integer", "null"], "minimum": 0},
+            "warn":        {"type": ["integer", "null"], "minimum": 0},
+            "error":       {"type": ["integer", "null"], "minimum": 0},
+            "check_count": {"type": "integer", "minimum": 0}
+          }
+        }
+      ]
+    }
+  }
+}

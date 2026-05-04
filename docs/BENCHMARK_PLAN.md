@@ -53,6 +53,31 @@ Why dry-run first:
 3. it is safe to run in local development and CI-like environments
 4. default contract smoke now also asserts that the `--mode all` report still covers all three dry-run entrypoints and that each one succeeded
 
+## Next Query Workflow Coverage
+
+The next benchmark expansion on this line should follow the execute-governance and receipt/status work, not race ahead of it.
+
+Recommended order:
+
+1. keep the current `dry-run` benchmark as the always-on fast guard
+2. add synthetic receipt/status benchmark coverage only after the wrapper lifecycle contract is documented and implemented
+3. keep live execute benchmarking out of default smoke unless it can be made synthetic and self-contained
+
+Recommended next benchmark modes for the query/workflow line:
+
+1. receipt write latency after accepted submit
+2. status read latency by `out_base`
+3. status read latency by `job_id`
+4. execute-disabled rejection latency for the HTTP adapter
+5. terminal failed-status read over a synthetic non-zero-exit fixture
+
+The important guardrail is:
+
+1. benchmark the wrapper lifecycle sidecar
+2. do not make the fast benchmark path depend on running the full privacy pipeline
+
+When those modes are added, the benchmark report should still keep `dry-run` and lifecycle status separate so timing regressions in the operator shell do not get conflated with full pipeline runtime.
+
 ## Read Adapter Benchmark
 
 Current supported report schema:

@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 import argparse
+import hashlib
 import json
 import os
 import subprocess
@@ -12,7 +13,13 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 PIPELINE_SCRIPT = REPO_ROOT / "scripts" / "run_sse_bridge_pipeline.sh"
 REQUEST_SCHEMA = "query_workflow_request/v1"
 MANIFEST_SCHEMA = "query_workflow_submission/v1"
+RECEIPT_SCHEMA = "query_workflow_receipt/v1"
+STATUS_SCHEMA = "query_workflow_status/v1"
 SUPPORTED_QUERY_TYPES = {"cross_party_match"}
+QUERY_WORKFLOW_DIRNAME = "query_workflow"
+SUBMISSION_MANIFEST_FILENAME = "submission_manifest.json"
+EXECUTION_RECEIPTS_FILENAME = "execution_receipts.jsonl"
+STATUS_FILENAME = "status.json"
 PATH_FIELDS = {
     "server_source",
     "client_source",
@@ -39,6 +46,11 @@ SECRET_FIELDS = {"token_secret"}
 
 def utc_now() -> str:
     return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+
+
+def json_sha256(payload: dict[str, Any]) -> str:
+    encoded = json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    return hashlib.sha256(encoded).hexdigest()
 
 
 def load_request(path: Path) -> dict[str, Any]:
@@ -288,6 +300,132 @@ def summarize_request(payload: dict[str, Any]) -> dict[str, Any]:
     return summary
 
 
+def query_workflow_sidecar_dir(out_base: str) -> Path:
+    return Path(out_base) / QUERY_WORKFLOW_DIRNAME
+
+
+def query_workflow_sidecar_paths(out_base: str) -> dict[str, Path]:
+    sidecar_dir = query_workflow_sidecar_dir(out_base)
+    return {
+        "sidecar_dir": sidecar_dir,
+        "submission_manifest": sidecar_dir / SUBMISSION_MANIFEST_FILENAME,
+        "execution_receipts": sidecar_dir / EXECUTION_RECEIPTS_FILENAME,
+        "status": sidecar_dir / STATUS_FILENAME,
+    }
+
+
+def write_json(path: Path, payload: dict[str, Any]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+
+
+def append_jsonl(path: Path, payload: dict[str, Any]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("a", encoding="utf-8") as handle:
+        handle.write(json.dumps(payload, ensure_ascii=False) + "\n")
+
+
+def load_json_object(path: Path) -> dict[str, Any]:
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    if not isinstance(payload, dict):
+        raise SystemExit(f"[ERROR] JSON object expected: {path}")
+    return payload
+
+
+def load_query_workflow_status(out_base: str) -> dict[str, Any]:
+    status_path = query_workflow_sidecar_paths(out_base)["status"]
+    if not status_path.is_file():
+        raise FileNotFoundError(f"query workflow status file does not exist: {status_path}")
+    payload = load_json_object(status_path)
+    if payload.get("schema") != STATUS_SCHEMA:
+        raise ValueError(f"unexpected query workflow status schema: {payload}")
+    return payload
+
+
+def build_artifact_summary(out_base: str) -> dict[str, Any]:
+    out_root = Path(out_base)
+    sidecar_paths = query_workflow_sidecar_paths(out_base)
+    public_report_path = out_root / "a_psi_run" / "public_report.json"
+    audit_chain_path = out_root / "audit_chain.json"
+    mainline_contract_path = out_root / "mainline_contract_check.json"
+    return {
+        "submission_manifest_available": sidecar_paths["submission_manifest"].is_file(),
+        "execution_receipts_available": sidecar_paths["execution_receipts"].is_file(),
+        "status_available": sidecar_paths["status"].is_file(),
+        "public_report_available": public_report_path.is_file(),
+        "audit_chain_available": audit_chain_path.is_file(),
+        "mainline_contract_available": mainline_contract_path.is_file(),
+    }
+
+
+def build_receipt(
+    *,
+    payload: dict[str, Any],
+    mode: str,
+    event: str,
+    request_digest: str,
+    command: list[str],
+    exit_code: int | None,
+) -> dict[str, Any]:
+    event_at_utc = utc_now()
+    out_base = str(payload.get("out_base") or "")
+    return {
+        "schema": RECEIPT_SCHEMA,
+        "receipt_id": f"{payload.get('job_id')}-{event}-{event_at_utc}",
+        "event": event,
+        "event_at_utc": event_at_utc,
+        "workflow": "sse_bridge_pipeline",
+        "mode": mode,
+        "job_id": str(payload.get("job_id") or ""),
+        "correlation_id": payload.get("correlation_id"),
+        "caller": str(payload.get("caller") or ""),
+        "tenant_id": str(payload.get("tenant_id") or ""),
+        "dataset_id": str(payload.get("dataset_id") or ""),
+        "query_type": payload.get("query_type"),
+        "out_base": out_base,
+        "request_digest": request_digest,
+        "request_summary": summarize_request(payload),
+        "command": redact_command(command),
+        "exit_code": exit_code,
+        "artifacts": build_artifact_summary(out_base),
+    }
+
+
+def build_status(
+    *,
+    payload: dict[str, Any],
+    mode: str,
+    state: str,
+    terminal: bool,
+    latest_receipt: dict[str, Any],
+    receipt_count: int,
+    exit_code: int | None,
+) -> dict[str, Any]:
+    out_base = str(payload.get("out_base") or "")
+    artifacts = build_artifact_summary(out_base)
+    return {
+        "schema": STATUS_SCHEMA,
+        "workflow": "sse_bridge_pipeline",
+        "mode": mode,
+        "job_id": str(payload.get("job_id") or ""),
+        "correlation_id": payload.get("correlation_id"),
+        "caller": str(payload.get("caller") or ""),
+        "tenant_id": str(payload.get("tenant_id") or ""),
+        "dataset_id": str(payload.get("dataset_id") or ""),
+        "query_type": payload.get("query_type"),
+        "out_base": out_base,
+        "state": state,
+        "terminal": terminal,
+        "last_updated_at_utc": utc_now(),
+        "latest_receipt_id": latest_receipt.get("receipt_id"),
+        "receipt_count": receipt_count,
+        "last_exit_code": exit_code,
+        "artifact_summary": artifacts,
+        "public_report_available": artifacts["public_report_available"],
+        "audit_chain_available": artifacts["audit_chain_available"],
+    }
+
+
 def render_manifest(
     *,
     request_source: str,
@@ -335,13 +473,41 @@ def submit_request_payload(
     request_dir: Path,
     execute: bool,
     manifest_out: str = "",
-) -> tuple[dict[str, Any], int | None]:
+) -> tuple[dict[str, Any], int | None, dict[str, Any] | None, dict[str, Any] | None]:
     payload = normalize_request_paths(raw_payload, request_dir=request_dir)
     validate_request(payload)
     command = build_command(payload)
-
     mode = "execute" if execute else "dry_run"
+    request_digest = json_sha256(payload)
+    out_base = str(payload.get("out_base") or "")
+    sidecar_paths = query_workflow_sidecar_paths(out_base) if out_base else {}
+    receipt: dict[str, Any] | None = None
+    status: dict[str, Any] | None = None
+    receipt_count = 0
     exit_code: int | None = None
+
+    if sidecar_paths:
+        receipt = build_receipt(
+            payload=payload,
+            mode=mode,
+            event="started" if execute else "accepted",
+            request_digest=request_digest,
+            command=command,
+            exit_code=None,
+        )
+        append_jsonl(sidecar_paths["execution_receipts"], receipt)
+        receipt_count = 1
+        status = build_status(
+            payload=payload,
+            mode=mode,
+            state="running" if execute else "accepted",
+            terminal=not execute,
+            latest_receipt=receipt,
+            receipt_count=receipt_count,
+            exit_code=None,
+        )
+        write_json(sidecar_paths["status"], status)
+
     if execute:
         completed = subprocess.run(command, check=False)
         exit_code = completed.returncode
@@ -354,7 +520,32 @@ def submit_request_payload(
         exit_code=exit_code,
     )
     write_manifest(manifest, manifest_out=manifest_out)
-    return manifest, exit_code
+    if sidecar_paths:
+        write_json(sidecar_paths["submission_manifest"], manifest)
+        if execute:
+            receipt = build_receipt(
+                payload=payload,
+                mode=mode,
+                event="completed" if exit_code in (None, 0) else "failed",
+                request_digest=request_digest,
+                command=command,
+                exit_code=exit_code,
+            )
+            append_jsonl(sidecar_paths["execution_receipts"], receipt)
+            receipt_count += 1
+        elif receipt is None:
+            raise SystemExit("[ERROR] dry-run receipt generation failed")
+        status = build_status(
+            payload=payload,
+            mode=mode,
+            state="completed" if exit_code in (None, 0) and execute else "failed" if execute else "accepted",
+            terminal=True,
+            latest_receipt=receipt,
+            receipt_count=receipt_count,
+            exit_code=exit_code,
+        )
+        write_json(sidecar_paths["status"], status)
+    return manifest, exit_code, receipt, status
 
 
 def main() -> int:
@@ -363,7 +554,7 @@ def main() -> int:
     if not request_file.is_file():
         raise SystemExit(f"[ERROR] request file does not exist: {request_file}")
 
-    manifest, exit_code = submit_request_payload(
+    manifest, exit_code, _receipt, _status = submit_request_payload(
         raw_payload=load_request(request_file),
         request_source=str(request_file.resolve()),
         request_dir=request_file.resolve().parent,

@@ -350,7 +350,7 @@ python3 scripts/serve_audit_query_api.py \
 
 建议拆分：
 
-1. `2 blocks / 10h`：把 query/workflow wrapper 的 execute 路径补成更正式的权限、兼容和审计策略，而不只是 dry-run adapter。
+1. `2 blocks / 10h`：把 query/workflow wrapper 的 execute 路径补成更正式的执行治理、兼容和回执策略，而不只是“打开 endpoint 就能跑”。
 2. `2 blocks / 10h`：在现有 observability / catalog / audit / platform-health contract 之上补 dashboard、alert example、operator 视图或 UI 壳。
 3. `2 blocks / 10h`：把 workflow wrapper 再推进到更 durable 的 job submit/status 形态，但仍然只包装现有 CLI，不重写主链路。
 4. `2 blocks / 10h`：把 `platform_api_client.py`、metadata/audit/query/platform-health read adapter 再收成更完整的 SDK/admin shell baseline，并补回归样例。
@@ -360,3 +360,196 @@ python3 scripts/serve_audit_query_api.py \
 1. 通用 SQL 引擎全能力。
 2. 真正的 pgwire / Flight SQL 产品化。
 3. 完整前端管理台发布流程。
+
+## 16. 执行顺序与完成记录（2026-05-03 基线，全部已完成）
+
+所有 8 个 block 已完成。下表记录每个 block 的实际入口和验证状态：
+
+| Block | 状态 | 主要入口 | 冻结 contract | 验证 |
+| --- | --- | --- | --- | --- |
+| ~~B1~~ ✓ | 完成 | `submit_query_workflow.py`、`serve_query_workflow_api.py`、`api_identity.py` | `query_workflow_api_error/v1`（error_class） | execute allow/deny/disabled smoke |
+| ~~B2~~ ✓ | 完成 | `query_workflow/submission_manifest.json`、`execution_receipts.jsonl`、`status.json` | `query_workflow_receipt/v1`、`query_workflow_status/v1` | receipt/status readback smoke |
+| ~~B3~~ ✓ | 完成 | `build_observability_dashboard.py` | `observability_dashboard/v1` | with/without health smoke × 2 |
+| ~~B4~~ ✓ | 完成 | `check_observability_alerts.py` | `observability_alert_report/v1` | alert firing smoke × 2 |
+| ~~B5~~ ✓ | 完成 | `list_query_workflow_status.py` | `query_workflow_status_list/v1` | unfiltered + state=failed smoke × 2 |
+| ~~B6~~ ✓ | 完成 | `check_workflow_retry_eligibility.py` | `workflow_retry_eligibility/v1` | failed + completed smoke × 2 |
+| ~~B7~~ ✓ | 完成 | `run_operator_triage.py` | `operator_triage_report/v1` | full triage chain smoke × 1 |
+| ~~B8~~ ✓ | 完成 | `docs/NEXT_SESSION_READING_GUIDE.md` 第 5–6 节 | — | 文档交接验证（6 步 operator 流程 + 契约索引表） |
+
+### 当前不建议优先做的事
+
+1. 不要先上通用 SQL / pgwire；这会把剩余主线资源从 operator shell 分散到新执行层。
+2. 不要先做重前端；目前更缺的是 operator contract、status 和 triage 语义，而不是页面本身。
+3. 不要让 workflow wrapper 直接改写主链路 artifact；它仍然应该消费现有 CLI 和已冻结 contract。
+
+## 17. 本轮推进结果（2026-05-03，文档基线）
+
+本轮没有宣称完成 `B1/B2` 代码实现，但已经把这两个 block 从“抽象方向”推进成了可以直接据此落代码和验收的文档基线。
+
+已收口的点：
+
+1. `docs/QUERY_INTERFACE_PLAN.md` 现在已经明确了 execute 的目标治理 contract：
+   - 允许的 query shape 仍然只限 `cross_party_match`
+   - `caller` / `tenant_id` / `dataset_id` / `record_recovery_service_id` 的目标绑定规则
+   - production-like secret 使用建议
+   - retained handoff 的例外定位
+   - `validation_rejected` / `authz_rejected` / `launch_failed` / `run_failed` / `completed` 五类失败分类
+2. `docs/QUERY_INTERFACE_PLAN.md` 同时给出了 receipt/status sidecar 的目标拆分：
+   - `query_workflow_submission/v1`
+   - 目标中的 `query_workflow_receipt/v1`
+   - 目标中的 `query_workflow_status/v1`
+   - 推荐落盘目录 `out_base/query_workflow/`
+3. `docs/OPS_RUNBOOK.md` 已补 execute checklist、当前 triage 顺序和目标 receipt/status 布局，后续实现不需要再重新决定 operator 路径。
+4. `docs/BENCHMARK_PLAN.md` 已补 query/workflow 后续 benchmark 扩展口径，明确先 benchmark synthetic receipt/status，再考虑更重的 execute 路径。
+
+这意味着下一步实现时不应该再讨论“execute 到底算不算平台入口”这类问题，而应该直接进入：
+
+1. receipt/status schema 与读写路径实现
+2. execute allow/deny 语义 smoke
+3. status read adapter / shell 入口
+
+## 18. 本轮代码推进结果（2026-05-03，已整库收口）
+
+这轮已经把 `B1/B2` 从“receipt/status 基线落地”继续推到了“transport contract + execute smoke + 整库 contract 收绿”。
+
+已落地的代码面：
+
+1. `scripts/submit_query_workflow.py` 现在稳定在 `out_base/query_workflow/` 下落：
+   - `submission_manifest.json`
+   - `execution_receipts.jsonl`
+   - `status.json`
+2. `scripts/serve_query_workflow_api.py` 现在已经同时具备：
+   - `GET /v1/query-workflows/status?out_base=<abs-path>[&job_id=<job-id>]`
+   - `POST /dry-run` / `POST /execute` success envelope 中返回最新 `receipt`、`status` 与 sidecar 路径
+   - `query_workflow_status_api_response/v1` 独立 response schema
+   - `query_workflow_api_error/v1.error_class`，当前覆盖 `validation_rejected` / `authz_rejected` / `endpoint_disabled` / `not_found` / `internal_error`
+3. `scripts/platform_api_client.py` 现在支持：
+   - `query-status`
+   - execute run-failed 之后的 status 读取
+4. `scripts/check_json_contracts.sh`、`scripts/materialize_platform_api_smoke_reports.py`、`scripts/check_platform_api_smoke_reports.py` 现在已经纳入：
+   - disabled execute smoke
+   - validation-rejected execute smoke
+   - identity authz-rejected execute smoke
+   - `run_failed` execute smoke
+   - execute 后的 `status.json` / `execution_receipts.jsonl` readback
+
+这轮顺手修掉的整库挡板：
+
+1. `schemas/metadata_db_status.schema.json` 现在已经接住 `issuer_registry_count` 和 `mutation_count`
+2. `schemas/metadata_registry_apply_report.schema.json` 现在已经接住 `entities.issuer_registry`
+3. `scripts/check_json_contracts.sh` 与 `scripts/check_contract_smoke_reports.py` 里旧的 registry entity 计数断言已经更新到包含 `issuer_registry` 的新基线
+
+当前验证状态：
+
+1. `python3 scripts/check_schema_backcompat.py` 通过
+2. `python3 -m py_compile` 已覆盖本轮改动过的 query/workflow 脚本
+3. `bash scripts/check_json_contracts.sh` 通过，包含新增的 query-workflow execute smoke 与最终 contract checker
+
+因此当前最准确的结论是：
+
+1. `B2` 这块不再只是”开始落地”，而是已经具备 receipt/status sidecar、status read adapter、execute transport/error contract 和整库 contract 覆盖
+2. query/workflow 这条线后续如果继续推进，优先级已经从”补基础 contract”转到”扩 benchmark / operator shell / 更细的 launch_failed 观测”
+
+## 19. 本轮代码推进结果（2026-05-03，B3 observability dashboard 落地）
+
+这轮把 `B3` 从”把 observability 展示给 operator”推到了”正式 dashboard contract + contract smoke 双路径覆盖”。
+
+已落地的代码面：
+
+1. `scripts/build_observability_dashboard.py`：从 `pipeline_observability/v1` 生成 `observability_dashboard/v1`，包含五个固定面板：
+   - `stage_timeline`：按 `ts_utc` 排序的阶段时间线（stage、role、status、duration_ms、row_count、decision）
+   - `stage_summary`：每个阶段的 ok / error / unknown 计数表
+   - `stage_duration`：每个阶段的 min / mean / p50 / p95 / max timing（仅含有非 null `duration_ms` 的阶段）
+   - `release_outcomes`：按 `tenant_id` 聚合的 policy_release ok/error/unknown 计数与最近状态
+   - `failure_summary`：所有 `status=error` 事件，按 `ts_utc` 降序排列，带 `caller` / `stage` / `reason_code`
+2. `schemas/observability_dashboard.schema.json`：冻结 `observability_dashboard/v1` contract，含 `health_summary` 的 nullable 双模态（有 / 无 platform_health 来源均合法）
+3. `config/schema_backcompat_baseline.json`：新增 `observability_dashboard/v1` baseline entry
+4. `scripts/check_json_contracts.sh`：
+   - `SCHEMAS` 数组新增 `observability_dashboard.schema.json`
+   - 新增两条 smoke 路径：
+     - `--observability + --platform-health`：验证 health_summary 非 null 且 status 有效
+     - `--observability` 单独：验证 health_summary 为 null
+
+调用方式：
+
+```bash
+python3 scripts/build_observability_dashboard.py \
+  --observability tmp/sse_bridge_pipeline_demo/pipeline_observability.json \
+  --platform-health tmp/sse_bridge_pipeline_demo/platform_health.json \
+  --out tmp/sse_bridge_pipeline_demo/observability_dashboard.json
+```
+
+或使用 `--out-base` 自动推断（自动读取同目录下的 `pipeline_observability.json` 和 `platform_health.json`）：
+
+```bash
+python3 scripts/build_observability_dashboard.py \
+  --out-base tmp/sse_bridge_pipeline_demo \
+  --out tmp/sse_bridge_pipeline_demo/observability_dashboard.json
+```
+
+当前验证状态：
+
+1. `python3 -m py_compile scripts/build_observability_dashboard.py` 通过
+2. `bash scripts/check_json_contracts.sh` 通过，包含新增的两条 dashboard smoke 路径
+3. `python3 scripts/check_schema_backcompat.py` 通过
+
+因此当前最准确的结论是：
+
+1. `B3` 已经完整落地 dashboard contract、smoke 覆盖、文档回写（`docs/OBSERVABILITY_PLAN.md`、`docs/OPS_RUNBOOK.md`、`docs/PLATFORM_LEVEL_REMAINING_ESTIMATE.md`）
+2. 下一步优先级是 `B4`（alert / triage baseline），应在 `observability_dashboard/v1` 和现有 `platform_health/v1` 之上定义告警条件和 operator 排障视图，而不是重新设计 operator 数据模型
+
+## 20. 本轮代码推进结果（2026-05-03，B4–B8 全部完成，平台基线收口）
+
+这轮把 `B4`-`B8` 全部落地，工程师 B 主线已达平台基线。
+
+### B4：告警检查落地
+
+1. `scripts/check_observability_alerts.py`：从 `observability_dashboard/v1` 评估四条告警条件：
+   - `repeated_stage_error`：同一阶段出现 ≥2 次 error
+   - `release_failure_after_success`：policy_release=error 但 bridge/pjc 均 ok
+   - `platform_health_degraded`：health_summary.status=warn 或 error
+   - `stage_coverage_gap`：缺少任意核心阶段（sse_export / record_recovery_service / bridge / pjc / policy_release）
+2. `schemas/observability_alert_report.schema.json`：冻结 `observability_alert_report/v1` contract
+3. 两条 smoke 路径：有 / 无 platform_health，断言 `release_failure_after_success` 在合成 fixture 中 firing=true
+
+### B5：状态列表落地
+
+1. `scripts/list_query_workflow_status.py`：递归扫描目录，找到所有 `query_workflow/status.json` 文件，按 `last_updated_at_utc` 降序排列；支持 `--state` / `--job-id` / `--limit` 过滤
+2. `schemas/query_workflow_status_list.schema.json`：冻结 `query_workflow_status_list/v1` contract
+3. 两条 smoke 路径：无过滤（断言找到 ≥2 条记录）+ `--state failed`（断言结果全部为 failed 状态）
+
+### B6：重试资格检查落地
+
+1. `scripts/check_workflow_retry_eligibility.py`：根据 `query_workflow_status/v1` + `execution_receipts.jsonl` 判断重试资格：
+   - `launch_failed` → `recommended_action=retry`（可重试，优选新 job_id）
+   - `run_failed` / exit_code≠0 → `recommended_action=resubmit`（需排查产物后重新提交）
+   - `validation_rejected` / `authz_rejected` → `recommended_action=resubmit`（修复请求/权限后重新提交）
+   - `completed` → `recommended_action=none`
+   - non-terminal → `recommended_action=wait`
+2. `schemas/workflow_retry_eligibility.schema.json`：冻结 `workflow_retry_eligibility/v1` contract
+3. 两条 smoke 路径：run_failed（断言 resubmit_required=true）+ completed dry-run
+
+### B7：Operator Triage Report 落地
+
+1. `scripts/run_operator_triage.py`：串联 dashboard build → alert check → platform health → workflow status retry，输出 `operator_triage_report/v1`（四个 section，每个有 available 标志，部分 sidecar 缺失时仍可正常运行）
+2. `schemas/operator_triage_report.schema.json`：冻结 `operator_triage_report/v1` contract
+3. 一条 smoke 路径：断言 dashboard/alerts/platform_health 均 available=true，overall_status 有效
+
+### B8：交接文档落地
+
+1. `docs/NEXT_SESSION_READING_GUIDE.md` 新增第 5–6 节：
+   - 完整 6 步 operator 流程（observability → dashboard → alerts → health → triage → retry eligibility）
+   - 关键契约文件快速索引表（8 个 contract → schema → 生成脚本）
+2. 上述入口让下一轮接手者无需重新推导 operator 路径
+
+当前验证状态：
+
+1. `python3 -m py_compile` 已覆盖本轮全部 4 个新脚本
+2. `bash scripts/check_json_contracts.sh` 通过，包含新增的 9 条 smoke 路径（B4×2 + B5×2 + B6×2 + B7×1 + B3 已有×2）
+3. `python3 scripts/check_schema_backcompat.py` 通过
+
+因此当前最准确的结论是：
+
+1. 工程师 B 全部 8 个 block 已完成，主线已达"平台基线版"定义的收口标准
+2. 所有新 contract 均通过 `check_json_contracts.sh` 双路径覆盖（有/无辅助输入），并纳入 backcompat baseline
+3. 后续如果继续推进，方向是 B9+ 层（真正的 Temporal durable workflow、DataFusion SQL 前端、Grafana dashboard），而不是在现有 sidecar 层继续叠加新的 operator 工具

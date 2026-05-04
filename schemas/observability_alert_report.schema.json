@@ -1,0 +1,49 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "observability_alert_report/v1",
+  "title": "Operator alert condition evaluation over observability_dashboard/v1",
+  "type": "object",
+  "required": [
+    "schema",
+    "generated_at_utc",
+    "job_id",
+    "correlation_id",
+    "caller",
+    "tenant_id",
+    "alert_count",
+    "firing_count",
+    "overall_status",
+    "alerts"
+  ],
+  "properties": {
+    "schema": { "const": "observability_alert_report/v1" },
+    "generated_at_utc": { "type": "string", "format": "date-time" },
+    "job_id":          { "type": ["string", "null"] },
+    "correlation_id":  { "type": ["string", "null"] },
+    "caller":          { "type": ["string", "null"] },
+    "tenant_id":       { "type": ["string", "null"] },
+    "alert_count":     { "type": "integer", "minimum": 0 },
+    "firing_count":    { "type": "integer", "minimum": 0 },
+    "overall_status":  { "type": "string", "enum": ["ok", "warn", "error"] },
+    "alerts": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "alert_id", "name", "severity", "firing", "message", "triage_path"
+        ],
+        "properties": {
+          "alert_id":    { "type": "string", "minLength": 1 },
+          "name":        { "type": "string", "minLength": 1 },
+          "severity":    { "type": "string", "enum": ["ok", "warn", "error"] },
+          "firing":      { "type": "boolean" },
+          "message":     { "type": "string" },
+          "triage_path": {
+            "type": "array",
+            "items": { "type": "string" }
+          }
+        }
+      }
+    }
+  }
+}

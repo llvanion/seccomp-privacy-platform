@@ -440,11 +440,12 @@ def validate_metadata_cli(tmp_dir: Path) -> None:
     )
     require(
         (dry_run_summary.get("requested_counts") or {}).get("key_refs") == 2
-        and (dry_run_summary.get("requested_counts") or {}).get("key_versions") == 2,
+        and (dry_run_summary.get("requested_counts") or {}).get("key_versions") == 2
+        and (dry_run_summary.get("requested_counts") or {}).get("issuer_registry") == 2,
         f"registry apply dry-run returned wrong key registry requested counts: {registry_apply_dry_run_data}",
     )
     require(
-        ((dry_run_summary.get("entity_action_counts") or {}).get("insert")) == 19,
+        ((dry_run_summary.get("entity_action_counts") or {}).get("insert")) == 21,
         f"registry apply dry-run returned wrong insert count: {registry_apply_dry_run_data}",
     )
     require(
@@ -466,7 +467,7 @@ def validate_metadata_cli(tmp_dir: Path) -> None:
     )
     apply_summary = registry_apply_data.get("summary") or {}
     require(
-        ((apply_summary.get("entity_action_counts") or {}).get("insert")) == 19,
+        ((apply_summary.get("entity_action_counts") or {}).get("insert")) == 21,
         f"registry apply returned wrong entity insert count: {registry_apply_data}",
     )
     require(
@@ -487,6 +488,11 @@ def validate_metadata_cli(tmp_dir: Path) -> None:
         len(apply_key_refs) == 2,
         f"registry apply returned wrong key_ref count: {registry_apply_data}",
     )
+    apply_issuer_registry = (registry_apply_data.get("entities") or {}).get("issuer_registry") or []
+    require(
+        len(apply_issuer_registry) == 2,
+        f"registry apply returned wrong issuer_registry count: {registry_apply_data}",
+    )
     require(
         any(
             (item.get("state_after") or {}).get("backend_kind") == "local_keyring"
@@ -506,7 +512,7 @@ def validate_metadata_cli(tmp_dir: Path) -> None:
     )
     reconcile_summary = registry_apply_reconcile_data.get("summary") or {}
     require(
-        ((reconcile_summary.get("entity_action_counts") or {}).get("noop")) == 19,
+        ((reconcile_summary.get("entity_action_counts") or {}).get("noop")) == 21,
         f"registry reconcile returned wrong entity noop count: {registry_apply_reconcile_data}",
     )
     require(

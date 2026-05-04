@@ -1,0 +1,69 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "query_workflow_status/v1",
+  "title": "Read-optimized status summary for the query/workflow wrapper sidecar",
+  "type": "object",
+  "required": [
+    "schema",
+    "workflow",
+    "mode",
+    "job_id",
+    "out_base",
+    "state",
+    "terminal",
+    "last_updated_at_utc",
+    "latest_receipt_id",
+    "receipt_count",
+    "last_exit_code",
+    "artifact_summary",
+    "public_report_available",
+    "audit_chain_available"
+  ],
+  "properties": {
+    "schema": { "const": "query_workflow_status/v1" },
+    "workflow": { "type": "string", "const": "sse_bridge_pipeline" },
+    "mode": {
+      "type": "string",
+      "enum": ["dry_run", "execute"]
+    },
+    "job_id": { "type": "string", "minLength": 1 },
+    "correlation_id": { "type": ["string", "null"] },
+    "caller": { "type": "string" },
+    "tenant_id": { "type": "string" },
+    "dataset_id": { "type": "string" },
+    "query_type": { "type": ["string", "null"] },
+    "out_base": { "type": "string", "minLength": 1 },
+    "state": {
+      "type": "string",
+      "enum": ["accepted", "running", "completed", "failed", "rejected"]
+    },
+    "terminal": { "type": "boolean" },
+    "last_updated_at_utc": { "type": "string", "minLength": 1 },
+    "latest_receipt_id": { "type": "string", "minLength": 1 },
+    "receipt_count": { "type": "integer", "minimum": 1 },
+    "last_exit_code": { "type": ["integer", "null"] },
+    "artifact_summary": {
+      "type": "object",
+      "required": [
+        "submission_manifest_available",
+        "execution_receipts_available",
+        "status_available",
+        "public_report_available",
+        "audit_chain_available",
+        "mainline_contract_available"
+      ],
+      "properties": {
+        "submission_manifest_available": { "type": "boolean" },
+        "execution_receipts_available": { "type": "boolean" },
+        "status_available": { "type": "boolean" },
+        "public_report_available": { "type": "boolean" },
+        "audit_chain_available": { "type": "boolean" },
+        "mainline_contract_available": { "type": "boolean" }
+      },
+      "additionalProperties": false
+    },
+    "public_report_available": { "type": "boolean" },
+    "audit_chain_available": { "type": "boolean" }
+  },
+  "additionalProperties": false
+}

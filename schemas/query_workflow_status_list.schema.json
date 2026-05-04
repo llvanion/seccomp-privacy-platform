@@ -1,0 +1,52 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "query_workflow_status_list/v1",
+  "title": "Directory scan result listing query_workflow/status.json entries",
+  "type": "object",
+  "required": [
+    "schema",
+    "generated_at_utc",
+    "search_dir",
+    "filter_state",
+    "filter_job_id",
+    "total_found",
+    "returned_count",
+    "limit",
+    "statuses"
+  ],
+  "properties": {
+    "schema":         { "const": "query_workflow_status_list/v1" },
+    "generated_at_utc": { "type": "string", "format": "date-time" },
+    "search_dir":     { "type": "string", "minLength": 1 },
+    "filter_state":   { "type": ["string", "null"] },
+    "filter_job_id":  { "type": ["string", "null"] },
+    "total_found":    { "type": "integer", "minimum": 0 },
+    "returned_count": { "type": "integer", "minimum": 0 },
+    "limit":          { "type": "integer", "minimum": 1 },
+    "statuses": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "out_base", "status_path", "job_id", "correlation_id",
+          "caller", "tenant_id", "state", "terminal",
+          "last_updated_at_utc", "receipt_count", "last_exit_code", "mode"
+        ],
+        "properties": {
+          "out_base":             { "type": "string" },
+          "status_path":          { "type": "string" },
+          "job_id":               { "type": ["string", "null"] },
+          "correlation_id":       { "type": ["string", "null"] },
+          "caller":               { "type": ["string", "null"] },
+          "tenant_id":            { "type": ["string", "null"] },
+          "state":                { "type": ["string", "null"] },
+          "terminal":             { "type": ["boolean", "null"] },
+          "last_updated_at_utc":  { "type": ["string", "null"] },
+          "receipt_count":        { "type": ["integer", "null"], "minimum": 0 },
+          "last_exit_code":       { "type": ["integer", "null"] },
+          "mode":                 { "type": ["string", "null"] }
+        }
+      }
+    }
+  }
+}

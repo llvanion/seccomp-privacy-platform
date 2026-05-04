@@ -33,14 +33,27 @@
 | --- | ---: | ---: | --- |
 | owner：隐私内核与接口治理 | 0 | 0h | ~~Block1~~ ✓, ~~Block2~~ ✓, ~~Block3~~ ✓, ~~Block4~~ ✓, ~~Block5~~ ✓, ~~Block6~~ ✓；owner 主线已完成平台基线 |
 | 工程师 A：控制面、身份、权限与密钥 | 0 | 0h | ~~mutation governance log~~ ✓, ~~OIDC + issuer registry~~ ✓, ~~Vault HTTP + rotation~~ ✓, ~~key backend drift~~ ✓, ~~policy mutation governance~~ ✓（全部 2026-05-03）；工程师 A 主线已完成平台基线 |
-| 工程师 B：查询入口、目录、工作流、观测 | 8 | 40h | 还差 execute 级权限、durable workflow、dashboard/UI 壳 |
+| 工程师 B：查询入口、目录、工作流、观测 | 0 | 0h | ~~B1~~ ✓, ~~B2~~ ✓, ~~B3~~ ✓, ~~B4~~ ✓, ~~B5~~ ✓, ~~B6~~ ✓, ~~B7~~ ✓, ~~B8~~ ✓；工程师 B 主线已完成平台基线 |
 | 工程师 1：审计、运维与稳定性工具 | 0 | 0h | ~~fuzz/安全门禁~~ ✓, ~~benchmark CI gate~~ ✓, ~~部署/恢复/SLO 包~~ ✓；工程师 1 主线已完成平台基线 |
 | 工程师 2：SQL 控制面侧车 | 0 | 0h | ~~Postgres DDL target~~ ✓（2026-05-03）, ~~cross-batch reconcile~~ ✓（2026-05-03）；工程师 2 全部 block 已完成 |
 
 合计：
 
-1. 串行视角：`8 blocks = 40h`（owner 已完成 Block1~6；工程师 1 全部已完成；工程师 2 全部已完成；工程师 A 全部 5 blocks 已完成）
-2. 并行视角：剩余全部在工程师 B 线，关键路径 `8 blocks = 40h`
+1. 串行视角：`0 blocks = 0h`（owner 已完成 Block1~6；工程师 1 全部已完成；工程师 2 全部已完成；工程师 A 全部 5 blocks 已完成；工程师 B 全部 8 blocks 已完成）
+2. 并行视角：所有任务线均已完成平台基线，无剩余关键路径
+
+## 工程师 B 待完成 block 拆分
+
+| Block | 约合工时 | 目标 | 主要回写 |
+| --- | ---: | --- | --- |
+| ~~B1~~ ✓ | 5h | execute 治理边界：固化 submit/execute 差异、身份绑定、允许的请求形态与失败分类 | `docs/QUERY_INTERFACE_PLAN.md`、工程师 B 任务书 |
+| ~~B2~~ ✓ | 5h | execution receipt / status sidecar：围绕 `query_workflow_submission/v1` 定义 started/completed/failed 回执与只读状态面 | `docs/QUERY_INTERFACE_PLAN.md`、`docs/BENCHMARK_PLAN.md` |
+| ~~B3~~ ✓ | 5h | observability dashboard example：围绕 `pipeline_observability/v1` 与 `platform_health/v1` 形成固定 operator 面板 | `docs/OBSERVABILITY_PLAN.md`、`docs/OPS_RUNBOOK.md` |
+| ~~B4~~ ✓ | 5h | alert / triage baseline：明确 repeated failure、release failure、health degraded 等联动排障路径 | `docs/OBSERVABILITY_PLAN.md`、`docs/OPS_RUNBOOK.md` |
+| ~~B5~~ ✓ | 5h | durable submit/status baseline：围绕现有 CLI wrapper 补 submit receipt 与状态查询闭环 | `docs/QUERY_INTERFACE_PLAN.md`、工程师 B 任务书 |
+| ~~B6~~ ✓ | 5h | retry / recovery lifecycle：定义哪些失败可重试、哪些必须 operator 重新提交 | `docs/QUERY_INTERFACE_PLAN.md`、`docs/OPS_RUNBOOK.md` |
+| ~~B7~~ ✓ | 5h | admin shell / SDK baseline：把 metadata/query/audit/platform-health/status 收成统一 operator shell 场景 | `docs/CATALOG_LINEAGE_PLAN.md`、工程师 B 任务书 |
+| ~~B8~~ ✓ | 5h | regression / handoff baseline：把 execute、status、dashboard、lineage、health 串成最小可复现交接流 | `docs/BENCHMARK_PLAN.md`、`docs/NEXT_SESSION_READING_GUIDE.md` |
 
 ## owner 已完成 block 记录
 
@@ -93,17 +106,11 @@
 
 ## 4. 解释
 
-为什么工程师 A 仍然高，owner 已清零：
+为什么现在只剩工程师 B：
 
-1. owner 线所有 6 个 block 均已完成。主链路 contract 冻结、recovery external-service replay、normalizer 版本治理、handoff 明文暴露评估与 FIFO 回放均已收口。
-2. 工程师 A 线当前真正没补齐的，不再是”能不能跑通”，而是”能不能作为平台边界长期存在”（真实 OIDC/issuer 入口、远端 Vault/KMS 权威源、control-plane 写路径）。
-3. 工程师 A 这条线也已经越过 demo 阶段，统一 identity 与 Vault KV / external KMS 兼容基线已经完成，剩下的是更贵的 issuer/remote-KMS/control-plane 写路径工作。
-
-为什么工程师 B、工程师 1、工程师 2 稍低：
-
-1. 这三条线现在已经有明显 sidecar 基线。
-2. 工程师 1 的 append-only 审计归档基线已经补上，剩余工作主要是把 sidecar 升成更像 deployment package 的入口与门禁，而不是从零起步。
-3. 其余两条线剩余工作也主要是把 sidecar 升成平台入口，而不是从零起步。
+1. owner、工程师 A、工程师 1、工程师 2 四条线都已在 2026-05-03 前收口到当前平台基线，不再有剩余 `block`。
+2. 工程师 B 线已经完成 read adapter、query wrapper、audit/public-report sidecar、observability/catalog derived views 与对应 benchmark/contract 基线；剩余部分不再是“有没有入口”，而是“这些入口能不能作为 operator-facing 平台壳长期存在”。
+3. 这 `8 blocks` 仍然不轻，因为它们跨 execute 治理、status lifecycle、dashboard/alert、admin shell 四个面，但它们都应该继续建立在现有 CLI、审计链和 sidecar contract 之上，而不是重写主链路。
 
 ## 5. 使用方式
 

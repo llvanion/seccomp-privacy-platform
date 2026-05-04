@@ -25,7 +25,13 @@
       "type": "object",
       "required": [
         "request_base_dir",
+        "authenticated_identity",
         "manifest",
+        "receipt",
+        "status",
+        "submission_manifest_path",
+        "execution_receipts_path",
+        "status_path",
         "exit_code"
       ],
       "properties": {
@@ -51,75 +57,48 @@
             "exit_code"
           ],
           "properties": {
-            "schema": {
-              "const": "query_workflow_submission/v1"
-            },
-            "submitted_at_utc": {
-              "type": "string",
-              "minLength": 1
-            },
-            "request_file": {
-              "type": "string",
-              "minLength": 1
-            },
-            "query_type": {
-              "type": [
-                "string",
-                "null"
-              ]
-            },
-            "workflow": {
-              "type": "string",
-              "const": "sse_bridge_pipeline"
-            },
-            "mode": {
-              "type": "string",
-              "enum": [
-                "dry_run",
-                "execute"
-              ]
-            },
-            "pipeline_script": {
-              "type": "string",
-              "minLength": 1
-            },
+            "schema": { "const": "query_workflow_submission/v1" },
+            "submitted_at_utc": { "type": "string", "minLength": 1 },
+            "request_file": { "type": "string", "minLength": 1 },
+            "query_type": { "type": ["string", "null"] },
+            "workflow": { "type": "string", "const": "sse_bridge_pipeline" },
+            "mode": { "type": "string", "enum": ["dry_run", "execute"] },
+            "pipeline_script": { "type": "string", "minLength": 1 },
             "request_summary": {
               "type": "object",
               "additionalProperties": {
-                "type": [
-                  "string",
-                  "array",
-                  "integer",
-                  "boolean",
-                  "null"
-                ],
-                "items": {
-                  "type": "string"
-                }
+                "type": ["string", "array", "integer", "boolean", "null"],
+                "items": { "type": "string" }
               }
             },
             "command": {
               "type": "array",
-              "items": {
-                "type": "string",
-                "minLength": 1
-              }
+              "items": { "type": "string", "minLength": 1 }
             },
-            "exit_code": {
-              "type": [
-                "integer",
-                "null"
-              ]
-            }
+            "exit_code": { "type": ["integer", "null"] }
           },
           "additionalProperties": false
         },
-        "exit_code": {
-          "type": [
-            "integer",
-            "null"
-          ]
-        }
+        "receipt": {
+          "type": ["object", "null"],
+          "required": ["schema"],
+          "properties": {
+            "schema": { "const": "query_workflow_receipt/v1" }
+          },
+          "additionalProperties": true
+        },
+        "status": {
+          "type": ["object", "null"],
+          "required": ["schema"],
+          "properties": {
+            "schema": { "const": "query_workflow_status/v1" }
+          },
+          "additionalProperties": true
+        },
+        "submission_manifest_path": { "type": "string", "minLength": 1 },
+        "execution_receipts_path": { "type": "string", "minLength": 1 },
+        "status_path": { "type": "string", "minLength": 1 },
+        "exit_code": { "type": ["integer", "null"] }
       },
       "additionalProperties": false
     }
