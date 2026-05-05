@@ -1781,10 +1781,16 @@ export SECCOMP_METADATA_RECOVERY_OPS_TOKEN="contract-identity-recovery-ops-token
 export SECCOMP_METADATA_AUTO_DEMO_TOKEN="contract-identity-auto-demo-token"
 python3 -c 'import json, sys; path=sys.argv[1]; payload={"schema":"metadata_registry_manifest/v1","caller_identities":[{"caller":"auto_demo","issuer":"local:contract","subject":"user:auto_demo","subject_type":"human_user","display_name":"Contract Auto Demo","platform_roles":["query_submitter","privacy_operator"],"enabled":True,"metadata":{"entity_type":"human_user"},"source":"contract_identity_fixture"}]}; open(path, "w", encoding="utf-8").write(json.dumps(payload, ensure_ascii=False, indent=2) + "\n")' "$tmp/contract_identity_registry_manifest.json"
 python3 -c 'import json, sys; path=sys.argv[1]; payload={"schema":"api_identity_token_map/v1","tokens":[{"token_env":"SECCOMP_METADATA_AUTO_DEMO_TOKEN","issuer":"local:contract","subject":"user:auto_demo","description":"Contract auto demo local bearer token"}]}; open(path, "w", encoding="utf-8").write(json.dumps(payload, ensure_ascii=False, indent=2) + "\n")' "$tmp/contract_identity_tokens.json"
+python3 -c 'import json, sys; path=sys.argv[1]; payload={"schema":"metadata_registry_manifest/v1","caller_identities":[{"caller":"recovery_ops_demo","issuer":"https://keycloak.example.com/realms/commerce","subject":"service-account:orders-recovery-operator","subject_type":"service_account","display_name":"Recovery Ops Demo SA","platform_roles":["service_operator"],"enabled":True,"metadata":{"entity_type":"service_account"},"source":"jwt_contract_fixture"}]}; open(path, "w", encoding="utf-8").write(json.dumps(payload, ensure_ascii=False, indent=2) + "\n")' "$tmp/contract_jwt_identity_registry_manifest.json"
 python3 "$REPO_ROOT/scripts/manage_metadata_db.py" \
   apply-registry \
   --db-path "$tmp/platform_metadata.db" \
   --manifest "$tmp/contract_identity_registry_manifest.json" \
+  > /dev/null
+python3 "$REPO_ROOT/scripts/manage_metadata_db.py" \
+  apply-registry \
+  --db-path "$tmp/platform_registry.db" \
+  --manifest "$tmp/contract_jwt_identity_registry_manifest.json" \
   > /dev/null
 python3 "$REPO_ROOT/scripts/resolve_api_identity.py" \
   --db-path "$tmp/platform_registry.db" \
@@ -1838,6 +1844,16 @@ python3 "$REPO_ROOT/scripts/serve_platform_health_api.py" \
 identity_platform_health_api_pid=$!
 python3 "$RUNTIME_SERVICE_HELPERS" wait-json-health \
   --url "http://127.0.0.1:$identity_platform_health_api_port/healthz"
+jwks_identity_metadata_api_port="$(python3 "$RUNTIME_SERVICE_HELPERS" available-port)"
+python3 "$REPO_ROOT/scripts/serve_metadata_api.py" \
+  --db-path "$tmp/platform_registry.db" \
+  --bind-host 127.0.0.1 \
+  --port "$jwks_identity_metadata_api_port" \
+  --identity-token-config "$tmp/api_identity_tokens_jwks.json" \
+  > "$tmp/jwks_identity_metadata_api.log" 2>&1 &
+jwks_identity_metadata_api_pid=$!
+python3 "$RUNTIME_SERVICE_HELPERS" wait-json-health \
+  --url "http://127.0.0.1:$jwks_identity_metadata_api_port/healthz"
 python3 "$REPO_ROOT/scripts/materialize_platform_api_smoke_reports.py" \
   --tmp-dir "$tmp" \
   --identity-metadata-port "$identity_metadata_api_port" \
@@ -1845,6 +1861,22 @@ python3 "$REPO_ROOT/scripts/materialize_platform_api_smoke_reports.py" \
   --identity-query-request-file "$tmp/query_requests/ecommerce_cross_party_match.json" \
   --identity-audit-port "$identity_audit_api_port" \
   --identity-platform-health-port "$identity_platform_health_api_port"
+SECCOMP_METADATA_JWKS_TOKEN="$(cat "$tmp/oidc_test_rs256.jwt")" python3 - <<'PYEOF' "$jwks_identity_metadata_api_port" "$tmp/metadata_api_identity_jwks.json"
+import json
+import os
+import sys
+import urllib.request
+
+port, out_path = sys.argv[1], sys.argv[2]
+token = os.environ["SECCOMP_METADATA_JWKS_TOKEN"]
+opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+request = urllib.request.Request(f"http://127.0.0.1:{port}/v1/identity")
+request.add_header("Authorization", f"Bearer {token}")
+with opener.open(request, timeout=2) as response:
+    payload = json.loads(response.read().decode("utf-8"))
+with open(out_path, "w", encoding="utf-8") as handle:
+    json.dump(payload, handle, ensure_ascii=False, indent=2)
+PYEOF
 kill "$identity_metadata_api_pid" 2>/dev/null || true
 wait "$identity_metadata_api_pid" 2>/dev/null || true
 kill "$identity_query_api_pid" 2>/dev/null || true
@@ -1853,6 +1885,8 @@ kill "$identity_audit_api_pid" 2>/dev/null || true
 wait "$identity_audit_api_pid" 2>/dev/null || true
 kill "$identity_platform_health_api_pid" 2>/dev/null || true
 wait "$identity_platform_health_api_pid" 2>/dev/null || true
+kill "$jwks_identity_metadata_api_pid" 2>/dev/null || true
+wait "$jwks_identity_metadata_api_pid" 2>/dev/null || true
 python3 "$VALIDATOR" \
   --schema "$REPO_ROOT/schemas/query_workflow_request.schema.json" \
   --json "$tmp/query_requests/cross_party_match.json"
@@ -1986,6 +2020,9 @@ python3 "$VALIDATOR" \
   --schema "$REPO_ROOT/schemas/metadata_api_response.schema.json" \
   --json "$tmp/metadata_api_identity.json"
 python3 "$VALIDATOR" \
+  --schema "$REPO_ROOT/schemas/metadata_api_response.schema.json" \
+  --json "$tmp/metadata_api_identity_jwks.json"
+python3 "$VALIDATOR" \
   --schema "$REPO_ROOT/schemas/metadata_api_error.schema.json" \
   --json "$tmp/metadata_api_identity_forbidden_policies.json"
 python3 "$VALIDATOR" \
@@ -1997,6 +2034,7 @@ python3 "$VALIDATOR" \
 python3 "$VALIDATOR" \
   --schema "$REPO_ROOT/schemas/query_workflow_api_error.schema.json" \
   --json "$tmp/query_workflow_identity_execute_forbidden.json"
+python3 -c 'import json, sys; payload=json.load(open(sys.argv[1], "r", encoding="utf-8")); identity=payload["result"]["identity"]; assert identity["caller"] == "recovery_ops_demo", identity; assert identity["issuer"] == "https://keycloak.example.com/realms/commerce", identity; assert identity["issuer_registered"] is True, identity; assert "service_operator" in identity["platform_roles"], identity' "$tmp/metadata_api_identity_jwks.json"
 
 # A5-A6 authority governance + remote authority smoke rollup.
 python3 "$REPO_ROOT/scripts/sync_openfga_tuples.py" \
