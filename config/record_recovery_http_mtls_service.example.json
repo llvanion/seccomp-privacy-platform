@@ -1,0 +1,39 @@
+{
+  "schema": "record_recovery_service_config/v1",
+  "transport": "http",
+  "service_id": "bridge-demo-recovery-mtls",
+  "tenant_id": "demo_tenant",
+  "dataset_id": "bridge_demo_dataset",
+  "endpoint_url": "https://127.0.0.1:18443",
+  "http_listener": {
+    "bind_host": "127.0.0.1",
+    "port": 18443
+  },
+  "auth_token_env": "SSE_RECORD_RECOVERY_TOKEN",
+  "authz_config": "record_recovery_service_policy.example.json",
+  "allowed_callers": [
+    "auto_demo"
+  ],
+  "allowed_output_roots": [
+    "../tmp"
+  ],
+  "allowed_record_store_roots": [
+    "../tmp"
+  ],
+  "audit_log": "../tmp/record_recovery_service_http_mtls_audit.jsonl",
+  "tls": {
+    "enabled": true,
+    "server_cert": "../tmp/mtls/server.crt",
+    "server_key": "../tmp/mtls/server.key",
+    "ca_cert": "../tmp/mtls/ca.crt",
+    "require_client_cert": true,
+    "client_cert": "../tmp/mtls/client.crt",
+    "client_key": "../tmp/mtls/client.key",
+    "verify_hostname": false
+  },
+  "lifecycle": {
+    "pid_file": "../tmp/record_recovery_service_http_mtls.pid",
+    "ready_file": "../tmp/record_recovery_service_http_mtls.ready",
+    "log_file": "../tmp/record_recovery_service_http_mtls.log"
+  }
+}

@@ -66,14 +66,16 @@ def build_record_recovery_http(
     service_id: str = "bridge-demo-recovery",
     tenant_id: str = "demo_tenant",
     dataset_id: str = "bridge_demo_dataset",
+    tls: dict | None = None,
 ) -> None:
+    scheme = "https" if tls and tls.get("enabled") else "http"
     payload = {
         "schema": "record_recovery_service_config/v1",
         "transport": "http",
         "service_id": service_id,
         "tenant_id": tenant_id,
         "dataset_id": dataset_id,
-        "endpoint_url": f"http://127.0.0.1:{port}",
+        "endpoint_url": f"{scheme}://127.0.0.1:{port}",
         "http_listener": {
             "bind_host": "127.0.0.1",
             "port": port,
@@ -90,6 +92,8 @@ def build_record_recovery_http(
             "log_file": str((tmp_dir / "record_recovery_service_http.log").resolve()),
         },
     }
+    if tls:
+        payload["tls"] = tls
     write_json(out_config, payload)
 
 
@@ -130,6 +134,13 @@ def build_parser() -> argparse.ArgumentParser:
     http_rr.add_argument("--service-id", default="bridge-demo-recovery")
     http_rr.add_argument("--tenant-id", default="demo_tenant")
     http_rr.add_argument("--dataset-id", default="bridge_demo_dataset")
+    http_rr.add_argument("--tls-ca-cert", default="")
+    http_rr.add_argument("--tls-server-cert", default="")
+    http_rr.add_argument("--tls-server-key", default="")
+    http_rr.add_argument("--tls-client-cert", default="")
+    http_rr.add_argument("--tls-client-key", default="")
+    http_rr.add_argument("--tls-require-client-cert", action="store_true")
+    http_rr.add_argument("--tls-no-verify-hostname", action="store_true")
 
     authz_db = sub.add_parser("record-recovery-authz-db")
     authz_db.add_argument("--out-config", required=True)
@@ -152,6 +163,18 @@ def main() -> int:
             dataset_id=args.dataset_id,
         )
     elif args.cmd == "record-recovery-http":
+        tls = None
+        if args.tls_server_cert or args.tls_server_key or args.tls_ca_cert:
+            tls = {
+                "enabled": True,
+                "server_cert": args.tls_server_cert,
+                "server_key": args.tls_server_key,
+                "ca_cert": args.tls_ca_cert,
+                "require_client_cert": bool(args.tls_require_client_cert),
+                "client_cert": args.tls_client_cert or None,
+                "client_key": args.tls_client_key or None,
+                "verify_hostname": not bool(args.tls_no_verify_hostname),
+            }
         build_record_recovery_http(
             Path(args.out_config),
             Path(args.tmp_dir),
@@ -160,6 +183,7 @@ def main() -> int:
             service_id=args.service_id,
             tenant_id=args.tenant_id,
             dataset_id=args.dataset_id,
+            tls=tls,
         )
     elif args.cmd == "record-recovery-authz-db":
         build_record_recovery_authz_db_source(

@@ -82,6 +82,7 @@ def resolve_runtime(args: argparse.Namespace) -> dict:
     pid_file = merged_record_recovery_service_value(getattr(args, "pid_file", ""), config.get("pid_file", ""))
     ready_file = merged_record_recovery_service_value(getattr(args, "ready_file", ""), config.get("ready_file", ""))
     log_file = merged_record_recovery_service_value(getattr(args, "log_file", ""), config.get("log_file", ""))
+    tls_config = config.get("tls") if isinstance(config.get("tls"), dict) else {}
     config_path = optional_path(getattr(args, "config", ""))
     if transport == "http" and endpoint_url and (not bind_host or port in (None, "")):
         parsed = urllib.parse.urlparse(endpoint_url)
@@ -111,6 +112,7 @@ def resolve_runtime(args: argparse.Namespace) -> dict:
         "pid_file": pid_file,
         "ready_file": ready_file,
         "log_file": log_file,
+        "tls": tls_config,
     }
 
 
@@ -152,7 +154,14 @@ def wait_for_socket(socket_path: str, *, timeout_sec: float = 10.0) -> None:
     raise RuntimeError(f"record recovery service socket did not become ready: {socket_path}")
 
 
-def wait_for_http_url(endpoint_url: str, *, auth_token_env: str, identity_token_env: str, timeout_sec: float = 10.0) -> None:
+def wait_for_http_url(
+    endpoint_url: str,
+    *,
+    auth_token_env: str,
+    identity_token_env: str,
+    tls_config: dict | None = None,
+    timeout_sec: float = 10.0,
+) -> None:
     deadline = time.time() + timeout_sec
     while time.time() < deadline:
         try:
@@ -161,6 +170,7 @@ def wait_for_http_url(endpoint_url: str, *, auth_token_env: str, identity_token_
                 endpoint_url=endpoint_url,
                 auth_env=auth_token_env,
                 identity_auth_env=identity_token_env,
+                tls_config=tls_config,
             )
             return
         except Exception:
@@ -198,6 +208,7 @@ def build_service_command(runtime: dict) -> list[str]:
     audit_log = runtime["audit_log"]
     pid_file = runtime["pid_file"]
     ready_file = runtime["ready_file"]
+    tls = runtime.get("tls") or {}
 
     if transport == "http":
         if not bind_host or port in (None, ""):
@@ -221,6 +232,13 @@ def build_service_command(runtime: dict) -> list[str]:
         ]
         if endpoint_url:
             cmd.extend(["--endpoint-url", endpoint_url])
+        if tls.get("enabled"):
+            cmd.extend(["--tls-cert-file", normalize_path(str(tls.get("server_cert") or ""))])
+            cmd.extend(["--tls-key-file", normalize_path(str(tls.get("server_key") or ""))])
+            if tls.get("ca_cert"):
+                cmd.extend(["--tls-ca-cert", normalize_path(str(tls.get("ca_cert") or ""))])
+            if tls.get("require_client_cert"):
+                cmd.append("--tls-require-client-cert")
     else:
         if not socket_path:
             raise SystemExit("[ERROR] record recovery unix_socket service requires socket_path")
@@ -411,7 +429,16 @@ def write_text_output(path_value: str, text: str) -> str:
     return str(output_path)
 
 
-def status_payload(*, socket_path: str, endpoint_url: str, auth_token_env: str, identity_token_env: str, pid_file: str, ready_file: str) -> dict:
+def status_payload(
+    *,
+    socket_path: str,
+    endpoint_url: str,
+    auth_token_env: str,
+    identity_token_env: str,
+    pid_file: str,
+    ready_file: str,
+    tls_config: dict | None = None,
+) -> dict:
     payload = {
         "socket_path": normalize_path(socket_path) if socket_path else None,
         "endpoint_url": endpoint_url or None,
@@ -435,6 +462,7 @@ def status_payload(*, socket_path: str, endpoint_url: str, auth_token_env: str, 
             endpoint_url=endpoint_url,
             auth_env=auth_token_env,
             identity_auth_env=identity_token_env,
+            tls_config=tls_config,
         )
         payload["health"] = health
         payload["reachable"] = True
@@ -486,6 +514,7 @@ def cmd_start(args: argparse.Namespace) -> int:
                 endpoint_url,
                 auth_token_env=runtime["auth_token_env"],
                 identity_token_env=args.identity_token_env,
+                tls_config=runtime.get("tls") or None,
                 timeout_sec=args.timeout_sec,
             )
         else:
@@ -497,6 +526,7 @@ def cmd_start(args: argparse.Namespace) -> int:
             identity_token_env=args.identity_token_env,
             pid_file=pid_file,
             ready_file=ready_file,
+            tls_config=runtime.get("tls") or None,
         )
         result["started_pid"] = proc.pid
         result["log_file"] = log_file or None
@@ -519,6 +549,7 @@ def cmd_status(args: argparse.Namespace) -> int:
         identity_token_env=args.identity_token_env,
         pid_file=runtime["pid_file"],
         ready_file=runtime["ready_file"],
+        tls_config=runtime.get("tls") or None,
     )
     print(json.dumps(result, ensure_ascii=False, indent=2))
     return 0 if result.get("reachable") else 1

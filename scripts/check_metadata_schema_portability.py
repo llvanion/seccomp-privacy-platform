@@ -27,6 +27,19 @@ EXPECTED_INDEXES = (
     "idx_control_plane_mutations_applied_at",
     "idx_issuer_registry_type",
     "idx_issuer_registry_enabled",
+    "idx_job_state_transitions_job_id",
+    "idx_job_state_transitions_state",
+    "idx_job_state_transitions_ts",
+    "idx_policy_versions_policy_id",
+    "idx_policy_versions_path_current",
+    "idx_service_versions_service_id",
+    "idx_service_versions_current",
+    "idx_catalog_lineage_job_id",
+    "idx_catalog_lineage_dataset_service",
+    "idx_catalog_lineage_kind",
+    "idx_retention_reconcile_scope",
+    "idx_retention_reconcile_job",
+    "idx_retention_reconcile_action",
 )
 
 

@@ -60,7 +60,75 @@ python3 scripts/validate_json_contract.py \
   --jsonl tmp/record_recovery_service.log
 ```
 
+Derive a compact metrics report from the same log with:
+
+```bash
+python3 scripts/export_record_recovery_service_metrics.py \
+  --log-jsonl tmp/record_recovery_service.log \
+  --out tmp/record_recovery_service_metrics.json \
+  --expect-event record_recovery_service_start \
+  --expect-event record_recovery_service_request \
+  --expect-event record_recovery_service_stop \
+  --expect-min-requests 1
+
+python3 scripts/validate_json_contract.py \
+  --schema schemas/record_recovery_service_metrics.schema.json \
+  --json tmp/record_recovery_service_metrics.json
+```
+
+The metrics contract is `record_recovery_service_metrics/v1`. It summarizes event/request counts, transport coverage, decisions, reason codes, ops, roles, status-code buckets, candidate counts, and request-duration min/max/avg/p95. It intentionally does not list raw candidate IDs, record-store contents, auth tokens, or per-caller sensitive payloads.
+
 These runtime logs are operational telemetry. They do not replace `sse_record_recovery_service_audit/v1`, which remains the audit stream used by `audit_chain.json`.
+
+### mTLS Recovery Service
+
+To start the recovery service with mutual TLS, use the mTLS example config or add a `tls` block to any `record_recovery_service_config/v1` file:
+
+```bash
+# Generate self-signed test certs (one-time, not for production)
+mkdir -p tmp/mtls
+openssl req -x509 -newkey rsa:2048 -keyout tmp/mtls/ca.key -out tmp/mtls/ca.crt -days 365 -nodes -subj "/CN=test-ca"
+openssl req -newkey rsa:2048 -keyout tmp/mtls/server.key -out tmp/mtls/server.csr -nodes -subj "/CN=localhost"
+openssl x509 -req -in tmp/mtls/server.csr -CA tmp/mtls/ca.crt -CAkey tmp/mtls/ca.key -CAcreateserial -out tmp/mtls/server.crt -days 365
+openssl req -newkey rsa:2048 -keyout tmp/mtls/client.key -out tmp/mtls/client.csr -nodes -subj "/CN=test-client"
+openssl x509 -req -in tmp/mtls/client.csr -CA tmp/mtls/ca.crt -CAkey tmp/mtls/ca.key -CAcreateserial -out tmp/mtls/client.crt -days 365
+
+export SSE_RECORD_RECOVERY_TOKEN=test-recovery-token
+python3 scripts/manage_record_recovery_service.py start \
+  --config config/record_recovery_http_mtls_service.example.json \
+  --pid-file tmp/record_recovery_service_http_mtls.pid \
+  --log-file tmp/record_recovery_service_http_mtls.log
+```
+
+Probe health over mTLS:
+
+```bash
+python3 scripts/request_record_recovery_service.py \
+  --config config/record_recovery_http_mtls_service.example.json
+```
+
+The TLS config block in `record_recovery_service_config/v1` accepts:
+
+| Field | Required | Description |
+| ----- | -------- | ----------- |
+| `tls.enabled` | yes | Set `true` to enable TLS |
+| `tls.server_cert` | yes | Path to server certificate (PEM) |
+| `tls.server_key` | yes | Path to server private key (PEM) |
+| `tls.ca_cert` | when `require_client_cert=true` | CA cert used to verify client certs |
+| `tls.require_client_cert` | no | Set `true` to enforce mutual TLS |
+| `tls.client_cert` | no | Client certificate for the client side |
+| `tls.client_key` | no | Client private key |
+| `tls.verify_hostname` | no | Default `true`; set `false` for loopback self-signed certs |
+
+The service emits `tls_enabled` and `tls_require_client_cert` in the `record_recovery_service_start` log entry so operators can confirm TLS state from the structured log without parsing process arguments.
+
+Stop the mTLS service:
+
+```bash
+python3 scripts/manage_record_recovery_service.py stop \
+  --config config/record_recovery_http_mtls_service.example.json \
+  --pid-file tmp/record_recovery_service_http_mtls.pid
+```
 
 ### External KMS
 
@@ -70,6 +138,25 @@ python3 scripts/check_platform_health.py \
 ```
 
 If the KMS config uses auth tokens, set the referenced env vars first.
+
+### Authority Governance Smoke
+
+Use this when you want one operator-facing summary over identity, authz, KMS, service-token, issuer, policy-drift, and key-drift checks:
+
+```bash
+python3 scripts/check_authority_governance.py \
+  --policy-drift tmp/policy_drift_clean.json \
+  --key-drift tmp/key_backend_drift_clean.json \
+  --identity-resolution tmp/api_identity_resolution_bearer.json \
+  --openfga-check tmp/openfga_check_allowed.json \
+  --kms-reachability tmp/kms_reachability_authority.json \
+  --service-token-report tmp/service_token_verify.json \
+  --issuer-rotation tmp/issuer_rotation_dry.json \
+  --output tmp/authority_governance_report.json \
+  --assert-ok
+```
+
+The report contract is `authority_governance_report/v1`. It is a read-only rollup over existing reports; use `checks[].source_path` to drill into the original authority report. A warning means at least one input is degraded but not directly blocking; an error means at least one authority check failed and should be fixed before execute/release workflows are trusted.
 
 ### Key Agent
 
@@ -159,6 +246,12 @@ python3 scripts/manage_metadata_db.py export-json \
 python3 scripts/export_authz_tuples.py \
   --db-path tmp/platform_metadata.db \
   --output tmp/platform_authz_tuples.json
+
+python3 scripts/materialize_control_plane_deepening.py \
+  --db-path tmp/platform_metadata.db \
+  --catalog-lineage tmp/catalog_lineage.json \
+  --output tmp/control_plane_deepening.json \
+  --assert-ok
 ```
 
 Use them as follows:
@@ -168,6 +261,7 @@ Use them as follows:
 3. `restore`: restore a fresh SQLite copy from a backup DB, emitting `metadata_db_restore/v1` with embedded `restored_status`
 4. `export-json`: materialize a portable sidecar snapshot with status, job list, registry/policy entities, and sample artifacts as `metadata_db_export/v1`
 5. `export_authz_tuples.py`: materialize the current caller/tenant/dataset/service authz slice as `authz_tuple_export/v1`, either from the sidecar DB or directly from a policy file, for OpenFGA-style relationship sync without changing the frozen pipeline contracts
+6. `materialize_control_plane_deepening.py`: rebuild C1-C5 sidecar read models (`job_state_transitions`, `policy_versions`, `service_versions`, `catalog_lineage_read_model`, `retention_reconcile_plan`) and emit `control_plane_deepening_report/v1`; this is non-runtime metadata materialization, not a main-chain DB write path
 
 ## Combined Check
 
@@ -596,6 +690,57 @@ python3 scripts/verify_audit_bundle.py \
 `archive_audit_bundle.py` now appends an `audit_archive_anchor/v1` record to `audit_chain_anchor.jsonl` for each archived bundle. The anchor log is locally append-only: every entry carries the previous entry hash plus the current index-record hash, and `--anchor-key-env` adds an HMAC over the anchor entry without logging the secret value.
 
 If the seal was created with `--hmac-key-env`, pass the same env var to `verify_audit_bundle.py` to verify the seal HMAC signature. If the archive anchor was created with `--anchor-key-env`, pass the same env var to verify the anchor signature as well. Without those env vars, the tool still verifies artifact SHA-256 values and the anchor-chain linkage, but reports `signature_verified` or `anchor_signature_verified` as `null`. Archive index records and verification reports now also expose a compact `mainline_contract_summary`, including whether `mainline_contract_check/v1` was embedded in `audit_chain.json`, the final `server` / `client` handoff cleanup states, and the per-role `service_audit_consistency` summary for recovery-service runs.
+
+## External Audit Anchor Publishing
+
+After archiving a bundle, push the local anchor log to an external sink using `scripts/publish_external_audit_anchor.py`. The script verifies the anchor chain (payload hashes, entry hashes, chain linkage, and optional HMAC signature) before writing anything to the external sink.
+
+Dry-run (verify only, no write):
+
+```bash
+export SECCOMP_AUDIT_ARCHIVE_ANCHOR_KEY=local-audit-anchor
+python3 scripts/publish_external_audit_anchor.py \
+  --anchor-file tmp/audit_archive/audit_chain_anchor.jsonl \
+  --external-ledger tmp/external_audit_ledger.jsonl \
+  --anchor-key-env SECCOMP_AUDIT_ARCHIVE_ANCHOR_KEY \
+  --require-signature \
+  --dry-run
+```
+
+Publish (append to external ledger):
+
+```bash
+python3 scripts/publish_external_audit_anchor.py \
+  --anchor-file tmp/audit_archive/audit_chain_anchor.jsonl \
+  --external-ledger tmp/external_audit_ledger.jsonl \
+  --anchor-key-env SECCOMP_AUDIT_ARCHIVE_ANCHOR_KEY \
+  --require-signature \
+  --output tmp/external_audit_anchor_report.json \
+  --assert-ok
+```
+
+Validate the report:
+
+```bash
+python3 scripts/validate_json_contract.py \
+  --schema schemas/external_audit_anchor_report.schema.json \
+  --json tmp/external_audit_anchor_report.json
+```
+
+The output schema is `external_audit_anchor_report/v1`. Key fields:
+
+| Field | Meaning |
+| ----- | ------- |
+| `summary.status` | `ok` if at least one anchor record was verified and the chain is intact |
+| `summary.anchor_record_count` | Total records verified from the anchor file |
+| `summary.published_count` | Records actually appended to the external ledger (`0` in dry-run mode) |
+| `summary.verified_chain` | `true` if the hash chain is unbroken |
+| `summary.signed_count` | Records carrying a verified HMAC-SHA256 signature |
+| `summary.last_entry_sha256` | Hash of the last anchor entry, for continuity verification |
+
+The external ledger writes `external_audit_anchor_ledger/v1` records. Each record carries `job_id`, `chain_position`, `entry_sha256`, `payload_sha256`, `index_record_sha256`, and `signature_algorithm` — no secret material. The script is append-only; it does not modify or delete existing ledger records.
+
+Use `--require-signature` in production to reject any unsigned anchor entries before they reach the external sink. Without it, unsigned entries pass through with `signature_verified: null`.
 
 ## Repository Hygiene Scan
 
@@ -1176,6 +1321,16 @@ Use this tree when a check or service reports an unexpected failure.
 2. **`request_signature_verified: false`** → the client HMAC key does not match the service's `hmac_key_env`; re-export the correct key.
 3. **`reason_code: request_expired`** → the client's `request_timestamp_utc` is more than 30 s away from server time; sync clocks or widen the window in the service config.
 4. **`authz: deny`** → the caller is not listed in the recovery policy; add the caller to `sse_export_policy/v1` or the SQLite authz source.
+5. **TLS handshake failure (mTLS)** → verify that `tls.ca_cert` on the server matches the CA that signed the client cert; confirm `tls.client_cert` / `tls.client_key` paths are correct in the config; check that `tls.verify_hostname` is `false` when using loopback self-signed certs.
+6. **`ssl.SSLCertVerificationError`** → the server certificate is not trusted by the client's CA; re-check `tls.ca_cert` on the client side; if `require_client_cert=true`, also verify the client cert is signed by the same CA.
+
+### External Audit Anchor Failure
+
+1. **`payload_sha256 mismatch`** → the anchor entry was modified after it was written; restore the anchor file from a backup or re-archive from the original `audit_chain.json`.
+2. **`entry_sha256 mismatch`** → the chain linkage is broken; the anchor file was truncated or reordered; compare against the original archive index.
+3. **`HMAC signature mismatch`** → the anchor key does not match what was used at archive time; confirm the env var named by `--anchor-key-env` holds the original secret.
+4. **`unsigned anchor line`** (with `--require-signature`) → an anchor entry was written without an HMAC key; either remove the unsigned entry or re-archive with a key set.
+5. **External ledger file not writable** → the `--external-ledger` path or its parent directory does not exist or is read-only; create the directory or fix permissions before publishing.
 
 ### Platform Health Reports Error
 

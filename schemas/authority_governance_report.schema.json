@@ -1,0 +1,138 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "authority_governance_report/v1",
+  "title": "Authority governance and remote-authority smoke summary",
+  "type": "object",
+  "required": [
+    "schema",
+    "generated_at_utc",
+    "overall_status",
+    "summary",
+    "checks"
+  ],
+  "properties": {
+    "schema": {
+      "const": "authority_governance_report/v1"
+    },
+    "generated_at_utc": {
+      "type": "string",
+      "minLength": 1
+    },
+    "overall_status": {
+      "enum": [
+        "ok",
+        "degraded",
+        "error"
+      ]
+    },
+    "summary": {
+      "type": "object",
+      "required": [
+        "check_count",
+        "ok_count",
+        "warn_count",
+        "error_count",
+        "categories"
+      ],
+      "properties": {
+        "check_count": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "ok_count": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "warn_count": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "error_count": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "categories": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "object",
+            "required": [
+              "ok",
+              "warn",
+              "error"
+            ],
+            "properties": {
+              "ok": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "warn": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "error": {
+                "type": "integer",
+                "minimum": 0
+              }
+            },
+            "additionalProperties": false
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "checks": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "category",
+          "name",
+          "status",
+          "source_schema",
+          "source_path",
+          "detail"
+        ],
+        "properties": {
+          "category": {
+            "enum": [
+              "policy",
+              "key",
+              "identity",
+              "authz",
+              "kms",
+              "service_token",
+              "issuer"
+            ]
+          },
+          "name": {
+            "type": "string",
+            "minLength": 1
+          },
+          "status": {
+            "enum": [
+              "ok",
+              "warn",
+              "error"
+            ]
+          },
+          "source_schema": {
+            "type": "string",
+            "minLength": 1
+          },
+          "source_path": {
+            "type": "string",
+            "minLength": 1
+          },
+          "detail": {
+            "type": "string"
+          },
+          "metrics": {
+            "type": "object"
+          }
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  "additionalProperties": false
+}

@@ -67,6 +67,17 @@ def _resolved_runtime(args: argparse.Namespace) -> dict:
     audit_log = merged_record_recovery_service_value(args.audit_log, config.get("audit_log", ""))
     pid_file = merged_record_recovery_service_value(args.pid_file, config.get("pid_file", ""))
     ready_file = merged_record_recovery_service_value(args.ready_file, config.get("ready_file", ""))
+    tls_config = dict(config.get("tls") if isinstance(config.get("tls"), dict) else {})
+    if getattr(args, "tls_cert_file", "") or getattr(args, "tls_key_file", ""):
+        tls_config.update(
+            {
+                "enabled": True,
+                "server_cert": args.tls_cert_file,
+                "server_key": args.tls_key_file,
+                "ca_cert": args.tls_ca_cert,
+                "require_client_cert": bool(args.tls_require_client_cert),
+            }
+        )
 
     if transport == "http" and endpoint_url and (not bind_host or port in (None, "")):
         parsed = urllib.parse.urlparse(endpoint_url)
@@ -93,6 +104,7 @@ def _resolved_runtime(args: argparse.Namespace) -> dict:
         "audit_log": audit_log,
         "pid_file": pid_file,
         "ready_file": ready_file,
+        "tls": tls_config,
         "max_rows_per_request": int(getattr(args, "max_rows_per_request", 0) or 0),
     }
 
@@ -137,6 +149,14 @@ def _serve(args: argparse.Namespace) -> int:
             argv.extend(["--pid-file", runtime["pid_file"]])
         if runtime["ready_file"]:
             argv.extend(["--ready-file", runtime["ready_file"]])
+        tls = runtime.get("tls") or {}
+        if tls.get("enabled"):
+            argv.extend(["--tls-cert-file", str(tls.get("server_cert") or "")])
+            argv.extend(["--tls-key-file", str(tls.get("server_key") or "")])
+            if tls.get("ca_cert"):
+                argv.extend(["--tls-ca-cert", str(tls.get("ca_cert") or "")])
+            if tls.get("require_client_cert"):
+                argv.append("--tls-require-client-cert")
         if runtime.get("max_rows_per_request", 0) > 0:
             argv.extend(["--max-rows-per-request", str(runtime["max_rows_per_request"])])
         return _dispatch(http_service_main, argv)
@@ -206,6 +226,10 @@ def build_parser() -> argparse.ArgumentParser:
     serve.add_argument("--audit-log", default="")
     serve.add_argument("--pid-file", default="")
     serve.add_argument("--ready-file", default="")
+    serve.add_argument("--tls-cert-file", default="")
+    serve.add_argument("--tls-key-file", default="")
+    serve.add_argument("--tls-ca-cert", default="")
+    serve.add_argument("--tls-require-client-cert", action="store_true")
     serve.add_argument("--max-rows-per-request", type=int, default=0,
                        help="Hard cap on rows returned per recovery request (0 = unlimited)")
 

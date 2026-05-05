@@ -1,0 +1,194 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "record_recovery_service_metrics/v1",
+  "title": "Record recovery service runtime metrics summary",
+  "type": "object",
+  "required": [
+    "schema",
+    "generated_at_utc",
+    "source_path",
+    "event_count",
+    "request_count",
+    "transports",
+    "event_counts",
+    "decision_counts",
+    "reason_code_counts",
+    "op_counts",
+    "duration_ms"
+  ],
+  "properties": {
+    "schema": {
+      "const": "record_recovery_service_metrics/v1"
+    },
+    "generated_at_utc": {
+      "type": "string",
+      "minLength": 1
+    },
+    "source_path": {
+      "type": "string",
+      "minLength": 1
+    },
+    "event_count": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "request_count": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "recover_request_count": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "health_request_count": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "allow_count": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "deny_count": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "client_error_count": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "server_error_count": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "candidate_count_total": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "transports": {
+      "type": "array",
+      "items": {
+        "enum": [
+          "unix_socket",
+          "http"
+        ]
+      },
+      "uniqueItems": true
+    },
+    "service_ids": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "uniqueItems": true
+    },
+    "tenant_ids": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "uniqueItems": true
+    },
+    "dataset_ids": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "uniqueItems": true
+    },
+    "event_counts": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "integer",
+        "minimum": 0
+      }
+    },
+    "decision_counts": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "integer",
+        "minimum": 0
+      }
+    },
+    "reason_code_counts": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "integer",
+        "minimum": 0
+      }
+    },
+    "op_counts": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "integer",
+        "minimum": 0
+      }
+    },
+    "method_counts": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "integer",
+        "minimum": 0
+      }
+    },
+    "role_counts": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "integer",
+        "minimum": 0
+      }
+    },
+    "status_code_counts": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "integer",
+        "minimum": 0
+      }
+    },
+    "duration_ms": {
+      "type": "object",
+      "required": [
+        "count",
+        "min",
+        "max",
+        "avg",
+        "p95"
+      ],
+      "properties": {
+        "count": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "min": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "max": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "avg": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "p95": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "minimum": 0
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false
+}

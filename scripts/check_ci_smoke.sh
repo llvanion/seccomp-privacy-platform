@@ -35,6 +35,7 @@ python3 -m py_compile \
   scripts/export_authz_tuples.py \
   scripts/export_observability_events.py \
   scripts/export_otel_events.py \
+  scripts/export_record_recovery_service_metrics.py \
   scripts/verify_operator_shell_regression.py \
   scripts/import_run_metadata.py \
   scripts/init_metadata_db.py \
@@ -43,11 +44,13 @@ python3 -m py_compile \
   scripts/manage_external_kms.py \
   scripts/manage_keyring.py \
   scripts/manage_metadata_db.py \
+  scripts/materialize_control_plane_deepening.py \
   scripts/manage_service_tokens.py \
   scripts/manage_record_recovery_service.py \
   scripts/metadata_db.py \
   scripts/query_metadata.py \
   scripts/platform_api_client.py \
+  scripts/publish_external_audit_anchor.py \
   scripts/request_external_kms.py \
   scripts/request_key_agent.py \
   scripts/request_record_recovery_service.py \
@@ -70,6 +73,7 @@ python3 -m py_compile \
   scripts/write_pjc_audit.py \
   scripts/check_malformed_input_gate.py \
   scripts/check_pre_release_gate.py \
+  scripts/check_authority_governance.py \
   scripts/check_operator_readiness.py
 
 SSE_PY="$REPO_ROOT/sse/.venv/bin/python"

@@ -304,3 +304,103 @@ CREATE TABLE IF NOT EXISTS service_tokens (
 CREATE INDEX IF NOT EXISTS idx_service_tokens_service_id ON service_tokens (service_id);
 CREATE INDEX IF NOT EXISTS idx_service_tokens_status ON service_tokens (status);
 CREATE INDEX IF NOT EXISTS idx_service_tokens_expires ON service_tokens (expires_at_utc);
+
+-- C1-C5: Post-baseline SQL control-plane read models.
+CREATE TABLE IF NOT EXISTS job_state_transitions (
+    id SERIAL PRIMARY KEY,
+    job_id TEXT NOT NULL REFERENCES jobs(job_id) ON DELETE CASCADE,
+    transition_ordinal INTEGER NOT NULL,
+    from_state TEXT,
+    to_state TEXT NOT NULL,
+    stage TEXT,
+    event_type TEXT,
+    ts_utc TIMESTAMPTZ,
+    source TEXT,
+    source_event_id INTEGER,
+    details_json JSONB,
+    UNIQUE(job_id, transition_ordinal)
+);
+
+CREATE INDEX IF NOT EXISTS idx_job_state_transitions_job_id ON job_state_transitions (job_id);
+CREATE INDEX IF NOT EXISTS idx_job_state_transitions_state ON job_state_transitions (to_state);
+CREATE INDEX IF NOT EXISTS idx_job_state_transitions_ts ON job_state_transitions (ts_utc);
+
+CREATE TABLE IF NOT EXISTS policy_versions (
+    id SERIAL PRIMARY KEY,
+    policy_id TEXT NOT NULL REFERENCES policies(policy_id) ON DELETE CASCADE,
+    policy_kind TEXT NOT NULL,
+    path TEXT NOT NULL,
+    version TEXT NOT NULL,
+    sha256 TEXT,
+    schema_name TEXT,
+    imported_at_utc TIMESTAMPTZ NOT NULL,
+    is_current BOOLEAN NOT NULL DEFAULT TRUE,
+    metadata_json JSONB,
+    UNIQUE(policy_id, version)
+);
+
+CREATE INDEX IF NOT EXISTS idx_policy_versions_policy_id ON policy_versions (policy_id);
+CREATE INDEX IF NOT EXISTS idx_policy_versions_path_current ON policy_versions (path, is_current);
+
+CREATE TABLE IF NOT EXISTS service_versions (
+    id SERIAL PRIMARY KEY,
+    service_id TEXT NOT NULL REFERENCES services(service_id) ON DELETE CASCADE,
+    version TEXT NOT NULL,
+    tenant_id TEXT,
+    dataset_id TEXT,
+    service_type TEXT,
+    transport TEXT,
+    config_path TEXT,
+    effective_at_utc TIMESTAMPTZ NOT NULL,
+    is_current BOOLEAN NOT NULL DEFAULT TRUE,
+    metadata_json JSONB,
+    UNIQUE(service_id, version)
+);
+
+CREATE INDEX IF NOT EXISTS idx_service_versions_service_id ON service_versions (service_id);
+CREATE INDEX IF NOT EXISTS idx_service_versions_current ON service_versions (service_id, is_current);
+
+CREATE TABLE IF NOT EXISTS catalog_lineage_read_model (
+    id SERIAL PRIMARY KEY,
+    job_id TEXT NOT NULL REFERENCES jobs(job_id) ON DELETE CASCADE,
+    correlation_id TEXT,
+    caller TEXT,
+    tenant_id TEXT,
+    dataset_id TEXT,
+    service_id TEXT,
+    lineage_kind TEXT NOT NULL,
+    node_id TEXT NOT NULL,
+    node_type TEXT,
+    display_name TEXT,
+    role TEXT,
+    stage TEXT,
+    source_id TEXT,
+    target_id TEXT,
+    path_redacted BOOLEAN NOT NULL DEFAULT TRUE,
+    metadata_json JSONB,
+    imported_at_utc TIMESTAMPTZ NOT NULL,
+    UNIQUE(job_id, lineage_kind, node_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_catalog_lineage_job_id ON catalog_lineage_read_model (job_id);
+CREATE INDEX IF NOT EXISTS idx_catalog_lineage_dataset_service ON catalog_lineage_read_model (tenant_id, dataset_id, service_id);
+CREATE INDEX IF NOT EXISTS idx_catalog_lineage_kind ON catalog_lineage_read_model (lineage_kind);
+
+CREATE TABLE IF NOT EXISTS retention_reconcile_plan (
+    id SERIAL PRIMARY KEY,
+    scope TEXT NOT NULL,
+    entity_type TEXT NOT NULL,
+    entity_id TEXT NOT NULL,
+    job_id TEXT,
+    retention_class TEXT NOT NULL,
+    recommended_action TEXT NOT NULL,
+    reason_code TEXT NOT NULL,
+    reviewed BOOLEAN NOT NULL DEFAULT FALSE,
+    created_at_utc TIMESTAMPTZ NOT NULL,
+    details_json JSONB,
+    UNIQUE(scope, entity_type, entity_id, reason_code)
+);
+
+CREATE INDEX IF NOT EXISTS idx_retention_reconcile_scope ON retention_reconcile_plan (scope);
+CREATE INDEX IF NOT EXISTS idx_retention_reconcile_job ON retention_reconcile_plan (job_id);
+CREATE INDEX IF NOT EXISTS idx_retention_reconcile_action ON retention_reconcile_plan (recommended_action);

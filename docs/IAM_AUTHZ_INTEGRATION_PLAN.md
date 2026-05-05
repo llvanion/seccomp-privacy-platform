@@ -485,3 +485,27 @@ OPA 更适合做 admission / routing / API-gate 规则，而不是替代 release
 2. 再把 metadata sidecar 中的 registry / policy 数据同步到 FGA。
 3. 再给 execute、service admin、health read 等高风险入口补角色和关系限制。
 4. 继续把 record recovery service、key agent、external KMS 的 service/admin 路径从共享 token 过渡到更正式的身份方案。
+
+## 13. A5-A6 收口：authority governance 汇总
+
+截至 2026-05-05，IAM / authz / KMS 的 post-baseline 收口新增了一条统一治理汇总：
+
+```bash
+python3 scripts/check_authority_governance.py \
+  --identity-resolution tmp/api_identity_resolution_bearer.json \
+  --openfga-check tmp/openfga_check_allowed.json \
+  --kms-reachability tmp/kms_reachability_authority.json \
+  --service-token-report tmp/service_token_verify.json \
+  --issuer-rotation tmp/issuer_rotation_dry.json \
+  --output tmp/authority_governance_report.json \
+  --assert-ok
+```
+
+该入口只读既有 contract report，输出 `authority_governance_report/v1`。它把 identity、OpenFGA-style authz、KMS reachability、service token、issuer rotation 以及 policy/key drift 放到同一个 `ok|warn|error` operator 视图中。
+
+边界：
+
+1. 它不是新的 IAM 决策引擎。
+2. 它不让主链路在线依赖 Keycloak / OpenFGA / Vault。
+3. 它不替代 `sse_export_policy/v1`、record recovery authz 或 `policy_release.py`。
+4. 它用于回归、交接和上线前 authority-source smoke。

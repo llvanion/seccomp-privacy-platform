@@ -973,6 +973,8 @@
         "service_id",
         "status_code",
         "tenant_id",
+        "tls_enabled",
+        "tls_require_client_cert",
         "transport",
         "ts_utc"
       ]
@@ -1170,6 +1172,28 @@
       ]
     },
     {
+      "path": "schemas/external_audit_anchor_report.schema.json",
+      "schema_id": "external_audit_anchor_report/v1",
+      "required": [
+        "schema",
+        "generated_at_utc",
+        "source_anchor_file",
+        "external_sink",
+        "mode",
+        "summary",
+        "records"
+      ],
+      "stable_properties": [
+        "external_sink",
+        "generated_at_utc",
+        "mode",
+        "records",
+        "schema",
+        "source_anchor_file",
+        "summary"
+      ]
+    },
+    {
       "path": "schemas/audit_bundle_verification.schema.json",
       "schema_id": "audit_bundle_verification/v1",
       "required": [
@@ -1222,6 +1246,7 @@
         "socket_mode",
         "socket_path",
         "tenant_id",
+        "tls",
         "transport"
       ]
     },
@@ -2348,6 +2373,87 @@
         "out_base",
         "overall_status",
         "schema"
+      ]
+    },
+    {
+      "path": "schemas/record_recovery_service_metrics.schema.json",
+      "schema_id": "record_recovery_service_metrics/v1",
+      "required": [
+        "schema",
+        "generated_at_utc",
+        "source_path",
+        "event_count",
+        "request_count",
+        "transports",
+        "event_counts",
+        "decision_counts",
+        "reason_code_counts",
+        "op_counts",
+        "duration_ms"
+      ],
+      "stable_properties": [
+        "allow_count",
+        "candidate_count_total",
+        "client_error_count",
+        "dataset_ids",
+        "decision_counts",
+        "deny_count",
+        "duration_ms",
+        "event_count",
+        "event_counts",
+        "generated_at_utc",
+        "health_request_count",
+        "method_counts",
+        "op_counts",
+        "reason_code_counts",
+        "recover_request_count",
+        "request_count",
+        "role_counts",
+        "schema",
+        "server_error_count",
+        "service_ids",
+        "source_path",
+        "status_code_counts",
+        "tenant_ids",
+        "transports"
+      ]
+    },
+    {
+      "path": "schemas/authority_governance_report.schema.json",
+      "schema_id": "authority_governance_report/v1",
+      "required": [
+        "schema",
+        "generated_at_utc",
+        "overall_status",
+        "summary",
+        "checks"
+      ],
+      "stable_properties": [
+        "checks",
+        "generated_at_utc",
+        "overall_status",
+        "schema",
+        "summary"
+      ]
+    },
+    {
+      "path": "schemas/control_plane_deepening_report.schema.json",
+      "schema_id": "control_plane_deepening_report/v1",
+      "required": [
+        "schema",
+        "generated_at_utc",
+        "db_path",
+        "mode",
+        "summary",
+        "actions"
+      ],
+      "stable_properties": [
+        "actions",
+        "db_path",
+        "generated_at_utc",
+        "mode",
+        "schema",
+        "summary"
       ]
     }
   ]

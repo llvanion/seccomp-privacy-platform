@@ -22,6 +22,11 @@ LIST_ENTITY_CHOICES = (
     "policies",
     "policy-bindings",
     "caller-permissions",
+    "job-state-transitions",
+    "policy-versions",
+    "service-versions",
+    "catalog-lineage-read-model",
+    "retention-reconcile-plan",
 )
 
 PLATFORM_ROLE_NAMES = (
@@ -145,6 +150,77 @@ ENTITY_COLUMNS = {
         "permission_value",
         "source_file",
         "imported_at_utc",
+    ],
+    "job-state-transitions": [
+        "id",
+        "job_id",
+        "transition_ordinal",
+        "from_state",
+        "to_state",
+        "stage",
+        "event_type",
+        "ts_utc",
+        "source",
+        "source_event_id",
+        "details",
+    ],
+    "policy-versions": [
+        "id",
+        "policy_id",
+        "policy_kind",
+        "path",
+        "version",
+        "sha256",
+        "schema_name",
+        "imported_at_utc",
+        "is_current",
+        "metadata",
+    ],
+    "service-versions": [
+        "id",
+        "service_id",
+        "version",
+        "tenant_id",
+        "dataset_id",
+        "service_type",
+        "transport",
+        "config_path",
+        "effective_at_utc",
+        "is_current",
+        "metadata",
+    ],
+    "catalog-lineage-read-model": [
+        "id",
+        "job_id",
+        "correlation_id",
+        "caller",
+        "tenant_id",
+        "dataset_id",
+        "service_id",
+        "lineage_kind",
+        "node_id",
+        "node_type",
+        "display_name",
+        "role",
+        "stage",
+        "source_id",
+        "target_id",
+        "path_redacted",
+        "metadata",
+        "imported_at_utc",
+    ],
+    "retention-reconcile-plan": [
+        "id",
+        "scope",
+        "entity_type",
+        "entity_id",
+        "job_id",
+        "retention_class",
+        "recommended_action",
+        "reason_code",
+        "reviewed",
+        "created_at_utc",
+        "details",
     ],
 }
 
@@ -1463,6 +1539,177 @@ def query_entities(
             """,
             tuple(params + [limit, offset]),
         )
+    elif entity == "job-state-transitions":
+        total_matching_count = int(fetch_scalar(conn, "SELECT COUNT(*) FROM job_state_transitions") or 0)
+        rows = fetch_all_dicts(
+            conn,
+            """
+            SELECT
+              id,
+              job_id,
+              transition_ordinal,
+              from_state,
+              to_state,
+              stage,
+              event_type,
+              ts_utc,
+              source,
+              source_event_id,
+              details_json
+            FROM job_state_transitions
+            ORDER BY job_id ASC, transition_ordinal ASC
+            LIMIT ? OFFSET ?
+            """,
+            (limit, offset),
+        )
+        for row in rows:
+            row["details"] = decode_json_object(row.pop("details_json"))
+    elif entity == "policy-versions":
+        if policy_id:
+            filters.append("policy_id = ?")
+            params.append(policy_id)
+        where = f"WHERE {' AND '.join(filters)}" if filters else ""
+        total_matching_count = int(
+            fetch_scalar(conn, f"SELECT COUNT(*) FROM policy_versions {where}", tuple(params)) or 0
+        )
+        rows = fetch_all_dicts(
+            conn,
+            f"""
+            SELECT
+              id,
+              policy_id,
+              policy_kind,
+              path,
+              version,
+              sha256,
+              schema_name,
+              imported_at_utc,
+              is_current,
+              metadata_json
+            FROM policy_versions
+            {where}
+            ORDER BY imported_at_utc DESC, policy_id ASC, version DESC
+            LIMIT ? OFFSET ?
+            """,
+            tuple(params + [limit, offset]),
+        )
+        for row in rows:
+            row["is_current"] = as_bool(row.get("is_current"))
+            row["metadata"] = decode_json_object(row.pop("metadata_json"))
+    elif entity == "service-versions":
+        if service_id:
+            filters.append("service_id = ?")
+            params.append(service_id)
+        if tenant_id:
+            filters.append("tenant_id = ?")
+            params.append(tenant_id)
+        if dataset_id:
+            filters.append("dataset_id = ?")
+            params.append(dataset_id)
+        where = f"WHERE {' AND '.join(filters)}" if filters else ""
+        total_matching_count = int(
+            fetch_scalar(conn, f"SELECT COUNT(*) FROM service_versions {where}", tuple(params)) or 0
+        )
+        rows = fetch_all_dicts(
+            conn,
+            f"""
+            SELECT
+              id,
+              service_id,
+              version,
+              tenant_id,
+              dataset_id,
+              service_type,
+              transport,
+              config_path,
+              effective_at_utc,
+              is_current,
+              metadata_json
+            FROM service_versions
+            {where}
+            ORDER BY effective_at_utc DESC, service_id ASC, version DESC
+            LIMIT ? OFFSET ?
+            """,
+            tuple(params + [limit, offset]),
+        )
+        for row in rows:
+            row["is_current"] = as_bool(row.get("is_current"))
+            row["metadata"] = decode_json_object(row.pop("metadata_json"))
+    elif entity == "catalog-lineage-read-model":
+        if caller:
+            filters.append("caller = ?")
+            params.append(caller)
+        if tenant_id:
+            filters.append("tenant_id = ?")
+            params.append(tenant_id)
+        if dataset_id:
+            filters.append("dataset_id = ?")
+            params.append(dataset_id)
+        if service_id:
+            filters.append("service_id = ?")
+            params.append(service_id)
+        where = f"WHERE {' AND '.join(filters)}" if filters else ""
+        total_matching_count = int(
+            fetch_scalar(conn, f"SELECT COUNT(*) FROM catalog_lineage_read_model {where}", tuple(params)) or 0
+        )
+        rows = fetch_all_dicts(
+            conn,
+            f"""
+            SELECT
+              id,
+              job_id,
+              correlation_id,
+              caller,
+              tenant_id,
+              dataset_id,
+              service_id,
+              lineage_kind,
+              node_id,
+              node_type,
+              display_name,
+              role,
+              stage,
+              source_id,
+              target_id,
+              path_redacted,
+              metadata_json,
+              imported_at_utc
+            FROM catalog_lineage_read_model
+            {where}
+            ORDER BY imported_at_utc DESC, lineage_kind ASC, id ASC
+            LIMIT ? OFFSET ?
+            """,
+            tuple(params + [limit, offset]),
+        )
+        for row in rows:
+            row["path_redacted"] = as_bool(row.get("path_redacted"))
+            row["metadata"] = decode_json_object(row.pop("metadata_json"))
+    elif entity == "retention-reconcile-plan":
+        total_matching_count = int(fetch_scalar(conn, "SELECT COUNT(*) FROM retention_reconcile_plan") or 0)
+        rows = fetch_all_dicts(
+            conn,
+            """
+            SELECT
+              id,
+              scope,
+              entity_type,
+              entity_id,
+              job_id,
+              retention_class,
+              recommended_action,
+              reason_code,
+              reviewed,
+              created_at_utc,
+              details_json
+            FROM retention_reconcile_plan
+            ORDER BY created_at_utc DESC, scope ASC, entity_type ASC, id ASC
+            LIMIT ? OFFSET ?
+            """,
+            (limit, offset),
+        )
+        for row in rows:
+            row["reviewed"] = as_bool(row.get("reviewed"))
+            row["details"] = decode_json_object(row.pop("details_json"))
     else:
         raise SystemExit(f"[ERROR] unsupported --list-entity value: {entity}")
 
@@ -1518,6 +1765,11 @@ def validate_list_entity_args(args: argparse.Namespace) -> None:
         "policies": {"policy_id"},
         "policy-bindings": {"policy_id", "binding_kind", "caller", "tenant_id", "dataset_id", "service_id"},
         "caller-permissions": {"policy_id", "caller", "permission_key"},
+        "job-state-transitions": set(),
+        "policy-versions": {"policy_id"},
+        "service-versions": {"tenant_id", "dataset_id", "service_id"},
+        "catalog-lineage-read-model": {"caller", "tenant_id", "dataset_id", "service_id"},
+        "retention-reconcile-plan": set(),
     }
     provided_filters = {
         "caller": args.caller,

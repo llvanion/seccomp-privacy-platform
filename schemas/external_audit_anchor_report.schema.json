@@ -1,0 +1,141 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "external_audit_anchor_report/v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "generated_at_utc",
+    "source_anchor_file",
+    "external_sink",
+    "mode",
+    "summary",
+    "records"
+  ],
+  "properties": {
+    "schema": {
+      "const": "external_audit_anchor_report/v1"
+    },
+    "generated_at_utc": {
+      "type": "string"
+    },
+    "source_anchor_file": {
+      "type": "string"
+    },
+    "external_sink": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "path"
+      ],
+      "properties": {
+        "kind": {
+          "enum": [
+            "file_ledger"
+          ]
+        },
+        "path": {
+          "type": "string"
+        }
+      }
+    },
+    "mode": {
+      "enum": [
+        "dry_run",
+        "publish"
+      ]
+    },
+    "summary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "status",
+        "anchor_record_count",
+        "published_count",
+        "verified_chain",
+        "signed_count",
+        "last_entry_sha256"
+      ],
+      "properties": {
+        "status": {
+          "enum": [
+            "ok",
+            "fail"
+          ]
+        },
+        "anchor_record_count": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "published_count": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "verified_chain": {
+          "type": "boolean"
+        },
+        "signed_count": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "last_entry_sha256": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      }
+    },
+    "records": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "job_id",
+          "chain_position",
+          "entry_sha256",
+          "payload_sha256",
+          "index_record_sha256",
+          "signature_algorithm",
+          "signature_verified",
+          "published"
+        ],
+        "properties": {
+          "job_id": {
+            "type": "string"
+          },
+          "chain_position": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "entry_sha256": {
+            "type": "string"
+          },
+          "payload_sha256": {
+            "type": "string"
+          },
+          "index_record_sha256": {
+            "type": "string"
+          },
+          "signature_algorithm": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "signature_verified": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "published": {
+            "type": "boolean"
+          }
+        }
+      }
+    }
+  }
+}

@@ -444,16 +444,16 @@ KMS 不负责：
 
 1. ~~先把 keyring 文档和 external KMS 文档固定为统一 backend 语义。~~ **已完成（2026-05-03）**
 2. ~~再为 `secret_ref.kind` 扩展准备 change request。~~ **已完成（2026-05-03）**：当前仓库内基线已经收敛为 `env|vault_kv`
-3. 下一步把 `vault_kv_backend/v1` 从本地 compatibility fixture 换成真实 Vault / cloud KMS adapter，复用现有 access/lifecycle audit contract。
-4. 然后补 service identity、OIDC/mTLS、远端 policy 与 token 生命周期治理。
+3. ~~补 service identity、OIDC/mTLS、远端 policy 与 token 生命周期治理的第一版 operator 汇总。~~ **已完成（2026-05-05）**：`check_authority_governance.py` 现在把 KMS reachability、service-token lifecycle、issuer rotation、identity resolution、OpenFGA check、policy/key drift 汇总为 `authority_governance_report/v1`，并纳入默认 contract smoke。
+4. 下一步把 `vault_kv_backend/v1` 从本地 compatibility fixture 换成真实 Vault / cloud KMS adapter，复用现有 access/lifecycle audit contract。
 5. 只有在上述路径稳定后，再评估是否值得推动 remote tokenization 取代本地 secret 暴露。
 
 如果要纳入统一排期，建议直接对齐 [POST_BASELINE_ROADMAP.md](/home/llvanion/Desktop/seccomp-privacy-platform/docs/POST_BASELINE_ROADMAP.md) 的 `Tranche A`：
 
 1. `A3`：真实 Vault / cloud KMS adapter baseline
 2. `A4`：service identity + token lifecycle
-3. `A5`：policy / key / identity mutation governance 联动
-4. `A6`：远端 authority smoke + runbook 收口
+3. ~~`A5`：policy / key / identity mutation governance 联动~~ **已完成（2026-05-05）**
+4. ~~`A6`：远端 authority smoke + runbook 收口~~ **已完成（2026-05-05）**
 
 这里的优先级仍然是：
 

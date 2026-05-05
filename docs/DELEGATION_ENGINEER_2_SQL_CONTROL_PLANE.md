@@ -441,26 +441,35 @@ python3 scripts/serve_metadata_api.py \
 
 ## 12. 平台基线之后建议
 
-这条线的“平台基线版”已经完成。
+这条线的“平台基线版”已经完成。`2026-05-05` 又推进了 [POST_BASELINE_ROADMAP.md](/home/llvanion/Desktop/seccomp-privacy-platform/docs/POST_BASELINE_ROADMAP.md) 中的 `Tranche C / C1-C5` 第一版。
 
-如果继续推进，不应再把工作描述成“补当前 sidecar 缺的基础能力”，而应直接进入 [POST_BASELINE_ROADMAP.md](/home/llvanion/Desktop/seccomp-privacy-platform/docs/POST_BASELINE_ROADMAP.md) 的 `Tranche C`。
+已完成新增：
 
-建议按下面顺序继续：
+1. **C1：workflow transition tables / read model**：新增 `job_state_transitions`，由 `jobs` + `job_stage_status` 派生 job 状态迁移序列，给 query workflow / operator shell 提供长期状态读取口。
+2. **C2：policy / service versioning**：新增 `policy_versions` 与 `service_versions`，以 policy sha/config snapshot 形成 current version 视图，支撑后续变更治理和回滚审计。
+3. **C3：PostgreSQL JSONB + 索引**：`migrations/postgres/001_init.sql` 同步 `009` 新表，继续使用 `SERIAL`、`TIMESTAMPTZ`、`JSONB`、`BOOLEAN`；`check_metadata_schema_portability.py` 已把新增关键索引纳入 gate。
+4. **C4：registry-enriched catalog / lineage read model**：新增 `catalog_lineage_read_model`，从 `catalog_lineage/v1` 结合 metadata DB scope 派生查询模型；默认 path-redacted，不扩大 artifact path 暴露面。
+5. **C5：retention / reconcile / repair 收口**：新增 `retention_reconcile_plan`，把 audit / registry / key lifecycle 的保留与复核建议落成 SQL read model；当前只生成 retain/review 计划，不执行破坏性修复。
 
-1. `C1`：workflow transition tables / read model
-   - 让 `jobs` 不只保存最终状态快照
-   - 承接 query workflow / operator shell 的长期状态读取
-2. `C2`：policy / service versioning
-   - 给 `policies`、`services` 补 version 语义
-   - 支持更正式的变更治理和回滚视图
-3. `C3`：PostgreSQL JSONB + 索引
-   - `payload_json -> JSONB`
-   - 为高频过滤、排序、分页字段补表达式索引与游标键
-4. `C4`：registry-enriched catalog / lineage read model
-   - 连接 metadata sidecar 与 file-derived lineage
-   - 继续保持 path-redacted default
-5. `C5`：retention / reconcile / repair 收口
-   - 为 audit / registry / key lifecycle 做长期保留与修复策略
+主要入口：
+
+```bash
+python3 scripts/materialize_control_plane_deepening.py \
+  --db-path tmp/platform_metadata.db \
+  --catalog-lineage tmp/catalog_lineage.json \
+  --output tmp/control_plane_deepening.json \
+  --assert-ok
+```
+
+查询入口：
+
+```bash
+python3 scripts/query_metadata.py --db-path tmp/platform_metadata.db --list-entity job-state-transitions
+python3 scripts/query_metadata.py --db-path tmp/platform_metadata.db --list-entity policy-versions
+python3 scripts/query_metadata.py --db-path tmp/platform_metadata.db --list-entity service-versions
+python3 scripts/query_metadata.py --db-path tmp/platform_metadata.db --list-entity catalog-lineage-read-model
+python3 scripts/query_metadata.py --db-path tmp/platform_metadata.db --list-entity retention-reconcile-plan
+```
 
 这条线后续的核心原则仍然不变：
 

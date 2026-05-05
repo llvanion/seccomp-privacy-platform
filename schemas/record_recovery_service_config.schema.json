@@ -132,6 +132,51 @@
       },
       "additionalProperties": false
     },
+    "tls": {
+      "type": "object",
+      "properties": {
+        "enabled": {
+          "type": "boolean"
+        },
+        "server_cert": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "server_key": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "ca_cert": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "require_client_cert": {
+          "type": "boolean"
+        },
+        "client_cert": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "client_key": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "verify_hostname": {
+          "type": "boolean"
+        }
+      },
+      "additionalProperties": false
+    },
     "lifecycle": {
       "type": "object",
       "properties": {

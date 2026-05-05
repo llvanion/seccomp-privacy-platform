@@ -3,6 +3,7 @@ import ipaddress
 import json
 import os
 import socket
+import ssl
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -81,14 +82,34 @@ def _should_bypass_proxy(url: str) -> bool:
     return parsed_ip.is_loopback or parsed_ip.is_private or parsed_ip.is_link_local
 
 
-def _open_http_request(request: urllib.request.Request):
+def _client_ssl_context(tls_config: dict | None) -> ssl.SSLContext | None:
+    tls = tls_config or {}
+    if not tls.get("enabled"):
+        return None
+    ca_cert = str(tls.get("ca_cert", "") or "")
+    context = ssl.create_default_context(cafile=ca_cert or None)
+    context.check_hostname = bool(tls.get("verify_hostname", True))
+    if not context.check_hostname:
+        context.verify_mode = ssl.CERT_REQUIRED if ca_cert else ssl.CERT_NONE
+    client_cert = str(tls.get("client_cert", "") or "")
+    client_key = str(tls.get("client_key", "") or "")
+    if client_cert:
+        context.load_cert_chain(certfile=client_cert, keyfile=client_key or None)
+    return context
+
+
+def _open_http_request(request: urllib.request.Request, *, tls_config: dict | None = None):
+    context = _client_ssl_context(tls_config)
     if _should_bypass_proxy(request.full_url):
-        opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+        handlers: list[urllib.request.BaseHandler] = [urllib.request.ProxyHandler({})]
+        if context:
+            handlers.append(urllib.request.HTTPSHandler(context=context))
+        opener = urllib.request.build_opener(*handlers)
         return opener.open(request, timeout=10)
-    return urllib.request.urlopen(request, timeout=10)
+    return urllib.request.urlopen(request, timeout=10, context=context) if context else urllib.request.urlopen(request, timeout=10)
 
 
-def _send_http_request(*, endpoint_url: str, payload: dict, auth_token: str, identity_bearer_token: str) -> dict:
+def _send_http_request(*, endpoint_url: str, payload: dict, auth_token: str, identity_bearer_token: str, tls_config: dict | None = None) -> dict:
     op = str(payload.get("op", "") or "").strip()
     headers = {"Content-Type": "application/json"}
     if auth_token:
@@ -112,7 +133,7 @@ def _send_http_request(*, endpoint_url: str, payload: dict, auth_token: str, ide
         method="POST",
     )
     try:
-        with _open_http_request(req) as resp:
+        with _open_http_request(req, tls_config=tls_config) as resp:
             return _decode_result(resp.read())
     except urllib.error.HTTPError as e:
         body = e.read()
@@ -144,13 +165,14 @@ def _identity_token_from_env(identity_auth_env: str) -> str:
     return identity_token
 
 
-def _send_request(*, socket_path: Path | None, endpoint_url: str, payload: dict, auth_token: str, identity_bearer_token: str) -> dict:
+def _send_request(*, socket_path: Path | None, endpoint_url: str, payload: dict, auth_token: str, identity_bearer_token: str, tls_config: dict | None = None) -> dict:
     if endpoint_url:
         return _send_http_request(
             endpoint_url=endpoint_url,
             payload=payload,
             auth_token=auth_token,
             identity_bearer_token=identity_bearer_token,
+            tls_config=tls_config,
         )
     if socket_path is None:
         raise RuntimeError("record recovery service requires socket_path or endpoint_url")
@@ -180,6 +202,7 @@ def request_record_recovery(
     max_output_rows: int | None,
     identity_auth_env: str = "",
     identity_bearer_token: str = "",
+    tls_config: dict | None = None,
 ) -> dict:
     payload = {
         "op": "recover",
@@ -227,6 +250,7 @@ def request_record_recovery(
         payload=payload,
         auth_token=auth_token,
         identity_bearer_token=identity_bearer_token,
+        tls_config=tls_config,
     )
     if result.get("schema") != RESULT_SCHEMA:
         raise RuntimeError(f"unexpected record recovery service schema: {result.get('schema')}")
@@ -243,6 +267,7 @@ def request_record_recovery_health(
     auth_env: str = "",
     identity_auth_env: str = "",
     identity_bearer_token: str = "",
+    tls_config: dict | None = None,
 ) -> dict:
     payload = {"op": "health"}
     auth_token = _auth_token_from_env(auth_env)
@@ -257,6 +282,7 @@ def request_record_recovery_health(
         payload=payload,
         auth_token=auth_token,
         identity_bearer_token=identity_bearer_token,
+        tls_config=tls_config,
     )
     if result.get("schema") != HEALTH_SCHEMA:
         raise RuntimeError(f"unexpected record recovery health schema: {result.get('schema')}")

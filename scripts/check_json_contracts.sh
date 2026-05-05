@@ -21,6 +21,7 @@ SCHEMAS=(
   "$REPO_ROOT/schemas/record_recovery_service_policy.schema.json"
   "$REPO_ROOT/schemas/record_recovery_service_health.schema.json"
   "$REPO_ROOT/schemas/record_recovery_service_log.schema.json"
+  "$REPO_ROOT/schemas/record_recovery_service_metrics.schema.json"
   "$REPO_ROOT/schemas/record_recovery_boundary_check.schema.json"
   "$REPO_ROOT/schemas/platform_health.schema.json"
   "$REPO_ROOT/schemas/sse_encrypted_record_store.schema.json"
@@ -32,6 +33,7 @@ SCHEMAS=(
   "$REPO_ROOT/schemas/audit_chain.schema.json"
   "$REPO_ROOT/schemas/audit_archive_index.schema.json"
   "$REPO_ROOT/schemas/audit_archive_anchor.schema.json"
+  "$REPO_ROOT/schemas/external_audit_anchor_report.schema.json"
   "$REPO_ROOT/schemas/audit_bundle_verification.schema.json"
   "$REPO_ROOT/schemas/key_manifest.schema.json"
   "$REPO_ROOT/schemas/keyring.schema.json"
@@ -95,6 +97,13 @@ SCHEMAS=(
   "$REPO_ROOT/schemas/query_workflow_status_list.schema.json"
   "$REPO_ROOT/schemas/workflow_retry_eligibility.schema.json"
   "$REPO_ROOT/schemas/operator_triage_report.schema.json"
+  "$REPO_ROOT/schemas/identity_proxy_health.schema.json"
+  "$REPO_ROOT/schemas/openfga_sync_report.schema.json"
+  "$REPO_ROOT/schemas/openfga_check_result.schema.json"
+  "$REPO_ROOT/schemas/kms_reachability_report.schema.json"
+  "$REPO_ROOT/schemas/service_token_report.schema.json"
+  "$REPO_ROOT/schemas/authority_governance_report.schema.json"
+  "$REPO_ROOT/schemas/control_plane_deepening_report.schema.json"
 )
 
 for schema in "${SCHEMAS[@]}"; do
@@ -131,6 +140,9 @@ python3 "$VALIDATOR" \
 python3 "$VALIDATOR" \
   --schema "$REPO_ROOT/schemas/record_recovery_service_config.schema.json" \
   --json "$REPO_ROOT/config/record_recovery_http_service.example.json"
+python3 "$VALIDATOR" \
+  --schema "$REPO_ROOT/schemas/record_recovery_service_config.schema.json" \
+  --json "$REPO_ROOT/config/record_recovery_http_mtls_service.example.json"
 python3 "$VALIDATOR" \
   --schema "$REPO_ROOT/schemas/record_recovery_authz_source.schema.json" \
   --json "$REPO_ROOT/config/record_recovery_authz_sqlite.example.json"
@@ -688,6 +700,16 @@ python3 "$REPO_ROOT/scripts/manage_record_recovery_service.py" stop \
   > "$tmp/record_recovery_service_stop.json"
 record_recovery_service_pid=""
 python3 "$VALIDATOR" --schema "$REPO_ROOT/schemas/record_recovery_service_log.schema.json" --jsonl "$tmp/record_recovery_service.log"
+python3 "$REPO_ROOT/scripts/export_record_recovery_service_metrics.py" \
+  --log-jsonl "$tmp/record_recovery_service.log" \
+  --out "$tmp/record_recovery_service_metrics.json" \
+  --expect-transport unix_socket \
+  --expect-event record_recovery_service_start \
+  --expect-event record_recovery_service_request \
+  --expect-event record_recovery_service_stop \
+  --expect-min-requests 1 \
+  > /dev/null
+python3 "$VALIDATOR" --schema "$REPO_ROOT/schemas/record_recovery_service_metrics.schema.json" --json "$tmp/record_recovery_service_metrics.json"
 [[ ! -e "$tmp/record_recovery.sock" ]] || { echo "[ERROR] record recovery socket still exists after stop" >&2; exit 1; }
 [[ ! -e "$tmp/record_recovery_service.pid" ]] || { echo "[ERROR] record recovery pid file still exists after stop" >&2; exit 1; }
 [[ ! -e "$tmp/record_recovery_service.ready" ]] || { echo "[ERROR] record recovery ready file still exists after stop" >&2; exit 1; }
@@ -753,8 +775,80 @@ python3 "$REPO_ROOT/scripts/manage_record_recovery_service.py" stop \
   > "$tmp/record_recovery_http_service_stop.json"
 record_recovery_service_pid=""
 python3 "$VALIDATOR" --schema "$REPO_ROOT/schemas/record_recovery_service_log.schema.json" --jsonl "$tmp/record_recovery_service_http.log"
+python3 "$REPO_ROOT/scripts/export_record_recovery_service_metrics.py" \
+  --log-jsonl "$tmp/record_recovery_service_http.log" \
+  --out "$tmp/record_recovery_service_http_metrics.json" \
+  --expect-transport http \
+  --expect-event record_recovery_service_start \
+  --expect-event record_recovery_service_request \
+  --expect-event record_recovery_service_stop \
+  --expect-min-requests 3 \
+  > /dev/null
+python3 "$VALIDATOR" --schema "$REPO_ROOT/schemas/record_recovery_service_metrics.schema.json" --json "$tmp/record_recovery_service_http_metrics.json"
 [[ ! -e "$tmp/record_recovery_service_http.pid" ]] || { echo "[ERROR] HTTP record recovery pid file still exists after stop" >&2; exit 1; }
 [[ ! -e "$tmp/record_recovery_service_http.ready" ]] || { echo "[ERROR] HTTP record recovery ready file still exists after stop" >&2; exit 1; }
+
+# D1: HTTPS/mTLS baseline for the standalone record-recovery HTTP service.
+mkdir -p "$tmp/mtls"
+openssl req -x509 -newkey rsa:2048 -nodes -days 1 \
+  -subj "/CN=seccomp-contract-ca" \
+  -keyout "$tmp/mtls/ca.key" \
+  -out "$tmp/mtls/ca.crt" >/dev/null 2>&1
+openssl req -newkey rsa:2048 -nodes \
+  -subj "/CN=127.0.0.1" \
+  -keyout "$tmp/mtls/server.key" \
+  -out "$tmp/mtls/server.csr" >/dev/null 2>&1
+openssl x509 -req \
+  -in "$tmp/mtls/server.csr" \
+  -CA "$tmp/mtls/ca.crt" \
+  -CAkey "$tmp/mtls/ca.key" \
+  -CAcreateserial \
+  -days 1 \
+  -out "$tmp/mtls/server.crt" >/dev/null 2>&1
+openssl req -newkey rsa:2048 -nodes \
+  -subj "/CN=record-recovery-contract-client" \
+  -keyout "$tmp/mtls/client.key" \
+  -out "$tmp/mtls/client.csr" >/dev/null 2>&1
+openssl x509 -req \
+  -in "$tmp/mtls/client.csr" \
+  -CA "$tmp/mtls/ca.crt" \
+  -CAkey "$tmp/mtls/ca.key" \
+  -CAcreateserial \
+  -days 1 \
+  -out "$tmp/mtls/client.crt" >/dev/null 2>&1
+record_recovery_mtls_port="$(python3 "$RUNTIME_SERVICE_HELPERS" available-port)"
+python3 "$REPO_ROOT/scripts/build_runtime_contract_smoke_configs.py" \
+  record-recovery-http \
+  --out-config "$tmp/record_recovery_http_mtls_service_config.json" \
+  --tmp-dir "$tmp" \
+  --port "$record_recovery_mtls_port" \
+  --tls-ca-cert "$tmp/mtls/ca.crt" \
+  --tls-server-cert "$tmp/mtls/server.crt" \
+  --tls-server-key "$tmp/mtls/server.key" \
+  --tls-client-cert "$tmp/mtls/client.crt" \
+  --tls-client-key "$tmp/mtls/client.key" \
+  --tls-require-client-cert \
+  --tls-no-verify-hostname
+python3 "$VALIDATOR" --schema "$REPO_ROOT/schemas/record_recovery_service_config.schema.json" --json "$tmp/record_recovery_http_mtls_service_config.json"
+python3 "$REPO_ROOT/scripts/manage_record_recovery_service.py" start \
+  --config "$tmp/record_recovery_http_mtls_service_config.json" \
+  > "$tmp/record_recovery_http_mtls_service_start.json"
+record_recovery_service_pid="$(python3 "$RUNTIME_SERVICE_HELPERS" read-json-field --json-file "$tmp/record_recovery_http_mtls_service_start.json" --field started_pid)"
+python3 "$REPO_ROOT/scripts/manage_record_recovery_service.py" status \
+  --config "$tmp/record_recovery_http_mtls_service_config.json" \
+  > "$tmp/record_recovery_http_mtls_service_status.json"
+python3 "$REPO_ROOT/scripts/request_record_recovery_service.py" \
+  --config "$tmp/record_recovery_http_mtls_service_config.json" \
+  > "$tmp/record_recovery_http_mtls_service_health.json"
+python3 "$VALIDATOR" --schema "$REPO_ROOT/schemas/record_recovery_service_health.schema.json" --json "$tmp/record_recovery_http_mtls_service_health.json"
+python3 "$REPO_ROOT/scripts/manage_record_recovery_service.py" stop \
+  --config "$tmp/record_recovery_http_mtls_service_config.json" \
+  > "$tmp/record_recovery_http_mtls_service_stop.json"
+record_recovery_service_pid=""
+python3 "$VALIDATOR" --schema "$REPO_ROOT/schemas/record_recovery_service_log.schema.json" --jsonl "$tmp/record_recovery_service_http.log"
+python3 -c 'import json, sys; records=[json.loads(line) for line in open(sys.argv[1], "r", encoding="utf-8") if line.strip()]; starts=[r for r in records if r.get("event") == "record_recovery_service_start" and r.get("tls_enabled") is True]; assert starts and starts[-1].get("tls_require_client_cert") is True, records[-5:]' "$tmp/record_recovery_service_http.log"
+[[ ! -e "$tmp/record_recovery_service_http.pid" ]] || { echo "[ERROR] mTLS record recovery pid file still exists after stop" >&2; exit 1; }
+[[ ! -e "$tmp/record_recovery_service_http.ready" ]] || { echo "[ERROR] mTLS record recovery ready file still exists after stop" >&2; exit 1; }
 
 printf '%s\n' 'not-a-token' > "$tmp/bridge_job/bad_server.csv"
 expect_failure python3 "$TABULAR_VALIDATOR" --contract pjc-server-csv --path "$tmp/bridge_job/bad_server.csv"
@@ -807,6 +901,16 @@ python3 "$REPO_ROOT/scripts/archive_audit_bundle.py" \
   --anchor-key-env SECCOMP_AUDIT_ARCHIVE_ANCHOR_KEY
 python3 "$VALIDATOR" --schema "$REPO_ROOT/schemas/audit_archive_index.schema.json" --jsonl "$tmp/audit_archive/audit_chain_index.jsonl"
 python3 "$VALIDATOR" --schema "$REPO_ROOT/schemas/audit_archive_anchor.schema.json" --jsonl "$tmp/audit_archive/audit_chain_anchor.jsonl"
+python3 "$REPO_ROOT/scripts/publish_external_audit_anchor.py" \
+  --anchor-file "$tmp/audit_archive/audit_chain_anchor.jsonl" \
+  --external-ledger "$tmp/external_audit_anchor_ledger.jsonl" \
+  --anchor-key-env SECCOMP_AUDIT_ARCHIVE_ANCHOR_KEY \
+  --require-signature \
+  --output "$tmp/external_audit_anchor_report.json" \
+  --assert-ok \
+  > /dev/null
+python3 "$VALIDATOR" --schema "$REPO_ROOT/schemas/external_audit_anchor_report.schema.json" --json "$tmp/external_audit_anchor_report.json"
+python3 -c 'import json, sys; payload=json.load(open(sys.argv[1], "r", encoding="utf-8")); s=payload["summary"]; assert payload["mode"] == "publish", payload; assert s["status"] == "ok", s; assert s["verified_chain"] is True, s; assert s["published_count"] == s["anchor_record_count"] >= 1, s; assert s["signed_count"] >= 1, s; assert payload["records"][0]["signature_verified"] is True, payload["records"]' "$tmp/external_audit_anchor_report.json"
 python3 "$REPO_ROOT/scripts/verify_audit_bundle.py" \
   --audit-chain "$tmp/audit_chain.json" \
   --audit-seal "$tmp/audit_chain.seal.json" \
@@ -949,6 +1053,47 @@ python3 "$VALIDATOR" \
   --schema "$REPO_ROOT/schemas/metadata_batch_reconcile.schema.json" \
   --json "$tmp/platform_metadata_reconcile.json"
 python3 -c 'import json, sys; payload=json.load(open(sys.argv[1], "r", encoding="utf-8")); assert payload["mode"] == "dry_run", payload; assert payload["summary"]["status"] == "ok", payload; assert payload["summary"]["total_issues"] == 0, payload; assert payload["summary"]["job_count"] >= 1, payload' "$tmp/platform_metadata_reconcile.json"
+# C1-C5 sidecar materialization: workflow transitions, versions, lineage read model, retention/reconcile plan.
+python3 "$REPO_ROOT/scripts/materialize_control_plane_deepening.py" \
+  --db-path "$tmp/platform_metadata.db" \
+  --catalog-lineage "$tmp/catalog_lineage.json" \
+  --output "$tmp/control_plane_deepening.json" \
+  --assert-ok \
+  > /dev/null
+python3 "$VALIDATOR" \
+  --schema "$REPO_ROOT/schemas/control_plane_deepening_report.schema.json" \
+  --json "$tmp/control_plane_deepening.json"
+python3 -c 'import json, sys; payload=json.load(open(sys.argv[1], "r", encoding="utf-8")); s=payload["summary"]; assert payload["mode"] == "apply", payload; assert s["status"] == "ok", payload; assert s["job_transition_count"] >= 2, s; assert s["policy_version_count"] >= 1, s; assert s["service_version_count"] >= 1, s; assert s["catalog_lineage_count"] >= 4, s; assert s["retention_plan_count"] >= 1, s' "$tmp/control_plane_deepening.json"
+python3 "$REPO_ROOT/scripts/query_metadata.py" \
+  --db-path "$tmp/platform_metadata.db" \
+  --list-entity job-state-transitions \
+  --limit 20 \
+  > "$tmp/platform_metadata_job_state_transitions.json"
+python3 "$REPO_ROOT/scripts/query_metadata.py" \
+  --db-path "$tmp/platform_metadata.db" \
+  --list-entity policy-versions \
+  --limit 20 \
+  > "$tmp/platform_metadata_policy_versions.json"
+python3 "$REPO_ROOT/scripts/query_metadata.py" \
+  --db-path "$tmp/platform_metadata.db" \
+  --list-entity service-versions \
+  --limit 20 \
+  > "$tmp/platform_metadata_service_versions.json"
+python3 "$REPO_ROOT/scripts/query_metadata.py" \
+  --db-path "$tmp/platform_metadata.db" \
+  --list-entity catalog-lineage-read-model \
+  --limit 20 \
+  > "$tmp/platform_metadata_catalog_lineage_read_model.json"
+python3 "$REPO_ROOT/scripts/query_metadata.py" \
+  --db-path "$tmp/platform_metadata.db" \
+  --list-entity retention-reconcile-plan \
+  --limit 20 \
+  > "$tmp/platform_metadata_retention_reconcile_plan.json"
+python3 -c 'import json, sys; payload=json.load(open(sys.argv[1], "r", encoding="utf-8")); assert payload["pagination"]["total_matching_count"] >= 2, payload; assert any(item["event_type"] == "job_status" and item["to_state"] in {"released", "denied", "failed", "completed"} for item in payload["items"]), payload["items"]' "$tmp/platform_metadata_job_state_transitions.json"
+python3 -c 'import json, sys; payload=json.load(open(sys.argv[1], "r", encoding="utf-8")); assert payload["pagination"]["total_matching_count"] >= 1, payload; assert payload["items"][0]["is_current"] is True, payload["items"]' "$tmp/platform_metadata_policy_versions.json"
+python3 -c 'import json, sys; payload=json.load(open(sys.argv[1], "r", encoding="utf-8")); assert payload["pagination"]["total_matching_count"] >= 1, payload; assert payload["items"][0]["is_current"] is True, payload["items"]' "$tmp/platform_metadata_service_versions.json"
+python3 -c 'import json, sys; payload=json.load(open(sys.argv[1], "r", encoding="utf-8")); assert payload["pagination"]["total_matching_count"] >= 4, payload; kinds={item["lineage_kind"] for item in payload["items"]}; assert {"dataset", "artifact", "edge"} <= kinds, kinds; assert all(item["path_redacted"] is True for item in payload["items"] if item["lineage_kind"] == "artifact"), payload["items"]' "$tmp/platform_metadata_catalog_lineage_read_model.json"
+python3 -c 'import json, sys; payload=json.load(open(sys.argv[1], "r", encoding="utf-8")); assert payload["pagination"]["total_matching_count"] >= 1, payload; actions={item["recommended_action"] for item in payload["items"]}; assert "retain" in actions, actions' "$tmp/platform_metadata_retention_reconcile_plan.json"
 python3 "$REPO_ROOT/scripts/manage_metadata_db.py" \
   apply-registry \
   --db-path "$tmp/platform_registry.db" \
@@ -1779,6 +1924,79 @@ python3 "$VALIDATOR" \
 python3 "$VALIDATOR" \
   --schema "$REPO_ROOT/schemas/query_workflow_api_error.schema.json" \
   --json "$tmp/query_workflow_identity_execute_forbidden.json"
+
+# A5-A6 authority governance + remote authority smoke rollup.
+python3 "$REPO_ROOT/scripts/sync_openfga_tuples.py" \
+  --tuple-store "$tmp/openfga_tuples.db" \
+  apply \
+  --policy-config "$REPO_ROOT/sse/config/ecommerce_access_policy.example.json" \
+  --tuple-store "$tmp/openfga_tuples.db" \
+  --output "$tmp/openfga_sync_apply.json" \
+  > /dev/null
+python3 "$VALIDATOR" \
+  --schema "$REPO_ROOT/schemas/openfga_sync_report.schema.json" \
+  --json "$tmp/openfga_sync_apply.json"
+python3 "$REPO_ROOT/scripts/check_openfga_authz.py" \
+  --tuple-store "$tmp/openfga_tuples.db" \
+  --user user:commerce_ops_demo \
+  --relation query_submitter \
+  --object dataset:orders_analytics \
+  --output "$tmp/openfga_check_allowed.json" \
+  --assert-allowed
+python3 "$VALIDATOR" \
+  --schema "$REPO_ROOT/schemas/openfga_check_result.schema.json" \
+  --json "$tmp/openfga_check_allowed.json"
+export A5_KMS_ENV_SECRET="contract-kms-reachability-secret"
+python3 "$REPO_ROOT/scripts/check_kms_reachability.py" \
+  --keyring "$REPO_ROOT/config/keyring.example.json" \
+  --vault-kv-file "$REPO_ROOT/config/vault_kv_backend.example.json" \
+  --env-var A5_KMS_ENV_SECRET \
+  --output "$tmp/kms_reachability_authority.json" \
+  --assert-ok
+python3 "$VALIDATOR" \
+  --schema "$REPO_ROOT/schemas/kms_reachability_report.schema.json" \
+  --json "$tmp/kms_reachability_authority.json"
+export A5_SERVICE_TOKEN_SIGNING_KEY="contract-service-token-signing-key"
+python3 "$REPO_ROOT/scripts/manage_service_tokens.py" \
+  --token-store "$tmp/service_tokens.db" \
+  issue \
+  --token-store "$tmp/service_tokens.db" \
+  --service-id orders-recovery \
+  --signing-key-env A5_SERVICE_TOKEN_SIGNING_KEY \
+  --scope record_recovery \
+  --issuer local-contract \
+  --output "$tmp/service_token_issue.json" \
+  > /dev/null
+python3 "$VALIDATOR" \
+  --schema "$REPO_ROOT/schemas/service_token_report.schema.json" \
+  --json "$tmp/service_token_issue.json"
+service_token_value="$(python3 "$RUNTIME_SERVICE_HELPERS" read-json-field --json-file "$tmp/service_token_issue.json" --field token)"
+python3 "$REPO_ROOT/scripts/manage_service_tokens.py" \
+  --token-store "$tmp/service_tokens.db" \
+  verify \
+  --token-store "$tmp/service_tokens.db" \
+  --token "$service_token_value" \
+  --signing-key-env A5_SERVICE_TOKEN_SIGNING_KEY \
+  --output "$tmp/service_token_verify.json" \
+  > /dev/null
+python3 "$VALIDATOR" \
+  --schema "$REPO_ROOT/schemas/service_token_report.schema.json" \
+  --json "$tmp/service_token_verify.json"
+python3 "$REPO_ROOT/scripts/check_authority_governance.py" \
+  --policy-drift "$tmp/policy_drift_clean.json" \
+  --key-drift "$tmp/key_backend_drift_clean.json" \
+  --identity-resolution "$tmp/api_identity_resolution_bearer.json" \
+  --identity-resolution "$tmp/api_identity_resolution_subject.json" \
+  --openfga-check "$tmp/openfga_check_allowed.json" \
+  --kms-reachability "$tmp/kms_reachability_authority.json" \
+  --service-token-report "$tmp/service_token_issue.json" \
+  --service-token-report "$tmp/service_token_verify.json" \
+  --issuer-rotation "$tmp/issuer_rotation_dry.json" \
+  --output "$tmp/authority_governance_report.json" \
+  --assert-ok
+python3 "$VALIDATOR" \
+  --schema "$REPO_ROOT/schemas/authority_governance_report.schema.json" \
+  --json "$tmp/authority_governance_report.json"
 test "$(python3 "$RUNTIME_SERVICE_HELPERS" read-json-field --json-file "$tmp/platform_metadata_caller_permissions_page.json" --field pagination.limit)" = "2"
 test "$(python3 "$RUNTIME_SERVICE_HELPERS" read-json-field --json-file "$tmp/platform_metadata_caller_permissions_page.json" --field pagination.offset)" = "2"
 test "$(python3 "$RUNTIME_SERVICE_HELPERS" read-json-field --json-file "$tmp/platform_metadata_caller_permissions_page.json" --field pagination.returned_count)" = "2"

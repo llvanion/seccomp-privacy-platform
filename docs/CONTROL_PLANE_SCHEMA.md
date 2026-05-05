@@ -15,12 +15,14 @@
 1. `migrations/metadata/001_init.sql`
 2. `migrations/metadata/002_add_stage_duration_columns.sql`
 3. `migrations/metadata/004_add_key_registry.sql`
-4. `scripts/init_metadata_db.py`
-5. `scripts/import_run_metadata.py`
-6. `scripts/query_metadata.py`
-7. `scripts/serve_metadata_api.py`
-8. `scripts/manage_metadata_db.py`
-9. `scripts/check_metadata_schema_portability.py`
+4. `migrations/metadata/009_add_control_plane_deepening.sql`
+5. `scripts/init_metadata_db.py`
+6. `scripts/import_run_metadata.py`
+7. `scripts/materialize_control_plane_deepening.py`
+8. `scripts/query_metadata.py`
+9. `scripts/serve_metadata_api.py`
+10. `scripts/manage_metadata_db.py`
+11. `scripts/check_metadata_schema_portability.py`
 
 先明确一个容易误解的边界：
 
@@ -806,6 +808,43 @@ python3 scripts/manage_metadata_db.py apply-registry \
 6. 重复 apply 同一 manifest 时，如果 registry 字段、policy path/hash 和 child row count 一致，会收敛成 `noop`
 7. `check_json_contracts.sh` 当前固定验证空 DB dry-run、首次 apply、重复 reconcile noop，以及 sidecar DB 到 `authz_tuple_export/v1` 的贯通
 
+### 4.7 C1-C5 deepening read models
+
+`2026-05-05` 增加的 `009_add_control_plane_deepening.sql` 不改变主链路写入方式，而是在 sidecar 中增加五类派生读模型：
+
+1. `job_state_transitions`
+   - 由 `jobs` 与 `job_stage_status` 派生
+   - 保存 `from_state -> to_state`、stage、event_type、时间、来源表与 details
+   - 用于承接 query workflow / operator shell 的长期状态读取
+2. `policy_versions`
+   - 由 `policies`、`policy_bindings`、`caller_permissions` 派生
+   - 保存 policy kind/path/sha/schema/imported time/current marker
+   - metadata 中保留 binding_count / permission_count
+3. `service_versions`
+   - 由 `services` 派生
+   - 用 service scope/config snapshot 的稳定 hash 作为 version
+   - 用于记录服务配置快照，而不是让主链路依赖 DB 配置
+4. `catalog_lineage_read_model`
+   - 由 `catalog_lineage/v1` 与 metadata DB 的 job scope 派生
+   - 保存 dataset/service/artifact/edge 四类 lineage row
+   - 默认 `path_redacted=1`，除非输入 lineage 显式包含 path
+5. `retention_reconcile_plan`
+   - 由 jobs、policies、key_refs 等现有 control-plane 元数据派生
+   - 输出 retain/review 建议、retention_class、reason_code 和 details
+   - 当前不执行删除；破坏性 repair 仍必须由显式 operator 工具处理
+
+Materialize 入口：
+
+```bash
+python3 scripts/materialize_control_plane_deepening.py \
+  --db-path tmp/platform_metadata.db \
+  --catalog-lineage tmp/catalog_lineage.json \
+  --output tmp/control_plane_deepening.json \
+  --assert-ok
+```
+
+输出 contract 为 `control_plane_deepening_report/v1`，并已纳入 `check_json_contracts.sh` 与 schema backcompat baseline。
+
 ## 5. 查询面
 
 ### 5.1 CLI
@@ -838,6 +877,10 @@ python3 scripts/query_metadata.py \
   --list-entity caller-permissions \
   --caller auto_demo
 
+python3 scripts/query_metadata.py \
+  --db-path tmp/platform_metadata.db \
+  --list-entity catalog-lineage-read-model
+
 python3 scripts/export_authz_tuples.py \
   --db-path tmp/platform_metadata.db \
   --output tmp/platform_authz_tuples.json
@@ -865,6 +908,11 @@ python3 scripts/export_authz_tuples.py \
 5. `idx_job_stage_status_job_id`
 6. `idx_audit_events_job_stage`
 7. `idx_key_access_events_job_id`
+8. `idx_job_state_transitions_job_id`
+9. `idx_policy_versions_policy_id`
+10. `idx_service_versions_service_id`
+11. `idx_catalog_lineage_job_id`
+12. `idx_retention_reconcile_job`
 
 第一阶段优先优化的读路径是：
 
@@ -883,9 +931,16 @@ python3 scripts/export_authz_tuples.py \
 4. `payload_json` 原样保留的策略
 5. migration-first 工作流
 
-建议后续再补：
+当前 Postgres target DDL 已经覆盖 `009` 深化表，并继续做基础类型升级：
 
-1. JSONB 索引
+1. `*_json` 列升级为 `JSONB`
+2. `*_utc` 列升级为 `TIMESTAMPTZ`
+3. SQLite integer boolean 升级为 `BOOLEAN`
+4. surrogate integer PK 升级为 `SERIAL`
+
+后续生产化再补：
+
+1. JSONB 表达式索引
 2. 更严格的外键与检查约束
 3. materialized views 或读模型
 4. 分页游标和排序键
@@ -903,19 +958,21 @@ python3 scripts/export_authz_tuples.py \
 
 ## 9. 下一阶段建议
 
-1. 给 `jobs` 增加更明确的 workflow 状态迁移表，而不是只靠最终状态快照。
-2. 为 `policies` 与 `services` 补 version 字段，支持后续变更治理。
-3. 为 key 生命周期补 registry 视图，而不只导入 access audit。
-4. 在 PostgreSQL 版本中把 `payload_json` 升级为 `JSONB`，并针对常用字段建表达式索引。
+`C1-C5` 已在 `2026-05-05` 完成第一版 sidecar-first 落点。后续如果继续深化，应聚焦下面这些生产化问题，而不是把主链路改成必须写数据库：
+
+1. 真正 PostgreSQL 部署、迁移编排、备份恢复演练和 DBA runbook。
+2. JSONB 表达式索引、cursor pagination 和查询计划验证。
+3. retention/reconcile plan 的 operator approval 流程。
+4. 多批次 lineage materialized view 的增量刷新策略。
 5. 继续保持 importer 和 read adapter 模式，不把数据库写路径塞回主链路。
 
 如果要把这些建议纳入统一排期，建议直接对齐 [POST_BASELINE_ROADMAP.md](/home/llvanion/Desktop/seccomp-privacy-platform/docs/POST_BASELINE_ROADMAP.md) 的 `Tranche C`：
 
-1. `C1`：workflow transition tables / read model
-2. `C2`：policy / service versioning
-3. `C3`：PostgreSQL `JSONB` + 索引
-4. `C4`：registry-enriched catalog / lineage read model
-5. `C5`：retention / reconcile / repair 收口
+1. `C1`：workflow transition tables / read model（已落地 `job_state_transitions`）
+2. `C2`：policy / service versioning（已落地 `policy_versions` / `service_versions`）
+3. `C3`：PostgreSQL `JSONB` + 索引（已同步 Postgres target DDL 与 portability gate）
+4. `C4`：registry-enriched catalog / lineage read model（已落地 `catalog_lineage_read_model`）
+5. `C5`：retention / reconcile / repair 收口（已落地 `retention_reconcile_plan`）
 
 这份 schema 文档后续主要负责：
 

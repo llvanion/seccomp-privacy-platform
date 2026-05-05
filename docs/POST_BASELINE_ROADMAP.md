@@ -70,13 +70,15 @@
    - `migrations/metadata/008_add_service_tokens.sql` + Postgres DDL `service_tokens` 表（SERIAL/TIMESTAMPTZ）
    - 验证：issue → verify ok → revoke → verify revoked 四路径 schema 均通过；`check_ci_smoke.sh` ✓；backcompat 87 schema 0 fail
    - 边界：不替代主链路 bridge HMAC token；只给 key agent / KMS / recovery service 提供可撤销的 service-to-service 身份凭证
-5. `A5 / 5h`：policy / key / identity 三线的 mutation governance 联动
-   - 把 policy drift、key drift、issuer rotation 串成统一 operator 视角
-6. `A6 / 5h`：回归与 runbook 收口
-   - 补 authn/authz/kms 远端 authority smoke
-   - 回写 runbook 与 readme
+5. **`A5` 已完成（2026-05-05）**：policy / key / identity 三线的 mutation governance 联动
+   - `scripts/check_authority_governance.py`：只读聚合 `policy_drift/v1`、`key_backend_drift/v1`、`api_identity_resolution/v1`、`issuer_credential_rotation/v1` 等既有报告，输出 `authority_governance_report/v1`
+   - `schemas/authority_governance_report.schema.json`：冻结统一 operator 视角，按 policy / key / identity / authz / kms / service_token / issuer 分类汇总 `ok|warn|error`
+   - 边界：不替代各子系统原始 contract，不改变 metadata mutation、policy release、KMS resolve 或主链路 CLI 语义
+6. **`A6` 已完成（2026-05-05）**：回归与 runbook 收口
+   - contract smoke 现在生成 OpenFGA tuple apply + check、KMS reachability、service token issue/verify、identity resolution、issuer rotation dry-run、policy/key drift，再用 `authority_governance_report/v1 --assert-ok` 串成一条 authority-source smoke
+   - 已回写 `TASK_ENGINEER_A_CONTROL_PLANE_IDENTITY_ACCESS.md`、`IAM_AUTHZ_INTEGRATION_PLAN.md`、`KMS_SECRET_BACKEND_PLAN.md`、`OPS_RUNBOOK.md`
 
-这条线完成后，平台外围入口将不再主要依赖本地 env token 和本地 JSON backend。
+这条线完成后，平台外围入口已经具备 identity / authz / KMS / service-token / mutation-governance 的统一 smoke 与 operator 汇总入口。它仍然是 adapter-first 基线，不表示仓库已经依赖真实在线 Keycloak / OpenFGA / Vault 才能运行。
 
 ## 5. Tranche B：Operator 工作流与 Live Control Shell
 
@@ -133,22 +135,20 @@
 
 这条线的目标不是让主链路写库，而是让 sidecar 更接近长期 control-plane。
 
-建议拆成：
+当前进展（`2026-05-05`）：`C1-C5` 已完成一版 sidecar-first 闭环。
 
-1. `C1 / 5h`：workflow transition tables / read model
-   - jobs 不只存最终快照
-   - 补状态迁移视图，承接 query workflow / operator shell
-2. `C2 / 5h`：policy / service versioning
-   - 为 `policies`、`services` 补 version 语义
-   - 支持更正式的变更治理
-3. `C3 / 5h`：PostgreSQL JSONB + 索引
-   - `payload_json -> JSONB`
-   - 为高频字段补表达式索引 / 排序键 / 游标
-4. `C4 / 5h`：registry-enriched catalog / lineage read model
-   - 连接 metadata DB 与 file-derived lineage
-   - 不默认暴露 artifact path
-5. `C5 / 5h`：retention / reconcile / repair 收口
-   - audit / registry / key lifecycle 的长期保留与修复策略
+1. **`C1` 已完成**：新增 `job_state_transitions`，由 `jobs` + `job_stage_status` 派生 workflow 状态迁移 read model；`query_metadata.py --list-entity job-state-transitions` 可查询。
+2. **`C2` 已完成**：新增 `policy_versions` 与 `service_versions`，为现有 policy/service registry 补 version snapshot；`query_metadata.py --list-entity policy-versions|service-versions` 可查询。
+3. **`C3` 已完成**：Postgres target DDL 同步 `009` 新表，保持 `*_json -> JSONB`、`*_utc -> TIMESTAMPTZ`、boolean/native serial 类型升级；portability gate 固定检查新增索引。
+4. **`C4` 已完成**：新增 `catalog_lineage_read_model`，由 `catalog_lineage/v1` + metadata DB scope 派生 registry-enriched lineage read model；默认 `path_redacted=true`。
+5. **`C5` 已完成**：新增 `retention_reconcile_plan`，把 audit / registry / key lifecycle 的 retain/review action 做成 SQL read model；当前只生成保留/复核计划，不执行破坏性删除。
+
+主要入口：
+
+1. `migrations/metadata/009_add_control_plane_deepening.sql`
+2. `scripts/materialize_control_plane_deepening.py`
+3. `schemas/control_plane_deepening_report.schema.json`
+4. `scripts/query_metadata.py --list-entity job-state-transitions|policy-versions|service-versions|catalog-lineage-read-model|retention-reconcile-plan`
 
 这条线完成后，metadata sidecar 会更接近真实 control-plane，而不是只读回放数据库。
 
@@ -158,17 +158,28 @@
 
 建议拆成：
 
-1. `D1 / 5h`：recovery service mutual TLS baseline
-   - 在现有时间戳反重放 + HMAC 签名之上补 mTLS
-   - 不改 recovery contract
-2. `D2 / 5h`：service metrics / tracing / structured logs
-   - 先围绕 recovery、key agent、external KMS、operator shell
-   - 不强绑主链路新 runtime 依赖
-3. `D3 / 5h`：external audit anchor baseline
-   - 把本地 append-only anchor 推到外部锚定介质
-   - 保持 archive / verify contract 不变
-4. `D4 / 5h`：ops runbook / failure recovery 收口
-   - 把独立服务部署、证书轮换、外部锚定失败恢复写入 runbook
+1. **`D1` 已完成（2026-05-05）**：recovery service mutual TLS baseline
+   - `services/record_recovery/http_service.py` 新增 `_build_server_ssl_context()`；支持服务端 TLS + 可选 `require_client_cert` 强制客户端证书校验
+   - `services/record_recovery/client.py` 新增 `_client_ssl_context()`；`request_record_recovery()` / `request_record_recovery_health()` 统一接受 `tls_config`；loopback/private 地址自动绕过代理
+   - `services/record_recovery/config.py` 新增 `_resolve_tls_config()`，解析并校验 `server_cert/server_key/ca_cert/require_client_cert/client_cert/client_key/verify_hostname`
+   - `services/record_recovery/launcher.py` 和 `scripts/manage_record_recovery_service.py` 透传 TLS flags；`wait_for_http_url` 统一走 `tls_config`
+   - `schemas/record_recovery_service_config.schema.json` 新增 `tls` 块；`schemas/record_recovery_service_log.schema.json` 新增 `tls_enabled` / `tls_require_client_cert` 字段
+   - `config/record_recovery_http_mtls_service.example.json`：固定 mTLS 配置样例
+   - 边界：不改 recovery contract；PKI 材料（CA、cert、key）由 operator 管理，不写入 schema
+2. **`D2` 已完成（2026-05-05）**：record-recovery service metrics / structured-log baseline
+   - `scripts/export_record_recovery_service_metrics.py`：从现有 `record_recovery_service_log/v1` JSONL 只读导出 `record_recovery_service_metrics/v1`
+   - `schemas/record_recovery_service_metrics.schema.json`：冻结指标摘要 contract，覆盖 event/request 计数、transport、decision、reason_code、op、role、status-code、candidate_count 和 duration min/max/avg/p95
+   - contract smoke 同时覆盖 Unix-socket 与 HTTP 服务日志，要求 start/request/stop 事件存在并验证 metrics schema
+   - 边界：不引入新 runtime 依赖，不替代 `sse_record_recovery_service_audit/v1`，不改变 recovery 请求、health、audit 或 pipeline contract
+3. **`D3` 已完成（2026-05-05）**：external audit anchor baseline
+   - `scripts/publish_external_audit_anchor.py`：验证本地 anchor chain（payload_sha256、entry_sha256、chain linkage、HMAC 签名），把每条记录 append 到外部 `file_ledger` JSONL（`external_audit_anchor_ledger/v1`）；支持 `--dry-run`、`--require-signature`、`--anchor-key-env`、`--assert-ok`
+   - `schemas/external_audit_anchor_report.schema.json`：冻结 `external_audit_anchor_report/v1` contract
+   - 边界：append-only；不修改或删除已有 ledger 记录；不输出 secret material；保持 archive / verify contract 不变
+4. **`D4` 已完成（2026-05-05）**：ops runbook / failure recovery 收口
+   - `OPS_RUNBOOK.md` 新增 `mTLS Recovery Service` 小节（TLS 配置字段表、启动/探活/停止命令）
+   - `OPS_RUNBOOK.md` 新增 `External Audit Anchor Publishing` 章节（dry-run、publish、schema 校验命令、key 字段说明）
+   - `OPS_RUNBOOK.md`「Failure Recovery Decision Tree」新增 mTLS 握手失败（D1）和外部锚定失败（D3）两类排障条目
+   - `RECORD_RECOVERY_INDEPENDENT_SERVICE_PLAN.md` 各阶段说明回写完毕
 
 这条线完成后，平台最敏感的 deploy/authn/audit 边界会更接近长期形态。
 
@@ -192,10 +203,11 @@
    - 把身份、授权、密钥 authority source 立住
 2. 再做 `B9-B11`
    - 让 operator shell 真正能 live 控 job
-3. 再并行推进 `C1-C3` 与 `D1-D2`
-   - 一个补 control-plane 长期形态
-   - 一个补独立服务正式边界
-4. 最后收 `A4-A6`、`B12-B14`、`C4-C5`、`D3-D4`
+3. 再并行推进 `C1-C3` 与 `D1`
+   - `C1-C5` 已在 2026-05-05 收口一版 sidecar-first 长期形态
+   - 一个补独立服务正式鉴权边界（`D2` 的 structured-log/metrics 第一版已完成）
+4. 最后收 `C4-C5`、`D3-D4`
+   - `A4-A6`、`B12-B14` 与 `C1-C5` 已在 2026-05-05 收口
 
 ## 10. 文档回写位置
 

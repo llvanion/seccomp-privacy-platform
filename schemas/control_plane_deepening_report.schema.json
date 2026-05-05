@@ -1,0 +1,113 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "control_plane_deepening_report/v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "generated_at_utc",
+    "db_path",
+    "mode",
+    "summary",
+    "actions"
+  ],
+  "properties": {
+    "schema": {
+      "const": "control_plane_deepening_report/v1"
+    },
+    "generated_at_utc": {
+      "type": "string"
+    },
+    "db_path": {
+      "type": "string"
+    },
+    "mode": {
+      "enum": [
+        "apply",
+        "dry_run"
+      ]
+    },
+    "summary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "status",
+        "job_transition_count",
+        "policy_version_count",
+        "service_version_count",
+        "catalog_lineage_count",
+        "retention_plan_count",
+        "derived_table_count"
+      ],
+      "properties": {
+        "status": {
+          "enum": [
+            "ok",
+            "fail"
+          ]
+        },
+        "job_transition_count": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "policy_version_count": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "service_version_count": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "catalog_lineage_count": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "retention_plan_count": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "derived_table_count": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    },
+    "actions": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "action",
+          "table",
+          "count",
+          "previous_count",
+          "current_count"
+        ],
+        "properties": {
+          "action": {
+            "enum": [
+              "materialize",
+              "plan"
+            ]
+          },
+          "table": {
+            "type": "string"
+          },
+          "count": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "previous_count": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "current_count": {
+            "type": "integer",
+            "minimum": 0
+          }
+        }
+      }
+    }
+  }
+}

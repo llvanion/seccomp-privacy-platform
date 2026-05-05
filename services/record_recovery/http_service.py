@@ -3,6 +3,7 @@ import argparse
 import json
 import os
 import signal
+import ssl
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
@@ -277,6 +278,17 @@ def _raise_keyboard_interrupt(_signum, _frame) -> None:
     raise KeyboardInterrupt()
 
 
+def _build_server_ssl_context(*, cert_file: str, key_file: str, ca_cert: str, require_client_cert: bool) -> ssl.SSLContext:
+    context = ssl.create_default_context(ssl.Purpose.CLIENT_AUTH)
+    context.load_cert_chain(certfile=cert_file, keyfile=key_file)
+    if require_client_cert:
+        context.verify_mode = ssl.CERT_REQUIRED
+        context.load_verify_locations(cafile=ca_cert)
+    else:
+        context.verify_mode = ssl.CERT_NONE
+    return context
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description="HTTP service for controlled record-store recovery.")
     ap.add_argument("--service-id", default="")
@@ -295,6 +307,10 @@ def main() -> int:
     ap.add_argument("--audit-log", default="")
     ap.add_argument("--pid-file", default="")
     ap.add_argument("--ready-file", default="")
+    ap.add_argument("--tls-cert-file", default="")
+    ap.add_argument("--tls-key-file", default="")
+    ap.add_argument("--tls-ca-cert", default="")
+    ap.add_argument("--tls-require-client-cert", action="store_true")
     ap.add_argument("--max-rows-per-request", type=int, default=0,
                     help="Hard cap on rows returned per recovery request (0 = unlimited)")
     args = ap.parse_args()
@@ -303,7 +319,13 @@ def main() -> int:
 
     pid_file = Path(args.pid_file) if args.pid_file else None
     ready_file = Path(args.ready_file) if args.ready_file else None
-    endpoint_url = args.endpoint_url or f"http://{args.bind_host}:{args.port}"
+    tls_enabled = bool(args.tls_cert_file or args.tls_key_file)
+    if tls_enabled and (not args.tls_cert_file or not args.tls_key_file):
+        raise SystemExit("[ERROR] mTLS/HTTPS requires both --tls-cert-file and --tls-key-file")
+    if args.tls_require_client_cert and not args.tls_ca_cert:
+        raise SystemExit("[ERROR] --tls-require-client-cert requires --tls-ca-cert")
+    scheme = "https" if tls_enabled else "http"
+    endpoint_url = args.endpoint_url or f"{scheme}://{args.bind_host}:{args.port}"
     service_state = build_service_state(
         service_id=str(args.service_id or ""),
         tenant_id=str(args.tenant_id or ""),
@@ -322,6 +344,13 @@ def main() -> int:
         max_rows_per_request=args.max_rows_per_request,
     )
     server = RecordRecoveryHttpServer((args.bind_host, args.port), RecordRecoveryHttpHandler, service_state=service_state)
+    if tls_enabled:
+        server.socket = _build_server_ssl_context(
+            cert_file=args.tls_cert_file,
+            key_file=args.tls_key_file,
+            ca_cert=args.tls_ca_cert,
+            require_client_cert=args.tls_require_client_cert,
+        ).wrap_socket(server.socket, server_side=True)
     signal.signal(signal.SIGTERM, _raise_keyboard_interrupt)
     write_text_file(pid_file, f"{os.getpid()}\n")
     write_text_file(ready_file, endpoint_url + "\n")
@@ -331,6 +360,8 @@ def main() -> int:
         bind_host=args.bind_host,
         port=args.port,
         endpoint_url=endpoint_url,
+        tls_enabled=tls_enabled,
+        tls_require_client_cert=bool(args.tls_require_client_cert),
     )
 
     try:

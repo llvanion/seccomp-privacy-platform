@@ -152,6 +152,27 @@ HTTP 服务当前暴露：
 7. `service_id`
 8. `tenant_id`
 9. `dataset_id`
+10. `tls_enabled`（start 事件）
+11. `tls_require_client_cert`（start 事件）
+
+### 4.6 TLS / mTLS 配置 contract
+
+`record_recovery_service_config/v1` 现在支持可选的 `tls` 块，字段固定为：
+
+| 字段 | 类型 | 说明 |
+| --- | --- | --- |
+| `tls.enabled` | bool | 是否开启 TLS |
+| `tls.server_cert` | string | 服务端证书路径（PEM） |
+| `tls.server_key` | string | 服务端私钥路径（PEM） |
+| `tls.ca_cert` | string | 签发客户端证书的 CA 证书路径，`require_client_cert=true` 时必填 |
+| `tls.require_client_cert` | bool | 是否强制要求客户端证书（mutual TLS） |
+| `tls.client_cert` | string | 客户端证书路径（客户侧） |
+| `tls.client_key` | string | 客户端私钥路径（客户侧） |
+| `tls.verify_hostname` | bool | 是否校验 hostname，loopback 自签名证书时设 `false` |
+
+完整 mTLS 示例见 [record_recovery_http_mtls_service.example.json](/home/llvanion/Desktop/seccomp-privacy-platform/config/record_recovery_http_mtls_service.example.json)。
+
+schema 已纳入 `schemas/record_recovery_service_config.schema.json`，运行日志新增 `tls_enabled` / `tls_require_client_cert` 字段（仅 start 事件），schema 已同步更新。
 
 ## 5. 已经留下的调用接口
 
@@ -223,6 +244,41 @@ bash scripts/run_sse_bridge_pipeline.sh \
 3. 校验 scope / audit / transport 对齐
 4. 把 export 请求发给已运行服务
 
+### 5.6 启动 mTLS 服务
+
+```bash
+export SSE_RECORD_RECOVERY_TOKEN=test-recovery-token
+python3 scripts/manage_record_recovery_service.py start \
+  --config config/record_recovery_http_mtls_service.example.json \
+  --pid-file tmp/record_recovery_service_http_mtls.pid \
+  --log-file tmp/record_recovery_service_http_mtls.log
+```
+
+探活：
+
+```bash
+python3 scripts/request_record_recovery_service.py \
+  --config config/record_recovery_http_mtls_service.example.json
+```
+
+或：
+
+```bash
+python3 scripts/manage_record_recovery_service.py status \
+  --config config/record_recovery_http_mtls_service.example.json \
+  --pid-file tmp/record_recovery_service_http_mtls.pid
+```
+
+停止：
+
+```bash
+python3 scripts/manage_record_recovery_service.py stop \
+  --config config/record_recovery_http_mtls_service.example.json \
+  --pid-file tmp/record_recovery_service_http_mtls.pid
+```
+
+客户端侧通过 `tls_config` 字典传入 `client_cert` / `client_key` / `ca_cert` / `verify_hostname` 等字段；`manage_record_recovery_service.py start` 会在等待就绪时复用同一 `tls_config`，因此 readiness polling 也走 mTLS 路径。
+
 ### 5.5 生成独立 deploy artifact
 
 如果不想继续停留在“手工开一个 shell 跑 start/status/stop”的层级，现在可以直接从现有 config 生成基线 `systemd` unit 和 env template：
@@ -260,6 +316,7 @@ python3 scripts/manage_record_recovery_service.py render-systemd \
 7. config/runtime ownership 已从 `sse/toolkit` 下沉到 `services/record_recovery/`
 8. service/authz/common/client/worker/encrypted-store 逻辑已从 `sse/toolkit` 拆到 `services/record_recovery/`
 9. `scripts/manage_record_recovery_service.py render-systemd` 可以基于同一个 config 生成基线 `systemd` unit 与 env template，便于把 manual external service 模式迁到独立 service-user/lifecycle 管理
+10. **mTLS 已独立**（D1，2026-05-05）：`http_service.py` 新增 `_build_server_ssl_context()`，支持服务端 TLS + 可选 client cert 校验；`client.py` 新增 `_client_ssl_context()`，readiness polling（`wait_for_http_url`）和所有 health/recover 调用统一走 `tls_config`；`record_recovery_service_config/v1` schema 新增 `tls` 块；运行日志新增 `tls_enabled` / `tls_require_client_cert` 字段；`config/record_recovery_http_mtls_service.example.json` 固定 mTLS 配置样例
 
 ### 6.2 还没有完全独立的部分
 
@@ -400,14 +457,25 @@ python3 scripts/manage_record_recovery_service.py render-systemd \
 如果继续沿“独立服务化”推进，而不是继续堆本地 orchestration，我建议后续按这个顺序做：
 
 1. ~~把当前基线 `systemd` artifact 进一步收紧到专用 service user、专用 writable path 和更强的主机级 hardening~~ ✓ (2026-05-01)：`render-systemd` 现在生成完整的 Linux 安全指令集：`ProtectSystem=strict`, `ProtectHome=true`, `PrivateDevices=true`, `ProtectKernelTunables/Modules/ControlGroups=true`, `LockPersonality=true`, `RestrictSUIDSGID=true`, `SystemCallFilter=@system-service`；`ReadWritePaths=` 由 `derive_writable_paths(runtime)` 自动推导（audit log 目录、socket/pid/ready 文件目录、allowed output roots）；contract smoke 已校验所有指令。
-2. ~~把 auth token 升级成正式 service-to-service auth~~ 大部分完成 (2026-05-01)：
+2. ~~把 auth token 升级成正式 service-to-service auth，补全 mutual TLS~~ ✓ (2026-05-01 + **D1 2026-05-05**)：
    - 时间戳反重放：`validate_request_timestamp(±30s)`，client 强制携带 `request_timestamp_utc`。
-   - HMAC 请求签名：client 生成 `request_id`（UUID）并计算 `HMAC-SHA256(token, "{request_id}:{ts}:{op}")`；服务端对比常数时间校验（`hmac.compare_digest`）；签名验证结果写入审计（`request_signature_verified`, `signature_algorithm`）；HTTP transport 通过 `X-Request-Signature` / `X-Request-Signature-Algorithm` 传递。
-   - 完整 mutual TLS 仍需后续推进（需独立 PKI 基础设施）。
+   - HMAC 请求签名：client 生成 `request_id`（UUID）并计算 `HMAC-SHA256(token, "{request_id}:{ts}:{op}")`；服务端对比常数时间校验（`hmac.compare_digest`）；签名验证结果写入审计；HTTP transport 通过 `X-Request-Signature` / `X-Request-Signature-Algorithm` 传递。
+   - **D1（2026-05-05）**：`http_service.py` 新增 `_build_server_ssl_context()`；`client.py` 新增 `_client_ssl_context()`；`record_recovery_service_config/v1` schema 新增 `tls` 块（`enabled/server_cert/server_key/ca_cert/require_client_cert/client_cert/client_key/verify_hostname`）；运行日志新增 `tls_enabled` / `tls_require_client_cert`；`config/record_recovery_http_mtls_service.example.json` 固定配置样例；`manage_record_recovery_service.py start` 的 readiness polling 统一走 `tls_config`。
 3. ~~补 manual external service replay，确认 pipeline 只依赖 config / health / audit contract，而不是 auto-start 细节~~ ✓ (2026-05-01)：新增 `scripts/verify_record_recovery_manual_service_replay.sh`，它预启动 standalone HTTP recovery service，运行 `run_live_sse_bridge_demo.sh --record-recovery-service-mode manual`，校验 `record_recovery_service_health.json`、`record_recovery_service_config.json`、`mainline_contract_check.json` 与 `record_recovery_service_log/v1`，最后 stop 并确认 pid/ready 生命周期文件被回收。
-4. 引入服务级 metrics / tracing / structured logs
-5. 把 authz policy 改成 SQL-backed control plane
-6. 把 audit seal / archive 从本地文件推进到外部锚定
+4. ~~引入服务级 metrics / tracing / structured logs~~ ✓ **D2（2026-05-05）**：
+   - 新增 `scripts/export_record_recovery_service_metrics.py`，从 `record_recovery_service_log/v1` JSONL 生成只读 `record_recovery_service_metrics/v1` 指标摘要。
+   - 新增 `schemas/record_recovery_service_metrics.schema.json`，冻结 event/request counts、transport、decision、reason_code、op、method、role、status-code、candidate_count_total 和 request duration min/max/avg/p95。
+   - `scripts/check_json_contracts.sh` 已在 Unix-socket 与 HTTP recovery-service smoke 中导出并校验 metrics report，同时要求 start/request/stop 三类结构化事件存在。
+   - 该指标层只消费运行日志，不替代 `sse_record_recovery_service_audit/v1`，不输出 raw candidate IDs、record-store 明文或 auth token，也不改变 recovery service 的 request/health/audit contract。
+5. 把 authz policy 改成 SQL-backed control plane（下一阶段）
+6. ~~把 audit seal / archive 从本地文件推进到外部锚定~~ ✓ **D3（2026-05-05）**：
+   - 新增 `scripts/publish_external_audit_anchor.py`：验证本地 anchor chain（payload_sha256、entry_sha256、chain 链接、HMAC 签名），再把每条记录 append 到外部 `file_ledger` JSONL（`external_audit_anchor_ledger/v1`）；支持 `--dry-run`、`--require-signature`、`--anchor-key-env`、`--assert-ok`。
+   - 新增 `schemas/external_audit_anchor_report.schema.json`，冻结 `external_audit_anchor_report/v1` contract（`summary.status/anchor_record_count/published_count/verified_chain/signed_count/last_entry_sha256` + per-record 详情）。
+   - 该工具是 append-only；不修改或删除已有 ledger 记录；不输出 secret material；`--require-signature` 在生产模式下拒绝无签名 anchor 条目。
+7. ~~ops runbook / failure recovery 收口~~ ✓ **D4（2026-05-05）**：
+   - `OPS_RUNBOOK.md` 新增 `mTLS Recovery Service` 小节（启动、探活、TLS 配置字段说明、停止命令）。
+   - `OPS_RUNBOOK.md` 新增 `External Audit Anchor Publishing` 章节（dry-run、publish、schema 校验命令、key 字段说明）。
+   - `OPS_RUNBOOK.md`「Failure Recovery Decision Tree」新增 mTLS 握手失败（D1）和外部锚定失败（D3）两类排障条目。
 
 一句话总结：
 
@@ -422,7 +490,7 @@ python3 scripts/manage_record_recovery_service.py render-systemd \
 如果要纳入统一排期，建议直接对齐 [POST_BASELINE_ROADMAP.md](/home/llvanion/Desktop/seccomp-privacy-platform/docs/POST_BASELINE_ROADMAP.md) 的 `Tranche D`：
 
 1. `D1`：recovery service mutual TLS baseline
-2. `D2`：service metrics / tracing / structured logs
+2. `D2`：service metrics / tracing / structured logs（第一版 structured-log metrics 已完成，后续可继续补外部 metrics/tracing sink）
 3. `D3`：external audit anchor baseline
 4. `D4`：ops runbook / failure recovery 收口
 

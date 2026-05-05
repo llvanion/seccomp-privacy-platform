@@ -46,6 +46,33 @@ def _string_list(value: Any, *, field_name: str) -> list[str]:
     return [str(item) for item in value]
 
 
+def _resolve_tls_config(config: Dict[str, Any]) -> Dict[str, Any]:
+    tls = config.get("tls") or {}
+    if not isinstance(tls, dict):
+        raise ValueError("record recovery service tls must be an object")
+    enabled = bool(tls.get("enabled", False))
+
+    def _path(name: str) -> str:
+        value = str(tls.get(name, "") or "")
+        return resolve_relative_path(config, value) if value else ""
+
+    resolved = {
+        "enabled": enabled,
+        "server_cert": _path("server_cert"),
+        "server_key": _path("server_key"),
+        "ca_cert": _path("ca_cert"),
+        "require_client_cert": bool(tls.get("require_client_cert", False)),
+        "client_cert": _path("client_cert"),
+        "client_key": _path("client_key"),
+        "verify_hostname": bool(tls.get("verify_hostname", True)),
+    }
+    if enabled and (not resolved["server_cert"] or not resolved["server_key"]):
+        raise ValueError("record recovery service tls.enabled requires server_cert and server_key")
+    if resolved["require_client_cert"] and not resolved["ca_cert"]:
+        raise ValueError("record recovery service tls.require_client_cert requires ca_cert")
+    return resolved
+
+
 def merged_record_recovery_service_value(raw_value: Any, config_value: Any) -> Any:
     if raw_value in (None, "", []):
         return config_value
@@ -85,7 +112,11 @@ def resolve_record_recovery_service_config(config: Dict[str, Any]) -> Dict[str, 
     bind_host = str(http_listener.get("bind_host", "") or "").strip()
     port = int(http_listener.get("port")) if http_listener.get("port") not in (None, "") else None
     if not endpoint_url and transport == "http" and bind_host and port is not None:
-        endpoint_url = f"http://{bind_host}:{port}"
+        tls = _resolve_tls_config(config)
+        scheme = "https" if tls["enabled"] else "http"
+        endpoint_url = f"{scheme}://{bind_host}:{port}"
+    else:
+        tls = _resolve_tls_config(config)
 
     if transport == "unix_socket" and not socket_path:
         raise ValueError("record recovery service unix_socket transport requires socket_path")
@@ -102,6 +133,7 @@ def resolve_record_recovery_service_config(config: Dict[str, Any]) -> Dict[str, 
         "endpoint_url": endpoint_url,
         "bind_host": bind_host,
         "port": port,
+        "tls": tls,
         "auth_token_env": str(config.get("auth_token_env", "") or ""),
         "metadata_db_path": resolve_relative_path(config, str(config.get("metadata_db_path", ""))) if config.get("metadata_db_path") else "",
         "identity_token_config": resolve_relative_path(config, str(config.get("identity_token_config", ""))) if config.get("identity_token_config") else "",

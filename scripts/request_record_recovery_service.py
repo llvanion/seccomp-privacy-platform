@@ -44,6 +44,7 @@ def main() -> int:
     socket_path = merged_record_recovery_service_value(args.socket_path, config.get("socket_path", ""))
     endpoint_url = merged_record_recovery_service_value(args.endpoint_url, config.get("endpoint_url", ""))
     auth_token_env = merged_record_recovery_service_value(args.auth_token_env, config.get("auth_token_env", ""))
+    tls_config = config.get("tls") if isinstance(config.get("tls"), dict) else None
     if not socket_path and not endpoint_url:
         raise SystemExit("[ERROR] --socket-path / --endpoint-url or a config with one of them is required")
 
@@ -52,6 +53,7 @@ def main() -> int:
         endpoint_url=endpoint_url,
         auth_env=auth_token_env,
         identity_auth_env=args.identity_token_env,
+        tls_config=tls_config,
     )
     print(json.dumps(result, ensure_ascii=False))
     return 0
