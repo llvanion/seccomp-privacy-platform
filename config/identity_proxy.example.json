@@ -1,0 +1,15 @@
+{
+  "schema": "identity_proxy_config/v1",
+  "bind_host": "127.0.0.1",
+  "port": 18095,
+  "identity_token_config": "config/api_identity_tokens.example.json",
+  "metadata_db_path": "tmp/platform_metadata.db",
+  "upstreams": {
+    "metadata": "http://127.0.0.1:18090",
+    "query": "http://127.0.0.1:18091",
+    "audit": "http://127.0.0.1:18092",
+    "health": "http://127.0.0.1:18093"
+  },
+  "admin_token_env": "SECCOMP_IDENTITY_PROXY_ADMIN_TOKEN",
+  "log_identity_resolution": false
+}

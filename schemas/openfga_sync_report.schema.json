@@ -1,0 +1,54 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "openfga_sync_report/v1",
+  "title": "OpenFGA tuple sync report",
+  "type": "object",
+  "required": [
+    "schema", "generated_at_utc", "mode", "status",
+    "source_kind", "tuple_store_path",
+    "source_tuple_count", "store_tuple_count_before",
+    "added", "removed", "unchanged"
+  ],
+  "properties": {
+    "schema": { "const": "openfga_sync_report/v1" },
+    "generated_at_utc": { "type": "string", "minLength": 1 },
+    "mode": { "enum": ["dry_run", "apply", "reconcile"] },
+    "status": { "enum": ["ok", "dry_run", "error"] },
+    "source_kind": { "enum": ["policy_config", "metadata_db", "tuple_export_file"] },
+    "tuple_store_path": { "type": "string", "minLength": 1 },
+    "source_tuple_count": { "type": "integer", "minimum": 0 },
+    "store_tuple_count_before": { "type": "integer", "minimum": 0 },
+    "store_tuple_count_after": { "type": ["integer", "null"], "minimum": 0 },
+    "added": { "type": "integer", "minimum": 0 },
+    "removed": { "type": "integer", "minimum": 0 },
+    "unchanged": { "type": "integer", "minimum": 0 },
+    "error": { "type": ["string", "null"] },
+    "added_sample": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["user", "relation", "object"],
+        "properties": {
+          "user": { "type": "string" },
+          "relation": { "type": "string" },
+          "object": { "type": "string" }
+        },
+        "additionalProperties": true
+      }
+    },
+    "removed_sample": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["user", "relation", "object"],
+        "properties": {
+          "user": { "type": "string" },
+          "relation": { "type": "string" },
+          "object": { "type": "string" }
+        },
+        "additionalProperties": true
+      }
+    }
+  },
+  "additionalProperties": false
+}

@@ -265,3 +265,42 @@ CREATE INDEX IF NOT EXISTS idx_caller_identities_service_id ON caller_identities
 CREATE INDEX IF NOT EXISTS idx_control_plane_mutations_entity ON control_plane_mutations(entity_type, entity_id);
 CREATE INDEX IF NOT EXISTS idx_control_plane_mutations_actor ON control_plane_mutations(actor);
 CREATE INDEX IF NOT EXISTS idx_control_plane_mutations_applied_at ON control_plane_mutations(applied_at_utc);
+
+-- A2: OpenFGA-style local tuple store (authz sidecar, not main-chain policy)
+CREATE TABLE IF NOT EXISTS openfga_tuples (
+    id SERIAL PRIMARY KEY,
+    user TEXT NOT NULL,
+    relation TEXT NOT NULL,
+    object TEXT NOT NULL,
+    user_type TEXT NOT NULL,
+    object_type TEXT NOT NULL,
+    object_id TEXT NOT NULL,
+    source_policy_id TEXT,
+    synced_at_utc TIMESTAMPTZ NOT NULL,
+    UNIQUE (user, relation, object)
+);
+
+CREATE INDEX IF NOT EXISTS idx_openfga_tuples_user ON openfga_tuples ("user");
+CREATE INDEX IF NOT EXISTS idx_openfga_tuples_object ON openfga_tuples (object);
+CREATE INDEX IF NOT EXISTS idx_openfga_tuples_relation ON openfga_tuples (relation);
+CREATE INDEX IF NOT EXISTS idx_openfga_tuples_synced ON openfga_tuples (synced_at_utc);
+
+-- A4: Service identity token registry (metadata only; never stores raw secrets)
+CREATE TABLE IF NOT EXISTS service_tokens (
+    id SERIAL PRIMARY KEY,
+    jti TEXT NOT NULL UNIQUE,
+    service_id TEXT NOT NULL,
+    scope TEXT NOT NULL DEFAULT 'service',
+    issued_at_utc TIMESTAMPTZ NOT NULL,
+    expires_at_utc TIMESTAMPTZ NOT NULL,
+    status TEXT NOT NULL DEFAULT 'active',
+    token_hash TEXT NOT NULL,
+    issuer TEXT,
+    notes TEXT,
+    revoked_at_utc TIMESTAMPTZ,
+    revocation_reason TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_service_tokens_service_id ON service_tokens (service_id);
+CREATE INDEX IF NOT EXISTS idx_service_tokens_status ON service_tokens (status);
+CREATE INDEX IF NOT EXISTS idx_service_tokens_expires ON service_tokens (expires_at_utc);

@@ -1,0 +1,29 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "otel_export_report/v1",
+  "title": "OpenTelemetry span export report",
+  "type": "object",
+  "required": [
+    "schema", "generated_at_utc", "source_path",
+    "job_id", "trace_id", "span_count", "spans_path"
+  ],
+  "properties": {
+    "schema": { "const": "otel_export_report/v1" },
+    "generated_at_utc": { "type": "string", "minLength": 1 },
+    "source_path": { "type": "string", "minLength": 1 },
+    "job_id": { "type": ["string", "null"] },
+    "correlation_id": { "type": ["string", "null"] },
+    "caller": { "type": ["string", "null"] },
+    "tenant_id": { "type": ["string", "null"] },
+    "trace_id": { "type": "string", "minLength": 1 },
+    "root_span_id": { "type": ["string", "null"] },
+    "span_count": { "type": "integer", "minimum": 0 },
+    "spans_path": { "type": "string", "minLength": 1 },
+    "stage_names": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "duration_ms_total": { "type": ["number", "null"] }
+  },
+  "additionalProperties": false
+}

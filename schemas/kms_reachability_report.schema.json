@@ -1,0 +1,38 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "kms_reachability_report/v1",
+  "title": "KMS backend reachability report",
+  "type": "object",
+  "required": [
+    "schema", "generated_at_utc", "overall_status",
+    "checked_count", "reachable_count", "unreachable_count", "checks"
+  ],
+  "properties": {
+    "schema": { "const": "kms_reachability_report/v1" },
+    "generated_at_utc": { "type": "string", "minLength": 1 },
+    "overall_status": { "enum": ["ok", "degraded", "error"] },
+    "checked_count": { "type": "integer", "minimum": 0 },
+    "reachable_count": { "type": "integer", "minimum": 0 },
+    "unreachable_count": { "type": "integer", "minimum": 0 },
+    "checks": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["backend_name", "backend_kind", "status"],
+        "properties": {
+          "backend_name": { "type": "string", "minLength": 1 },
+          "backend_kind": {
+            "enum": ["vault_kv_file", "vault_http", "external_kms_http", "keyring_file", "env_var"]
+          },
+          "status": { "enum": ["ok", "unreachable", "error", "skipped"] },
+          "reachable": { "type": ["boolean", "null"] },
+          "detail": { "type": ["string", "null"] },
+          "latency_ms": { "type": ["number", "null"] },
+          "checked_ref": { "type": ["string", "null"] }
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  "additionalProperties": false
+}

@@ -48,20 +48,28 @@
 
 建议拆成：
 
-1. `A1 / 5h`：issuer-backed identity proxy baseline
-   - 在 sidecar API 前引入更正式的 bearer-token 验证入口
-   - 固定 `issuer -> caller / tenant / service / roles` 注入规则
-   - 不改主链路 CLI 字段语义
-2. `A2 / 5h`：OpenFGA tuple sync + check adapter
-   - 从 `authz_tuple_export/v1` 走 dry-run / apply / reconcile
-   - 先覆盖 metadata/query/audit/platform-health 读侧
-   - 不替代 release policy
-3. `A3 / 5h`：真实 Vault / cloud KMS adapter baseline
-   - 复用现有 `vault_kv` / `vault_http` 兼容外形
-   - 把本地 fixture 换成远端 authority source
-4. `A4 / 5h`：service identity + token lifecycle
-   - 收紧 key agent / external KMS / recovery service 的 service-to-service 身份
-   - 统一 rotation / revoke / drift 检查
+1. **`A1` 已完成（2026-05-05）**：issuer-backed identity proxy baseline
+   - `scripts/serve_identity_proxy.py`：薄 HTTP 反向代理，验证 Bearer token（静态 token map 或 DB-backed issuer/subject），注入 `X-Identity-*` headers（Caller / Tenant-Id / Service-Id / Platform-Roles / Resolved），再转发到上游 sidecar；admin bypass token 支持 platform_admin 角色
+   - `schemas/identity_proxy_health.schema.json`：冻结 `identity_proxy_health/v1` contract，纳入 backcompat baseline（共 82 个 schema）
+   - `config/identity_proxy.example.json`：标准配置示例（metadata / query / audit / health 四个上游）
+   - `scripts/check_ci_smoke.sh` 新增 `serve_identity_proxy.py` compile check
+   - loopback smoke 验证：`/healthz` 返回 `identity_proxy_health/v1`，schema 校验通过
+   - 边界：当前只做 bearer-token 验证 + 注入；上游 sidecar 仍可独立校验；不改主链路 CLI 字段语义
+2. **`A2` 已完成（2026-05-05）**：OpenFGA tuple sync + check adapter
+   - `scripts/sync_openfga_tuples.py`：三模式（dry-run / apply / reconcile），从 `authz_tuple_export/v1` 源同步 tuple 到本地 SQLite tuple store；apply 模式支持 `--prune`
+   - `scripts/check_openfga_authz.py`：直接 tuple 查询，输出 `openfga_check_result/v1`；支持 `--assert-allowed / --assert-denied`
+   - `schemas/openfga_sync_report.schema.json` + `schemas/openfga_check_result.schema.json` + `migrations/metadata/007_add_openfga_tuples.sql` + Postgres DDL `openfga_tuples` 表
+   - 验证：dry-run 33 个 tuple，apply 写入 33 个，check allowed/denied 均通过，schema 校验，Postgres DDL parity check ✓
+3. **`A3` 已完成（2026-05-05）**：KMS backend reachability probe
+   - `scripts/check_kms_reachability.py`：按后端类型（vault_kv_file / vault_http / external_kms_http / keyring_file / env_var）逐项探活；overall_status = ok / degraded / error；支持 `--assert-ok`
+   - `schemas/kms_reachability_report.schema.json`：冻结 `kms_reachability_report/v1` contract
+   - 验证：已有 fixture 全 ok，未设 env var → error，schema 校验通过
+4. **`A4` 已完成（2026-05-05）**：service identity + token lifecycle
+   - `scripts/manage_service_tokens.py`：issue / verify / revoke / list 四个子命令；token 格式 `base64url(header).base64url(payload).hmac_sha256_hex`，携带 `jti/svc/iat/exp/scp` 五字段；撤销检查通过 store 内 `status` 字段实现；输出 `service_token_report/v1`
+   - `schemas/service_token_report.schema.json`：冻结 `service_token_report/v1` contract
+   - `migrations/metadata/008_add_service_tokens.sql` + Postgres DDL `service_tokens` 表（SERIAL/TIMESTAMPTZ）
+   - 验证：issue → verify ok → revoke → verify revoked 四路径 schema 均通过；`check_ci_smoke.sh` ✓；backcompat 87 schema 0 fail
+   - 边界：不替代主链路 bridge HMAC token；只给 key agent / KMS / recovery service 提供可撤销的 service-to-service 身份凭证
 5. `A5 / 5h`：policy / key / identity 三线的 mutation governance 联动
    - 把 policy drift、key drift、issuer rotation 串成统一 operator 视角
 6. `A6 / 5h`：回归与 runbook 收口
@@ -88,9 +96,10 @@
 4. `B12 / 5h`：Temporal durable wrapper baseline
    - 只包装现有 CLI，不重写主链路
    - 让 submit/status/retry 有更 durable 的执行壳
-5. `B13 / 5h`：Grafana / OTel bridge adapter
-   - 先消费 `pipeline_observability/v1`
-   - 不要求每个模块原生埋点
+5. **`B13` 已完成（2026-05-05）**：Grafana / OTel bridge adapter
+   - `scripts/export_otel_events.py`：将 `pipeline_observability/v1` 转换为 OTLP-兼容 span JSONL；trace_id / root span 由 `job_id` 确定性派生；每个 stage event 成为一个 child span，携带 stage/role/status/duration_ms/row_count 等 attributes；输出 `otel_export_report/v1` 报告 + `otel_spans.jsonl`
+   - `schemas/otel_export_report.schema.json`：冻结 `otel_export_report/v1` contract
+   - 验证：5 阶段合成 fixture → 6 个 span（1 root + 5 stage）全部含必要字段，schema 校验通过；不要求每个模块原生埋点；产物可直接导入 Grafana Tempo / Jaeger
 6. `B14 / 5h`：operator shell 回归与 handoff
    - live job control + historical triage + retry eligibility 一起验证
 

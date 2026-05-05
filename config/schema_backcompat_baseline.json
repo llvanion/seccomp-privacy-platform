@@ -1903,130 +1903,425 @@
     {
       "path": "schemas/vault_http_client_result.schema.json",
       "schema_id": "vault_http_client_result/v1",
-      "required": ["schema", "generated_at_utc"],
+      "required": [
+        "schema",
+        "generated_at_utc"
+      ],
       "stable_properties": [
-        "base_url", "error", "field", "generated_at_utc", "mock_file",
-        "mock_secrets_count", "mode", "mount", "ok", "operation",
-        "path", "reachable", "resolved_version", "schema",
-        "value", "vault_version"
+        "base_url",
+        "error",
+        "field",
+        "generated_at_utc",
+        "mock_file",
+        "mock_secrets_count",
+        "mode",
+        "mount",
+        "ok",
+        "operation",
+        "path",
+        "reachable",
+        "resolved_version",
+        "schema",
+        "value",
+        "vault_version"
       ]
     },
     {
       "path": "schemas/issuer_credential_rotation.schema.json",
       "schema_id": "issuer_credential_rotation/v1",
       "required": [
-        "schema", "generated_at_utc", "issuer", "mode",
-        "ok", "key_rotation_count", "key_rotations"
+        "schema",
+        "generated_at_utc",
+        "issuer",
+        "mode",
+        "ok",
+        "key_rotation_count",
+        "key_rotations"
       ],
       "stable_properties": [
-        "error", "generated_at_utc", "issuer", "issuer_type",
-        "key_rotation_count", "key_rotations", "mode", "ok", "schema", "service_id"
+        "error",
+        "generated_at_utc",
+        "issuer",
+        "issuer_type",
+        "key_rotation_count",
+        "key_rotations",
+        "mode",
+        "ok",
+        "schema",
+        "service_id"
       ]
     },
     {
       "path": "schemas/key_backend_drift.schema.json",
       "schema_id": "key_backend_drift/v1",
       "required": [
-        "schema", "generated_at_utc", "db_path", "reference_source",
-        "mode", "summary", "findings", "repair_actions"
+        "schema",
+        "generated_at_utc",
+        "db_path",
+        "reference_source",
+        "mode",
+        "summary",
+        "findings",
+        "repair_actions"
       ],
       "stable_properties": [
-        "db_path", "findings", "generated_at_utc", "mode",
-        "reference_source", "repair_actions", "schema", "summary"
+        "db_path",
+        "findings",
+        "generated_at_utc",
+        "mode",
+        "reference_source",
+        "repair_actions",
+        "schema",
+        "summary"
       ]
     },
     {
       "path": "schemas/policy_drift.schema.json",
       "schema_id": "policy_drift/v1",
       "required": [
-        "schema", "generated_at_utc", "db_path", "mode",
-        "summary", "findings", "repair_actions"
+        "schema",
+        "generated_at_utc",
+        "db_path",
+        "mode",
+        "summary",
+        "findings",
+        "repair_actions"
       ],
       "stable_properties": [
-        "db_path", "findings", "generated_at_utc", "mode",
-        "repair_actions", "schema", "summary"
+        "db_path",
+        "findings",
+        "generated_at_utc",
+        "mode",
+        "repair_actions",
+        "schema",
+        "summary"
       ]
     },
     {
       "path": "schemas/policy_change_proposal.schema.json",
       "schema_id": "policy_change_proposal/v1",
       "required": [
-        "schema", "generated_at_utc", "db_path", "policy_path",
-        "proposed_sha256", "is_new_policy", "caller_diff",
-        "permission_diffs", "governance_violations",
-        "error_count", "warning_count", "governance_status",
-        "mode", "applied"
+        "schema",
+        "generated_at_utc",
+        "db_path",
+        "policy_path",
+        "proposed_sha256",
+        "is_new_policy",
+        "caller_diff",
+        "permission_diffs",
+        "governance_violations",
+        "error_count",
+        "warning_count",
+        "governance_status",
+        "mode",
+        "applied"
       ],
       "stable_properties": [
-        "applied", "apply_result", "caller_diff", "db_path",
-        "error_count", "existing_policy_id", "existing_sha256",
-        "generated_at_utc", "governance_status", "governance_violations",
-        "is_new_policy", "mode", "permission_diffs",
-        "policy_path", "proposed_sha256", "schema", "warning_count"
+        "applied",
+        "apply_result",
+        "caller_diff",
+        "db_path",
+        "error_count",
+        "existing_policy_id",
+        "existing_sha256",
+        "generated_at_utc",
+        "governance_status",
+        "governance_violations",
+        "is_new_policy",
+        "mode",
+        "permission_diffs",
+        "policy_path",
+        "proposed_sha256",
+        "schema",
+        "warning_count"
       ]
     },
     {
       "path": "schemas/observability_dashboard.schema.json",
       "schema_id": "observability_dashboard/v1",
       "required": [
-        "schema", "generated_at_utc", "job_id", "correlation_id", "caller",
-        "tenant_id", "dataset_id", "service_id", "summary", "panels", "health_summary"
+        "schema",
+        "generated_at_utc",
+        "job_id",
+        "correlation_id",
+        "caller",
+        "tenant_id",
+        "dataset_id",
+        "service_id",
+        "summary",
+        "panels",
+        "health_summary"
       ],
       "stable_properties": [
-        "caller", "correlation_id", "dataset_id", "generated_at_utc",
-        "health_summary", "job_id", "panels", "schema", "service_id",
-        "summary", "tenant_id"
+        "caller",
+        "correlation_id",
+        "dataset_id",
+        "generated_at_utc",
+        "health_summary",
+        "job_id",
+        "panels",
+        "schema",
+        "service_id",
+        "summary",
+        "tenant_id"
       ]
     },
     {
       "path": "schemas/observability_alert_report.schema.json",
       "schema_id": "observability_alert_report/v1",
       "required": [
-        "schema", "generated_at_utc", "job_id", "correlation_id", "caller",
-        "tenant_id", "alert_count", "firing_count", "overall_status", "alerts"
+        "schema",
+        "generated_at_utc",
+        "job_id",
+        "correlation_id",
+        "caller",
+        "tenant_id",
+        "alert_count",
+        "firing_count",
+        "overall_status",
+        "alerts"
       ],
       "stable_properties": [
-        "alert_count", "alerts", "caller", "correlation_id",
-        "firing_count", "generated_at_utc", "job_id", "overall_status",
-        "schema", "tenant_id"
+        "alert_count",
+        "alerts",
+        "caller",
+        "correlation_id",
+        "firing_count",
+        "generated_at_utc",
+        "job_id",
+        "overall_status",
+        "schema",
+        "tenant_id"
       ]
     },
     {
       "path": "schemas/query_workflow_status_list.schema.json",
       "schema_id": "query_workflow_status_list/v1",
       "required": [
-        "schema", "generated_at_utc", "search_dir", "filter_state",
-        "filter_job_id", "total_found", "returned_count", "limit", "statuses"
+        "schema",
+        "generated_at_utc",
+        "search_dir",
+        "filter_state",
+        "filter_job_id",
+        "total_found",
+        "returned_count",
+        "limit",
+        "statuses"
       ],
       "stable_properties": [
-        "filter_job_id", "filter_state", "generated_at_utc", "limit",
-        "returned_count", "schema", "search_dir", "statuses", "total_found"
+        "filter_job_id",
+        "filter_state",
+        "generated_at_utc",
+        "limit",
+        "returned_count",
+        "schema",
+        "search_dir",
+        "statuses",
+        "total_found"
       ]
     },
     {
       "path": "schemas/workflow_retry_eligibility.schema.json",
       "schema_id": "workflow_retry_eligibility/v1",
       "required": [
-        "schema", "generated_at_utc", "job_id", "correlation_id", "caller",
-        "tenant_id", "current_state", "terminal", "last_exit_code",
-        "receipt_count", "retryable", "resubmit_required",
-        "recommended_action", "reason", "triage_steps"
+        "schema",
+        "generated_at_utc",
+        "job_id",
+        "correlation_id",
+        "caller",
+        "tenant_id",
+        "current_state",
+        "terminal",
+        "last_exit_code",
+        "receipt_count",
+        "retryable",
+        "resubmit_required",
+        "recommended_action",
+        "reason",
+        "triage_steps"
       ],
       "stable_properties": [
-        "caller", "correlation_id", "current_state", "generated_at_utc",
-        "job_id", "last_exit_code", "reason", "receipt_count",
-        "recommended_action", "resubmit_required", "retryable",
-        "schema", "tenant_id", "terminal", "triage_steps"
+        "caller",
+        "correlation_id",
+        "current_state",
+        "generated_at_utc",
+        "job_id",
+        "last_exit_code",
+        "reason",
+        "receipt_count",
+        "recommended_action",
+        "resubmit_required",
+        "retryable",
+        "schema",
+        "tenant_id",
+        "terminal",
+        "triage_steps"
       ]
     },
     {
       "path": "schemas/operator_triage_report.schema.json",
       "schema_id": "operator_triage_report/v1",
       "required": [
-        "schema", "generated_at_utc", "out_base", "overall_status", "sections"
+        "schema",
+        "generated_at_utc",
+        "out_base",
+        "overall_status",
+        "sections"
       ],
       "stable_properties": [
-        "generated_at_utc", "out_base", "overall_status", "schema", "sections"
+        "generated_at_utc",
+        "out_base",
+        "overall_status",
+        "schema",
+        "sections"
+      ]
+    },
+    {
+      "path": "schemas/identity_proxy_health.schema.json",
+      "schema_id": "identity_proxy_health/v1",
+      "required": [
+        "schema",
+        "status",
+        "ts_utc",
+        "bind_host",
+        "port",
+        "upstreams"
+      ],
+      "stable_properties": [
+        "bind_host",
+        "port",
+        "schema",
+        "status",
+        "ts_utc",
+        "upstream_count",
+        "upstreams"
+      ]
+    },
+    {
+      "path": "schemas/openfga_sync_report.schema.json",
+      "schema_id": "openfga_sync_report/v1",
+      "required": [
+        "schema",
+        "generated_at_utc",
+        "mode",
+        "status",
+        "source_kind",
+        "tuple_store_path",
+        "source_tuple_count",
+        "store_tuple_count_before",
+        "added",
+        "removed",
+        "unchanged"
+      ],
+      "stable_properties": [
+        "added",
+        "generated_at_utc",
+        "mode",
+        "removed",
+        "schema",
+        "source_kind",
+        "source_tuple_count",
+        "status",
+        "store_tuple_count_before",
+        "tuple_store_path",
+        "unchanged"
+      ]
+    },
+    {
+      "path": "schemas/openfga_check_result.schema.json",
+      "schema_id": "openfga_check_result/v1",
+      "required": [
+        "schema",
+        "checked_at_utc",
+        "tuple_store_path",
+        "user",
+        "relation",
+        "object",
+        "allowed"
+      ],
+      "stable_properties": [
+        "allowed",
+        "checked_at_utc",
+        "object",
+        "relation",
+        "schema",
+        "tuple_store_path",
+        "user"
+      ]
+    },
+    {
+      "path": "schemas/kms_reachability_report.schema.json",
+      "schema_id": "kms_reachability_report/v1",
+      "required": [
+        "schema",
+        "generated_at_utc",
+        "overall_status",
+        "checked_count",
+        "reachable_count",
+        "unreachable_count",
+        "checks"
+      ],
+      "stable_properties": [
+        "checked_count",
+        "checks",
+        "generated_at_utc",
+        "overall_status",
+        "reachable_count",
+        "schema",
+        "unreachable_count"
+      ]
+    },
+    {
+      "path": "schemas/service_token_report.schema.json",
+      "schema_id": "service_token_report/v1",
+      "required": [
+        "schema",
+        "generated_at_utc",
+        "operation",
+        "status",
+        "service_id"
+      ],
+      "stable_properties": [
+        "error",
+        "expires_at_utc",
+        "generated_at_utc",
+        "issued_at_utc",
+        "jti",
+        "operation",
+        "schema",
+        "scope",
+        "service_id",
+        "status",
+        "token_hash",
+        "tokens"
+      ]
+    },
+    {
+      "path": "schemas/otel_export_report.schema.json",
+      "schema_id": "otel_export_report/v1",
+      "required": [
+        "schema",
+        "generated_at_utc",
+        "source_path",
+        "job_id",
+        "trace_id",
+        "span_count",
+        "spans_path"
+      ],
+      "stable_properties": [
+        "caller",
+        "correlation_id",
+        "duration_ms_total",
+        "generated_at_utc",
+        "job_id",
+        "root_span_id",
+        "schema",
+        "source_path",
+        "span_count",
+        "spans_path",
+        "stage_names",
+        "tenant_id",
+        "trace_id"
       ]
     }
   ]

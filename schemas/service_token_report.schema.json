@@ -1,0 +1,41 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "service_token_report/v1",
+  "title": "Service identity token operation report",
+  "type": "object",
+  "required": ["schema", "generated_at_utc", "operation", "status", "service_id"],
+  "properties": {
+    "schema": { "const": "service_token_report/v1" },
+    "generated_at_utc": { "type": "string", "minLength": 1 },
+    "operation": { "enum": ["issue", "verify", "revoke", "list", "purge"] },
+    "status": { "enum": ["ok", "error", "expired", "revoked", "not_found"] },
+    "service_id": { "type": "string", "minLength": 1 },
+    "jti": { "type": ["string", "null"] },
+    "issued_at_utc": { "type": ["string", "null"] },
+    "expires_at_utc": { "type": ["string", "null"] },
+    "scope": { "type": ["string", "null"] },
+    "token_hash": { "type": ["string", "null"] },
+    "token": { "type": ["string", "null"] },
+    "error": { "type": ["string", "null"] },
+    "tokens": {
+      "type": ["array", "null"],
+      "items": {
+        "type": "object",
+        "required": ["jti", "service_id", "status", "issued_at_utc", "expires_at_utc"],
+        "properties": {
+          "jti": { "type": "string" },
+          "service_id": { "type": "string" },
+          "scope": { "type": "string" },
+          "status": { "type": "string" },
+          "issued_at_utc": { "type": "string" },
+          "expires_at_utc": { "type": "string" },
+          "revoked_at_utc": { "type": ["string", "null"] },
+          "revocation_reason": { "type": ["string", "null"] },
+          "token_hash": { "type": "string" }
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  "additionalProperties": false
+}

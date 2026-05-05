@@ -1,0 +1,47 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "identity_proxy_health/v1",
+  "title": "Identity proxy health report",
+  "type": "object",
+  "required": ["schema", "status", "ts_utc", "bind_host", "port", "upstreams"],
+  "properties": {
+    "schema": {
+      "const": "identity_proxy_health/v1"
+    },
+    "status": {
+      "enum": ["ok", "degraded", "error"]
+    },
+    "ts_utc": {
+      "type": "string",
+      "minLength": 1
+    },
+    "bind_host": {
+      "type": "string"
+    },
+    "port": {
+      "type": "integer"
+    },
+    "identity_token_config": {
+      "type": ["string", "null"]
+    },
+    "metadata_db_path": {
+      "type": ["string", "null"]
+    },
+    "upstream_count": {
+      "type": "integer"
+    },
+    "upstreams": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "required": ["prefix", "upstream_url"],
+        "properties": {
+          "prefix": { "type": "string" },
+          "upstream_url": { "type": "string" }
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  "additionalProperties": false
+}

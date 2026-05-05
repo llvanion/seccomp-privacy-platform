@@ -1,0 +1,30 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "openfga_check_result/v1",
+  "title": "OpenFGA-style authorization check result",
+  "type": "object",
+  "required": [
+    "schema", "checked_at_utc", "tuple_store_path",
+    "user", "relation", "object", "allowed"
+  ],
+  "properties": {
+    "schema": { "const": "openfga_check_result/v1" },
+    "checked_at_utc": { "type": "string", "minLength": 1 },
+    "tuple_store_path": { "type": "string", "minLength": 1 },
+    "user": { "type": "string", "minLength": 1 },
+    "relation": { "type": "string", "minLength": 1 },
+    "object": { "type": "string", "minLength": 1 },
+    "allowed": { "type": "boolean" },
+    "reason": { "type": ["string", "null"] },
+    "matched_tuple": {
+      "type": ["object", "null"],
+      "properties": {
+        "user": { "type": "string" },
+        "relation": { "type": "string" },
+        "object": { "type": "string" }
+      },
+      "additionalProperties": true
+    }
+  },
+  "additionalProperties": false
+}

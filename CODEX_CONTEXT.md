@@ -171,6 +171,11 @@ Later competition backlog:
 - Metadata DB helpers: `scripts/metadata_db.py`, `scripts/init_metadata_db.py`, `scripts/import_run_metadata.py`, `scripts/query_metadata.py`, `scripts/serve_metadata_api.py`, `scripts/manage_metadata_db.py`, `scripts/export_authz_tuples.py`
 - Metadata API schemas: `schemas/metadata_api_health.schema.json`, `schemas/metadata_api_response.schema.json`, `schemas/metadata_api_error.schema.json`
 - Metadata DB lifecycle schemas: `schemas/metadata_db_status.schema.json`, `schemas/metadata_db_backup.schema.json`, `schemas/metadata_db_export.schema.json`
+- Identity proxy (A1): `scripts/serve_identity_proxy.py`; health schema: `schemas/identity_proxy_health.schema.json`; example config: `config/identity_proxy.example.json`
+- OpenFGA tuple sync (A2): `scripts/sync_openfga_tuples.py`; check adapter: `scripts/check_openfga_authz.py`; schemas: `schemas/openfga_sync_report.schema.json`, `schemas/openfga_check_result.schema.json`; migration: `migrations/metadata/007_add_openfga_tuples.sql`
+- KMS reachability probe (A3): `scripts/check_kms_reachability.py`; schema: `schemas/kms_reachability_report.schema.json`
+- Service identity tokens (A4): `scripts/manage_service_tokens.py`; schema: `schemas/service_token_report.schema.json`; migration: `migrations/metadata/008_add_service_tokens.sql`
+- OTel bridge adapter (B13): `scripts/export_otel_events.py`; schema: `schemas/otel_export_report.schema.json`
 - Query/workflow wrapper: `scripts/submit_query_workflow.py`, `docs/QUERY_INTERFACE_PLAN.md`
 - Query/workflow HTTP wrapper: `scripts/serve_query_workflow_api.py`
 - Local SDK/CLI prototype: `scripts/platform_api_client.py`

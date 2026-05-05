@@ -34,6 +34,7 @@ python3 -m py_compile \
   scripts/export_catalog_lineage.py \
   scripts/export_authz_tuples.py \
   scripts/export_observability_events.py \
+  scripts/export_otel_events.py \
   scripts/import_run_metadata.py \
   scripts/init_metadata_db.py \
   scripts/key_agent_service.py \
@@ -41,6 +42,7 @@ python3 -m py_compile \
   scripts/manage_external_kms.py \
   scripts/manage_keyring.py \
   scripts/manage_metadata_db.py \
+  scripts/manage_service_tokens.py \
   scripts/manage_record_recovery_service.py \
   scripts/metadata_db.py \
   scripts/query_metadata.py \
@@ -51,10 +53,14 @@ python3 -m py_compile \
   scripts/resolve_key_access.py \
   scripts/scan_repo_hygiene.py \
   scripts/seal_audit_artifact.py \
+  scripts/check_kms_reachability.py \
+  scripts/check_openfga_authz.py \
   scripts/serve_audit_query_api.py \
+  scripts/serve_identity_proxy.py \
   scripts/serve_metadata_api.py \
   scripts/serve_platform_health_api.py \
   scripts/serve_query_workflow_api.py \
+  scripts/sync_openfga_tuples.py \
   scripts/submit_query_workflow.py \
   scripts/validate_json_contract.py \
   scripts/validate_pipeline_policy.py \

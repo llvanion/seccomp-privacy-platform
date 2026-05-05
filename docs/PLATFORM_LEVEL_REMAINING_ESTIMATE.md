@@ -106,17 +106,28 @@
 
 ## 4. 当前结论
 
-1. 截至 2026-05-03，owner、工程师 A、工程师 B、工程师 1、工程师 2 五条任务线均已完成“平台基线版”定义范围内的实现。
+1. 截至 2026-05-03，owner、工程师 A、工程师 B、工程师 1、工程师 2 五条任务线均已完成”平台基线版”定义范围内的实现。
 2. 本文继续保留各 block 的完成记录，是为了让后续接手者能快速追溯每个 block 的入口、验证方式和文档回写位置，而不是表示当前仍有剩余实现量。
-3. 如果后续继续推进，应按“平台基线之后”的新增范围单独立项，例如真实 Temporal durable workflow、Grafana / Web dashboard 壳、真实 OIDC / OpenFGA / Vault 权威源、PostgreSQL 长期运维，而不是再把这些工作混写成当前基线的剩余 block。
+3. 如果后续继续推进，应按”平台基线之后”的新增范围单独立项，例如真实 Temporal durable workflow、Grafana / Web dashboard 壳、真实 OIDC / OpenFGA / Vault 权威源、PostgreSQL 长期运维，而不是再把这些工作混写成当前基线的剩余 block。
 
 平台基线之后的统一路线图见：
 
 1. [POST_BASELINE_ROADMAP.md](/home/llvanion/Desktop/seccomp-privacy-platform/docs/POST_BASELINE_ROADMAP.md)
 
-## 5. 使用方式
+## 5. 平台基线之后已完成 block 记录（2026-05-05）
 
-建议后续所有“公布工作量”统一写成：
+| 完成时间 | Tranche/Block | 入口 | 验证 |
+| --- | --- | --- | --- |
+| 2026-05-05 | Tranche B / B9-B12（工程师 B）：PJC X-UI control shell + multi-run admin + durable relaunch | `scripts/serve_operator_dashboard.py`（POST /v1/jobs/start + GET /v1/jobs/{id} + GET /v1/jobs/{id}/result + POST /v1/jobs/{id}/relaunch + GET /v1/runs + POST /v1/runs/select），`docs/CONTROL_PANEL_SPEC.md` | loopback smoke ✓，`intersection_size=2` ✓ |
+| 2026-05-05 | Tranche A / A1（工程师 A）：issuer-backed identity proxy baseline | `scripts/serve_identity_proxy.py`，`schemas/identity_proxy_health.schema.json`，`config/identity_proxy.example.json`，backcompat baseline entry | `check_ci_smoke.sh` ✓，`check_json_contracts.sh` ✓，schema validation ✓ |
+| 2026-05-05 | Tranche A / A2（工程师 A）：OpenFGA tuple sync + check adapter | `scripts/sync_openfga_tuples.py`，`scripts/check_openfga_authz.py`，`schemas/openfga_sync_report.schema.json`，`schemas/openfga_check_result.schema.json`，`migrations/metadata/007_add_openfga_tuples.sql`，Postgres DDL | `check_ci_smoke.sh` ✓，`check_json_contracts.sh` ✓（85 schema 0 fail），Postgres parity ✓ |
+| 2026-05-05 | Tranche A / A3（工程师 A）：KMS backend reachability probe | `scripts/check_kms_reachability.py`，`schemas/kms_reachability_report.schema.json` | `check_ci_smoke.sh` ✓，schema validation ✓，ok/degraded/error 三路径验证 ✓ |
+| 2026-05-05 | Tranche A / A4（工程师 A）：service identity token lifecycle | `scripts/manage_service_tokens.py`，`schemas/service_token_report.schema.json`，`migrations/metadata/008_add_service_tokens.sql`，Postgres DDL | `check_ci_smoke.sh` ✓（87 schema 0 fail），issue/verify/revoke/list 四路径 schema 通过 ✓ |
+| 2026-05-05 | Tranche B / B13（工程师 B）：Grafana/OTel bridge adapter | `scripts/export_otel_events.py`，`schemas/otel_export_report.schema.json` | `check_ci_smoke.sh` ✓，6 spans，schema validation ✓ |
+
+## 7. 使用方式
+
+建议后续所有”公布工作量”统一写成：
 
 1. 本次完成了哪个任务的第几个 `5h block`
 2. 该 block 的入口、验证、文档回写位置
