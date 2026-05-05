@@ -691,3 +691,35 @@ python3 scripts/build_observability_dashboard.py \
 5. loopback `GET /v1/runs?limit=8`
    - recent runs 由 `5` 条扩到 `6` 条
    - relaunched job 成为新的 active run
+
+## 25. 本轮代码推进结果（2026-05-05，B13 OTel bridge adapter + B14 operator shell regression）
+
+### B13：OTel bridge adapter
+
+1. `scripts/export_otel_events.py`：将 `pipeline_observability/v1` 转换为 OTLP-兼容 span JSONL
+   - trace_id / root span 由 `job_id` 确定性派生（SHA-256[:32]）
+   - 每个 stage event 成为一个 child span，携带 stage/role/status/duration_ms/row_count 属性
+   - 输出 `otel_export_report/v1` 报告 + `otel_spans.jsonl`
+   - 产物可直接导入 Grafana Tempo / Jaeger（OTLP JSON 格式）
+2. `schemas/otel_export_report.schema.json`：冻结 contract
+
+### B14：operator shell regression
+
+1. `scripts/verify_operator_shell_regression.py`：15 项端到端检查
+   - dashboard 服务启动 → job start → 轮询至 terminal → result（intersection=2/sum=425/released）
+   - runs list → dashboard audit_center → retry_eligibility → operator_triage
+   - OTel span export → relaunch endpoint 响应
+2. `schemas/operator_shell_regression_report.schema.json`：冻结 `operator_shell_regression_report/v1` contract
+3. 验证结果：15/15 checks passed，8.9s 完成，schema 校验通过
+
+当前验证状态：
+1. `python3 -m py_compile scripts/verify_operator_shell_regression.py` 通过
+2. `bash scripts/check_ci_smoke.sh` 通过（88 schema，0 fail）
+3. `bash scripts/check_json_contracts.sh` 通过
+4. 全流程 15 项检查通过（intersection_size=2, sum=425, released=true, otel_span_count=13）
+
+因此当前最准确的结论是：
+
+1. Tranche B 全部 6 个 block（B9-B14）均已完成
+2. 工程师 B 方向已从"已完成 run 的 operator 工具集"推进到"最小可用的 live operator 平台壳"
+3. 后续如果继续推进，方向是 Tranche A（A5-A6 runbook 收口）、Tranche C（PostgreSQL 深化）和 Tranche D（独立服务强化）

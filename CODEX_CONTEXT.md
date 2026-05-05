@@ -176,6 +176,7 @@ Later competition backlog:
 - KMS reachability probe (A3): `scripts/check_kms_reachability.py`; schema: `schemas/kms_reachability_report.schema.json`
 - Service identity tokens (A4): `scripts/manage_service_tokens.py`; schema: `schemas/service_token_report.schema.json`; migration: `migrations/metadata/008_add_service_tokens.sql`
 - OTel bridge adapter (B13): `scripts/export_otel_events.py`; schema: `schemas/otel_export_report.schema.json`
+- Operator shell regression (B14): `scripts/verify_operator_shell_regression.py`; schema: `schemas/operator_shell_regression_report.schema.json`
 - Query/workflow wrapper: `scripts/submit_query_workflow.py`, `docs/QUERY_INTERFACE_PLAN.md`
 - Query/workflow HTTP wrapper: `scripts/serve_query_workflow_api.py`
 - Local SDK/CLI prototype: `scripts/platform_api_client.py`

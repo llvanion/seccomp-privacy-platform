@@ -35,6 +35,7 @@ python3 -m py_compile \
   scripts/export_authz_tuples.py \
   scripts/export_observability_events.py \
   scripts/export_otel_events.py \
+  scripts/verify_operator_shell_regression.py \
   scripts/import_run_metadata.py \
   scripts/init_metadata_db.py \
   scripts/key_agent_service.py \

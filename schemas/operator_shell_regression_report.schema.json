@@ -1,0 +1,36 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "operator_shell_regression_report/v1",
+  "title": "Operator shell regression report",
+  "type": "object",
+  "required": [
+    "schema", "generated_at_utc", "overall_status",
+    "checks_total", "checks_passed", "checks_failed", "checks"
+  ],
+  "properties": {
+    "schema": { "const": "operator_shell_regression_report/v1" },
+    "generated_at_utc": { "type": "string", "minLength": 1 },
+    "overall_status": { "enum": ["ok", "failed", "error"] },
+    "checks_total": { "type": "integer", "minimum": 0 },
+    "checks_passed": { "type": "integer", "minimum": 0 },
+    "checks_failed": { "type": "integer", "minimum": 0 },
+    "job_id": { "type": ["string", "null"] },
+    "out_base": { "type": ["string", "null"] },
+    "dashboard_port": { "type": ["integer", "null"] },
+    "elapsed_sec": { "type": ["number", "null"] },
+    "checks": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["name", "status"],
+        "properties": {
+          "name": { "type": "string", "minLength": 1 },
+          "status": { "enum": ["pass", "fail", "skip"] },
+          "detail": { "type": ["string", "null"] }
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  "additionalProperties": false
+}

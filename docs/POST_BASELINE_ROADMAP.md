@@ -100,8 +100,10 @@
    - `scripts/export_otel_events.py`：将 `pipeline_observability/v1` 转换为 OTLP-兼容 span JSONL；trace_id / root span 由 `job_id` 确定性派生；每个 stage event 成为一个 child span，携带 stage/role/status/duration_ms/row_count 等 attributes；输出 `otel_export_report/v1` 报告 + `otel_spans.jsonl`
    - `schemas/otel_export_report.schema.json`：冻结 `otel_export_report/v1` contract
    - 验证：5 阶段合成 fixture → 6 个 span（1 root + 5 stage）全部含必要字段，schema 校验通过；不要求每个模块原生埋点；产物可直接导入 Grafana Tempo / Jaeger
-6. `B14 / 5h`：operator shell 回归与 handoff
-   - live job control + historical triage + retry eligibility 一起验证
+6. **`B14` 已完成（2026-05-05）**：operator shell 回归与 handoff
+   - `scripts/verify_operator_shell_regression.py`：15 项端到端检查，串联 dashboard 服务启动 → `POST /v1/jobs/start` → 轮询至 terminal → `GET /v1/jobs/{id}/result`（intersection=2, sum=425, released）→ `GET /v1/runs` → `GET /v1/dashboard` audit_center → retry_eligibility → operator_triage → OTel span export → relaunch endpoint，全部 15/15 通过，schema `operator_shell_regression_report/v1` 校验通过
+   - `schemas/operator_shell_regression_report.schema.json`：冻结 `operator_shell_regression_report/v1` contract
+   - 验证：`check_ci_smoke.sh` ✓，backcompat 88 schema 0 fail，全流程 8.9s 内完成
 
 当前进展（`2026-05-05`）：
 
@@ -122,7 +124,8 @@
    - 已落地 `POST /v1/jobs/{job_id}/relaunch`
    - 复用 `workflow_retry_eligibility/v1` 和 `submission_manifest.json`
    - 当前只支持 request-file-backed run，不支持 `<inline>` run
-6. `B13-B14` 仍未推进
+6. **`B13` 已完成**（OTel bridge adapter）
+7. **`B14` 已完成**（operator shell regression — 15/15 checks, 8.9s）
 
 这条线完成后，工程师 B 方向才算从“已完成 run 的 operator 工具集”推进到“最小可用的 live operator 平台壳”。
 

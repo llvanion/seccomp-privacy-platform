@@ -2323,6 +2323,32 @@
         "tenant_id",
         "trace_id"
       ]
+    },
+    {
+      "path": "schemas/operator_shell_regression_report.schema.json",
+      "schema_id": "operator_shell_regression_report/v1",
+      "required": [
+        "schema",
+        "generated_at_utc",
+        "overall_status",
+        "checks_total",
+        "checks_passed",
+        "checks_failed",
+        "checks"
+      ],
+      "stable_properties": [
+        "checks",
+        "checks_failed",
+        "checks_passed",
+        "checks_total",
+        "dashboard_port",
+        "elapsed_sec",
+        "generated_at_utc",
+        "job_id",
+        "out_base",
+        "overall_status",
+        "schema"
+      ]
     }
   ]
 }

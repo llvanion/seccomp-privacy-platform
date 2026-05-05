@@ -124,6 +124,7 @@
 | 2026-05-05 | Tranche A / A3（工程师 A）：KMS backend reachability probe | `scripts/check_kms_reachability.py`，`schemas/kms_reachability_report.schema.json` | `check_ci_smoke.sh` ✓，schema validation ✓，ok/degraded/error 三路径验证 ✓ |
 | 2026-05-05 | Tranche A / A4（工程师 A）：service identity token lifecycle | `scripts/manage_service_tokens.py`，`schemas/service_token_report.schema.json`，`migrations/metadata/008_add_service_tokens.sql`，Postgres DDL | `check_ci_smoke.sh` ✓（87 schema 0 fail），issue/verify/revoke/list 四路径 schema 通过 ✓ |
 | 2026-05-05 | Tranche B / B13（工程师 B）：Grafana/OTel bridge adapter | `scripts/export_otel_events.py`，`schemas/otel_export_report.schema.json` | `check_ci_smoke.sh` ✓，6 spans，schema validation ✓ |
+| 2026-05-05 | Tranche B / B14（工程师 B）：operator shell 回归与 handoff | `scripts/verify_operator_shell_regression.py`，`schemas/operator_shell_regression_report.schema.json` | 15/15 checks，8.9s，schema ✓，`check_ci_smoke.sh` ✓（88 schema 0 fail） |
 
 ## 7. 使用方式
 
