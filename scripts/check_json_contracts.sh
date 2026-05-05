@@ -1229,7 +1229,7 @@ pub = key.public_key().public_numbers()
 header = {"alg": "RS256", "typ": "JWT", "kid": "demo-kid-1"}
 payload = {
     "iss": "https://keycloak.example.com/realms/commerce",
-    "sub": "svc-account-recovery",
+    "sub": "service-account:orders-recovery-operator",
     "preferred_username": "recovery_ops_demo",
     "azp": "orders-recovery",
     "tenant_id": "demo_tenant",
