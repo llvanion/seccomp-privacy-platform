@@ -13,7 +13,10 @@ jobs:
         with:
           python-version: "3.11"
       - uses: dtolnay/rust-toolchain@stable
+      - uses: bazelbuild/setup-bazelisk@v3
       - name: Install SSE Python dependencies
         run: python3 -m pip install -r sse/requirements.txt
       - name: Run CI smoke checks
+        env:
+          PJC_BUILD: "1"
         run: bash scripts/check_ci_smoke.sh
