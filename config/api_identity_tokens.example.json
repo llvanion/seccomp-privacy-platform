@@ -1,5 +1,12 @@
 {
   "schema": "api_identity_token_map/v1",
+  "jwt_bearer": {
+    "issuer": "https://keycloak.example.com/realms/commerce",
+    "claim_mapping_config": "config/oidc_claim_mapping.example.json",
+    "jwks_uri": "http://127.0.0.1:8080/realms/seccomp-privacy/protocol/openid-connect/certs",
+    "trusted_audiences": ["seccomp-privacy-platform"],
+    "require_registered_issuer": true
+  },
   "tokens": [
     {
       "token_env": "SECCOMP_METADATA_COMMERCE_OPS_TOKEN",

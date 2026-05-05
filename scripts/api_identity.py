@@ -5,6 +5,7 @@ from pathlib import Path
 from typing import Any
 
 from metadata_db import connect_db, row_to_dict
+from map_oidc_claims import DEFAULT_CLAIM_MAP, load_claim_mapping_config, map_token
 
 
 IDENTITY_TOKEN_SCHEMA = "api_identity_token_map/v1"
@@ -112,12 +113,80 @@ def load_identity_token_entries(config_path: str) -> list[dict[str, str]]:
     return entries
 
 
+def load_identity_token_config(config_path: str) -> dict[str, Any]:
+    payload = load_json_object(config_path)
+    if payload.get("schema") != IDENTITY_TOKEN_SCHEMA:
+        raise ValueError(f"identity token config must use {IDENTITY_TOKEN_SCHEMA}")
+    return payload
+
+
 def match_identity_token(config_path: str, bearer_token: str) -> dict[str, str] | None:
     for entry in load_identity_token_entries(config_path):
         expected = os.environ.get(entry["token_env"], "")
         if expected and expected == bearer_token:
             return entry
     return None
+
+
+def resolve_jwt_identity_token(
+    *,
+    config_path: str,
+    db_path: str,
+    bearer_token: str,
+) -> dict[str, Any] | None:
+    payload = load_identity_token_config(config_path)
+    jwt_bearer = payload.get("jwt_bearer")
+    if not isinstance(jwt_bearer, dict):
+        return None
+
+    claim_mapping = dict(DEFAULT_CLAIM_MAP)
+    claim_mapping_config = str(jwt_bearer.get("claim_mapping_config") or "").strip()
+    if claim_mapping_config:
+        cfg = load_claim_mapping_config(claim_mapping_config)
+        override = cfg.get("claim_mapping")
+        if isinstance(override, dict):
+            claim_mapping.update(override)
+        if not jwt_bearer.get("jwks_uri"):
+            config_jwks_uri = str(cfg.get("jwks_uri") or "").strip()
+            if config_jwks_uri:
+                jwt_bearer = {**jwt_bearer, "jwks_uri": config_jwks_uri}
+
+    verify_secret = None
+    verify_secret_env = str(jwt_bearer.get("verify_secret_env") or "").strip()
+    if verify_secret_env:
+        verify_secret = os.environ.get(verify_secret_env)
+
+    trusted_audiences = jwt_bearer.get("trusted_audiences")
+    if not isinstance(trusted_audiences, list):
+        trusted_audiences = None
+
+    result = map_token(
+        bearer_token,
+        claim_mapping=claim_mapping,
+        verify_secret=verify_secret,
+        jwks_uri=str(jwt_bearer.get("jwks_uri") or "").strip() or None,
+        db_path=db_path,
+        require_registered_issuer=bool(jwt_bearer.get("require_registered_issuer")),
+        trusted_audiences=[str(item) for item in trusted_audiences] if trusted_audiences else None,
+    )
+    if not result.get("valid"):
+        raise PermissionError("identity bearer token JWT validation failed")
+
+    expected_issuer = str(jwt_bearer.get("issuer") or "").strip()
+    resolved_issuer = str(result.get("issuer") or "").strip()
+    if expected_issuer and resolved_issuer != expected_issuer:
+        raise PermissionError("identity bearer token issuer mismatch")
+
+    mapped_fields = result.get("mapped_fields") if isinstance(result.get("mapped_fields"), dict) else {}
+    subject = str((mapped_fields or {}).get("subject") or result.get("subject") or "").strip()
+    if not resolved_issuer or not subject:
+        raise PermissionError("identity bearer token did not resolve issuer/subject")
+
+    return {
+        "issuer": resolved_issuer,
+        "subject": subject,
+        "jwt_validation": result,
+    }
 
 
 def lookup_issuer_registry_record(conn, issuer: str) -> dict[str, Any] | None:
@@ -242,12 +311,24 @@ def resolve_identity_context(
     bearer_token: str,
 ) -> dict[str, Any]:
     matched = match_identity_token(identity_token_config, bearer_token)
-    if matched is None:
+    if matched is not None:
+        return resolve_identity_subject_context(
+            db_path=db_path,
+            issuer=str(matched["issuer"]),
+            subject=str(matched["subject"]),
+        )
+
+    jwt_identity = resolve_jwt_identity_token(
+        config_path=identity_token_config,
+        db_path=db_path,
+        bearer_token=bearer_token,
+    )
+    if jwt_identity is None:
         raise PermissionError("identity bearer token auth failed")
     return resolve_identity_subject_context(
         db_path=db_path,
-        issuer=str(matched["issuer"]),
-        subject=str(matched["subject"]),
+        issuer=str(jwt_identity["issuer"]),
+        subject=str(jwt_identity["subject"]),
     )
 
 

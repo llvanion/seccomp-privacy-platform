@@ -19,6 +19,7 @@ import hmac
 import json
 import os
 import sys
+import urllib.request
 from pathlib import Path
 from typing import Any
 
@@ -27,6 +28,9 @@ if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
 from scripts.metadata_db import apply_migrations, connect_db, utc_now  # noqa: E402
+from cryptography.exceptions import InvalidSignature  # noqa: E402
+from cryptography.hazmat.primitives import hashes  # noqa: E402
+from cryptography.hazmat.primitives.asymmetric import padding, rsa  # noqa: E402
 
 SCHEMA_ID = "oidc_claim_map/v1"
 CLAIM_MAPPING_SCHEMA = "oidc_claim_mapping_config/v1"
@@ -68,6 +72,60 @@ def verify_hs256(token: str, secret: str) -> bool:
     expected = hmac.new(secret.encode("utf-8"), signing_input, hashlib.sha256).digest()
     provided = _b64url_decode(parts[2])
     return hmac.compare_digest(expected, provided)
+
+
+def _b64url_uint(value: str) -> int:
+    return int.from_bytes(_b64url_decode(value), "big")
+
+
+def fetch_jwks(jwks_uri: str) -> dict[str, Any]:
+    with urllib.request.urlopen(jwks_uri, timeout=5) as resp:
+        payload = json.loads(resp.read().decode("utf-8"))
+    if not isinstance(payload, dict):
+        raise ValueError(f"JWKS payload must be a JSON object: {jwks_uri}")
+    return payload
+
+
+def _rsa_public_key_from_jwk(jwk: dict[str, Any]) -> rsa.RSAPublicKey:
+    if str(jwk.get("kty") or "") != "RSA":
+        raise ValueError("JWKS key is not RSA")
+    n = str(jwk.get("n") or "")
+    e = str(jwk.get("e") or "")
+    if not n or not e:
+        raise ValueError("JWKS RSA key is missing n/e")
+    public_numbers = rsa.RSAPublicNumbers(_b64url_uint(e), _b64url_uint(n))
+    return public_numbers.public_key()
+
+
+def verify_rs256(token: str, jwks: dict[str, Any]) -> bool:
+    parts = token.strip().split(".")
+    header, _, signature = parse_jwt(token)
+    kid = str(header.get("kid") or "")
+    keys = jwks.get("keys")
+    if not isinstance(keys, list) or not keys:
+        raise ValueError("JWKS keys array is missing or empty")
+
+    jwk: dict[str, Any] | None = None
+    if kid:
+        for item in keys:
+            if isinstance(item, dict) and str(item.get("kid") or "") == kid:
+                jwk = item
+                break
+        if jwk is None:
+            raise ValueError(f"JWKS does not contain kid={kid!r}")
+    else:
+        rsa_keys = [item for item in keys if isinstance(item, dict) and str(item.get("kty") or "") == "RSA"]
+        if len(rsa_keys) != 1:
+            raise ValueError("JWT header has no kid and JWKS does not resolve to a single RSA key")
+        jwk = rsa_keys[0]
+
+    public_key = _rsa_public_key_from_jwk(jwk)
+    signing_input = f"{parts[0]}.{parts[1]}".encode("ascii")
+    try:
+        public_key.verify(signature, signing_input, padding.PKCS1v15(), hashes.SHA256())
+    except InvalidSignature:
+        return False
+    return True
 
 
 def resolve_claim_value(claims: dict[str, Any], mapping_value: str) -> Any:
@@ -142,6 +200,7 @@ def map_token(
     *,
     claim_mapping: dict[str, str],
     verify_secret: str | None,
+    jwks_uri: str | None,
     db_path: str | None,
     require_registered_issuer: bool,
     trusted_audiences: list[str] | None,
@@ -153,6 +212,7 @@ def map_token(
     sig_verified = False
     sig_skipped = False
     sig_error: str | None = None
+    resolved_jwks_uri = str(jwks_uri or "").strip() or None
     if verify_secret:
         if alg == "HS256":
             sig_verified = verify_hs256(token, verify_secret)
@@ -161,6 +221,16 @@ def map_token(
         else:
             sig_error = f"algorithm {alg} not supported for local verification (only HS256)"
             sig_skipped = True
+    elif resolved_jwks_uri:
+        if alg == "RS256":
+            try:
+                sig_verified = verify_rs256(token, fetch_jwks(resolved_jwks_uri))
+                if not sig_verified:
+                    sig_error = "RS256 signature mismatch"
+            except Exception as exc:
+                sig_error = f"RS256 verification failed: {exc}"
+        else:
+            sig_error = f"algorithm {alg} not supported for JWKS verification (only RS256)"
     else:
         sig_skipped = True
 
@@ -191,8 +261,24 @@ def map_token(
             reg_audiences = issuer_record.get("trusted_audiences_json")
             if isinstance(reg_audiences, list) and reg_audiences:
                 trusted_audiences = list({*(trusted_audiences or []), *reg_audiences})
+            if not resolved_jwks_uri:
+                issuer_jwks_uri = str(issuer_record.get("jwks_uri") or "").strip()
+                if issuer_jwks_uri:
+                    resolved_jwks_uri = issuer_jwks_uri
         elif require_registered_issuer:
             issuer_error = f"issuer '{raw_issuer}' is not in issuer_registry"
+
+    if not verify_secret and resolved_jwks_uri and sig_skipped:
+        sig_skipped = False
+        if alg == "RS256":
+            try:
+                sig_verified = verify_rs256(token, fetch_jwks(resolved_jwks_uri))
+                if not sig_verified:
+                    sig_error = "RS256 signature mismatch"
+            except Exception as exc:
+                sig_error = f"RS256 verification failed: {exc}"
+        else:
+            sig_error = f"algorithm {alg} not supported for JWKS verification (only RS256)"
 
     # Audience check
     aud_ok = True
@@ -233,6 +319,7 @@ def map_token(
         "schema": SCHEMA_ID,
         "generated_at_utc": utc_now(),
         "algorithm": alg,
+        "jwks_uri": resolved_jwks_uri,
         "issuer": raw_issuer,
         "subject": str(claims.get("sub") or ""),
         "signature_verified": sig_verified,
@@ -259,6 +346,7 @@ def main() -> None:
     group.add_argument("--token-env", help="Env var containing the JWT")
     parser.add_argument("--claim-mapping-config", help="Path to oidc_claim_mapping_config/v1 JSON")
     parser.add_argument("--verify-secret-env", help="Env var with HMAC secret for HS256 verification")
+    parser.add_argument("--jwks-uri", help="JWKS URI for RS256 verification")
     parser.add_argument("--db-path", help="Metadata SQLite DB for issuer_registry lookup")
     parser.add_argument("--require-registered-issuer", action="store_true",
                         help="Reject tokens from issuers not in issuer_registry")
@@ -280,6 +368,10 @@ def main() -> None:
         override = cfg.get("claim_mapping")
         if isinstance(override, dict):
             claim_mapping.update(override)
+        if not args.jwks_uri:
+            config_jwks_uri = str(cfg.get("jwks_uri") or "").strip()
+            if config_jwks_uri:
+                args.jwks_uri = config_jwks_uri
 
     verify_secret: str | None = None
     if args.verify_secret_env:
@@ -289,6 +381,7 @@ def main() -> None:
         token,
         claim_mapping=claim_mapping,
         verify_secret=verify_secret,
+        jwks_uri=args.jwks_uri,
         db_path=args.db_path,
         require_registered_issuer=args.require_registered_issuer,
         trusted_audiences=args.trusted_audiences,

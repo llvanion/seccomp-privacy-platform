@@ -1214,6 +1214,79 @@ python3 "$VALIDATOR" \
   --schema "$REPO_ROOT/schemas/oidc_claim_map.schema.json" \
   --json "$tmp/oidc_claim_map.json"
 python3 -c 'import json, sys; payload=json.load(open(sys.argv[1], "r", encoding="utf-8")); assert payload["valid"] is True, payload; assert payload["signature_verified"] is True, payload; assert payload["issuer_registered"] is True, payload; assert payload["issuer_enabled"] is True, payload; assert payload["audience_ok"] is True, payload; mapped=payload["mapped_fields"]; assert mapped["caller"] == "recovery_ops_demo", mapped; assert mapped["tenant_id"] == "demo_tenant", mapped; assert "service_operator" in mapped["platform_roles"], mapped' "$tmp/oidc_claim_map.json"
+# OIDC claim mapper JWKS smoke: verify a synthetic RS256 JWT against an offline file:// JWKS
+python3 - <<'PYEOF' "$tmp/oidc_test_jwks.json" "$tmp/oidc_test_rs256.jwt"
+import base64, json, sys, time
+from cryptography.hazmat.primitives import hashes
+from cryptography.hazmat.primitives.asymmetric import padding, rsa
+
+def b64u(data: bytes) -> str:
+    return base64.urlsafe_b64encode(data).rstrip(b"=").decode("ascii")
+
+jwks_path, token_path = sys.argv[1], sys.argv[2]
+key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+pub = key.public_key().public_numbers()
+header = {"alg": "RS256", "typ": "JWT", "kid": "demo-kid-1"}
+payload = {
+    "iss": "https://keycloak.example.com/realms/commerce",
+    "sub": "svc-account-recovery",
+    "preferred_username": "recovery_ops_demo",
+    "azp": "orders-recovery",
+    "tenant_id": "demo_tenant",
+    "realm_access": {"roles": ["service_operator"]},
+    "aud": "seccomp-privacy-platform",
+    "exp": int(time.time()) + 3600,
+    "iat": int(time.time()),
+    "name": "Recovery Ops Demo SA",
+}
+h = b64u(json.dumps(header, separators=(",", ":")).encode())
+p = b64u(json.dumps(payload, separators=(",", ":")).encode())
+sig = key.sign(f"{h}.{p}".encode("ascii"), padding.PKCS1v15(), hashes.SHA256())
+token = f"{h}.{p}.{b64u(sig)}"
+json.dump({
+    "keys": [{
+        "kty": "RSA",
+        "kid": "demo-kid-1",
+        "alg": "RS256",
+        "use": "sig",
+        "n": b64u(pub.n.to_bytes((pub.n.bit_length() + 7) // 8, "big")),
+        "e": b64u(pub.e.to_bytes((pub.e.bit_length() + 7) // 8, "big")),
+    }]
+}, open(jwks_path, "w", encoding="utf-8"))
+open(token_path, "w", encoding="utf-8").write(token)
+PYEOF
+python3 "$REPO_ROOT/scripts/map_oidc_claims.py" \
+  --token "$(cat "$tmp/oidc_test_rs256.jwt")" \
+  --claim-mapping-config "$REPO_ROOT/config/oidc_claim_mapping.example.json" \
+  --jwks-uri "file://$tmp/oidc_test_jwks.json" \
+  --db-path "$tmp/platform_registry.db" \
+  --trusted-audience seccomp-privacy-platform \
+  --require-registered-issuer \
+  --output "$tmp/oidc_claim_map_rs256.json" \
+  > /dev/null
+python3 "$VALIDATOR" \
+  --schema "$REPO_ROOT/schemas/oidc_claim_map.schema.json" \
+  --json "$tmp/oidc_claim_map_rs256.json"
+python3 -c 'import json, sys; payload=json.load(open(sys.argv[1], "r", encoding="utf-8")); assert payload["valid"] is True, payload; assert payload["algorithm"] == "RS256", payload; assert payload["signature_verified"] is True, payload; assert payload["signature_skipped"] is False, payload; assert str(payload.get("jwks_uri") or "").startswith("file://"), payload; mapped=payload["mapped_fields"]; assert mapped["caller"] == "recovery_ops_demo", mapped; assert "service_operator" in mapped["platform_roles"], mapped' "$tmp/oidc_claim_map_rs256.json"
+python3 -c 'import json, sys; path=sys.argv[1]; payload={"schema":"metadata_registry_manifest/v1","caller_identities":[{"caller":"recovery_ops_demo","issuer":"https://keycloak.example.com/realms/commerce","subject":"service-account:orders-recovery-operator","subject_type":"service_account","display_name":"Recovery Ops Demo SA","platform_roles":["service_operator"],"enabled":True,"metadata":{"entity_type":"service_account"},"source":"jwt_contract_fixture"}]}; open(path, "w", encoding="utf-8").write(json.dumps(payload, ensure_ascii=False, indent=2) + "\n")' "$tmp/contract_jwt_identity_registry_manifest.json"
+python3 "$REPO_ROOT/scripts/manage_metadata_db.py" \
+  apply-registry \
+  --db-path "$tmp/platform_registry.db" \
+  --manifest "$tmp/contract_jwt_identity_registry_manifest.json" \
+  > /dev/null
+python3 -c 'import json, sys; path=sys.argv[1]; payload={"schema":"api_identity_token_map/v1","jwt_bearer":{"issuer":"https://keycloak.example.com/realms/commerce","claim_mapping_config":"'"$REPO_ROOT"'/config/oidc_claim_mapping.example.json","jwks_uri":"file://'"$tmp"'/oidc_test_jwks.json","trusted_audiences":["seccomp-privacy-platform"],"require_registered_issuer":True},"tokens":[]}; open(path, "w", encoding="utf-8").write(json.dumps(payload, ensure_ascii=False, indent=2) + "\n")' "$tmp/api_identity_tokens_jwks.json"
+python3 "$VALIDATOR" \
+  --schema "$REPO_ROOT/schemas/api_identity_token_map.schema.json" \
+  --json "$tmp/api_identity_tokens_jwks.json"
+SECCOMP_METADATA_JWKS_TOKEN="$(cat "$tmp/oidc_test_rs256.jwt")" python3 "$REPO_ROOT/scripts/resolve_api_identity.py" \
+  --db-path "$tmp/platform_registry.db" \
+  --identity-token-config "$tmp/api_identity_tokens_jwks.json" \
+  --bearer-token-env SECCOMP_METADATA_JWKS_TOKEN \
+  > "$tmp/api_identity_resolution_jwks.json"
+python3 "$VALIDATOR" \
+  --schema "$REPO_ROOT/schemas/api_identity_resolution.schema.json" \
+  --json "$tmp/api_identity_resolution_jwks.json"
+python3 -c 'import json, sys; payload=json.load(open(sys.argv[1], "r", encoding="utf-8")); identity=payload["identity"]; assert payload["resolution_mode"] == "bearer_token", payload; assert identity["caller"] == "recovery_ops_demo", identity; assert identity["tenant_id"] == "commerce_tenant", identity; assert identity["issuer"] == "https://keycloak.example.com/realms/commerce", identity; assert identity["issuer_registered"] is True, identity; assert "service_operator" in identity["platform_roles"], identity' "$tmp/api_identity_resolution_jwks.json"
 # Vault HTTP client mock-mode smoke
 python3 "$REPO_ROOT/scripts/vault_http_client.py" \
   --mock-file "$REPO_ROOT/config/vault_kv_backend.example.json" \

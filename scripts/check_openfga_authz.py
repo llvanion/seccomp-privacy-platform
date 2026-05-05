@@ -21,8 +21,19 @@ Usage:
 import argparse
 import json
 import sqlite3
+import sys
 from datetime import datetime, timezone
 from pathlib import Path
+
+REPO_ROOT = Path(__file__).resolve().parents[1]
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
+
+from scripts.openfga_http import (  # noqa: E402
+    check_tuple as check_openfga_http_tuple,
+    openfga_locator,
+    resolve_openfga_runtime,
+)
 
 CHECK_SCHEMA = "openfga_check_result/v1"
 
@@ -45,7 +56,41 @@ def check_tuple(
     user: str,
     relation: str,
     object_ref: str,
+    openfga_config: str = "",
+    openfga_endpoint: str = "",
+    openfga_store_id: str = "",
 ) -> dict:
+    if openfga_config or openfga_endpoint:
+        runtime = resolve_openfga_runtime(
+            config_path=openfga_config,
+            endpoint=openfga_endpoint,
+            store_id=openfga_store_id,
+        )
+        payload = check_openfga_http_tuple(
+            endpoint_url=runtime["endpoint_url"],
+            store_id=runtime["store_id"],
+            user=user,
+            relation=relation,
+            object_ref=object_ref,
+            timeout_seconds=int(runtime["timeout_seconds"]),
+            auth_token=str(runtime["auth_token"] or ""),
+        )
+        allowed = bool(payload.get("allowed"))
+        return {
+            "schema": CHECK_SCHEMA,
+            "checked_at_utc": _utc_now(),
+            "tuple_store_path": openfga_locator(runtime["endpoint_url"], runtime["store_id"]),
+            "backend_kind": "openfga_http",
+            "openfga_endpoint": runtime["endpoint_url"],
+            "openfga_store_id": runtime["store_id"],
+            "user": user,
+            "relation": relation,
+            "object": object_ref,
+            "allowed": allowed,
+            "reason": "openfga_check_allowed" if allowed else "openfga_check_denied",
+            "matched_tuple": None,
+        }
+
     resolved_path = str(Path(store_path).resolve())
     conn = _open_store(resolved_path)
     try:
@@ -70,6 +115,9 @@ def check_tuple(
             "schema": CHECK_SCHEMA,
             "checked_at_utc": _utc_now(),
             "tuple_store_path": resolved_path,
+            "backend_kind": "sqlite",
+            "openfga_endpoint": None,
+            "openfga_store_id": None,
             "user": user,
             "relation": relation,
             "object": object_ref,
@@ -81,6 +129,9 @@ def check_tuple(
         "schema": CHECK_SCHEMA,
         "checked_at_utc": _utc_now(),
         "tuple_store_path": resolved_path,
+        "backend_kind": "sqlite",
+        "openfga_endpoint": None,
+        "openfga_store_id": None,
         "user": user,
         "relation": relation,
         "object": object_ref,
@@ -92,7 +143,10 @@ def check_tuple(
 
 def build_parser() -> argparse.ArgumentParser:
     ap = argparse.ArgumentParser(description="A2: OpenFGA-style authorization check against local tuple store")
-    ap.add_argument("--tuple-store", required=True, help="Path to local SQLite tuple store")
+    ap.add_argument("--tuple-store", default="", help="Path to local SQLite tuple store")
+    ap.add_argument("--openfga-config", default="", help="Path to openfga_config/v1 JSON")
+    ap.add_argument("--openfga-endpoint", default="", help="Live OpenFGA endpoint URL")
+    ap.add_argument("--openfga-store-id", default="", help="Live OpenFGA store ID")
     ap.add_argument("--user", required=True, help="Subject in 'type:id' form, e.g. 'user:alice'")
     ap.add_argument("--relation", required=True, help="Relation to check, e.g. 'reader'")
     ap.add_argument("--object", required=True, dest="object_ref", help="Object in 'type:id' form, e.g. 'dataset:orders'")
@@ -104,11 +158,17 @@ def build_parser() -> argparse.ArgumentParser:
 
 def main() -> int:
     args = build_parser().parse_args()
+    has_openfga = bool(args.openfga_config or args.openfga_endpoint)
+    if not has_openfga and not args.tuple_store:
+        raise SystemExit("[ERROR] one of --tuple-store or --openfga-config/--openfga-endpoint is required")
     result = check_tuple(
         store_path=args.tuple_store,
         user=args.user,
         relation=args.relation,
         object_ref=args.object_ref,
+        openfga_config=args.openfga_config,
+        openfga_endpoint=args.openfga_endpoint,
+        openfga_store_id=args.openfga_store_id,
     )
     text = json.dumps(result, ensure_ascii=False, indent=2)
     if args.output:

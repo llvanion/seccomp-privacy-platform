@@ -14,6 +14,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from scripts.check_openfga_authz import check_tuple as run_openfga_check
+
 
 REPORT_SCHEMA = "authority_governance_report/v1"
 
@@ -45,12 +47,15 @@ def check(
     detail: str,
     metrics: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
+    resolved_source = source_path
+    if "://" not in source_path:
+        resolved_source = str(Path(source_path).resolve())
     return {
         "category": category,
         "name": name,
         "status": status,
         "source_schema": source_schema_name,
-        "source_path": str(Path(source_path).resolve()),
+        "source_path": resolved_source,
         "detail": detail,
         "metrics": metrics or {},
     }
@@ -141,6 +146,42 @@ def authz_check(path: str) -> dict[str, Any]:
     )
 
 
+def live_authz_check(
+    *,
+    openfga_config: str,
+    user: str,
+    relation: str,
+    object_ref: str,
+) -> dict[str, Any]:
+    payload = run_openfga_check(
+        store_path="",
+        user=user,
+        relation=relation,
+        object_ref=object_ref,
+        openfga_config=openfga_config,
+    )
+    allowed = bool(payload.get("allowed"))
+    status = "ok" if allowed else "error"
+    source_path = str(payload.get("tuple_store_path") or openfga_config)
+    return check(
+        category="authz",
+        name="openfga_check_live",
+        status=status,
+        source_schema_name=source_schema(payload),
+        source_path=source_path,
+        detail=(
+            f"{payload.get('user')} {payload.get('relation')} "
+            f"{payload.get('object')} allowed={allowed} backend={payload.get('backend_kind')}"
+        ),
+        metrics={
+            "allowed": allowed,
+            "backend_kind": payload.get("backend_kind"),
+            "openfga_endpoint": payload.get("openfga_endpoint"),
+            "openfga_store_id": payload.get("openfga_store_id"),
+        },
+    )
+
+
 def kms_check(path: str) -> dict[str, Any]:
     payload = load_json_object(path)
     overall = str(payload.get("overall_status") or "")
@@ -208,6 +249,10 @@ def build_parser() -> argparse.ArgumentParser:
     ap.add_argument("--key-drift", action="append", default=[])
     ap.add_argument("--identity-resolution", action="append", default=[])
     ap.add_argument("--openfga-check", action="append", default=[])
+    ap.add_argument("--openfga-config", default="", help="Path to openfga_config/v1 for a live OpenFGA check")
+    ap.add_argument("--openfga-user", default="", help="Live OpenFGA check subject in 'type:id' form")
+    ap.add_argument("--openfga-relation", default="", help="Live OpenFGA check relation")
+    ap.add_argument("--openfga-object", dest="openfga_object_ref", default="", help="Live OpenFGA check object in 'type:id' form")
     ap.add_argument("--kms-reachability", action="append", default=[])
     ap.add_argument("--service-token-report", action="append", default=[])
     ap.add_argument("--issuer-rotation", action="append", default=[])
@@ -218,6 +263,21 @@ def build_parser() -> argparse.ArgumentParser:
 
 def main() -> int:
     args = build_parser().parse_args()
+    has_live_openfga = bool(
+        args.openfga_config or args.openfga_user or args.openfga_relation or args.openfga_object_ref
+    )
+    live_openfga_fields = [
+        bool(args.openfga_config),
+        bool(args.openfga_user),
+        bool(args.openfga_relation),
+        bool(args.openfga_object_ref),
+    ]
+    if has_live_openfga and not all(live_openfga_fields):
+        raise SystemExit(
+            "[ERROR] live OpenFGA checks require --openfga-config, --openfga-user, "
+            "--openfga-relation, and --openfga-object together"
+        )
+
     checks: list[dict[str, Any]] = []
     for path in args.policy_drift:
         checks.append(policy_check(path))
@@ -227,6 +287,15 @@ def main() -> int:
         checks.append(identity_check(path))
     for path in args.openfga_check:
         checks.append(authz_check(path))
+    if has_live_openfga:
+        checks.append(
+            live_authz_check(
+                openfga_config=args.openfga_config,
+                user=args.openfga_user,
+                relation=args.openfga_relation,
+                object_ref=args.openfga_object_ref,
+            )
+        )
     for path in args.kms_reachability:
         checks.append(kms_check(path))
     for path in args.service_token_report:

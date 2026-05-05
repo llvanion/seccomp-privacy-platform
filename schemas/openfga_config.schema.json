@@ -1,0 +1,20 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "openfga_config/v1",
+  "title": "OpenFGA client config",
+  "type": "object",
+  "required": [
+    "schema",
+    "endpoint_url",
+    "store_id"
+  ],
+  "properties": {
+    "schema": { "const": "openfga_config/v1" },
+    "endpoint_url": { "type": "string", "minLength": 1 },
+    "store_id": { "type": "string", "minLength": 1 },
+    "auth_token_env": { "type": "string", "minLength": 1 },
+    "auth_token": { "type": "string", "minLength": 1 },
+    "timeout_seconds": { "type": "integer", "minimum": 1 }
+  },
+  "additionalProperties": false
+}

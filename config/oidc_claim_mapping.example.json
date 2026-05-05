@@ -1,6 +1,7 @@
 {
   "schema": "oidc_claim_mapping_config/v1",
   "description": "Example Keycloak realm claim-to-caller_identities field mapping for seccomp-privacy-platform",
+  "jwks_uri": "http://127.0.0.1:8080/realms/seccomp-privacy/protocol/openid-connect/certs",
   "claim_mapping": {
     "caller": "preferred_username",
     "issuer": "iss",

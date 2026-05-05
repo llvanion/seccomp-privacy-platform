@@ -2275,6 +2275,23 @@
       ]
     },
     {
+      "path": "schemas/openfga_config.schema.json",
+      "schema_id": "openfga_config/v1",
+      "required": [
+        "schema",
+        "endpoint_url",
+        "store_id"
+      ],
+      "stable_properties": [
+        "auth_token",
+        "auth_token_env",
+        "endpoint_url",
+        "schema",
+        "store_id",
+        "timeout_seconds"
+      ]
+    },
+    {
       "path": "schemas/kms_reachability_report.schema.json",
       "schema_id": "kms_reachability_report/v1",
       "required": [

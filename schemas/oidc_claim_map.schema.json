@@ -23,6 +23,7 @@
     "schema": { "type": "string", "const": "oidc_claim_map/v1" },
     "generated_at_utc": { "type": "string" },
     "algorithm": { "type": "string" },
+    "jwks_uri": { "type": ["string", "null"] },
     "issuer": { "type": "string" },
     "subject": { "type": "string" },
     "signature_verified": { "type": "boolean" },

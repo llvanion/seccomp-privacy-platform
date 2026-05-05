@@ -1,0 +1,7 @@
+{
+  "schema": "openfga_config/v1",
+  "endpoint_url": "http://127.0.0.1:8080",
+  "store_id": "replace-with-openfga-store-id",
+  "auth_token_env": "OPENFGA_AUTH_TOKEN",
+  "timeout_seconds": 10
+}

@@ -8,6 +8,21 @@
     "schema": {
       "const": "api_identity_token_map/v1"
     },
+    "jwt_bearer": {
+      "type": "object",
+      "properties": {
+        "issuer": { "type": "string" },
+        "claim_mapping_config": { "type": "string", "minLength": 1 },
+        "verify_secret_env": { "type": "string", "minLength": 1 },
+        "jwks_uri": { "type": "string", "minLength": 1 },
+        "trusted_audiences": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 }
+        },
+        "require_registered_issuer": { "type": "boolean" }
+      },
+      "additionalProperties": false
+    },
     "tokens": {
       "type": "array",
       "items": {
