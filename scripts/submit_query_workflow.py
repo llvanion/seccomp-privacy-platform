@@ -366,10 +366,12 @@ def build_receipt(
     request_digest: str,
     command: list[str],
     exit_code: int | None,
+    error_class: str | None = None,
+    error_message: str | None = None,
 ) -> dict[str, Any]:
     event_at_utc = utc_now()
     out_base = str(payload.get("out_base") or "")
-    return {
+    receipt = {
         "schema": RECEIPT_SCHEMA,
         "receipt_id": f"{payload.get('job_id')}-{event}-{event_at_utc}",
         "event": event,
@@ -389,6 +391,11 @@ def build_receipt(
         "exit_code": exit_code,
         "artifacts": build_artifact_summary(out_base),
     }
+    if error_class:
+        receipt["error_class"] = error_class
+    if error_message:
+        receipt["error"] = error_message
+    return receipt
 
 
 def build_status(
@@ -466,6 +473,13 @@ def write_manifest(manifest: dict[str, Any], *, manifest_out: str) -> None:
     out_path.write_text(json.dumps(manifest, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
 
 
+def sidecar_paths_for_payload(payload: dict[str, Any]) -> dict[str, Path]:
+    out_base = payload.get("out_base")
+    if not isinstance(out_base, str) or not out_base:
+        return {}
+    return query_workflow_sidecar_paths(out_base)
+
+
 def submit_request_payload(
     *,
     raw_payload: dict[str, Any],
@@ -475,16 +489,28 @@ def submit_request_payload(
     manifest_out: str = "",
 ) -> tuple[dict[str, Any], int | None, dict[str, Any] | None, dict[str, Any] | None]:
     payload = normalize_request_paths(raw_payload, request_dir=request_dir)
-    validate_request(payload)
-    command = build_command(payload)
     mode = "execute" if execute else "dry_run"
     request_digest = json_sha256(payload)
-    out_base = str(payload.get("out_base") or "")
-    sidecar_paths = query_workflow_sidecar_paths(out_base) if out_base else {}
+    sidecar_paths = sidecar_paths_for_payload(payload)
     receipt: dict[str, Any] | None = None
     status: dict[str, Any] | None = None
     receipt_count = 0
     exit_code: int | None = None
+    command: list[str] = []
+
+    try:
+        validate_request(payload)
+        command = build_command(payload)
+    except SystemExit:
+        manifest = render_manifest(
+            request_source=request_source,
+            payload=payload,
+            command=command,
+            mode=mode,
+            exit_code=None,
+        )
+        write_manifest(manifest, manifest_out=manifest_out)
+        raise
 
     if sidecar_paths:
         receipt = build_receipt(
@@ -509,8 +535,45 @@ def submit_request_payload(
         write_json(sidecar_paths["status"], status)
 
     if execute:
-        completed = subprocess.run(command, check=False)
-        exit_code = completed.returncode
+        try:
+            completed = subprocess.run(command, check=False)
+            exit_code = completed.returncode
+        except OSError as exc:
+            exit_code = 127
+            failure_message = str(exc)
+            manifest = render_manifest(
+                request_source=request_source,
+                payload=payload,
+                command=command,
+                mode=mode,
+                exit_code=exit_code,
+            )
+            write_manifest(manifest, manifest_out=manifest_out)
+            if sidecar_paths:
+                write_json(sidecar_paths["submission_manifest"], manifest)
+                receipt = build_receipt(
+                    payload=payload,
+                    mode=mode,
+                    event="failed",
+                    request_digest=request_digest,
+                    command=command,
+                    exit_code=exit_code,
+                    error_class="launch_failed",
+                    error_message=failure_message,
+                )
+                append_jsonl(sidecar_paths["execution_receipts"], receipt)
+                receipt_count += 1
+                status = build_status(
+                    payload=payload,
+                    mode=mode,
+                    state="failed",
+                    terminal=True,
+                    latest_receipt=receipt,
+                    receipt_count=receipt_count,
+                    exit_code=exit_code,
+                )
+                write_json(sidecar_paths["status"], status)
+            return manifest, exit_code, receipt, status
 
     manifest = render_manifest(
         request_source=request_source,
@@ -523,6 +586,7 @@ def submit_request_payload(
     if sidecar_paths:
         write_json(sidecar_paths["submission_manifest"], manifest)
         if execute:
+            error_class = "run_failed" if exit_code not in (None, 0) else None
             receipt = build_receipt(
                 payload=payload,
                 mode=mode,
@@ -530,6 +594,7 @@ def submit_request_payload(
                 request_digest=request_digest,
                 command=command,
                 exit_code=exit_code,
+                error_class=error_class,
             )
             append_jsonl(sidecar_paths["execution_receipts"], receipt)
             receipt_count += 1
