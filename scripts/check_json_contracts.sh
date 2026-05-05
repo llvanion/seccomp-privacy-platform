@@ -645,7 +645,9 @@ python3 "$VALIDATOR" --schema "$REPO_ROOT/schemas/public_report.schema.json" --j
 python3 "$VALIDATOR" --schema "$REPO_ROOT/schemas/policy_audit.schema.json" --jsonl "$tmp/a_psi_run/audit_log.jsonl"
 python3 "$VALIDATOR" --schema "$REPO_ROOT/schemas/key_access_audit.schema.json" --jsonl "$tmp/key_access_audit.jsonl"
 python3 "$VALIDATOR" --schema "$REPO_ROOT/schemas/key_access_audit.schema.json" --jsonl "$tmp/external_key_access_audit.jsonl"
+python3 "$VALIDATOR" --schema "$REPO_ROOT/schemas/key_access_audit.schema.json" --jsonl "$tmp/external_key_access_jwks_audit.jsonl"
 python3 "$VALIDATOR" --schema "$REPO_ROOT/schemas/key_access_audit.schema.json" --jsonl "$tmp/key_agent_vault_access_audit.jsonl"
+python3 "$VALIDATOR" --schema "$REPO_ROOT/schemas/key_access_audit.schema.json" --jsonl "$tmp/key_agent_jwks_access_audit.jsonl"
 python3 "$VALIDATOR" --schema "$REPO_ROOT/schemas/key_access_audit.schema.json" --jsonl "$tmp/external_key_access_vault_audit.jsonl"
 python3 "$VALIDATOR" --schema "$REPO_ROOT/schemas/keyring.schema.json" --json "$tmp/keyring.json"
 python3 "$VALIDATOR" --schema "$REPO_ROOT/schemas/keyring.schema.json" --json "$tmp/keyring_vault.json"
@@ -654,7 +656,9 @@ python3 "$VALIDATOR" --schema "$REPO_ROOT/schemas/vault_kv_backend.schema.json" 
 python3 "$VALIDATOR" --schema "$REPO_ROOT/schemas/keyring.schema.json" --json "$tmp/keyring_external.json"
 python3 "$VALIDATOR" --schema "$REPO_ROOT/schemas/key_lifecycle_audit.schema.json" --jsonl "$tmp/external_kms_lifecycle_audit.jsonl"
 python3 -c 'import json, sys; payload=json.load(open(sys.argv[1], "r", encoding="utf-8")); assert payload["schema"] == "key_agent_result/v1", payload; assert payload["secret"] == "vault-bridge-secret-v1", payload; assert payload["key_version"] == "demo-v1", payload' "$tmp/key_agent_vault_result.json"
+python3 -c 'import json, sys; payload=json.load(open(sys.argv[1], "r", encoding="utf-8")); assert payload["schema"] == "key_agent_result/v1", payload; assert payload["secret"] == "contract-jwks-bridge-secret", payload; assert payload["key_version"] == "demo-v1", payload' "$tmp/key_agent_jwks_result.json"
 python3 -c 'import json, sys; payload=json.load(open(sys.argv[1], "r", encoding="utf-8")); assert payload["schema"] == "external_kms_result/v1", payload; assert payload["secret"] == "contract-check-secret", payload; assert payload["key_version"] == "demo-v1", payload' "$tmp/external_kms_env_result.json"
+python3 -c 'import json, sys; payload=json.load(open(sys.argv[1], "r", encoding="utf-8")); assert payload["schema"] == "external_kms_result/v1", payload; assert payload["secret"] == "contract-jwks-bridge-secret", payload; assert payload["key_version"] == "demo-v1", payload' "$tmp/external_kms_jwks_result.json"
 python3 -c 'import json, sys; payload=json.load(open(sys.argv[1], "r", encoding="utf-8")); assert payload["schema"] == "external_kms_result/v1", payload; assert payload["secret"] == "vault-bridge-secret-v2", payload; assert payload["key_version"] == "ext-v2", payload' "$tmp/external_kms_vault_result.json"
 python3 -c 'import json, sys; payload=json.load(open(sys.argv[1], "r", encoding="utf-8")); entry=payload["keys"]["bridge-token"]["versions"]["ext-v2"]["secret_ref"]; assert entry["kind"] == "vault_kv", entry; assert entry["name"] == "secret/data/bridge-token", entry; assert entry["version"] == "2", entry; assert entry["field"] == "value", entry; assert payload["keys"]["bridge-token"]["active_version"] == "ext-v2", payload["keys"]["bridge-token"]' "$tmp/keyring_external.json"
 python3 "$TABULAR_VALIDATOR" --contract pjc-server-csv --path "$tmp/bridge_job/server.csv"
@@ -1287,6 +1291,70 @@ python3 "$VALIDATOR" \
   --schema "$REPO_ROOT/schemas/api_identity_resolution.schema.json" \
   --json "$tmp/api_identity_resolution_jwks.json"
 python3 -c 'import json, sys; payload=json.load(open(sys.argv[1], "r", encoding="utf-8")); identity=payload["identity"]; assert payload["resolution_mode"] == "bearer_token", payload; assert identity["caller"] == "recovery_ops_demo", identity; assert identity["tenant_id"] == "commerce_tenant", identity; assert identity["issuer"] == "https://keycloak.example.com/realms/commerce", identity; assert identity["issuer_registered"] is True, identity; assert "service_operator" in identity["platform_roles"], identity' "$tmp/api_identity_resolution_jwks.json"
+cp "$REPO_ROOT/config/keyring.example.json" "$tmp/keyring_jwks.json"
+python3 -c 'import json, sys; path=sys.argv[1]; payload=json.load(open(path, "r", encoding="utf-8")); payload["keys"]["bridge-token"]["allowed_callers"]=["recovery_ops_demo"]; json.dump(payload, open(path, "w", encoding="utf-8"), ensure_ascii=False, indent=2); open(path, "a", encoding="utf-8").write("\n")' "$tmp/keyring_jwks.json"
+export BRIDGE_TOKEN_SECRET="contract-jwks-bridge-secret"
+python3 "$REPO_ROOT/scripts/key_agent_service.py" \
+  --socket-path "$tmp/key_agent_jwks.sock" \
+  --keyring "$tmp/keyring_jwks.json" \
+  --metadata-db-path "$tmp/platform_registry.db" \
+  --identity-token-config "$tmp/api_identity_tokens_jwks.json" \
+  --audit-log "$tmp/key_agent_jwks_access_audit.jsonl" \
+  --pid-file "$tmp/key_agent_jwks.pid" \
+  --ready-file "$tmp/key_agent_jwks.ready" \
+  >"$tmp/key_agent_jwks.log" 2>&1 &
+key_agent_jwks_pid=$!
+if [[ -z "${key_agent_jwks_pid:-}" ]]; then
+  echo "[ERROR] failed to start JWKS-backed key agent" >&2
+  exit 1
+fi
+while [[ ! -s "$tmp/key_agent_jwks.ready" ]]; do sleep 0.1; done
+SECCOMP_METADATA_JWKS_TOKEN="$(cat "$tmp/oidc_test_rs256.jwt")" python3 "$REPO_ROOT/scripts/request_key_agent.py" \
+  --socket-path "$tmp/key_agent_jwks.sock" \
+  --key-name bridge-token \
+  --purpose bridge_token \
+  --caller recovery_ops_demo \
+  --job-id contract-jwks-check \
+  --identity-token-env SECCOMP_METADATA_JWKS_TOKEN \
+  > "$tmp/key_agent_jwks_result.json"
+kill "$key_agent_jwks_pid" 2>/dev/null || true
+wait "$key_agent_jwks_pid" 2>/dev/null || true
+external_kms_jwks_port="$(python3 "$RUNTIME_SERVICE_HELPERS" available-port)"
+python3 "$REPO_ROOT/scripts/build_runtime_contract_smoke_configs.py" \
+  external-kms \
+  --out-config "$tmp/external_kms_jwks.json" \
+  --state-path "$tmp/keyring_external_jwks.json" \
+  --port "$external_kms_jwks_port"
+cp "$REPO_ROOT/config/keyring.example.json" "$tmp/keyring_external_jwks.json"
+python3 -c 'import json, sys; path=sys.argv[1]; payload=json.load(open(path, "r", encoding="utf-8")); payload["keys"]["bridge-token"]["allowed_callers"]=["recovery_ops_demo"]; payload["keys"]["bridge-token"]["versions"]["demo-v1"]["secret_ref"]={"kind":"env","name":"BRIDGE_TOKEN_SECRET"}; json.dump(payload, open(path, "w", encoding="utf-8"), ensure_ascii=False, indent=2); open(path, "a", encoding="utf-8").write("\n")' "$tmp/keyring_external_jwks.json"
+python3 "$REPO_ROOT/scripts/external_kms_service.py" \
+  --bind-host 127.0.0.1 \
+  --port "$external_kms_jwks_port" \
+  --state-file "$tmp/keyring_external_jwks.json" \
+  --metadata-db-path "$tmp/platform_registry.db" \
+  --identity-token-config "$tmp/api_identity_tokens_jwks.json" \
+  --lifecycle-audit-log "$tmp/external_kms_jwks_lifecycle_audit.jsonl" \
+  --pid-file "$tmp/external_kms_jwks.pid" \
+  --ready-file "$tmp/external_kms_jwks.ready" \
+  >"$tmp/external_kms_jwks.log" 2>&1 &
+external_kms_jwks_pid=$!
+if [[ -z "${external_kms_jwks_pid:-}" ]]; then
+  echo "[ERROR] failed to start JWKS-backed external KMS" >&2
+  exit 1
+fi
+python3 "$RUNTIME_SERVICE_HELPERS" wait-json-health \
+  --url "http://127.0.0.1:$external_kms_jwks_port/healthz"
+SECCOMP_METADATA_JWKS_TOKEN="$(cat "$tmp/oidc_test_rs256.jwt")" python3 "$REPO_ROOT/scripts/request_external_kms.py" \
+  --config "$tmp/external_kms_jwks.json" \
+  --key-name bridge-token \
+  --purpose bridge_token \
+  --caller recovery_ops_demo \
+  --job-id contract-jwks-check \
+  --identity-token-env SECCOMP_METADATA_JWKS_TOKEN \
+  --audit-log "$tmp/external_key_access_jwks_audit.jsonl" \
+  > "$tmp/external_kms_jwks_result.json"
+kill "$external_kms_jwks_pid" 2>/dev/null || true
+wait "$external_kms_jwks_pid" 2>/dev/null || true
 # Vault HTTP client mock-mode smoke
 python3 "$REPO_ROOT/scripts/vault_http_client.py" \
   --mock-file "$REPO_ROOT/config/vault_kv_backend.example.json" \
