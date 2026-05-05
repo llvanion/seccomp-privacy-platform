@@ -42,7 +42,7 @@
 1. 串行视角：`0 blocks = 0h`（owner 已完成 Block1~6；工程师 1 全部已完成；工程师 2 全部已完成；工程师 A 全部 5 blocks 已完成；工程师 B 全部 8 blocks 已完成）
 2. 并行视角：所有任务线均已完成平台基线，无剩余关键路径
 
-## 工程师 B 待完成 block 拆分
+## 工程师 B 已完成 block 拆分（2026-05-03 收口）
 
 | Block | 约合工时 | 目标 | 主要回写 |
 | --- | ---: | --- | --- |
@@ -104,13 +104,15 @@
 | 2026-05-03 | Key backend drift detection + reconcile（Block 3A/5）：key_refs/key_versions 漂移检测与修复 | `scripts/check_key_backend_drift.py` + `schemas/key_backend_drift.schema.json`；支持 manifest 和 vault_kv 两种参照源；检测 `key_ref_missing/field_drift/version_missing/version_field_drift/key_ref_extra/version_extra` 六类漂移；`--repair` 安全修复 drifted 字段和缺失版本并写入 mutation log；contract smoke 验证 clean manifest → `status=clean`，vault_kv 源 → schema 有效 | `check_json_contracts.sh` ✓ |
 | 2026-05-03 | Write-side policy mutation governance（Block 3B/5）：策略变更治理 | `scripts/check_policy_drift.py` + `schemas/policy_drift.schema.json`（sha256 比对、`--repair` 重新导入并写 mutation log）；`scripts/propose_policy_change.py` + `schemas/policy_change_proposal.schema.json`（4 条治理规则：no_remove_active_bridge_callers(error), no_remove_enabled_callers(warn), frozen_field_semantics(error), caller_count_regression(warn)；`--existing-policy-path` 指定被替换策略；`--apply` 在无 error 时执行并写 mutation log）；contract smoke 验证 clean drift、unchanged file → approved、移除 active bridge caller → blocked | `check_json_contracts.sh` ✓ |
 
-## 4. 解释
+## 4. 当前结论
 
-为什么现在只剩工程师 B：
+1. 截至 2026-05-03，owner、工程师 A、工程师 B、工程师 1、工程师 2 五条任务线均已完成“平台基线版”定义范围内的实现。
+2. 本文继续保留各 block 的完成记录，是为了让后续接手者能快速追溯每个 block 的入口、验证方式和文档回写位置，而不是表示当前仍有剩余实现量。
+3. 如果后续继续推进，应按“平台基线之后”的新增范围单独立项，例如真实 Temporal durable workflow、Grafana / Web dashboard 壳、真实 OIDC / OpenFGA / Vault 权威源、PostgreSQL 长期运维，而不是再把这些工作混写成当前基线的剩余 block。
 
-1. owner、工程师 A、工程师 1、工程师 2 四条线都已在 2026-05-03 前收口到当前平台基线，不再有剩余 `block`。
-2. 工程师 B 线已经完成 read adapter、query wrapper、audit/public-report sidecar、observability/catalog derived views 与对应 benchmark/contract 基线；剩余部分不再是“有没有入口”，而是“这些入口能不能作为 operator-facing 平台壳长期存在”。
-3. 这 `8 blocks` 仍然不轻，因为它们跨 execute 治理、status lifecycle、dashboard/alert、admin shell 四个面，但它们都应该继续建立在现有 CLI、审计链和 sidecar contract 之上，而不是重写主链路。
+平台基线之后的统一路线图见：
+
+1. [POST_BASELINE_ROADMAP.md](/home/llvanion/Desktop/seccomp-privacy-platform/docs/POST_BASELINE_ROADMAP.md)
 
 ## 5. 使用方式
 

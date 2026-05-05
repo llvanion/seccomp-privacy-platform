@@ -256,46 +256,81 @@ The current contract is now protected in three layers:
 
 The current local SDK shell is intentionally thin: [scripts/platform_api_client.py](/home/llvanion/Desktop/seccomp-privacy-platform/scripts/platform_api_client.py) just wraps the metadata/query HTTP adapters and is covered by contract smoke for metadata reads plus query dry-run.
 
-## 10. Remaining Implementation Blocks
+## 10. Post-Baseline Extension Directions
 
-From the current `dry-run + optional execute` adapter baseline to a platform-grade query entrypoint, this plan still needs `4` focused blocks on the query/workflow line.
+The first-stage query/workflow baseline is already complete:
 
-### Block Q1: Execute Governance Contract
+1. request validation is frozen in `query_workflow_request/v1`
+2. submit/execute transport envelopes are frozen
+3. receipt/status sidecar is present
+4. retry eligibility and multi-run status listing are present
 
-What is already true today:
+So this document no longer tracks “remaining baseline blocks”.
 
-1. `scripts/serve_query_workflow_api.py` keeps `/v1/query-workflows/execute` disabled by default.
-2. `scripts/api_identity.py` already distinguishes submit vs execute roles and permission gates.
-3. `scripts/submit_query_workflow.py` already enforces the first request-shape and secret-mode rules.
+If work continues, it should move to the post-baseline direction below instead of reopening the old B1-B8 estimate.
 
-What still needs to be made explicit:
+Unified prioritization for that next tranche lives in [POST_BASELINE_ROADMAP.md](/home/llvanion/Desktop/seccomp-privacy-platform/docs/POST_BASELINE_ROADMAP.md).
 
-1. which request shapes are allowed for operator-triggered execute, not just for dry-run
-2. which secret modes remain acceptable for production-like execute
-3. which fields must always be identity-bound and never caller-overridden
-4. which failure modes are validation failures vs execution failures
+### Q5: Live Job Control Transport
 
-Expected write-back:
+The next useful step is not another offline sidecar. It is a live operator control transport:
 
-1. this document
-2. `docs/TASK_ENGINEER_B_QUERY_CATALOG_WORKFLOW_OBSERVABILITY.md`
-3. any new change request doc if a new stable field is required
+1. `POST /v1/jobs/start`
+2. `GET /v1/jobs/{job_id}`
+3. `GET /v1/jobs/{job_id}/result`
 
-### Block Q2: Execution Receipt And Status Contract
+That transport should follow [CONTROL_PANEL_SPEC.md](/home/llvanion/Desktop/seccomp-privacy-platform/docs/CONTROL_PANEL_SPEC.md) and keep one rule intact:
 
-The current submission manifest is useful, but still too thin for an operator surface.
+1. live job control still wraps the frozen pipeline CLI
+2. it does not redefine privacy semantics
 
-This block should define:
+Phase-1 implementation status (`2026-05-05`):
 
-1. a stable started/completed/failed receipt shape around `query_workflow_submission/v1`
-2. the default materialization path for those receipts
-3. how a read-only status view finds the latest receipt for a `job_id` or `correlation_id`
-4. how receipt/status stays sidecar-only and does not replace `audit_chain.json`
+1. `scripts/serve_operator_dashboard.py` now exposes:
+   - `POST /v1/jobs/start`
+   - `GET /v1/jobs/{job_id}`
+   - `GET /v1/jobs/{job_id}/result`
+2. `POST /v1/jobs/start` currently accepts:
+   - `{"request_file":"docs/examples/query_request.json","overrides":{"job_id":"...","out_base":"..."}}`
+   - or an inline `query_workflow_request/v1` payload
+3. the server reuses the existing `submit_query_workflow.py` contract helpers and launches the frozen pipeline CLI in a background thread; it does not introduce a second query engine
+4. running/completed state is reflected back into `query_workflow/status.json`, `execution_receipts.jsonl`, and the dashboard's in-memory `job_control` snapshot
+5. the web shell is now presented as `PJC X-UI`, an admin-only control center plus audit center; `/v1/dashboard` now also returns `audit_center` for SSE audit summaries, artifact inventory, wrapper receipts, and compact mainline-contract status
+6. the shell now also exposes a first multi-run admin layer:
+   - `GET /v1/runs`
+   - `POST /v1/runs/select`
+   - `--history-root` / `--history-limit`
+   - recent-run discovery reusing the existing `query_workflow/status.json` sidecar instead of inventing a second history store
+7. the shell now also exposes a first local durable-wrapper action:
+   - `POST /v1/jobs/{job_id}/relaunch`
+   - reuses `workflow_retry_eligibility/v1`
+   - only supports request-file-backed runs in this phase
 
-The key rule is:
+Current limitation:
 
-1. query receipt/status may summarize execution lifecycle
-2. query receipt/status must not become a second truth source for privacy semantics
+1. the first implementation is request-file centric and does not yet provide a rich field-by-field operator request builder
+
+### Q6: Durable Workflow Wrapper
+
+After live job control, the next step is a more durable execution shell:
+
+1. Temporal or equivalent workflow wrapper
+2. submit/status/retry semantics that continue to reuse existing CLI entrypoints
+3. clearer launch-vs-run failure attribution
+4. the new recent-run selector is still local-shell state, not a durable workflow scheduler
+5. the new relaunch action is still a local wrapper convenience, not persisted workflow orchestration
+
+This is the right place to improve workflow durability, not by inventing a second pipeline engine.
+
+### Q7: External API Compatibility Policy
+
+If the query wrapper is promoted from “local operator adapter” to “real external API”, it needs:
+
+1. explicit versioning policy
+2. compatibility guarantees across request and response envelopes
+3. clearer deprecation rules for execute and status fields
+
+That is a separate platform-facing contract-hardening step, not part of the completed baseline.
 
 ### ~~Block Q3: Durable Submit/Status Wrapper~~ ✓
 

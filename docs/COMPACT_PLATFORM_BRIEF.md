@@ -37,6 +37,8 @@ SSE candidate export
 
 当前代码已经超过“原型 demo”，但还没到“真实生产电商平台”。
 
+截至 `2026-05-03`，五条任务线都已经完成“平台基线版”定义范围内的实现。继续推进时，请不要再把工作描述成“补当前基线剩余 block”，而应改读 [POST_BASELINE_ROADMAP.md](/home/llvanion/Desktop/seccomp-privacy-platform/docs/POST_BASELINE_ROADMAP.md) 里的下一阶段 tranche 规划。
+
 已经完成：
 
 1. owner 主线完成：主链路 contract、recovery replay、normalizer 治理、FIFO handoff、exposure assessment 已收口
@@ -59,6 +61,8 @@ SSE candidate export
 7. 面向真实电商订单分析的一整套 SQL 事实层还没落地；当前没有正式的 `orders / order_items / order_attribution / order_payment / order_fulfillment / customer_service_interactions` 这类业务表基线
 
 剩余估算以 [PLATFORM_LEVEL_REMAINING_ESTIMATE.md](/home/llvanion/Desktop/seccomp-privacy-platform/docs/PLATFORM_LEVEL_REMAINING_ESTIMATE.md) 为准。
+
+平台基线之后的继续推进顺序以 [POST_BASELINE_ROADMAP.md](/home/llvanion/Desktop/seccomp-privacy-platform/docs/POST_BASELINE_ROADMAP.md) 为准。
 
 ## 3. 当前能做什么
 
@@ -194,9 +198,9 @@ SSE candidate export
 
 1. [COMPACT_PLATFORM_BRIEF.md](/home/llvanion/Desktop/seccomp-privacy-platform/docs/COMPACT_PLATFORM_BRIEF.md)
 2. [PLATFORM_LEVEL_REMAINING_ESTIMATE.md](/home/llvanion/Desktop/seccomp-privacy-platform/docs/PLATFORM_LEVEL_REMAINING_ESTIMATE.md)
-3. [TASK_OWNER_PRIVACY_CORE_AND_INTERFACE_GOVERNANCE.md](/home/llvanion/Desktop/seccomp-privacy-platform/docs/TASK_OWNER_PRIVACY_CORE_AND_INTERFACE_GOVERNANCE.md)
-4. [ECOMMERCE_ACCESS_MODEL.md](/home/llvanion/Desktop/seccomp-privacy-platform/docs/ECOMMERCE_ACCESS_MODEL.md)
-5. [DELEGATION_ENGINEER_2_SQL_CONTROL_PLANE.md](/home/llvanion/Desktop/seccomp-privacy-platform/docs/DELEGATION_ENGINEER_2_SQL_CONTROL_PLANE.md)
+3. [POST_BASELINE_ROADMAP.md](/home/llvanion/Desktop/seccomp-privacy-platform/docs/POST_BASELINE_ROADMAP.md)
+4. [TASK_OWNER_PRIVACY_CORE_AND_INTERFACE_GOVERNANCE.md](/home/llvanion/Desktop/seccomp-privacy-platform/docs/TASK_OWNER_PRIVACY_CORE_AND_INTERFACE_GOVERNANCE.md)
+5. [ECOMMERCE_ACCESS_MODEL.md](/home/llvanion/Desktop/seccomp-privacy-platform/docs/ECOMMERCE_ACCESS_MODEL.md)
 
 ## 9. 按问题找文档
 
@@ -221,6 +225,9 @@ SSE candidate export
    [BENCHMARK_PLAN.md](/home/llvanion/Desktop/seccomp-privacy-platform/docs/BENCHMARK_PLAN.md)
    [OPS_RUNBOOK.md](/home/llvanion/Desktop/seccomp-privacy-platform/docs/OPS_RUNBOOK.md)
 
+5. “平台基线已经做完，下一阶段先做什么？”
+   [POST_BASELINE_ROADMAP.md](/home/llvanion/Desktop/seccomp-privacy-platform/docs/POST_BASELINE_ROADMAP.md)
+
 ## 10. 建议
 
 后续会话不要默认把 `docs/*.md` 全读一遍。
@@ -229,6 +236,7 @@ SSE candidate export
 
 1. 先读这份压缩总览
 2. 再读剩余工作量估算
-3. 再按问题跳转到 1-2 份深文档
+3. 如果目的是继续推进，立刻读 `POST_BASELINE_ROADMAP.md`
+4. 再按问题跳转到 1-2 份深文档
 
 这样最省 token，也最不容易把外围材料和主线边界混在一起。

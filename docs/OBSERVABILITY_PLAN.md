@@ -246,15 +246,26 @@ This plan does not currently propose:
 3. Add dashboard and alert examples around the existing export rather than around raw audit JSONL.
 4. When a stronger telemetry stack is introduced, make it consume this derived contract first instead of redefining the fields.
 
-## 16. Remaining Implementation Blocks
+## 16. Post-Baseline Extension Directions
 
-For the current repo state, the observability line still has `1` practical block before it behaves like an operator-facing platform shell instead of a set of raw exports.
+The first-stage observability baseline is already complete:
 
-Current position on the engineer B plan:
+1. `pipeline_observability/v1` is stable
+2. dashboard export is present
+3. alert report is present
+4. operator triage report is present
 
-1. query/workflow `B1/B2` is already complete
-2. dashboard example pack (`B3`) is now complete — see section 17
-3. the remaining observability work is `B4` (alert / triage baseline)
+So this document no longer treats observability as having an unfinished baseline block.
+
+If work continues, the next steps should be:
+
+1. live-job telemetry for the running state, without mixing it with historical dashboard blocks
+2. OTel / Grafana adapters that consume `pipeline_observability/v1` instead of redefining fields
+3. stronger service-level metrics, tracing, and structured log bridges for recovery service / key agent / external KMS / operator shell
+
+Those are post-baseline operator-platform steps, not missing pieces of the current baseline.
+
+Unified prioritization for that next tranche lives in [POST_BASELINE_ROADMAP.md](/home/llvanion/Desktop/seccomp-privacy-platform/docs/POST_BASELINE_ROADMAP.md).
 
 ### ~~Block O1: Dashboard Example Pack~~ ✓
 

@@ -908,3 +908,16 @@ python3 scripts/export_authz_tuples.py \
 3. 为 key 生命周期补 registry 视图，而不只导入 access audit。
 4. 在 PostgreSQL 版本中把 `payload_json` 升级为 `JSONB`，并针对常用字段建表达式索引。
 5. 继续保持 importer 和 read adapter 模式，不把数据库写路径塞回主链路。
+
+如果要把这些建议纳入统一排期，建议直接对齐 [POST_BASELINE_ROADMAP.md](/home/llvanion/Desktop/seccomp-privacy-platform/docs/POST_BASELINE_ROADMAP.md) 的 `Tranche C`：
+
+1. `C1`：workflow transition tables / read model
+2. `C2`：policy / service versioning
+3. `C3`：PostgreSQL `JSONB` + 索引
+4. `C4`：registry-enriched catalog / lineage read model
+5. `C5`：retention / reconcile / repair 收口
+
+这份 schema 文档后续主要负责：
+
+1. 给上述 `C1-C5` 提供表结构和字段语义落点
+2. 保证 PostgreSQL 深化时不反向破坏 sidecar-first 边界

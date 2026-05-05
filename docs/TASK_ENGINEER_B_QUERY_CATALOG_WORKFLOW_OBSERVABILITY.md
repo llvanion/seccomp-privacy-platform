@@ -345,15 +345,15 @@ python3 scripts/serve_audit_query_api.py \
 
 按 [PLATFORM_LEVEL_REMAINING_ESTIMATE.md](/home/llvanion/Desktop/seccomp-privacy-platform/docs/PLATFORM_LEVEL_REMAINING_ESTIMATE.md) 的统一口径，这条线从“当前 sidecar/read adapter 基线”推进到“平台基线版”还需要：
 
-1. `8 blocks`
-2. 约 `40h`
+1. `0 blocks`（B1-B8 全部已完成）
+2. 约 `0h`
 
-建议拆分：
+建议拆分（全部已完成）：
 
-1. `2 blocks / 10h`：把 query/workflow wrapper 的 execute 路径补成更正式的执行治理、兼容和回执策略，而不只是“打开 endpoint 就能跑”。
-2. `2 blocks / 10h`：在现有 observability / catalog / audit / platform-health contract 之上补 dashboard、alert example、operator 视图或 UI 壳。
-3. `2 blocks / 10h`：把 workflow wrapper 再推进到更 durable 的 job submit/status 形态，但仍然只包装现有 CLI，不重写主链路。
-4. `2 blocks / 10h`：把 `platform_api_client.py`、metadata/audit/query/platform-health read adapter 再收成更完整的 SDK/admin shell baseline，并补回归样例。
+1. ~~`2 blocks / 10h`：把 query/workflow wrapper 的 execute 路径补成更正式的执行治理、兼容和回执策略，而不只是“打开 endpoint 就能跑”。~~ **已完成（B1+B2，2026-05-03）**
+2. ~~`2 blocks / 10h`：在现有 observability / catalog / audit / platform-health contract 之上补 dashboard、alert example、operator 视图或 UI 壳。~~ **已完成（B3+B4，2026-05-03）**
+3. ~~`2 blocks / 10h`：把 workflow wrapper 再推进到更 durable 的 job submit/status 形态，但仍然只包装现有 CLI，不重写主链路。~~ **已完成（B5+B6，2026-05-03）**
+4. ~~`2 blocks / 10h`：把 `platform_api_client.py`、metadata/audit/query/platform-health read adapter 再收成更完整的 SDK/admin shell baseline，并补回归样例。~~ **已完成（B7+B8，2026-05-03）**
 
 不含：
 
@@ -552,4 +552,142 @@ python3 scripts/build_observability_dashboard.py \
 
 1. 工程师 B 全部 8 个 block 已完成，主线已达"平台基线版"定义的收口标准
 2. 所有新 contract 均通过 `check_json_contracts.sh` 双路径覆盖（有/无辅助输入），并纳入 backcompat baseline
-3. 后续如果继续推进，方向是 B9+ 层（真正的 Temporal durable workflow、DataFusion SQL 前端、Grafana dashboard），而不是在现有 sidecar 层继续叠加新的 operator 工具
+3. 后续如果继续推进，方向是 B9+ 层（live job control、Temporal durable workflow、Grafana / OTel operator shell，以及更后面的 DataFusion SQL 前端），而不是在现有 sidecar 层继续叠加新的 operator 工具
+4. B9+ 的统一任务编排以 [POST_BASELINE_ROADMAP.md](/home/llvanion/Desktop/seccomp-privacy-platform/docs/POST_BASELINE_ROADMAP.md) 为准
+
+## 21. 本轮代码推进结果（2026-05-05，B9-B11 phase-1 local baseline）
+
+这轮把 `B9-B11` 从纯文档 tranche 推到了第一版可运行代码。
+
+已落地的代码面：
+
+1. `scripts/serve_operator_dashboard.py` 新增：
+   - `POST /v1/jobs/start`
+   - `GET /v1/jobs/{job_id}`
+   - `GET /v1/jobs/{job_id}/result`
+2. start endpoint 当前支持两种启动方式：
+   - `request_file` + `overrides`
+   - inline `query_workflow_request/v1`
+3. server 复用了现有 `submit_query_workflow.py` 的 request validation / command build / receipt / status helper，而不是在 Web 层重写 query 语义
+4. embedded HTML 已改成三态 control shell：
+   - `idle` -> `Job Setup`
+   - `running` -> `Live Progress`
+   - `completed|failed` -> `Result`
+5. 历史 blocks（Stage Summary / Duration / Release Outcomes / Failure Summary / Timeline）在 `running` 态下会被隐藏，避免和 live progress 冲突
+
+当前实现边界：
+
+1. 这是 `phase-1 local baseline`，不是最终的 operator product shell
+2. Job Setup 仍然是 request-file centric，而不是字段级 query builder
+3. live stage 进度当前主要依赖 live sidecar / artifact presence heuristic；更强的 durable workflow 与 telemetry 仍在 `B12-B14`
+
+本轮验证：
+
+1. `python3 -m py_compile scripts/serve_operator_dashboard.py` 通过
+2. 本地 loopback 验证通过：
+   - `GET /healthz`
+   - `GET /v1/dashboard`
+   - `POST /v1/jobs/start`
+   - `GET /v1/jobs/{job_id}`
+   - `GET /v1/jobs/{job_id}/result`
+3. sample job 通过 dashboard endpoint 成功跑到 terminal result：`intersection_size=2`、`intersection_sum=425`、`released=true`
+
+## 22. 本轮代码推进结果（2026-05-05，PJC X-UI admin shell 收口）
+
+这轮继续把原来的 web dashboard 推到管理员控制台形态：
+
+1. 页面标题和骨架改成 `PJC X-UI | Control and Audit Center`
+2. 页面布局改成更像 admin shell 的形式：sidebar navigation、overview、control center、audit center、run analytics
+3. `GET /v1/dashboard` 新增 `audit_center`，统一承载：
+   - SSE export audit summary
+   - SSE recovery-service audit summary（存在时）
+   - wrapper sidecar inventory
+   - bridge / PJC / policy artifact inventory
+   - `audit_chain.json` / `audit_chain.seal.json`
+   - compact `mainline_contract_summary`
+4. SSE 审计现在是 web-ui 里的一级面板，不再要求管理员手动翻 `sse_exports/*.jsonl`
+5. UI 语义明确成 admin-only / loopback-only，本地 shell 直接承担 PJC 控制中心和审计中心角色
+
+本轮验证：
+
+1. `python3 -m py_compile scripts/serve_operator_dashboard.py`
+2. loopback `GET /healthz`
+3. loopback `GET /v1/dashboard`，确认 `audit_center` 已返回 SSE / artifact / mainline summary
+4. loopback `GET /`，确认页面标题和 control/audit 文案已更新
+5. loopback `POST /v1/jobs/start` + `GET /v1/jobs/{job_id}` + `GET /v1/jobs/{job_id}/result`
+   - smoke job: `dashboard_xui_smoke`
+   - terminal result: `intersection_size=2`
+   - `intersection_sum=425`
+   - `released=true`
+
+## 23. 本轮代码推进结果（2026-05-05，multi-run admin shell）
+
+这轮继续把 `PJC X-UI` 从“单个 out_base 的控制/审计面板”推进到“可回看多次 run 的管理员壳”：
+
+1. `scripts/serve_operator_dashboard.py` 新增：
+   - `GET /v1/runs`
+   - `POST /v1/runs/select`
+2. server 新增：
+   - `--history-root`
+   - `--history-limit`
+3. recent-run discovery 直接复用现有 `query_workflow/status.json` sidecar 和 `list_query_workflow_status.py` 扫描逻辑，不引入第二套历史状态存储
+4. UI 新增 `Recent Runs` 面板：
+   - 显示 job_id / state / caller / tenant / receipt_count / updated time
+   - 标记 active run
+   - 允许无重启切换当前 control/audit context
+5. 若当前另一个 job 仍在 `running`，run switch 会被 `409` 拒绝，避免管理员误切 active control context
+
+本轮验证：
+
+1. `python3 -m py_compile scripts/serve_operator_dashboard.py`
+2. loopback `GET /v1/runs`
+   - 返回 `query_workflow_status_list/v1`
+   - 初始扫到 `3` 条 run
+3. loopback `POST /v1/runs/select`
+   - 成功把 active run 从 `tmp/operator_dashboard_xui_smoke` 切到 `tmp/operator_dashboard_jobtest2`
+4. loopback `GET /v1/dashboard`
+   - 确认 `audit_center.out_base` 与 `recent_runs[*].active` 已切换
+5. loopback `POST /v1/jobs/start`
+   - smoke job: `dashboard_history_smoke`
+   - 新 run 进入 `running` 后，`GET /v1/runs?limit=5` 已扩到 `4` 条
+   - 终态 `GET /v1/jobs/dashboard_history_smoke/result` 返回：
+     - `intersection_size=2`
+     - `intersection_sum=425`
+     - `released=true`
+
+## 24. 本轮代码推进结果（2026-05-05，B12 local durable wrapper baseline）
+
+这轮继续把 operator shell 往 `B12` 推，而不是只停在多 run 浏览：
+
+1. `scripts/serve_operator_dashboard.py` 新增：
+   - `POST /v1/jobs/{job_id}/relaunch`
+2. relaunch 逻辑复用：
+   - `workflow_retry_eligibility/v1`
+   - `submission_manifest.json`
+   - 现有 `submit_query_workflow.py` request validation / command build / sidecar helper
+3. 行为约束：
+   - 只允许 terminal 且非 running 的 selected run
+   - action 必须符合 `recommended_action`
+   - 当前只支持 request-file-backed run
+   - `<inline>` request 仍视为不支持自动 relaunch
+4. server 会自动生成新的：
+   - `job_id`
+   - `out_base`
+   - 然后以新的 sidecar 路径重新拉起同类 job
+
+本轮验证：
+
+1. 临时构造一个 request-file-backed `run_failed` fixture：
+   - `dashboard_run_failed_smoke`
+   - `recommended_action=resubmit`
+2. loopback `GET /v1/dashboard`
+   - 确认 `audit_center.wrapper.relaunch_action=resubmit`
+   - `relaunch_supported=true`
+3. loopback `POST /v1/jobs/dashboard_run_failed_smoke/relaunch`
+   - 成功返回新的 `job_id=dashboard_run_failed_smoke_resubmit_...`
+   - 自动生成新的 sibling `out_base`
+4. loopback `GET /v1/jobs/<new_job_id>`
+   - 确认新的 relaunched job 已被 sidecar 收录
+5. loopback `GET /v1/runs?limit=8`
+   - recent runs 由 `5` 条扩到 `6` 条
+   - relaunched job 成为新的 active run

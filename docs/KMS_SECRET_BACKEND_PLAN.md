@@ -447,3 +447,16 @@ KMS 不负责：
 3. 下一步把 `vault_kv_backend/v1` 从本地 compatibility fixture 换成真实 Vault / cloud KMS adapter，复用现有 access/lifecycle audit contract。
 4. 然后补 service identity、OIDC/mTLS、远端 policy 与 token 生命周期治理。
 5. 只有在上述路径稳定后，再评估是否值得推动 remote tokenization 取代本地 secret 暴露。
+
+如果要纳入统一排期，建议直接对齐 [POST_BASELINE_ROADMAP.md](/home/llvanion/Desktop/seccomp-privacy-platform/docs/POST_BASELINE_ROADMAP.md) 的 `Tranche A`：
+
+1. `A3`：真实 Vault / cloud KMS adapter baseline
+2. `A4`：service identity + token lifecycle
+3. `A5`：policy / key / identity mutation governance 联动
+4. `A6`：远端 authority smoke + runbook 收口
+
+这里的优先级仍然是：
+
+1. 先让真实 authority source 复用现有 contract
+2. 再收紧 service identity 与 rotation 治理
+3. 最后才评估 remote tokenization 这类更强改造

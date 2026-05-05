@@ -186,7 +186,7 @@ The command exits non-zero if any requested check has `status=error`. Use `--all
 
 ## Operator Dashboard Web UI
 
-Start the operator dashboard — a self-contained web UI that reads sidecar artifacts and renders live operator panels in the browser:
+Start the local admin shell (`PJC X-UI`) — a self-contained web UI that reads sidecar artifacts and renders live control and audit panels in the browser:
 
 ```bash
 # Step 1: generate the required sidecar files (if not already present)
@@ -201,34 +201,85 @@ python3 scripts/check_platform_health.py \
 # Step 2: start the dashboard server
 python3 scripts/serve_operator_dashboard.py \
   --out-base tmp/live_sse_bridge_demo/run-<timestamp> \
+  --history-root tmp \
   --bind-host 127.0.0.1 \
   --port 18094
 ```
 
 Then open **http://127.0.0.1:18094/** in a browser.
 
-The dashboard auto-refreshes every 15 seconds and shows:
+The admin shell auto-refreshes every 15 seconds and shows:
 
 | Panel | Content |
 | ----- | ------- |
+| **Control Center** | Request-file centric launch form plus live/result job state |
+| **Audit Center** | SSE audit summaries, wrapper receipt/status summary, artifact inventory, and mainline contract summary |
+| **Recent Runs** | Multi-run job list with active-run switching under `--history-root` |
 | **Alerts** | 4 alert conditions with firing/ok status and triage message |
 | **Platform Health** | Per-component health badges (ok / warn / error) |
+| **Job Setup** | Request-file centric start form for a live query workflow job |
+| **Live Progress** | Per-stage live state from `GET /v1/jobs/{job_id}` while a job is running |
+| **Result** | `intersection_size` / `intersection_sum` / `released` / `reason_code` for the terminal job |
 | **Stage Summary** | Per-stage ok/error mini bar chart |
 | **Stage Duration** | min / mean / p50 / p95 / max per stage |
 | **Release Outcomes** | Per-tenant policy-release counts and last outcome |
 | **Failure Summary** | All `status=error` events with caller, stage, reason_code |
 | **Stage Timeline** | Chronological event list with timestamps and durations |
-| **Workflow Status** | Query workflow state and recommended action (if a job was submitted) |
+| **Workflow Status** | Still present in `/v1/dashboard` JSON for backward compatibility, but no longer rendered as a standalone UI card |
 
 Endpoints:
 
 | Route | Returns |
 | ----- | ------- |
-| `GET /` | The dashboard HTML (no auth required) |
+| `GET /` | The `PJC X-UI` admin HTML shell (no auth, loopback only) |
 | `GET /healthz` | `{"status":"ok","schema":"operator_dashboard_health/v1"}` |
-| `GET /v1/dashboard` | Aggregated JSON: dashboard panels + alerts + health + workflow status |
+| `GET /v1/dashboard` | Aggregated JSON: dashboard panels + alerts + health + workflow status + current `job_control` snapshot + `audit_center` |
+| `GET /v1/runs` | Recent-run list derived from `query_workflow/status.json` discovery under `--history-root` |
+| `POST /v1/runs/select` | Switches the active admin-shell `out_base` to another discovered run |
+| `POST /v1/jobs/{job_id}/relaunch` | Retry / re-submit a selected terminal run using its recorded request file and retry-eligibility recommendation |
+| `POST /v1/jobs/start` | Starts a background pipeline job from `request_file` or inline `query_workflow_request/v1` |
+| `GET /v1/jobs/{job_id}` | Live job state, elapsed seconds, per-stage status list |
+| `GET /v1/jobs/{job_id}/result` | Terminal result summary (`intersection_size`, `intersection_sum`, `released`, `reason_code`) |
 
-The `/v1/dashboard` response is cached for 5 seconds. The server is read-only and has no auth requirement; run it only on loopback.
+The `/v1/dashboard` response is cached for 5 seconds. The server has no auth requirement and should only run on loopback. Historical dashboard reads remain sidecar-only, but `POST /v1/jobs/start` now launches a local background pipeline job and the UI now exposes SSE audit + artifact inventory directly, so do not expose this server outside a trusted admin environment.
+
+Phase-1 start example:
+
+```bash
+curl --noproxy '*' \
+  -X POST http://127.0.0.1:18094/v1/jobs/start \
+  -H 'Content-Type: application/json' \
+  --data '{
+    "request_file":"docs/examples/query_request.json",
+    "overrides":{
+      "job_id":"dashboard_job_demo",
+      "out_base":"tmp/operator_dashboard_demo"
+    }
+  }'
+```
+
+Poll live state:
+
+```bash
+curl --noproxy '*' http://127.0.0.1:18094/v1/jobs/dashboard_job_demo
+curl --noproxy '*' http://127.0.0.1:18094/v1/jobs/dashboard_job_demo/result
+```
+
+List or switch recent runs:
+
+```bash
+curl --noproxy '*' http://127.0.0.1:18094/v1/runs?limit=10
+
+curl --noproxy '*' \
+  -X POST http://127.0.0.1:18094/v1/runs/select \
+  -H 'Content-Type: application/json' \
+  --data '{"out_base":"tmp/operator_dashboard_jobtest2"}'
+
+curl --noproxy '*' \
+  -X POST http://127.0.0.1:18094/v1/jobs/dashboard_run_failed_smoke/relaunch \
+  -H 'Content-Type: application/json' \
+  --data '{}'
+```
 
 ## Platform Health HTTP API
 

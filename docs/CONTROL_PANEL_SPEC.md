@@ -1,4 +1,28 @@
-# Control Panel Spec — Dashboard → Job Control Panel
+# Control Panel Spec — PJC X-UI Control and Audit Center
+
+This spec is the concrete design target for post-baseline operator work in [POST_BASELINE_ROADMAP.md](/home/llvanion/Desktop/seccomp-privacy-platform/docs/POST_BASELINE_ROADMAP.md), especially:
+
+1. `B9`：job start/status/result transport contract
+2. `B10`：live progress read path
+3. `B11`：Web control shell baseline
+
+Phase-1 implementation status (`2026-05-05`):
+
+1. `scripts/serve_operator_dashboard.py` now exposes `POST /v1/jobs/start`, `GET /v1/jobs/{job_id}`, `GET /v1/jobs/{job_id}/result`
+2. the embedded HTML now swaps `Job Setup` / `Live Progress` / `Result` by UI state and hides historical blocks during `running`
+3. the first implementation is request-file centric: `POST /v1/jobs/start` currently accepts either an inline `query_workflow_request/v1` payload or a `request_file` + `overrides` body, instead of a fully expanded field-by-field CSV/TLS form
+4. the UI is now explicitly presented as **`PJC X-UI`** rather than a generic dashboard: it is an admin-only loopback shell for PJC control and audit
+5. the audit center now integrates SSE export audit, SSE recovery-service audit when present, wrapper sidecars, PJC/policy artifacts, and compact `mainline_contract_summary`
+6. the shell now also exposes a first multi-run admin view:
+   - recent-run discovery under `--history-root`
+   - active-run switching without restarting the shell
+   - `GET /v1/runs` + `POST /v1/runs/select`
+7. the shell now also exposes a first durable-wrapper action:
+   - `POST /v1/jobs/{job_id}/relaunch`
+   - action is constrained by `workflow_retry_eligibility/v1`
+   - current phase only supports request-file-backed runs, not `<inline>` submissions
+
+That means this spec is now half design target, half implementation reference: the live transport and UI state machine exist, while the richer field-by-field setup form can still evolve later.
 
 ## 1. Problem: Overlap in the Current Layout
 
@@ -65,7 +89,7 @@ They are **hidden during `running`** to avoid showing stale data alongside live 
 
 ---
 
-## 4. Three New Blocks
+## 4. Four Operator Blocks
 
 ### Block A — Job Setup Form (`idle` only)
 
@@ -119,6 +143,30 @@ Does NOT duplicate: stage_timeline (which shows post-run history), stage_summary
 Owns: `intersection_size`, `intersection_sum`, `released`, `reason_code`, elapsed time.
 Does NOT own: per-stage timing (Stage Duration block), per-stage errors (Failure Summary block).
 Does NOT duplicate: workflow_status (removed).
+
+### Block D — Audit Center (`always visible`, admin-only)
+
+The web shell is now explicitly an admin surface, so SSE audit is a first-class block rather than something operators inspect by hand in `sse_exports/*.jsonl`.
+
+Phase-1 ownership:
+
+1. SSE export audit summary by role (`server` / `client`)
+2. SSE record-recovery-service audit summary by role when the service boundary is used
+3. artifact inventory across wrapper, SSE, bridge, PJC, policy, and audit-chain outputs
+4. compact mainline contract summary:
+   - `status`
+   - `handoff_mode`
+   - `handoff_cleanup`
+   - `service_audit_consistency`
+
+### Block E — Recent Runs (`always visible`, admin-only)
+
+The shell now also owns a minimal multi-run surface:
+
+1. scan a configurable history root for prior `query_workflow/status.json`
+2. render recent runs with state, caller, tenant, receipts, and active marker
+3. switch the active audit/control context to another completed run without restarting the server
+4. block cross-run switching while another job is actively `running`
 
 ---
 
@@ -195,6 +243,43 @@ Response:
 Server reads `attribution_result.json` and `public_report.json` from `out_base`.
 Returns `404` if the run has not completed yet.
 
+### `GET /v1/runs`
+
+Returns a recent-run list derived from `query_workflow_status_list/v1` semantics.
+
+Supported query params:
+
+1. `limit`
+2. `state`
+3. `job_id`
+
+### `POST /v1/runs/select`
+
+Request body:
+
+```json
+{
+  "out_base": "tmp/operator_dashboard_jobtest2"
+}
+```
+
+Effect:
+
+1. switches the shell's active `out_base`
+2. reseeds the current terminal job snapshot from that run's `query_workflow/status.json`
+3. rejects the switch with `409` if another job is currently `running`
+
+### `POST /v1/jobs/{job_id}/relaunch`
+
+Current phase-1 durable-wrapper semantics:
+
+1. only allowed when the selected run is terminal and not currently `running`
+2. action must match `recommended_action` from retry eligibility:
+   - `retry`
+   - `resubmit`
+3. only supported when `submission_manifest.json` points at a real `request_file`
+4. server auto-generates a fresh `job_id` and sibling `out_base` when the caller does not override them
+
 ---
 
 ## 6. Final Page Layout (by state)
@@ -246,3 +331,26 @@ Returns `404` if the run has not completed yet.
 - Do not show history blocks during `running` — they show stale data from the previous run and contradict the live progress.
 - Do not merge Live Progress with Stage Timeline — they serve different time windows (live vs historical).
 - Do not put `intersection_size` / `intersection_sum` in the header bar — those belong in the Result card only.
+
+---
+
+## 9. Suggested Delivery Order
+
+To keep this spec aligned with the post-baseline roadmap, implement it in this order:
+
+1. `B9`：first freeze the server transport
+   - `POST /v1/jobs/start`
+   - `GET /v1/jobs/{job_id}`
+   - `GET /v1/jobs/{job_id}/result`
+2. `B10`：then make the live progress read path reliable
+   - derive running state from live audit / sidecar artifacts
+   - keep historical completed-run panels hidden during `running`
+3. `B11`：only then wire the HTML shell
+   - `idle -> running -> completed|failed` state machine
+   - Job Setup / Live Progress / Result card block swap
+
+This order matters because:
+
+1. transport contract must exist before UI state can be trusted
+2. live progress semantics must be correct before historical panels are gated off
+3. the UI should consume stable control-plane responses, not invent its own filesystem rules

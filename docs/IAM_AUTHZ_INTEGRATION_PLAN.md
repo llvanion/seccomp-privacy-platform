@@ -401,6 +401,18 @@ OPA 更适合做 admission / routing / API-gate 规则，而不是替代 release
 2. service registration API
 3. key reference registration API
 
+如果要纳入统一排期，建议把这些 phase 对齐到 [POST_BASELINE_ROADMAP.md](/home/llvanion/Desktop/seccomp-privacy-platform/docs/POST_BASELINE_ROADMAP.md) 的 `Tranche A`：
+
+1. `A1` 对应 Phase 1：issuer-backed identity proxy baseline
+2. `A2` 对应 Phase 2：OpenFGA tuple sync + check adapter
+3. `A4` 对应 Phase 3：service identity + token lifecycle
+4. `A5-A6` 对应 Phase 4 之前的治理、回归与 runbook 收口
+
+这份 IAM 文档后续主要负责：
+
+1. 固定 identity / relation / admission 三层分工
+2. 明确哪些入口先接 OIDC / FGA，哪些仍保留本地主链路独立性
+
 ## 9. 对各入口的建议授权策略
 
 ### `serve_metadata_api.py`

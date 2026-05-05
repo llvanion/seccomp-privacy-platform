@@ -7,17 +7,19 @@
 
 ## 1. 默认入口
 
-先读这 3 份：
+先读这 4 份：
 
 1. [COMPACT_PLATFORM_BRIEF.md](/home/llvanion/Desktop/seccomp-privacy-platform/docs/COMPACT_PLATFORM_BRIEF.md)
 2. [PLATFORM_LEVEL_REMAINING_ESTIMATE.md](/home/llvanion/Desktop/seccomp-privacy-platform/docs/PLATFORM_LEVEL_REMAINING_ESTIMATE.md)
-3. [TASK_OWNER_PRIVACY_CORE_AND_INTERFACE_GOVERNANCE.md](/home/llvanion/Desktop/seccomp-privacy-platform/docs/TASK_OWNER_PRIVACY_CORE_AND_INTERFACE_GOVERNANCE.md)
+3. [POST_BASELINE_ROADMAP.md](/home/llvanion/Desktop/seccomp-privacy-platform/docs/POST_BASELINE_ROADMAP.md)
+4. [TASK_OWNER_PRIVACY_CORE_AND_INTERFACE_GOVERNANCE.md](/home/llvanion/Desktop/seccomp-privacy-platform/docs/TASK_OWNER_PRIVACY_CORE_AND_INTERFACE_GOVERNANCE.md)
 
-这 3 份分别解决：
+这 4 份分别解决：
 
 1. 项目是什么、当前到了哪里
-2. 还有多少剩余工作
-3. 主链路边界和冻结语义是什么
+2. 当前平台基线是否还剩 block
+3. 平台基线之后下一阶段先做什么
+4. 主链路边界和冻结语义是什么
 
 ## 2. 按角色读
 
@@ -75,6 +77,9 @@
    [BENCHMARK_PLAN.md](/home/llvanion/Desktop/seccomp-privacy-platform/docs/BENCHMARK_PLAN.md)
    [OPS_RUNBOOK.md](/home/llvanion/Desktop/seccomp-privacy-platform/docs/OPS_RUNBOOK.md)
 
+6. “平台基线做完之后，下一阶段怎么排？”
+   [POST_BASELINE_ROADMAP.md](/home/llvanion/Desktop/seccomp-privacy-platform/docs/POST_BASELINE_ROADMAP.md)
+
 ## 4. 建议
 
 以后默认不要再让接手者先读十几份 markdown。
@@ -83,7 +88,8 @@
 
 1. `COMPACT_PLATFORM_BRIEF.md`
 2. `PLATFORM_LEVEL_REMAINING_ESTIMATE.md`
-3. 按角色只补读 2-4 份深文档
+3. `POST_BASELINE_ROADMAP.md`
+4. 按角色只补读 2-4 份深文档
 
 这样最省 token，也最不容易把主线、外围 sidecar 和远期平台化计划混在一起。
 

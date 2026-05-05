@@ -418,3 +418,12 @@ python3 scripts/manage_record_recovery_service.py render-systemd \
 1. 先冻结独立服务 contract
 2. 让主链路只依赖 contract
 3. 再逐步替换部署形态和鉴权实现
+
+如果要纳入统一排期，建议直接对齐 [POST_BASELINE_ROADMAP.md](/home/llvanion/Desktop/seccomp-privacy-platform/docs/POST_BASELINE_ROADMAP.md) 的 `Tranche D`：
+
+1. `D1`：recovery service mutual TLS baseline
+2. `D2`：service metrics / tracing / structured logs
+3. `D3`：external audit anchor baseline
+4. `D4`：ops runbook / failure recovery 收口
+
+这条线后续的重点不是再堆本地 orchestration，而是把 deploy/authn/audit 三条边界逐步做成更正式的独立服务形态。

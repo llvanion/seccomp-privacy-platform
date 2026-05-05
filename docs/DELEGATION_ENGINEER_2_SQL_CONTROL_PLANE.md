@@ -438,3 +438,32 @@ python3 scripts/serve_metadata_api.py \
 
 1. 让主链路直接写数据库。
 2. 完整 HA PostgreSQL、迁移编排和生产级 DBA 运维流程。
+
+## 12. 平台基线之后建议
+
+这条线的“平台基线版”已经完成。
+
+如果继续推进，不应再把工作描述成“补当前 sidecar 缺的基础能力”，而应直接进入 [POST_BASELINE_ROADMAP.md](/home/llvanion/Desktop/seccomp-privacy-platform/docs/POST_BASELINE_ROADMAP.md) 的 `Tranche C`。
+
+建议按下面顺序继续：
+
+1. `C1`：workflow transition tables / read model
+   - 让 `jobs` 不只保存最终状态快照
+   - 承接 query workflow / operator shell 的长期状态读取
+2. `C2`：policy / service versioning
+   - 给 `policies`、`services` 补 version 语义
+   - 支持更正式的变更治理和回滚视图
+3. `C3`：PostgreSQL JSONB + 索引
+   - `payload_json -> JSONB`
+   - 为高频过滤、排序、分页字段补表达式索引与游标键
+4. `C4`：registry-enriched catalog / lineage read model
+   - 连接 metadata sidecar 与 file-derived lineage
+   - 继续保持 path-redacted default
+5. `C5`：retention / reconcile / repair 收口
+   - 为 audit / registry / key lifecycle 做长期保留与修复策略
+
+这条线后续的核心原则仍然不变：
+
+1. importer / read adapter first
+2. PostgreSQL-ready first，而不是 DB-first 主链路改造
+3. 不让主链路直接写库成为默认依赖
