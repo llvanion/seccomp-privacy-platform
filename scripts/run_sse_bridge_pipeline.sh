@@ -7,11 +7,28 @@ log() { echo "[INFO] $*"; }
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 
+resolve_python_bin() {
+  local preferred="$1"
+  if [[ -n "$preferred" && -x "$preferred" ]]; then
+    printf '%s\n' "$preferred"
+    return 0
+  fi
+  if command -v python3 >/dev/null 2>&1; then
+    command -v python3
+    return 0
+  fi
+  if command -v python >/dev/null 2>&1; then
+    command -v python
+    return 0
+  fi
+  return 1
+}
+
 SSE_DIR="${SSE_DIR:-$REPO_ROOT/sse}"
 BRIDGE_DIR="${BRIDGE_DIR:-$REPO_ROOT/bridge}"
 APSI_DIR="${APSI_DIR:-$REPO_ROOT/a-psi}"
 
-SSE_PY="${SSE_PY:-$SSE_DIR/.venv/bin/python}"
+SSE_PY="${SSE_PY:-$(resolve_python_bin "$SSE_DIR/.venv/bin/python" || true)}"
 BRIDGE_BIN="${BRIDGE_BIN:-cargo run --}"
 RUN_PJC_SH="${RUN_PJC_SH:-$APSI_DIR/moduleA_psi/scripts/run_pjc.sh}"
 POLICY_PY="${POLICY_PY:-$APSI_DIR/moduleA_psi/scripts/policy_release.py}"
@@ -321,7 +338,8 @@ SSE_EXPORT_POLICY_CONFIG="$(normalize_repo_path "$SSE_EXPORT_POLICY_CONFIG")"
 [[ "$KEY_AGENT_MODE" == "auto" || "$KEY_AGENT_MODE" == "manual" ]] || die "--key-agent-mode must be auto or manual"
 [[ -z "$KEY_AGENT_AUTH_ENV" || -n "$KEY_AGENT_SOCKET" || "$KEY_AGENT_MODE" == "auto" ]] || die "--key-agent-auth-env requires --key-agent-socket unless --key-agent-mode=auto"
 [[ "$EXTERNAL_KMS_MODE" == "auto" || "$EXTERNAL_KMS_MODE" == "manual" ]] || die "--external-kms-mode must be auto or manual"
-[[ -x "$SSE_PY" ]] || die "missing SSE python: $SSE_PY"
+[[ -n "$SSE_PY" ]] || die "missing SSE python: neither $SSE_DIR/.venv/bin/python nor a system python interpreter was found"
+command -v "$SSE_PY" >/dev/null 2>&1 || [[ -x "$SSE_PY" ]] || die "missing SSE python: $SSE_PY"
 [[ -f "$RUN_PJC_SH" ]] || die "missing a-psi runner: $RUN_PJC_SH"
 [[ -f "$POLICY_PY" ]] || die "missing policy script: $POLICY_PY"
 [[ -f "$VALIDATE_BRIDGE_JOB_PY" ]] || die "missing validate script: $VALIDATE_BRIDGE_JOB_PY"

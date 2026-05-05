@@ -7,8 +7,25 @@ log() { echo "[INFO] $*"; }
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 
+resolve_python_bin() {
+  local preferred="$1"
+  if [[ -n "$preferred" && -x "$preferred" ]]; then
+    printf '%s\n' "$preferred"
+    return 0
+  fi
+  if command -v python3 >/dev/null 2>&1; then
+    command -v python3
+    return 0
+  fi
+  if command -v python >/dev/null 2>&1; then
+    command -v python
+    return 0
+  fi
+  return 1
+}
+
 SSE_DIR="${SSE_DIR:-$REPO_ROOT/sse}"
-SSE_PY="${SSE_PY:-$SSE_DIR/.venv/bin/python}"
+SSE_PY="${SSE_PY:-$(resolve_python_bin "$SSE_DIR/.venv/bin/python" || true)}"
 PIPELINE_SH="${PIPELINE_SH:-$REPO_ROOT/scripts/run_sse_bridge_pipeline.sh}"
 EXPORT_POLICY="${EXPORT_POLICY:-$REPO_ROOT/sse/config/export_policy.example.json}"
 
@@ -120,7 +137,8 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-[[ -x "$SSE_PY" ]] || die "missing SSE python: $SSE_PY"
+[[ -n "$SSE_PY" ]] || die "missing SSE python: neither $SSE_DIR/.venv/bin/python nor a system python interpreter was found"
+command -v "$SSE_PY" >/dev/null 2>&1 || [[ -x "$SSE_PY" ]] || die "missing SSE python: $SSE_PY"
 [[ -f "$PIPELINE_SH" ]] || die "missing pipeline script: $PIPELINE_SH"
 [[ -f "$EXPORT_POLICY" ]] || die "missing export policy: $EXPORT_POLICY"
 [[ -z "$RECORD_RECOVERY_AUTHZ_CONFIG" || -f "$RECORD_RECOVERY_AUTHZ_CONFIG" ]] || die "missing record recovery authz config: $RECORD_RECOVERY_AUTHZ_CONFIG"
