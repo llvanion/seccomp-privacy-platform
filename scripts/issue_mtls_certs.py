@@ -20,10 +20,24 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
-from scripts.vault_http_client import load_client_config, resolve_vault_token, _vault_request  # noqa: E402
+from scripts.vault_http_client import load_client_config, _approle_login, _vault_request  # noqa: E402
 from scripts.metadata_db import utc_now  # noqa: E402
 
 REPORT_SCHEMA = "mtls_cert_issue_report/v1"
+
+
+def resolve_vault_token(config: dict[str, Any]) -> tuple[str, str, str]:
+    token_env = str(config.get("token_env") or "").strip()
+    if token_env:
+        token = os.environ.get(token_env, "")
+        if token:
+            return token, "token", "env"
+    token = str(config.get("token") or "").strip()
+    if token:
+        return token, "token", "config"
+    if config.get("approle_role_id_env") and config.get("approle_secret_id_env"):
+        return _approle_login(config), "approle", "login"
+    raise ValueError("Vault token auth requires token_env/token or AppRole env config")
 
 
 def _load_json(path: str | Path) -> dict[str, Any]:

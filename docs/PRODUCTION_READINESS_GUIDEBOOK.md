@@ -338,11 +338,11 @@ Implemented:
 
 #### Current Baseline
 
-- All metadata scripts use `sqlite3` (Python stdlib).
+- Metadata scripts still default to SQLite for local/demo runs, but the core metadata DB helper now has a PostgreSQL driver layer and the main read/write entrypoints accept PostgreSQL DSNs.
 - `migrations/postgres/001_init.sql` has the complete Postgres-compatible DDL (SERIAL, TIMESTAMPTZ, JSONB, BOOLEAN, indexes).
 - `scripts/check_metadata_schema_portability.py` validates DDL is Postgres-compatible.
 - `scripts/export_postgres_ddl.py` exports the target DDL.
-- **F1-a completed (2026-05-06):** `scripts/metadata_db.py` now contains `connect_db(db_path, *, dsn)`, `connect_db_with_retry(…, retries, delay)`, `is_postgres(conn)`, `placeholder(conn)`, `adapt_sql(conn, sql)`, and `_split_sql_statements`. When `dsn` is provided, psycopg2 is used; migrations are applied statement-by-statement. `scripts/init_metadata_db.py` accepts `--db-dsn`.
+- **F1-a completed (2026-05-06):** `scripts/metadata_db.py` now contains `connect_db(db_path, *, dsn)`, `connect_db_with_retry(…, retries, delay)`, `is_postgres(conn)`, `placeholder(conn)`, `adapt_sql(conn, sql)`, `row_to_dict(row)`, and `_split_sql_statements`. When `dsn` is provided, psycopg2 is used; migrations are applied statement-by-statement. The main metadata CLI/API paths now accept `--db-dsn` or `--metadata-db-dsn` while keeping SQLite as the default path.
 
 #### Tasks
 
@@ -354,19 +354,11 @@ Implemented in `scripts/metadata_db.py`:
 - `connect_db_with_retry(…, retries=3, delay=1.0)`: exponential-backoff retry wrapper for Patroni failover.
 - `is_postgres(conn)` / `placeholder(conn)` / `adapt_sql(conn, sql)`: helpers that rewrite `?` to `%s` for PostgreSQL.
 - `_split_sql_statements(sql)`: splits migration SQL on `;` since psycopg2 does not support `executescript`.
-- `scripts/init_metadata_db.py` accepts `--db-dsn postgresql://user:pass@host:5432/db`.
+- `scripts/init_metadata_db.py`, `scripts/import_run_metadata.py`, `scripts/query_metadata.py`, `scripts/manage_metadata_db.py`, `scripts/serve_metadata_api.py`, `scripts/resolve_api_identity.py`, `scripts/check_metadata_schema_portability.py`, and `scripts/benchmark_read_adapters.py` accept `--db-dsn postgresql://user:pass@host:5432/db`.
+- `scripts/serve_query_workflow_api.py`, `scripts/serve_audit_query_api.py`, and `scripts/serve_platform_health_api.py` accept `--metadata-db-dsn` for identity-resolution paths that should read metadata from PostgreSQL.
+- `scripts/api_identity.py` now carries `db_dsn` through bearer-token and issuer/subject identity resolution, so the JWKS-backed identity path can use PostgreSQL-backed `caller_identities`.
 
-Remaining: add `--db-dsn` to `import_run_metadata.py`, `query_metadata.py`, `manage_metadata_db.py`, `serve_metadata_api.py`, `serve_query_workflow_api.py`, `serve_audit_query_api.py` — each call site needs `adapt_sql()` wrapping for parameter placeholders.
-
-Add `--db-dsn postgresql://user:password@host:5432/dbname` to:
-- `scripts/import_run_metadata.py`
-- `scripts/query_metadata.py`
-- `scripts/manage_metadata_db.py`
-- `scripts/serve_metadata_api.py`
-- `scripts/serve_query_workflow_api.py`
-- `scripts/serve_audit_query_api.py`
-
-When `--db-dsn` is provided: use psycopg2; use `%s` placeholders instead of `?`; use `RETURNING` for inserts.
+Remaining in F1: run the existing PostgreSQL paths against a real PostgreSQL 16 instance, fix any live-driver issues that only show up outside SQLite, and keep default SQLite contract smoke unchanged. `scripts/check_json_contracts.sh` now also runs the live PostgreSQL portability gate when `POSTGRES_DSN` is set.
 
 **F1-b — Run portability gate against real PostgreSQL (1 block)**
 
@@ -391,7 +383,7 @@ python3 scripts/check_metadata_schema_portability.py \
 
 Port any remaining SQLite-specific syntax (especially `AUTOINCREMENT` → `SERIAL`, `PRAGMA` statements removed, `INTEGER PRIMARY KEY` → `SERIAL PRIMARY KEY`).
 
-Add a CI gate that runs the portability check against a PostgreSQL container if `POSTGRES_DSN` env var is set.
+`scripts/check_json_contracts.sh` already runs the portability check against PostgreSQL when `POSTGRES_DSN` is set. CI still needs an operator-provided PostgreSQL service or container plus that env var to exercise the live branch.
 
 #### Acceptance Criteria
 
@@ -692,16 +684,9 @@ def generate_record_store(candidate_count: int, path: Path) -> None:
 
 Test `ThreadingHTTPServer` under concurrent load:
 
-```bash
-python3 scripts/benchmark_record_recovery.py \
-  --mode concurrent \
-  --concurrency 10 \
-  --candidate-count 1000 \
-  --iterations 20 \
-  --output tmp/recovery_concurrent_10.json
-```
+Current implemented scaffold: `benchmark_record_recovery.py --candidate-count <n>` can generate larger synthetic stores for the existing sequential Unix-socket and HTTP modes, and `--mode http_recover_concurrent --concurrency <n>` can issue concurrent HTTP recover requests against the `ThreadingHTTPServer` path.
 
-Implement using `concurrent.futures.ThreadPoolExecutor`. Measure:
+Remaining G2-b work is to run the concurrent benchmark at production-like sizes and measure:
 - Throughput degradation vs sequential baseline.
 - Whether `--max-rows-per-request` provides a meaningful safety valve under concurrency.
 - mTLS handshake overhead (compare plain HTTP vs HTTPS with `--tls-cert-file`).
@@ -724,14 +709,16 @@ If TLS handshake dominates: enable HTTP/1.1 keep-alive in `RecordRecoveryHttpSer
 
 #### Tasks
 
-Generate large bridge input CSVs:
+Generate large bridge input JSONL files:
 
 ```bash
-python3 scripts/generate_benchmark_dataset.py \
-  --output-format bridge-csv \
-  --server-rows 100000 \
-  --client-rows 100000 \
-  --overlap 0.3
+python3 scripts/generate_benchmark_dataset.py orders-jsonl \
+  --output /tmp/bridge_server_records_100k.jsonl \
+  --count 100000
+
+python3 scripts/generate_benchmark_dataset.py orders-jsonl \
+  --output /tmp/bridge_client_records_100k.jsonl \
+  --count 100000
 ```
 
 Profile with `cargo flamegraph`:
@@ -740,10 +727,20 @@ Profile with `cargo flamegraph`:
 cd bridge
 cargo install flamegraph
 cargo flamegraph --bin bridge -- prepare-job \
-  --server-csv /tmp/server_100k.csv \
-  --client-csv /tmp/client_100k.csv \
+  --server-input /tmp/bridge_server_records_100k.jsonl \
+  --server-input-format jsonl \
+  --server-join-key-column email \
+  --server-normalizer email \
+  --client-input /tmp/bridge_client_records_100k.jsonl \
+  --client-input-format jsonl \
+  --client-join-key-column email \
+  --client-value-column amount \
+  --client-value-mode raw-int \
+  --client-normalizer email \
   --job-id bench-job \
-  --out /tmp/bridge_bench_out
+  --token-scope bench-job \
+  --token-secret-env BRIDGE_TOKEN_SECRET \
+  --out-dir /tmp/bridge_bench_out
 ```
 
 Measure: wall time, peak RSS, throughput (rows/s). Compare 1k / 10k / 100k / 1M row inputs.
@@ -774,8 +771,9 @@ Optimization candidates (do not change the bridge contract):
 Generate synthetic server/client sets:
 
 ```bash
-python3 scripts/generate_benchmark_dataset.py \
-  --output-format pjc-csv \
+python3 scripts/generate_benchmark_dataset.py pjc-csv \
+  --server-csv /tmp/pjc_server_100k.csv \
+  --client-csv /tmp/pjc_client_50k.csv \
   --server-items 100000 \
   --client-items 50000 \
   --overlap 0.2   # 10k overlap
@@ -789,9 +787,11 @@ Benchmark across sizes: 1k, 10k, 100k, 1M items. Measure:
 
 ```bash
 python3 scripts/benchmark_pjc.py \
-  --mode scale \
-  --server-count 100000 \
-  --client-count 50000 \
+  --mode checked_in_sse_demo_job \
+  --server-csv /tmp/pjc_server_100k.csv \
+  --client-csv /tmp/pjc_client_50k.csv \
+  --expected-intersection-size 10000 \
+  --expected-intersection-sum 51005000 \
   --iterations 3 \
   --output tmp/pjc_benchmark_100k.json
 ```
@@ -825,17 +825,9 @@ Define and measure SLO targets for a standard 10k-item privacy query:
 | Policy release | < 1s | < 3s |
 | **Total pipeline** | **< 90s** | **< 180s** |
 
-Automate with an extended `benchmark_pipeline.py`:
+Current implemented scaffold: `benchmark_pipeline.py` accepts `--server-source`, `--client-source`, `--expected-intersection-size`, and `--expected-intersection-sum`, so larger fixtures can be supplied explicitly once their expected result is known.
 
-```bash
-python3 scripts/benchmark_pipeline.py \
-  --mode scale \
-  --server-rows 10000 \
-  --client-rows 10000 \
-  --candidate-count 1000 \
-  --iterations 3 \
-  --output tmp/pipeline_slo_benchmark.json
-```
+Remaining G5 work is to add a true scale/SLO mode that can generate or accept 10k inputs, derive the expected intersection sum from the fixture, carry candidate-count into the SSE/recovery stage, and emit a dedicated `pipeline_slo_benchmark/v1` report.
 
 Record per-stage `duration_ms` from `pipeline_observability/v1` output. Compare against SLO targets. Fail if any stage exceeds 3x its p95 target.
 
@@ -859,10 +851,8 @@ python3 scripts/benchmark_record_recovery.py \
   --mode all --candidate-count 1000 --iterations 20 \
   --output tmp/recovery_plain_http.json
 
-# mTLS
 python3 scripts/benchmark_record_recovery.py \
-  --mode mtls --candidate-count 1000 --iterations 20 \
-  --tls-config tmp/mtls \
+  --mode http_recover_mtls --candidate-count 1000 --iterations 20 \
   --output tmp/recovery_mtls.json
 ```
 
@@ -1648,7 +1638,7 @@ Week 12-13: K3, F4-a, F4-b (parallel)
 | Category | Blocks remaining | ~Hours remaining | Notes |
 |----------|----------------:|----------------:|-------|
 | E — Real authority sources | 0 repo-side | 0h | Complete; live validation is operator-environment work |
-| F — Production PostgreSQL | 7 | 35h | F1-a done (psycopg2 layer + init_metadata_db); F1-b + F2-F4 remain |
+| F — Production PostgreSQL | 7 | 35h | F1-a done (psycopg2 layer + main metadata `--db-dsn` surfaces); F1-b + F2-F4 remain |
 | G — Scale & optimization | 10 | 50h | E1 + F1 smoke-tested prerequisite |
 | H — Multi-tenant isolation | 5 | 25h | H2-a done (token bucket rate limiter); H1, H2-b, H3 remain |
 | I — Production operator console | 6 | 30h | E1, G complete prerequisite |

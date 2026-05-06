@@ -92,7 +92,7 @@ SSE candidate export
 
 14. HTTP recovery service 支持 `--rate-limit-per-caller`（token bucket 速率限制）；超限请求返回 HTTP 429 并写入结构化日志
 15. HTTP recovery service 暴露 `GET /metrics`（Prometheus 文本格式 counter + histogram），无需外部 client 库
-16. `scripts/metadata_db.py` 已包含 psycopg2 driver layer：`connect_db(dsn=…)` 支持 PostgreSQL；`adapt_sql` / `placeholder` / `is_postgres` 适配参数占位符；`scripts/init_metadata_db.py --db-dsn` 可初始化 PostgreSQL 数据库
+16. `scripts/metadata_db.py` 已包含 psycopg2 driver layer：`connect_db(dsn=…)` 支持 PostgreSQL；`adapt_sql` / `placeholder` / `is_postgres` / `row_to_dict` 适配参数占位符和行读取；`init/import/query/manage/metadata API` 已支持 `--db-dsn`，query/audit/platform-health API 的 identity resolution 已支持 `--metadata-db-dsn`，`benchmark_read_adapters.py --db-dsn` 可做 SQLite/PostgreSQL 读侧对比；真实 PostgreSQL live gate 仍是后续 F1-b
 
 当前这一层更像”谁能发起或审核隐私查询”的平台权限模型，而不是完整电商业务人员身份模型。
 
@@ -120,6 +120,7 @@ SSE candidate export
 1. `check_json_contracts.sh`
 2. `check_ci_smoke.sh`
 3. query / read adapter / recovery / pipeline / PJC / audit bundle / platform health / derived views benchmark
+4. record-recovery benchmark 支持 `--candidate-count`、`--mode http_recover_concurrent --concurrency <n>` 和显式 `--mode http_recover_mtls`，可对 HTTP recovery service 做候选规模、并发批次和 mTLS recover 测量
 
 ## 4. 当前不能做什么
 

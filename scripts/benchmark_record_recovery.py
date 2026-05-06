@@ -8,6 +8,7 @@ import subprocess
 import sys
 import tempfile
 import time
+from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeoutError, as_completed
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable
@@ -25,6 +26,7 @@ if str(SSE_DIR) not in sys.path:
 
 from services.record_recovery.client import request_record_recovery, request_record_recovery_health  # noqa: E402
 from services.record_recovery.encrypted_record_store import build_record_store  # noqa: E402
+from scripts.issue_mtls_certs import build_report as issue_mtls_cert_report  # noqa: E402
 
 
 MODES = (
@@ -34,6 +36,10 @@ MODES = (
     "http_health_cli",
     "http_health_direct",
     "http_recover_direct",
+    "http_recover_concurrent",
+)
+EXPLICIT_MODES = (
+    "http_recover_mtls",
 )
 FIXTURE_PROFILE = "synthetic_record_recovery_store_v1"
 FIXTURE_SERVICE_ID = "benchmark-record-recovery"
@@ -138,6 +144,45 @@ def run_callable(func: Callable[[], dict[str, Any]], *, timeout_sec: float) -> d
     return payload
 
 
+def run_concurrent_batch(
+    funcs: list[Callable[[], dict[str, Any]]],
+    *,
+    timeout_sec: float,
+) -> dict[str, Any]:
+    started = time.perf_counter()
+    request_results: list[dict[str, Any]] = []
+    failures: list[str] = []
+    with ThreadPoolExecutor(max_workers=len(funcs)) as executor:
+        futures = [executor.submit(func) for func in funcs]
+        try:
+            completed = list(as_completed(futures, timeout=timeout_sec))
+        except FuturesTimeoutError as exc:
+            completed = [future for future in futures if future.done()]
+            failures.append(str(exc))
+            for future in futures:
+                future.cancel()
+        for future in completed:
+            try:
+                request_results.append(future.result(timeout=0))
+            except Exception as exc:
+                failures.append(str(exc))
+    duration_sec = time.perf_counter() - started
+    successful = len(request_results)
+    failed = len(failures) + (len(funcs) - successful - len(failures))
+    total_output_rows = sum(int(result.get("output_rows") or 0) for result in request_results)
+    return {
+        "duration_ms": round(duration_sec * 1000, 3),
+        "exit_code": 0 if failed == 0 else 1,
+        "timed_out": duration_sec > timeout_sec,
+        "stderr_tail": "\n".join(failures[-5:]),
+        "concurrent_requests": len(funcs),
+        "successful_requests": successful,
+        "failed_requests": failed,
+        "total_output_rows": total_output_rows,
+        "throughput_rps": round(successful / duration_sec, 3) if duration_sec > 0 else None,
+    }
+
+
 def parse_json_stdout(stdout: str, *, label: str) -> dict[str, Any]:
     try:
         payload = json.loads(stdout)
@@ -162,6 +207,7 @@ def make_service_config(
     endpoint_url: str = "",
     bind_host: str = "",
     port: int | None = None,
+    tls_config: dict[str, Any] | None = None,
 ) -> None:
     payload: dict[str, Any] = {
         "schema": "record_recovery_service_config/v1",
@@ -190,6 +236,8 @@ def make_service_config(
             raise SystemExit("[ERROR] http benchmark config requires endpoint_url, bind_host, and port")
         payload["endpoint_url"] = endpoint_url
         payload["http_listener"] = {"bind_host": bind_host, "port": port}
+        if tls_config:
+            payload["tls"] = tls_config
     write_json(config_path, payload)
 
 
@@ -223,6 +271,34 @@ def create_record_store(*, store_path: Path, env: dict[str, str], candidate_coun
             os.environ[KEY_ENV] = original
     if count != candidate_count + 1:
         raise SystemExit(f"[ERROR] unexpected synthetic record-store row count: {count}")
+
+
+def issue_mock_mtls_certs(out_dir: Path) -> dict[str, Any]:
+    report = issue_mtls_cert_report(
+        {
+            "schema": "vault_pki_config/v1",
+            "common_name": "127.0.0.1",
+            "ip_sans": ["127.0.0.1"],
+            "dns_sans": ["localhost"],
+            "ttl_hours": 24,
+            "issue_client_cert": True,
+            "mock_mode": True,
+        },
+        out_dir=str(out_dir),
+    )
+    if not report.get("ok"):
+        raise RuntimeError(f"mock mTLS cert issue failed: {report.get('error')}")
+    issued = report.get("issued_files") if isinstance(report.get("issued_files"), dict) else {}
+    return {
+        "enabled": True,
+        "server_cert": str(issued["server_cert"]),
+        "server_key": str(issued["server_key"]),
+        "ca_cert": str(issued["ca_cert"]),
+        "require_client_cert": True,
+        "client_cert": str(issued["client_cert"]),
+        "client_key": str(issued["client_key"]),
+        "verify_hostname": False,
+    }
 
 
 def verify_recovered_csv(path: Path, *, expected_output_rows: int) -> None:
@@ -259,7 +335,8 @@ def build_parser() -> argparse.ArgumentParser:
     ap = argparse.ArgumentParser(description="Benchmark standalone record recovery service health and recover operations over Unix-socket and HTTP transports.")
     ap.add_argument("--iterations", type=int, default=3)
     ap.add_argument("--candidate-count", type=int, default=EXPECTED_OUTPUT_ROWS)
-    ap.add_argument("--mode", choices=("all",) + MODES, default="all")
+    ap.add_argument("--concurrency", type=int, default=2)
+    ap.add_argument("--mode", choices=("all",) + MODES + EXPLICIT_MODES, default="all")
     ap.add_argument("--timeout-sec", type=float, default=30.0)
     ap.add_argument("--output", default="")
     ap.add_argument("--allow-failures", action="store_true")
@@ -272,6 +349,8 @@ def main() -> int:
         raise SystemExit("[ERROR] --candidate-count must be positive")
     if args.iterations <= 0:
         raise SystemExit("[ERROR] --iterations must be positive")
+    if args.concurrency <= 0:
+        raise SystemExit("[ERROR] --concurrency must be positive")
     if args.timeout_sec <= 0:
         raise SystemExit("[ERROR] --timeout-sec must be positive")
 
@@ -294,8 +373,10 @@ def main() -> int:
             transport_set = []
             if any(mode.startswith("unix_socket_") for mode in selected_modes):
                 transport_set.append("unix_socket")
-            if any(mode.startswith("http_") for mode in selected_modes):
+            if any(mode.startswith("http_") and mode != "http_recover_mtls" for mode in selected_modes):
                 transport_set.append("http")
+            if "http_recover_mtls" in selected_modes:
+                transport_set.append("https_mtls")
 
             results: list[dict[str, Any]] = []
             startup_by_transport: dict[str, float] = {}
@@ -310,17 +391,19 @@ def main() -> int:
                     socket_path = None
                     bind_host = "127.0.0.1"
                     port = available_port()
-                    endpoint_url = f"http://127.0.0.1:{port}"
+                    endpoint_url = f"https://127.0.0.1:{port}" if transport == "https_mtls" else f"http://127.0.0.1:{port}"
+                tls_config = issue_mock_mtls_certs(run_root / "mtls") if transport == "https_mtls" else None
 
                 config_path = run_root / f"{transport}.config.json"
                 make_service_config(
                     config_path=config_path,
                     run_root=run_root,
-                    transport=transport,
+                    transport="http" if transport == "https_mtls" else transport,
                     socket_path=socket_path,
                     endpoint_url=endpoint_url,
                     bind_host=bind_host,
                     port=port,
+                    tls_config=tls_config,
                 )
 
                 start_command = [
@@ -345,6 +428,10 @@ def main() -> int:
                         if transport == "unix_socket" and not mode.startswith("unix_socket_"):
                             continue
                         if transport == "http" and not mode.startswith("http_"):
+                            continue
+                        if transport == "http" and mode == "http_recover_mtls":
+                            continue
+                        if transport == "https_mtls" and mode != "http_recover_mtls":
                             continue
 
                         mode_results: list[dict[str, Any]] = []
@@ -373,7 +460,7 @@ def main() -> int:
 
                             for _ in range(args.iterations):
                                 mode_results.append(run_callable(health_call, timeout_sec=args.timeout_sec))
-                        elif mode.endswith("_recover_direct"):
+                        elif mode.endswith("_recover_direct") or mode == "http_recover_mtls":
                             mode_command = ["python-api", "services.record_recovery.client.request_record_recovery"]
                             for iteration in range(args.iterations):
                                 out_path = run_root / "outputs" / f"{mode}_{iteration}.csv"
@@ -385,6 +472,7 @@ def main() -> int:
                                         socket_path=socket_path,
                                         endpoint_url=endpoint_url,
                                         auth_env=AUTH_ENV,
+                                        tls_config=tls_config,
                                         caller=FIXTURE_CALLER,
                                         job_id=FIXTURE_JOB_ID,
                                         tenant_id=FIXTURE_TENANT_ID,
@@ -408,6 +496,51 @@ def main() -> int:
                                     return result
 
                                 mode_results.append(run_callable(recover_call, timeout_sec=args.timeout_sec))
+                        elif mode == "http_recover_concurrent":
+                            mode_command = [
+                                "python-api",
+                                "services.record_recovery.client.request_record_recovery",
+                                f"--concurrency={args.concurrency}",
+                            ]
+                            for iteration in range(args.iterations):
+                                funcs: list[Callable[[], dict[str, Any]]] = []
+                                for request_index in range(args.concurrency):
+                                    out_path = run_root / "outputs" / f"{mode}_{iteration}_{request_index}.csv"
+                                    if out_path.exists():
+                                        out_path.unlink()
+
+                                    def recover_call(out_path: Path = out_path) -> dict[str, Any]:
+                                        result = request_record_recovery(
+                                            socket_path=None,
+                                            endpoint_url=endpoint_url,
+                                            auth_env=AUTH_ENV,
+                                            tls_config=tls_config,
+                                            caller=FIXTURE_CALLER,
+                                            job_id=FIXTURE_JOB_ID,
+                                            tenant_id=FIXTURE_TENANT_ID,
+                                            dataset_id=FIXTURE_DATASET_ID,
+                                            service_id=FIXTURE_SERVICE_ID,
+                                            record_store_path=store_path,
+                                            record_store_key_env=KEY_ENV,
+                                            out_path=out_path,
+                                            out_format="csv",
+                                            role="client",
+                                            join_key_field="email",
+                                            value_field="amount",
+                                            filter_pairs=[("campaign", "demo")],
+                                            candidate_ids={
+                                                synthetic_candidate_email(index) for index in range(args.candidate_count)
+                                            },
+                                            min_output_rows=1,
+                                            max_output_rows=max(args.candidate_count, 5),
+                                        )
+                                        if int(result.get("output_rows", -1)) != args.candidate_count:
+                                            raise RuntimeError(f"unexpected recover output_rows: {result}")
+                                        verify_recovered_csv(out_path, expected_output_rows=args.candidate_count)
+                                        return result
+
+                                    funcs.append(recover_call)
+                                mode_results.append(run_concurrent_batch(funcs, timeout_sec=args.timeout_sec))
                         else:
                             raise SystemExit(f"[ERROR] unsupported benchmark mode: {mode}")
 

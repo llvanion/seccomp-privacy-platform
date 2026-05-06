@@ -120,6 +120,7 @@ def validate_record_recovery(payload: dict[str, Any]) -> None:
         "http_health_cli": ("http", "health"),
         "http_health_direct": ("http", "health"),
         "http_recover_direct": ("http", "recover"),
+        "http_recover_concurrent": ("http", "recover"),
     }
     if set(payload.get("transports") or []) != {"unix_socket", "http"}:
         raise SystemExit(f"record recovery benchmark transports mismatch: {payload}")
@@ -144,6 +145,15 @@ def validate_record_recovery(payload: dict[str, Any]) -> None:
             raise SystemExit(f"record recovery direct result transport mismatch: {entry}")
         if mode.endswith("_recover_direct") and result.get("output_rows") != 2:
             raise SystemExit(f"record recovery direct result output_rows mismatch: {entry}")
+        if mode == "http_recover_concurrent":
+            if (
+                result.get("concurrent_requests") != 2
+                or result.get("successful_requests") != 2
+                or result.get("failed_requests") != 0
+                or result.get("total_output_rows") != 4
+                or not isinstance(result.get("throughput_rps"), (int, float))
+            ):
+                raise SystemExit(f"record recovery concurrent result mismatch: {entry}")
 
 
 def validate_audit_bundle(payload: dict[str, Any]) -> None:

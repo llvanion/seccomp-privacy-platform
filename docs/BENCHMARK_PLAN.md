@@ -114,6 +114,16 @@ python3 scripts/benchmark_read_adapters.py \
   --output tmp/read_adapter_benchmark.json
 ```
 
+PostgreSQL comparison mode is available once a live metadata database exists:
+
+```bash
+python3 scripts/benchmark_read_adapters.py \
+  --iterations 3 \
+  --mode all \
+  --db-dsn postgresql://postgres:test@localhost:5432/postgres \
+  --output tmp/read_adapter_benchmark_postgres.json
+```
+
 Why it uses a synthetic fixture:
 
 1. it benchmarks stable read paths without depending on a pre-existing local run directory
@@ -144,6 +154,8 @@ Example:
 python3 scripts/benchmark_record_recovery.py \
   --iterations 3 \
   --mode all \
+  --candidate-count 1000 \
+  --concurrency 10 \
   --output tmp/record_recovery_benchmark.json
 ```
 
@@ -152,7 +164,10 @@ Why it uses a synthetic fixture:
 1. it benchmarks the service boundary without requiring a pre-existing encrypted record store or long-running service
 2. it reuses the current standalone launcher and manager flow instead of introducing a new benchmark-only transport
 3. it keeps the benchmark sidecar-only by generating a temporary encrypted record store and temporary service config under `/tmp`
-4. default contract smoke now also asserts the full Unix-socket/HTTP mode set and that the synthetic recover calls still return `output_rows=2`
+4. `--candidate-count` sizes the synthetic encrypted record store and verifies that recover calls return the same number of rows as requested
+5. `--mode http_recover_concurrent --concurrency <n>` issues concurrent HTTP recover requests against the standalone service and reports per-batch throughput
+6. `--mode http_recover_mtls` starts the HTTP recovery service with mock-issued mTLS certificates and verifies a client-authenticated recover request
+7. default contract smoke now also asserts the full Unix-socket/HTTP mode set, that the default synthetic recover calls still return `output_rows=2`, and that the default concurrent HTTP batch returns two successful requests; mTLS remains an explicit benchmark mode
 
 ## Full Pipeline Benchmark
 
@@ -174,6 +189,10 @@ Example:
 python3 scripts/benchmark_pipeline.py \
   --iterations 1 \
   --mode all \
+  --server-source "$PWD/sse/examples/bridge_server_records.jsonl" \
+  --client-source "$PWD/sse/examples/bridge_client_records.jsonl" \
+  --expected-intersection-size 2 \
+  --expected-intersection-sum 425 \
   --output tmp/pipeline_benchmark.json
 ```
 
@@ -196,6 +215,7 @@ Why it is not part of contract smoke:
 3. it is intended for reproducible local performance checks, not as a default CI-fast path
 4. the benchmark now runs under a temporary `HOME` so SSE runtime logs stay inside the benchmark sandbox instead of depending on the caller's user directory
 5. default contract smoke still validates a synthetic `pipeline_benchmark/v1` fixture plus the expected file-cleanup, retained-file, and FIFO mode/command surface so benchmark-contract drift is caught without executing the heavy benchmark
+6. `--server-source`, `--client-source`, `--expected-intersection-size`, and `--expected-intersection-sum` allow larger generated fixtures while preserving explicit result assertions
 
 ## PJC Benchmark
 
@@ -217,6 +237,10 @@ Example:
 python3 scripts/benchmark_pjc.py \
   --iterations 1 \
   --mode all \
+  --server-csv "$PWD/bridge/out/sse_demo_job/server.csv" \
+  --client-csv "$PWD/bridge/out/sse_demo_job/client.csv" \
+  --expected-intersection-size 2 \
+  --expected-intersection-sum 425 \
   --output tmp/pjc_benchmark.json
 ```
 
@@ -232,6 +256,33 @@ Why it is not part of contract smoke:
 2. it is slower and more environment-sensitive than the contract-only checks
 3. it is intended for reproducible local performance measurements of the prepared PJC path
 4. default contract smoke still validates a synthetic `pjc_benchmark/v1` fixture plus the expected single-mode command and checked-in bridge-fixture surface so benchmark-contract drift is caught without starting the PJC runtime
+5. `--server-csv`, `--client-csv`, `--expected-intersection-size`, and `--expected-intersection-sum` allow scale fixtures generated outside the checked-in demo job
+
+## Benchmark Dataset Generator
+
+`scripts/generate_benchmark_dataset.py` creates synthetic inputs for the scale-oriented benchmark paths without changing the frozen pipeline contracts:
+
+1. `orders-jsonl`: e-commerce-style JSONL records for SSE/export benchmarking.
+2. `bridge-csv`: server/client CSV fixtures with a controlled overlap for prepared bridge/PJC-style experiments.
+3. `pjc-csv`: server/client CSV fixtures with a controlled overlap for PJC-only experiments.
+
+Examples:
+
+```bash
+python3 scripts/generate_benchmark_dataset.py bridge-csv \
+  --server-csv tmp/bridge_server_100k.csv \
+  --client-csv tmp/bridge_client_100k.csv \
+  --server-rows 100000 \
+  --client-rows 100000 \
+  --overlap 0.3
+
+python3 scripts/generate_benchmark_dataset.py pjc-csv \
+  --server-csv tmp/pjc_server_100k.csv \
+  --client-csv tmp/pjc_client_50k.csv \
+  --server-items 100000 \
+  --client-items 50000 \
+  --overlap 0.2
+```
 
 ## Live SSE Benchmark
 

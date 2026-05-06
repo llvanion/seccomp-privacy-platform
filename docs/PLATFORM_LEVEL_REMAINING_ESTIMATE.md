@@ -153,7 +153,9 @@
 
 | 完成时间 | Production Block | 入口 | 验证 |
 | --- | --- | --- | --- |
-| 2026-05-06 | F1-a：psycopg2 PostgreSQL driver layer | `scripts/metadata_db.py`（`connect_db(dsn=…)`、`is_postgres`、`placeholder`、`adapt_sql`、`connect_db_with_retry`），`scripts/init_metadata_db.py --db-dsn` | `python3 -m py_compile` ✓；SQLite 默认路径不受影响；`check_ci_smoke.sh` ✓ |
+| 2026-05-06 | F1-a：psycopg2 PostgreSQL driver layer | `scripts/metadata_db.py`（`connect_db(dsn=…)`、`is_postgres`、`placeholder`、`adapt_sql`、`row_to_dict`、`connect_db_with_retry`），`scripts/init_metadata_db.py --db-dsn`，`scripts/import_run_metadata.py --db-dsn`，`scripts/query_metadata.py --db-dsn`，`scripts/manage_metadata_db.py --db-dsn`，`scripts/serve_metadata_api.py --db-dsn`，query/audit/platform-health API `--metadata-db-dsn` identity paths，`scripts/benchmark_read_adapters.py --db-dsn` | `python3 -m py_compile` ✓；SQLite 默认路径不受影响；`check_ci_smoke.sh` ✓；真实 PostgreSQL live gate 仍归 F1-b |
+| 2026-05-06 | G2-b 第一版：record-recovery HTTP concurrent benchmark scaffold | `scripts/benchmark_record_recovery.py --mode http_recover_concurrent --concurrency <n>`，`schemas/record_recovery_benchmark.schema.json`，`scripts/check_benchmark_smoke_reports.py` | 最小 HTTP 并发 smoke ✓（2 concurrent requests / 4 total output rows）；schema/backcompat ✓；真实 1k candidates × 10 concurrency 阈值验证仍归 G2-b live benchmark |
+| 2026-05-06 | G6 第一版：record-recovery mTLS benchmark scaffold | `scripts/benchmark_record_recovery.py --mode http_recover_mtls`，mock-issued recovery-service mTLS certs，`record_recovery_benchmark/v1` transport `https_mtls` | 最小 mTLS recover smoke ✓（output_rows=2）；默认 benchmark mode 不强制跑 TLS |
 | 2026-05-06 | H2-a：per-caller token bucket rate limiter | `services/record_recovery/http_service.py`（`TokenBucket`、`RecordRecoveryHttpServer.check_rate_limit`、`do_POST` rate-limit gate → HTTP 429 `rate_limited`），CLI flags `--rate-limit-per-caller` / `--rate-limit-burst` | `python3 -m py_compile` ✓；`check_ci_smoke.sh` ✓ |
 | 2026-05-06 | J3-a：Prometheus /metrics endpoint | `services/record_recovery/http_service.py`（`ServiceMetrics`、`GET /metrics`），`_log_request` 自动记录 counter + histogram | `python3 -m py_compile` ✓；`check_ci_smoke.sh` ✓ |
 

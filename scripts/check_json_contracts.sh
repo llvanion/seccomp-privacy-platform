@@ -996,6 +996,16 @@ python3 -c 'import json, sys; payload=json.load(open(sys.argv[1], "r", encoding=
 python3 -c 'import json, sys; payload=json.load(open(sys.argv[1], "r", encoding="utf-8")); assert payload["mode"] == "apply", payload; assert payload["summary"]["inserted_job_count"] == 0, payload; assert payload["summary"]["replaced_job_count"] == 1, payload; item=payload["imports"][0]; assert item["action"] == "replace", item; assert item["existing_job"]["exists"] is True, item; assert item["job_state_after"]["exists"] is True, item; assert item["job_state_after"]["row_counts"]["job_artifacts"] >= 8, item' "$tmp/platform_metadata_import_replay.json"
 python3 -c 'import json, sys; payload=json.load(open(sys.argv[1], "r", encoding="utf-8")); assert payload["mode"] == "dry_run", payload; assert payload["summary"]["processed_run_count"] == 1, payload; item=payload["imports"][0]; assert item["action"] == "replace", item; assert item["out_base"], item' "$tmp/platform_metadata_import_batch.json"
 python3 -c 'import json, sys; payload=json.load(open(sys.argv[1], "r", encoding="utf-8")); assert payload["status"] == "ok", payload; assert payload["summary"]["sqlite_only_construct_count"] == 0, payload; check_names={item["name"] for item in payload["checks"]}; assert "sqlite_only_constructs" in check_names and "expected_indexes_present" in check_names, payload' "$tmp/platform_metadata_schema_portability.json"
+if [[ -n "${POSTGRES_DSN:-}" ]]; then
+  python3 "$REPO_ROOT/scripts/check_metadata_schema_portability.py" \
+    --db-dsn "$POSTGRES_DSN" \
+    --output "$tmp/platform_metadata_schema_portability_postgres.json" \
+    > /dev/null
+  python3 "$VALIDATOR" \
+    --schema "$REPO_ROOT/schemas/metadata_schema_portability.schema.json" \
+    --json "$tmp/platform_metadata_schema_portability_postgres.json"
+  python3 -c 'import json, sys; payload=json.load(open(sys.argv[1], "r", encoding="utf-8")); assert payload["status"] == "ok", payload; assert payload["backend"] == "postgres", payload; check_names={item["name"] for item in payload["checks"]}; assert "postgres_live_migration_smoke" in check_names, payload' "$tmp/platform_metadata_schema_portability_postgres.json"
+fi
 # Postgres DDL target validation
 python3 "$REPO_ROOT/scripts/export_postgres_ddl.py" \
   --output "$tmp/postgres_ddl_export.json" \
