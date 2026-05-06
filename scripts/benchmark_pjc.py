@@ -74,8 +74,11 @@ def run_pjc_once(
     iteration: int,
     pjc_bin_dir: Path,
     timeout_sec: float,
+    server_csv: Path,
+    client_csv: Path,
+    expected_intersection_size: int,
+    expected_intersection_sum: int,
 ) -> dict[str, Any]:
-    server_csv, client_csv = fixture_paths(mode)
     if not server_csv.is_file() or not client_csv.is_file():
         raise RuntimeError(f"missing PJC benchmark fixture files for {mode}")
 
@@ -150,7 +153,7 @@ def run_pjc_once(
         metrics = read_json(result_path)
         intersection_size = int(metrics.get("intersection_size"))
         intersection_sum = int(metrics.get("intersection_sum"))
-        if intersection_size != EXPECTED_INTERSECTION_SIZE or intersection_sum != EXPECTED_INTERSECTION_SUM:
+        if intersection_size != expected_intersection_size or intersection_sum != expected_intersection_sum:
             return {
                 "duration_ms": round(duration_ms, 3),
                 "exit_code": 1,
@@ -182,6 +185,10 @@ def build_parser() -> argparse.ArgumentParser:
     ap.add_argument("--iterations", type=int, default=1)
     ap.add_argument("--mode", choices=("all",) + MODES, default="all")
     ap.add_argument("--timeout-sec", type=float, default=180.0)
+    ap.add_argument("--server-csv", default="")
+    ap.add_argument("--client-csv", default="")
+    ap.add_argument("--expected-intersection-size", type=int, default=EXPECTED_INTERSECTION_SIZE)
+    ap.add_argument("--expected-intersection-sum", type=int, default=EXPECTED_INTERSECTION_SUM)
     ap.add_argument("--output", default="")
     ap.add_argument("--allow-failures", action="store_true")
     return ap
@@ -193,6 +200,8 @@ def main() -> int:
         raise SystemExit("[ERROR] --iterations must be positive")
     if args.timeout_sec <= 0:
         raise SystemExit("[ERROR] --timeout-sec must be positive")
+    if args.expected_intersection_size < 0 or args.expected_intersection_sum < 0:
+        raise SystemExit("[ERROR] expected intersection metrics must be non-negative")
 
     pjc_bin_dir = Path(subprocess.os.environ.get("PJC_BIN_DIR", str(DEFAULT_PJC_BIN_DIR)))
     if not pjc_bin_dir.is_dir():
@@ -203,16 +212,22 @@ def main() -> int:
     selected_modes = list(MODES) if args.mode == "all" else [args.mode]
     mode_entries: list[dict[str, Any]] = []
     for mode in selected_modes:
+        default_server_csv, default_client_csv = fixture_paths(mode)
+        server_csv = Path(args.server_csv).expanduser() if args.server_csv else default_server_csv
+        client_csv = Path(args.client_csv).expanduser() if args.client_csv else default_client_csv
         mode_results = [
             run_pjc_once(
                 mode=mode,
                 iteration=iteration,
                 pjc_bin_dir=pjc_bin_dir,
                 timeout_sec=args.timeout_sec,
+                server_csv=server_csv,
+                client_csv=client_csv,
+                expected_intersection_size=args.expected_intersection_size,
+                expected_intersection_sum=args.expected_intersection_sum,
             )
             for iteration in range(args.iterations)
         ]
-        server_csv, client_csv = fixture_paths(mode)
         mode_entries.append(
             {
                 "mode": mode,
@@ -232,8 +247,8 @@ def main() -> int:
         "repo_root": str(REPO_ROOT),
         "pjc_bin_dir": str(pjc_bin_dir),
         "expected_result": {
-            "intersection_size": EXPECTED_INTERSECTION_SIZE,
-            "intersection_sum": EXPECTED_INTERSECTION_SUM,
+            "intersection_size": args.expected_intersection_size,
+            "intersection_sum": args.expected_intersection_sum,
         },
         "iterations": args.iterations,
         "modes": mode_entries,

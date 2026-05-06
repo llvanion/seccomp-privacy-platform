@@ -61,6 +61,7 @@ class QueryWorkflowApiServer(ThreadingHTTPServer):
         *,
         auth_token: str,
         metadata_db_path: str,
+        metadata_db_dsn: str,
         identity_token_config: str,
         allow_execute: bool,
         pid_file: str,
@@ -68,6 +69,7 @@ class QueryWorkflowApiServer(ThreadingHTTPServer):
     ) -> None:
         self.auth_token = auth_token
         self.metadata_db_path = str(Path(metadata_db_path).resolve()) if metadata_db_path else ""
+        self.metadata_db_dsn = metadata_db_dsn
         self.identity_token_config = str(Path(identity_token_config).resolve()) if identity_token_config else ""
         self.allow_execute = allow_execute
         self.pid_file = pid_file
@@ -106,6 +108,7 @@ class QueryWorkflowApiHandler(BaseHTTPRequestHandler):
             auth_header=self.headers.get("Authorization", ""),
             expected_bearer_token=self.server.auth_token,
             db_path=self.server.metadata_db_path,
+            db_dsn=self.server.metadata_db_dsn,
             identity_token_config=self.server.identity_token_config,
             auth_failure_label="query workflow API",
         )
@@ -134,6 +137,8 @@ class QueryWorkflowApiHandler(BaseHTTPRequestHandler):
                         "ok": True,
                         "auth_required": bool(self.server.auth_token or self.server.identity_token_config),
                         "allow_execute": self.server.allow_execute,
+                        "metadata_db_path": self.server.metadata_db_path or None,
+                        "metadata_db_dsn": self.server.metadata_db_dsn or None,
                         "request_base_dir_default": str(REPO_ROOT),
                     },
                 )
@@ -262,6 +267,7 @@ def build_parser() -> argparse.ArgumentParser:
     ap.add_argument("--port", type=int, default=18091)
     ap.add_argument("--auth-token-env", default="", help="Optional bearer-token env var for non-health endpoints")
     ap.add_argument("--metadata-db-path", default="", help="Metadata DB path required when --identity-token-config is used")
+    ap.add_argument("--metadata-db-dsn", default="", help="Metadata PostgreSQL DSN required when --identity-token-config is used")
     ap.add_argument("--identity-token-config", default="", help="Optional bearer-token to caller-identity mapping config")
     ap.add_argument("--allow-execute", action="store_true", help="Enable the /v1/query-workflows/execute endpoint")
     ap.add_argument("--pid-file", default="")
@@ -271,14 +277,15 @@ def build_parser() -> argparse.ArgumentParser:
 
 def main() -> int:
     args = build_parser().parse_args()
-    if args.identity_token_config and not args.metadata_db_path:
-        raise SystemExit("[ERROR] --identity-token-config requires --metadata-db-path")
+    if args.identity_token_config and not args.metadata_db_path and not args.metadata_db_dsn:
+        raise SystemExit("[ERROR] --identity-token-config requires --metadata-db-path or --metadata-db-dsn")
     auth_token = read_auth_token(args.auth_token_env)
     server = QueryWorkflowApiServer(
         (args.bind_host, args.port),
         QueryWorkflowApiHandler,
         auth_token=auth_token,
         metadata_db_path=args.metadata_db_path,
+        metadata_db_dsn=args.metadata_db_dsn,
         identity_token_config=args.identity_token_config,
         allow_execute=args.allow_execute,
         pid_file=args.pid_file,

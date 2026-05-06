@@ -77,6 +77,7 @@ class AuditQueryApiServer(ThreadingHTTPServer):
         out_base: str,
         auth_token: str,
         metadata_db_path: str,
+        metadata_db_dsn: str,
         identity_token_config: str,
         pid_file: str,
         ready_file: str,
@@ -86,6 +87,7 @@ class AuditQueryApiServer(ThreadingHTTPServer):
         self.public_report_path = str(Path(self.out_base) / "a_psi_run" / "public_report.json")
         self.auth_token = auth_token
         self.metadata_db_path = str(Path(metadata_db_path).resolve()) if metadata_db_path else ""
+        self.metadata_db_dsn = metadata_db_dsn
         self.identity_token_config = str(Path(identity_token_config).resolve()) if identity_token_config else ""
         self.pid_file = pid_file
         self.ready_file = ready_file
@@ -122,6 +124,7 @@ class AuditQueryApiHandler(BaseHTTPRequestHandler):
             auth_header=self.headers.get("Authorization", ""),
             expected_bearer_token=self.server.auth_token,
             db_path=self.server.metadata_db_path,
+            db_dsn=self.server.metadata_db_dsn,
             identity_token_config=self.server.identity_token_config,
             auth_failure_label="audit query API",
         )
@@ -205,6 +208,8 @@ class AuditQueryApiHandler(BaseHTTPRequestHandler):
                         "ok": True,
                         "out_base": self.server.out_base,
                         "auth_required": bool(self.server.auth_token or self.server.identity_token_config),
+                        "metadata_db_path": self.server.metadata_db_path or None,
+                        "metadata_db_dsn": self.server.metadata_db_dsn or None,
                         "available_results": [
                             "public_report/v2",
                             "audit_chain/v1",
@@ -287,6 +292,7 @@ def build_parser() -> argparse.ArgumentParser:
     ap.add_argument("--port", type=int, default=18092)
     ap.add_argument("--auth-token-env", default="", help="Optional bearer-token env var for non-health endpoints")
     ap.add_argument("--metadata-db-path", default="", help="Metadata DB path required when --identity-token-config is used")
+    ap.add_argument("--metadata-db-dsn", default="", help="Metadata PostgreSQL DSN required when --identity-token-config is used")
     ap.add_argument("--identity-token-config", default="", help="Optional bearer-token to caller-identity mapping config")
     ap.add_argument("--pid-file", default="")
     ap.add_argument("--ready-file", default="")
@@ -304,8 +310,8 @@ def main() -> int:
         raise SystemExit(f"[ERROR] audit chain does not exist: {audit_chain_path}")
     if not public_report_path.is_file():
         raise SystemExit(f"[ERROR] public report does not exist: {public_report_path}")
-    if args.identity_token_config and not args.metadata_db_path:
-        raise SystemExit("[ERROR] --identity-token-config requires --metadata-db-path")
+    if args.identity_token_config and not args.metadata_db_path and not args.metadata_db_dsn:
+        raise SystemExit("[ERROR] --identity-token-config requires --metadata-db-path or --metadata-db-dsn")
 
     auth_token = read_auth_token(args.auth_token_env)
     server = AuditQueryApiServer(
@@ -314,6 +320,7 @@ def main() -> int:
         out_base=str(out_base),
         auth_token=auth_token,
         metadata_db_path=args.metadata_db_path,
+        metadata_db_dsn=args.metadata_db_dsn,
         identity_token_config=args.identity_token_config,
         pid_file=args.pid_file,
         ready_file=args.ready_file,

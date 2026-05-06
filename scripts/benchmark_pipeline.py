@@ -58,7 +58,13 @@ def read_json(path: Path) -> dict[str, Any]:
     return payload
 
 
-def validate_completed_run(out_base: Path, *, mode: str) -> dict[str, Any]:
+def validate_completed_run(
+    out_base: Path,
+    *,
+    mode: str,
+    expected_intersection_size: int,
+    expected_intersection_sum: int,
+) -> dict[str, Any]:
     result_path = out_base / "a_psi_run" / "attribution_result.json"
     report_path = out_base / "a_psi_run" / "public_report.json"
     audit_chain_path = out_base / "audit_chain.json"
@@ -78,13 +84,13 @@ def validate_completed_run(out_base: Path, *, mode: str) -> dict[str, Any]:
     mainline_contract_check = read_json(mainline_contract_check_path)
     intersection_size = int(result.get("intersection_size"))
     intersection_sum = int(result.get("intersection_sum"))
-    if intersection_size != EXPECTED_INTERSECTION_SIZE:
+    if intersection_size != expected_intersection_size:
         raise RuntimeError(
-            f"unexpected intersection_size: {intersection_size} != {EXPECTED_INTERSECTION_SIZE}"
+            f"unexpected intersection_size: {intersection_size} != {expected_intersection_size}"
         )
-    if intersection_sum != EXPECTED_INTERSECTION_SUM:
+    if intersection_sum != expected_intersection_sum:
         raise RuntimeError(
-            f"unexpected intersection_sum: {intersection_sum} != {EXPECTED_INTERSECTION_SUM}"
+            f"unexpected intersection_sum: {intersection_sum} != {expected_intersection_sum}"
         )
     embedded_mainline_contract_check = (
         audit_chain.get("mainline_contract_check")
@@ -141,14 +147,21 @@ def validate_completed_run(out_base: Path, *, mode: str) -> dict[str, Any]:
     }
 
 
-def build_pipeline_command(*, mode: str, out_base: Path, job_id: str) -> list[str]:
+def build_pipeline_command(
+    *,
+    mode: str,
+    out_base: Path,
+    job_id: str,
+    server_source: Path,
+    client_source: Path,
+) -> list[str]:
     command = [
         "bash",
         str(REPO_ROOT / "scripts" / "run_sse_bridge_pipeline.sh"),
         "--server-source",
-        str((REPO_ROOT / "sse" / "examples" / "bridge_server_records.jsonl").resolve()),
+        str(server_source.resolve()),
         "--client-source",
-        str((REPO_ROOT / "sse" / "examples" / "bridge_client_records.jsonl").resolve()),
+        str(client_source.resolve()),
         "--server-join-key-field",
         "email",
         "--client-join-key-field",
@@ -200,13 +213,23 @@ def run_pipeline_once(
     iteration: int,
     env: dict[str, str],
     timeout_sec: float,
+    server_source: Path,
+    client_source: Path,
+    expected_intersection_size: int,
+    expected_intersection_sum: int,
 ) -> dict[str, Any]:
     with tempfile.TemporaryDirectory(prefix=f"seccomp_pipeline_bench.{mode}.{iteration}.") as tmp_dir:
         out_base = Path(tmp_dir) / "run"
         benchmark_home = Path(tmp_dir) / "home"
         benchmark_home.mkdir(parents=True, exist_ok=True)
         job_id = f"benchmark_pipeline_{mode}_{iteration}"
-        command = build_pipeline_command(mode=mode, out_base=out_base, job_id=job_id)
+        command = build_pipeline_command(
+            mode=mode,
+            out_base=out_base,
+            job_id=job_id,
+            server_source=server_source,
+            client_source=client_source,
+        )
         run_env = dict(env)
         run_env["HOME"] = str(benchmark_home)
         started = time.perf_counter()
@@ -263,7 +286,12 @@ def run_pipeline_once(
             }
 
         try:
-            metrics = validate_completed_run(out_base, mode=mode)
+            metrics = validate_completed_run(
+                out_base,
+                mode=mode,
+                expected_intersection_size=expected_intersection_size,
+                expected_intersection_sum=expected_intersection_sum,
+            )
         except Exception as exc:
             return {
                 "duration_ms": round(duration_ms, 3),
@@ -305,6 +333,10 @@ def build_parser() -> argparse.ArgumentParser:
     ap.add_argument("--iterations", type=int, default=1)
     ap.add_argument("--mode", choices=("all",) + MODES, default="all")
     ap.add_argument("--timeout-sec", type=float, default=300.0)
+    ap.add_argument("--server-source", default=str((REPO_ROOT / "sse" / "examples" / "bridge_server_records.jsonl").resolve()))
+    ap.add_argument("--client-source", default=str((REPO_ROOT / "sse" / "examples" / "bridge_client_records.jsonl").resolve()))
+    ap.add_argument("--expected-intersection-size", type=int, default=EXPECTED_INTERSECTION_SIZE)
+    ap.add_argument("--expected-intersection-sum", type=int, default=EXPECTED_INTERSECTION_SUM)
     ap.add_argument("--output", default="")
     ap.add_argument("--allow-failures", action="store_true")
     return ap
@@ -316,6 +348,15 @@ def main() -> int:
         raise SystemExit("[ERROR] --iterations must be positive")
     if args.timeout_sec <= 0:
         raise SystemExit("[ERROR] --timeout-sec must be positive")
+    if args.expected_intersection_size < 0 or args.expected_intersection_sum < 0:
+        raise SystemExit("[ERROR] expected intersection metrics must be non-negative")
+
+    server_source = Path(args.server_source).expanduser()
+    client_source = Path(args.client_source).expanduser()
+    if not server_source.is_file():
+        raise SystemExit(f"[ERROR] server source does not exist: {server_source}")
+    if not client_source.is_file():
+        raise SystemExit(f"[ERROR] client source does not exist: {client_source}")
 
     pjc_bin_dir = Path(os.environ.get("PJC_BIN_DIR", str(REPO_ROOT / "a-psi" / "private-join-and-compute" / "bazel-bin")))
     if not pjc_bin_dir.is_dir():
@@ -328,7 +369,16 @@ def main() -> int:
     results: list[dict[str, Any]] = []
     for mode in selected_modes:
         mode_results = [
-            run_pipeline_once(mode=mode, iteration=iteration, env=env, timeout_sec=args.timeout_sec)
+            run_pipeline_once(
+                mode=mode,
+                iteration=iteration,
+                env=env,
+                timeout_sec=args.timeout_sec,
+                server_source=server_source,
+                client_source=client_source,
+                expected_intersection_size=args.expected_intersection_size,
+                expected_intersection_sum=args.expected_intersection_sum,
+            )
             for iteration in range(args.iterations)
         ]
         results.append(
@@ -338,6 +388,8 @@ def main() -> int:
                     mode=mode,
                     out_base=Path("/tmp/seccomp_pipeline_benchmark_example"),
                     job_id=f"benchmark_pipeline_{mode}_example",
+                    server_source=server_source,
+                    client_source=client_source,
                 ),
                 "summary": summarize(mode_results),
                 "results": mode_results,
@@ -351,9 +403,11 @@ def main() -> int:
         "bridge_bin": env.get("BRIDGE_BIN", "cargo run --"),
         "pjc_bin_dir": str(pjc_bin_dir),
         "expected_result": {
-            "intersection_size": EXPECTED_INTERSECTION_SIZE,
-            "intersection_sum": EXPECTED_INTERSECTION_SUM,
+            "intersection_size": args.expected_intersection_size,
+            "intersection_sum": args.expected_intersection_sum,
         },
+        "server_source": str(server_source.resolve()),
+        "client_source": str(client_source.resolve()),
         "iterations": args.iterations,
         "modes": results,
     }
