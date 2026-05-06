@@ -64,7 +64,7 @@
       "required": ["kind", "name"],
       "properties": {
         "kind": {
-          "enum": ["env", "vault_kv"]
+          "enum": ["env", "vault_kv", "vault_http", "aws_kms"]
         },
         "name": {
           "type": ["string", "null"]

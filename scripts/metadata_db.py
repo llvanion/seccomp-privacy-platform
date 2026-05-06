@@ -236,6 +236,27 @@ def connect_db(db_path: str = "", dsn: str = "") -> Any:
     return conn
 
 
+def connect_db_with_retry(
+    db_path: str = "",
+    dsn: str = "",
+    *,
+    retries: int = 3,
+    delay: float = 1.0,
+) -> Any:
+    """Like connect_db but retries on OperationalError (useful after Patroni failover)."""
+    import time
+
+    last_exc: Exception | None = None
+    for attempt in range(retries):
+        try:
+            return connect_db(db_path, dsn=dsn)
+        except Exception as exc:
+            last_exc = exc
+            if attempt < retries - 1:
+                time.sleep(delay * (2 ** attempt))
+    raise last_exc  # type: ignore[misc]
+
+
 def database_backend(conn: Any) -> str:
     if isinstance(conn, PostgresConnectionWrapper):
         return "postgres"

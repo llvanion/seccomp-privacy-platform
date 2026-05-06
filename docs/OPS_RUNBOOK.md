@@ -158,6 +158,35 @@ python3 scripts/check_authority_governance.py \
 
 The report contract is `authority_governance_report/v1`. It is a read-only rollup over existing reports; use `checks[].source_path` to drill into the original authority report. A warning means at least one input is degraded but not directly blocking; an error means at least one authority check failed and should be fixed before execute/release workflows are trusted.
 
+For a live OpenFGA-backed check, pass `--openfga-config config/openfga.example.json` together with `--openfga-user`, `--openfga-relation`, and `--openfga-object`. The default contract smoke keeps using the SQLite fallback; setting `OPENFGA_ENDPOINT` and `OPENFGA_STORE_ID` enables the optional live OpenFGA branch in `scripts/check_json_contracts.sh`, which applies tuples, performs a live check, and validates the authority-governance rollup.
+
+### Authority Service Stack
+
+For local production-readiness validation of the E tranche, start the optional authority stack:
+
+```bash
+docker compose -f docker-compose.authority.yml up keycloak openfga vault
+```
+
+The stack imports `config/keycloak_realm_seccomp_privacy.json`, exposes OpenFGA for `config/openfga.example.json`, and starts Vault dev mode. Repo smoke remains offline by default; live operations require explicit `--execute` or `OPENFGA_ENDPOINT` / `OPENFGA_STORE_ID`.
+
+Useful live/dry-run helpers:
+
+```bash
+python3 scripts/request_oidc_client_credentials.py \
+  --token-endpoint http://127.0.0.1:8080/realms/seccomp-privacy/protocol/openid-connect/token \
+  --client-id recovery-service
+
+python3 scripts/setup_openfga_model.py \
+  --openfga-config config/openfga.example.json \
+  --model config/openfga_authorization_model.json
+
+python3 scripts/issue_mtls_certs.py \
+  --config config/vault_pki.example.json \
+  --out-dir tmp/mtls \
+  --assert-ok
+```
+
 ### Key Agent
 
 Probe a running key agent over its Unix socket:

@@ -4,6 +4,8 @@ import json
 import os
 import signal
 import ssl
+import threading
+import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
@@ -29,12 +31,104 @@ from services.record_recovery.service import (
 ensure_repo_paths()
 
 
+class TokenBucket:
+    """Thread-safe token bucket for per-caller rate limiting (H2-a)."""
+
+    def __init__(self, rate: float, capacity: int) -> None:
+        self._tokens = float(capacity)
+        self._rate = rate
+        self._capacity = capacity
+        self._last = time.monotonic()
+        self._lock = threading.Lock()
+
+    def consume(self, n: int = 1) -> bool:
+        with self._lock:
+            now = time.monotonic()
+            self._tokens = min(
+                float(self._capacity),
+                self._tokens + (now - self._last) * self._rate,
+            )
+            self._last = now
+            if self._tokens >= n:
+                self._tokens -= n
+                return True
+            return False
+
+
+class ServiceMetrics:
+    """In-memory Prometheus-compatible counters and histogram for /metrics (J3-a)."""
+
+    def __init__(self) -> None:
+        self._lock = threading.Lock()
+        self._requests_total: dict[tuple[str, str], int] = {}
+        self._duration_sum: float = 0.0
+        self._duration_count: int = 0
+        self._duration_buckets: dict[float, int] = {
+            0.05: 0, 0.1: 0, 0.25: 0, 0.5: 0, 1.0: 0, 2.0: 0, 5.0: 0,
+        }
+
+    def record(self, *, decision: str, op: str, duration_s: float) -> None:
+        with self._lock:
+            key = (decision, op)
+            self._requests_total[key] = self._requests_total.get(key, 0) + 1
+            self._duration_sum += duration_s
+            self._duration_count += 1
+            for le in self._duration_buckets:
+                if duration_s <= le:
+                    self._duration_buckets[le] += 1
+
+    def prometheus_text(self) -> str:
+        lines: list[str] = []
+        with self._lock:
+            lines.append("# HELP recovery_requests_total Total recovery requests by decision and op")
+            lines.append("# TYPE recovery_requests_total counter")
+            for (decision, op), count in sorted(self._requests_total.items()):
+                lines.append(f'recovery_requests_total{{decision="{decision}",op="{op}"}} {count}')
+            lines.append("# HELP recovery_request_duration_seconds Recovery request duration")
+            lines.append("# TYPE recovery_request_duration_seconds histogram")
+            for le, count in sorted(self._duration_buckets.items()):
+                lines.append(
+                    f'recovery_request_duration_seconds_bucket{{le="{le}"}} {count}'
+                )
+            lines.append(
+                f'recovery_request_duration_seconds_bucket{{le="+Inf"}} {self._duration_count}'
+            )
+            lines.append(f"recovery_request_duration_seconds_sum {self._duration_sum:.6f}")
+            lines.append(f"recovery_request_duration_seconds_count {self._duration_count}")
+        return "\n".join(lines) + "\n"
+
+
 class RecordRecoveryHttpServer(ThreadingHTTPServer):
     daemon_threads = True
 
-    def __init__(self, server_address, handler_class, *, service_state: RecordRecoveryServiceState):
+    def __init__(
+        self,
+        server_address,
+        handler_class,
+        *,
+        service_state: RecordRecoveryServiceState,
+        rate_limit_per_caller: float = 0.0,
+        rate_limit_burst: int = 0,
+    ) -> None:
         self.service_state = service_state
+        self._rate_limit_per_caller = rate_limit_per_caller
+        self._rate_limit_burst = rate_limit_burst
+        self._rate_buckets: dict[str, TokenBucket] = {}
+        self._rate_lock = threading.Lock()
+        self.metrics = ServiceMetrics()
         super().__init__(server_address, handler_class)
+
+    def check_rate_limit(self, caller: str) -> bool:
+        """Return True if the request is allowed, False if rate-limited."""
+        if self._rate_limit_per_caller <= 0:
+            return True
+        with self._rate_lock:
+            if caller not in self._rate_buckets:
+                self._rate_buckets[caller] = TokenBucket(
+                    self._rate_limit_per_caller,
+                    max(1, self._rate_limit_burst),
+                )
+            return self._rate_buckets[caller].consume()
 
 
 class RecordRecoveryHttpHandler(BaseHTTPRequestHandler):
@@ -47,6 +141,17 @@ class RecordRecoveryHttpHandler(BaseHTTPRequestHandler):
         op = "health"
         decision = "allow"
         reason_code = "ok"
+
+        if self.path == "/metrics":
+            body = self.server.metrics.prometheus_text().encode("utf-8")
+            self.send_response(200)
+            self.send_header("Content-Type", "text/plain; version=0.0.4; charset=utf-8")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+            self.wfile.flush()
+            return
+
         if self.path != "/healthz":
             status_code = 404
             decision = "deny"
@@ -143,6 +248,31 @@ class RecordRecoveryHttpHandler(BaseHTTPRequestHandler):
             if isinstance(payload.get("candidate_ids"), list):
                 candidate_count = len(payload.get("candidate_ids", []))
             self._apply_bearer_token(payload)
+            # Rate-limit check (H2-a)
+            if caller and not self.server.check_rate_limit(caller):
+                status_code = 429
+                decision = "deny"
+                reason_code = "rate_limited"
+                self._write_json(
+                    status_code,
+                    {"schema": "sse_record_recovery_error/v1", "error": "rate limit exceeded"},
+                    request_id=request_id,
+                )
+                self._log_request(
+                    request_id=request_id,
+                    method="POST",
+                    path=self.path,
+                    op=op,
+                    status_code=status_code,
+                    decision=decision,
+                    reason_code=reason_code,
+                    started_at=started_at,
+                    caller=caller,
+                    job_id=job_id,
+                    role=role,
+                    candidate_count=candidate_count,
+                )
+                return
             # Promote headers into payload when the payload fields are absent
             header_ts = self.headers.get("X-Request-Timestamp", "").strip()
             if header_ts and not payload.get("request_timestamp_utc"):
@@ -256,6 +386,7 @@ class RecordRecoveryHttpHandler(BaseHTTPRequestHandler):
         role: str | None = None,
         candidate_count: int | None = None,
     ) -> None:
+        duration = elapsed_ms(started_at)
         emit_structured_service_log(
             "record_recovery_service_request",
             self.server.service_state,
@@ -266,11 +397,16 @@ class RecordRecoveryHttpHandler(BaseHTTPRequestHandler):
             status_code=status_code,
             decision=decision,
             reason_code=reason_code,
-            duration_ms=elapsed_ms(started_at),
+            duration_ms=duration,
             caller=caller,
             job_id=job_id,
             role=role,
             candidate_count=candidate_count,
+        )
+        self.server.metrics.record(
+            decision=decision,
+            op=op,
+            duration_s=duration / 1000.0,
         )
 
 
@@ -313,6 +449,10 @@ def main() -> int:
     ap.add_argument("--tls-require-client-cert", action="store_true")
     ap.add_argument("--max-rows-per-request", type=int, default=0,
                     help="Hard cap on rows returned per recovery request (0 = unlimited)")
+    ap.add_argument("--rate-limit-per-caller", type=float, default=0.0,
+                    help="Max requests/second per caller (0 = disabled)")
+    ap.add_argument("--rate-limit-burst", type=int, default=0,
+                    help="Burst capacity for the per-caller token bucket (0 = same as rate)")
     args = ap.parse_args()
     if args.identity_token_config and not args.metadata_db_path:
         raise SystemExit("[ERROR] --identity-token-config requires --metadata-db-path")
@@ -343,7 +483,14 @@ def main() -> int:
         endpoint_url=endpoint_url,
         max_rows_per_request=args.max_rows_per_request,
     )
-    server = RecordRecoveryHttpServer((args.bind_host, args.port), RecordRecoveryHttpHandler, service_state=service_state)
+    burst = args.rate_limit_burst or max(1, int(args.rate_limit_per_caller)) if args.rate_limit_per_caller > 0 else 0
+    server = RecordRecoveryHttpServer(
+        (args.bind_host, args.port),
+        RecordRecoveryHttpHandler,
+        service_state=service_state,
+        rate_limit_per_caller=args.rate_limit_per_caller,
+        rate_limit_burst=burst,
+    )
     if tls_enabled:
         server.socket = _build_server_ssl_context(
             cert_file=args.tls_cert_file,

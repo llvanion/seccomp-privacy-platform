@@ -445,7 +445,7 @@ KMS 不负责：
 1. ~~先把 keyring 文档和 external KMS 文档固定为统一 backend 语义。~~ **已完成（2026-05-03）**
 2. ~~再为 `secret_ref.kind` 扩展准备 change request。~~ **已完成（2026-05-03）**：当前仓库内基线已经收敛为 `env|vault_kv`
 3. ~~补 service identity、OIDC/mTLS、远端 policy 与 token 生命周期治理的第一版 operator 汇总。~~ **已完成（2026-05-05）**：`check_authority_governance.py` 现在把 KMS reachability、service-token lifecycle、issuer rotation、identity resolution、OpenFGA check、policy/key drift 汇总为 `authority_governance_report/v1`，并纳入默认 contract smoke。
-4. 下一步把 `vault_kv_backend/v1` 从本地 compatibility fixture 换成真实 Vault / cloud KMS adapter，复用现有 access/lifecycle audit contract。
+4. ~~下一步把 `vault_kv_backend/v1` 从本地 compatibility fixture 换成真实 Vault / cloud KMS adapter，复用现有 access/lifecycle audit contract。~~ **已完成（repo-side，2026-05-06）**：`vault_http_client.py` 支持 token/AppRole auth，`schemas/vault_http_client_config.schema.json` 冻结配置；`issue_mtls_certs.py` 支持 Vault PKI/mTLS 发证并保留 mock fallback；`keyring_lib.py` / `schemas/keyring.schema.json` 支持 `secret_ref.kind=vault_http|aws_kms`；`cloud_kms_adapter.py` 提供 AWS KMS describe/decrypt helper。真实 Vault/AWS 运行仍由 operator 环境提供，默认 CI 不依赖外部服务。
 5. 只有在上述路径稳定后，再评估是否值得推动 remote tokenization 取代本地 secret 暴露。
 
 如果要纳入统一排期，建议直接对齐 [POST_BASELINE_ROADMAP.md](/home/llvanion/Desktop/seccomp-privacy-platform/docs/POST_BASELINE_ROADMAP.md) 的 `Tranche A`：

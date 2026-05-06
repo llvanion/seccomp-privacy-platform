@@ -3,9 +3,8 @@
 
 Parses a JWT (header.payload.signature), extracts standard and custom claims,
 and maps them to the local caller_identities format using a configurable
-claim_mapping. Optionally verifies the HMAC-SHA256 signature (HS256) using
-a secret from an env var — RS256 / JWKS verification is out of scope for this
-prototype and would require an HTTP call to the issuer's JWKS URI.
+claim_mapping. Optionally verifies HS256 using a secret from an env var, or
+RS256 using a JWKS URI from CLI/config/issuer_registry.
 
 Also performs issuer_registry lookup: if the resolved issuer is not registered
 (or is disabled) in the metadata DB, the mapping is rejected.

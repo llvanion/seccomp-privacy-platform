@@ -2472,6 +2472,119 @@
         "schema",
         "summary"
       ]
+    },
+    {
+      "path": "schemas/vault_http_client_config.schema.json",
+      "schema_id": "vault_http_client_config/v1",
+      "required": [
+        "schema"
+      ],
+      "stable_properties": [
+        "approle_role_id_env",
+        "approle_secret_id_env",
+        "auth_method",
+        "base_url",
+        "mock_file",
+        "mount",
+        "schema",
+        "timeout_seconds",
+        "token_env"
+      ]
+    },
+    {
+      "path": "schemas/oidc_client_credentials_report.schema.json",
+      "schema_id": "oidc_client_credentials_report/v1",
+      "required": [
+        "schema",
+        "generated_at_utc",
+        "mode",
+        "ok",
+        "token_endpoint",
+        "client_id"
+      ],
+      "stable_properties": [
+        "access_token_redacted",
+        "client_id",
+        "expires_in",
+        "generated_at_utc",
+        "mode",
+        "ok",
+        "schema",
+        "token_endpoint",
+        "token_output_file",
+        "token_type"
+      ]
+    },
+    {
+      "path": "schemas/openfga_model_setup_report.schema.json",
+      "schema_id": "openfga_model_setup_report/v1",
+      "required": [
+        "schema",
+        "generated_at_utc",
+        "mode",
+        "ok",
+        "endpoint_url",
+        "model_path"
+      ],
+      "stable_properties": [
+        "authorization_model_id",
+        "endpoint_url",
+        "generated_at_utc",
+        "mode",
+        "model_path",
+        "ok",
+        "schema",
+        "store_id",
+        "store_name",
+        "type_definition_count"
+      ]
+    },
+    {
+      "path": "schemas/mtls_cert_issue_report.schema.json",
+      "schema_id": "mtls_cert_issue_report/v1",
+      "required": [
+        "schema",
+        "generated_at_utc",
+        "mode",
+        "ok",
+        "out_dir",
+        "issued_files",
+        "common_name",
+        "ttl_hours"
+      ],
+      "stable_properties": [
+        "common_name",
+        "dns_sans",
+        "generated_at_utc",
+        "ip_sans",
+        "issued_files",
+        "mode",
+        "ok",
+        "out_dir",
+        "schema",
+        "ttl_hours"
+      ]
+    },
+    {
+      "path": "schemas/cloud_kms_adapter_result.schema.json",
+      "schema_id": "cloud_kms_adapter_result/v1",
+      "required": [
+        "schema",
+        "generated_at_utc",
+        "operation",
+        "provider",
+        "ok"
+      ],
+      "stable_properties": [
+        "ciphertext_sha256",
+        "generated_at_utc",
+        "key_id",
+        "ok",
+        "operation",
+        "provider",
+        "region",
+        "schema"
+      ]
     }
   ]
 }

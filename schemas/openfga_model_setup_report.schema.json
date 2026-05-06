@@ -1,0 +1,21 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "openfga_model_setup_report/v1",
+  "title": "OpenFGA model setup report",
+  "type": "object",
+  "required": ["schema", "generated_at_utc", "mode", "ok", "endpoint_url", "model_path"],
+  "properties": {
+    "schema": { "const": "openfga_model_setup_report/v1" },
+    "generated_at_utc": { "type": "string", "minLength": 1 },
+    "mode": { "enum": ["dry_run", "execute"] },
+    "ok": { "type": "boolean" },
+    "error": { "type": ["string", "null"] },
+    "endpoint_url": { "type": "string", "minLength": 1 },
+    "model_path": { "type": "string", "minLength": 1 },
+    "store_name": { "type": ["string", "null"] },
+    "store_id": { "type": ["string", "null"] },
+    "authorization_model_id": { "type": ["string", "null"] },
+    "type_definition_count": { "type": "integer", "minimum": 0 }
+  },
+  "additionalProperties": false
+}

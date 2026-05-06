@@ -1,0 +1,44 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "mtls_cert_issue_report/v1",
+  "title": "mTLS certificate issue report",
+  "type": "object",
+  "required": [
+    "schema",
+    "generated_at_utc",
+    "mode",
+    "ok",
+    "out_dir",
+    "issued_files",
+    "common_name",
+    "ttl_hours"
+  ],
+  "properties": {
+    "schema": { "const": "mtls_cert_issue_report/v1" },
+    "generated_at_utc": { "type": "string", "minLength": 1 },
+    "mode": { "enum": ["mock", "vault_pki"] },
+    "ok": { "type": "boolean" },
+    "error": { "type": ["string", "null"] },
+    "vault_base_url": { "type": ["string", "null"] },
+    "vault_pki_mount": { "type": ["string", "null"] },
+    "vault_pki_role": { "type": ["string", "null"] },
+    "out_dir": { "type": "string", "minLength": 1 },
+    "common_name": { "type": "string", "minLength": 1 },
+    "ip_sans": { "type": "array", "items": { "type": "string" } },
+    "dns_sans": { "type": "array", "items": { "type": "string" } },
+    "ttl_hours": { "type": "integer", "minimum": 1 },
+    "issued_files": {
+      "type": "object",
+      "required": ["ca_cert", "server_cert", "server_key"],
+      "properties": {
+        "ca_cert": { "type": "string", "minLength": 1 },
+        "server_cert": { "type": "string", "minLength": 1 },
+        "server_key": { "type": "string", "minLength": 1 },
+        "client_cert": { "type": ["string", "null"] },
+        "client_key": { "type": ["string", "null"] }
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false
+}

@@ -1,0 +1,77 @@
+{
+  "schema_version": "1.1",
+  "type_definitions": [
+    {
+      "type": "user",
+      "relations": {},
+      "metadata": null
+    },
+    {
+      "type": "service_account",
+      "relations": {},
+      "metadata": null
+    },
+    {
+      "type": "tenant",
+      "relations": {
+        "admin": { "this": {} },
+        "auditor": { "this": {} }
+      },
+      "metadata": {
+        "relations": {
+          "admin": { "directly_related_user_types": [{ "type": "user" }, { "type": "service_account" }] },
+          "auditor": { "directly_related_user_types": [{ "type": "user" }, { "type": "service_account" }] }
+        }
+      }
+    },
+    {
+      "type": "dataset",
+      "relations": {
+        "owner": { "this": {} },
+        "reader": { "this": {} },
+        "query_submitter": { "this": {} },
+        "recovery_allowed": { "this": {} }
+      },
+      "metadata": {
+        "relations": {
+          "owner": { "directly_related_user_types": [{ "type": "user" }, { "type": "service_account" }] },
+          "reader": { "directly_related_user_types": [{ "type": "user" }, { "type": "service_account" }] },
+          "query_submitter": { "directly_related_user_types": [{ "type": "user" }, { "type": "service_account" }] },
+          "recovery_allowed": { "directly_related_user_types": [{ "type": "user" }, { "type": "service_account" }] }
+        }
+      }
+    },
+    {
+      "type": "privacy_service",
+      "relations": {
+        "operator": { "this": {} },
+        "can_recover": { "this": {} },
+        "can_run_bridge": { "this": {} },
+        "can_run_pjc": { "this": {} },
+        "can_release": { "this": {} }
+      },
+      "metadata": {
+        "relations": {
+          "operator": { "directly_related_user_types": [{ "type": "user" }, { "type": "service_account" }] },
+          "can_recover": { "directly_related_user_types": [{ "type": "user" }, { "type": "service_account" }] },
+          "can_run_bridge": { "directly_related_user_types": [{ "type": "user" }, { "type": "service_account" }] },
+          "can_run_pjc": { "directly_related_user_types": [{ "type": "user" }, { "type": "service_account" }] },
+          "can_release": { "directly_related_user_types": [{ "type": "user" }, { "type": "service_account" }] }
+        }
+      }
+    },
+    {
+      "type": "job",
+      "relations": {
+        "owner": { "this": {} },
+        "viewer": { "this": {} }
+      },
+      "metadata": {
+        "relations": {
+          "owner": { "directly_related_user_types": [{ "type": "user" }, { "type": "service_account" }] },
+          "viewer": { "directly_related_user_types": [{ "type": "user" }, { "type": "service_account" }] }
+        }
+      }
+    }
+  ]
+}

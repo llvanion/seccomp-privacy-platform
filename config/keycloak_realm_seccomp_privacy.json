@@ -1,0 +1,47 @@
+{
+  "realm": "seccomp-privacy",
+  "enabled": true,
+  "roles": {
+    "realm": [
+      { "name": "platform_admin" },
+      { "name": "platform_auditor" },
+      { "name": "privacy_operator" },
+      { "name": "query_submitter" },
+      { "name": "service_operator" }
+    ]
+  },
+  "clients": [
+    {
+      "clientId": "metadata-api",
+      "enabled": true,
+      "protocol": "openid-connect",
+      "publicClient": false,
+      "serviceAccountsEnabled": true,
+      "directAccessGrantsEnabled": false
+    },
+    {
+      "clientId": "query-workflow-api",
+      "enabled": true,
+      "protocol": "openid-connect",
+      "publicClient": false,
+      "serviceAccountsEnabled": true,
+      "directAccessGrantsEnabled": false
+    },
+    {
+      "clientId": "recovery-service",
+      "enabled": true,
+      "protocol": "openid-connect",
+      "publicClient": false,
+      "serviceAccountsEnabled": true,
+      "directAccessGrantsEnabled": false
+    },
+    {
+      "clientId": "key-agent",
+      "enabled": true,
+      "protocol": "openid-connect",
+      "publicClient": false,
+      "serviceAccountsEnabled": true,
+      "directAccessGrantsEnabled": false
+    }
+  ]
+}

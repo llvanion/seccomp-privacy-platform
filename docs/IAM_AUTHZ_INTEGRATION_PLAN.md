@@ -488,7 +488,7 @@ OPA 更适合做 admission / routing / API-gate 规则，而不是替代 release
 
 ## 13. A5-A6 收口：authority governance 汇总
 
-截至 2026-05-05，IAM / authz / KMS 的 post-baseline 收口新增了一条统一治理汇总：
+截至 2026-05-05，IAM / authz / KMS 的 post-baseline 收口新增了一条统一治理汇总。2026-05-06 后，该入口还可以显式连到 live OpenFGA HTTP backend：
 
 ```bash
 python3 scripts/check_authority_governance.py \
@@ -502,6 +502,20 @@ python3 scripts/check_authority_governance.py \
 ```
 
 该入口只读既有 contract report，输出 `authority_governance_report/v1`。它把 identity、OpenFGA-style authz、KMS reachability、service token、issuer rotation 以及 policy/key drift 放到同一个 `ok|warn|error` operator 视图中。
+
+Live OpenFGA check 示例：
+
+```bash
+python3 scripts/check_authority_governance.py \
+  --openfga-config config/openfga.example.json \
+  --openfga-user user:commerce_ops_demo \
+  --openfga-relation query_submitter \
+  --openfga-object dataset:orders_analytics \
+  --output tmp/authority_governance_openfga_live.json \
+  --assert-ok
+```
+
+默认 contract smoke 仍使用 SQLite fallback；设置 `OPENFGA_ENDPOINT` 和 `OPENFGA_STORE_ID` 后，`scripts/check_json_contracts.sh` 会启用可选 live OpenFGA 分支。
 
 边界：
 

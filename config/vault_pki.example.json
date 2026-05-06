@@ -1,0 +1,17 @@
+{
+  "schema": "vault_pki_config/v1",
+  "description": "Example Vault PKI issuer config for recovery-service mTLS certificates",
+  "vault_client_config": "config/vault_http_client.example.json",
+  "pki_mount": "pki",
+  "role": "recovery-service",
+  "common_name": "127.0.0.1",
+  "ip_sans": ["127.0.0.1"],
+  "dns_sans": ["localhost"],
+  "ttl_hours": 720,
+  "issue_client_cert": true,
+  "mock_mode": true,
+  "notes": [
+    "Set mock_mode=false and configure vault_http_client.example.json with base_url plus AppRole/token auth to call live Vault PKI",
+    "mock_mode=true generates local development certificates without contacting Vault"
+  ]
+}

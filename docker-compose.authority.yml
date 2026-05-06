@@ -1,0 +1,28 @@
+services:
+  keycloak:
+    image: quay.io/keycloak/keycloak:latest
+    command: ["start-dev", "--import-realm"]
+    environment:
+      KEYCLOAK_ADMIN: admin
+      KEYCLOAK_ADMIN_PASSWORD: admin
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./config/keycloak_realm_seccomp_privacy.json:/opt/keycloak/data/import/seccomp-privacy-realm.json:ro
+
+  openfga:
+    image: openfga/openfga:latest
+    command: ["run"]
+    ports:
+      - "8081:8080"
+      - "8082:8081"
+
+  vault:
+    image: hashicorp/vault:latest
+    command: ["server", "-dev", "-dev-root-token-id=dev-root-token"]
+    cap_add:
+      - IPC_LOCK
+    environment:
+      VAULT_DEV_ROOT_TOKEN_ID: dev-root-token
+    ports:
+      - "8200:8200"

@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+import base64
 import hashlib
 import json
 import os
@@ -112,6 +113,18 @@ def normalize_secret_ref(secret_ref: Any) -> Dict[str, Any]:
         if field:
             value["field"] = field
         return value
+    if kind == "aws_kms":
+        value = {
+            "kind": kind,
+            "name": name,
+        }
+        for field_name in ("region", "key_id", "ciphertext_b64"):
+            field_value = str(secret_ref.get(field_name, "") or "").strip()
+            if field_value:
+                value[field_name] = field_value
+        if "ciphertext_b64" not in value:
+            raise ValueError("aws_kms secret_ref.ciphertext_b64 is required")
+        return value
     raise ValueError(f"unsupported secret_ref kind {kind}")
 
 
@@ -167,6 +180,25 @@ def resolve_secret_ref(*, secret_ref: Dict[str, Any], vault_kv_file: str = "", v
             mock_file=vault_kv_file,
         )
         return value
+    if kind == "aws_kms":
+        try:
+            import boto3  # type: ignore
+        except Exception as exc:
+            raise PermissionError("boto3 is required to resolve aws_kms secret_ref") from exc
+        ciphertext = base64.b64decode(str(normalized["ciphertext_b64"]).encode("ascii"))
+        region = str(normalized.get("region") or "")
+        key_id = str(normalized.get("key_id") or "")
+        client = boto3.client("kms", region_name=region or None)
+        kwargs: Dict[str, Any] = {"CiphertextBlob": ciphertext}
+        if key_id:
+            kwargs["KeyId"] = key_id
+        response = client.decrypt(**kwargs)
+        plaintext = response.get("Plaintext")
+        if isinstance(plaintext, bytes):
+            return plaintext.decode("utf-8")
+        if isinstance(plaintext, str):
+            return plaintext
+        raise PermissionError("aws_kms decrypt response did not contain plaintext")
     raise ValueError(f"unsupported secret_ref kind {kind}")
 
 

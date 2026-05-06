@@ -101,7 +101,12 @@ SCHEMAS=(
   "$REPO_ROOT/schemas/identity_proxy_health.schema.json"
   "$REPO_ROOT/schemas/openfga_sync_report.schema.json"
   "$REPO_ROOT/schemas/openfga_check_result.schema.json"
+  "$REPO_ROOT/schemas/openfga_model_setup_report.schema.json"
+  "$REPO_ROOT/schemas/oidc_client_credentials_report.schema.json"
   "$REPO_ROOT/schemas/kms_reachability_report.schema.json"
+  "$REPO_ROOT/schemas/vault_http_client_config.schema.json"
+  "$REPO_ROOT/schemas/mtls_cert_issue_report.schema.json"
+  "$REPO_ROOT/schemas/cloud_kms_adapter_result.schema.json"
   "$REPO_ROOT/schemas/service_token_report.schema.json"
   "$REPO_ROOT/schemas/authority_governance_report.schema.json"
   "$REPO_ROOT/schemas/control_plane_deepening_report.schema.json"
@@ -167,6 +172,22 @@ cleanup() {
   rm -rf "$tmp"
 }
 trap cleanup EXIT
+
+python3 "$REPO_ROOT/scripts/request_oidc_client_credentials.py" \
+  --token-endpoint "http://127.0.0.1:8080/realms/seccomp-privacy/protocol/openid-connect/token" \
+  --client-id recovery-service \
+  --client-secret-env KEYCLOAK_RECOVERY_SERVICE_SECRET \
+  --output "$tmp/oidc_client_credentials_dry_run.json"
+python3 "$VALIDATOR" \
+  --schema "$REPO_ROOT/schemas/oidc_client_credentials_report.schema.json" \
+  --json "$tmp/oidc_client_credentials_dry_run.json"
+python3 "$REPO_ROOT/scripts/setup_openfga_model.py" \
+  --openfga-config "$REPO_ROOT/config/openfga.example.json" \
+  --model "$REPO_ROOT/config/openfga_authorization_model.json" \
+  --output "$tmp/openfga_model_setup_dry_run.json"
+python3 "$VALIDATOR" \
+  --schema "$REPO_ROOT/schemas/openfga_model_setup_report.schema.json" \
+  --json "$tmp/openfga_model_setup_dry_run.json"
 
 python3 "$REPO_ROOT/scripts/export_authz_tuples.py" \
   --policy-config "$REPO_ROOT/sse/config/ecommerce_access_policy.example.json" \
@@ -649,9 +670,7 @@ python3 "$VALIDATOR" --schema "$REPO_ROOT/schemas/public_report.schema.json" --j
 python3 "$VALIDATOR" --schema "$REPO_ROOT/schemas/policy_audit.schema.json" --jsonl "$tmp/a_psi_run/audit_log.jsonl"
 python3 "$VALIDATOR" --schema "$REPO_ROOT/schemas/key_access_audit.schema.json" --jsonl "$tmp/key_access_audit.jsonl"
 python3 "$VALIDATOR" --schema "$REPO_ROOT/schemas/key_access_audit.schema.json" --jsonl "$tmp/external_key_access_audit.jsonl"
-python3 "$VALIDATOR" --schema "$REPO_ROOT/schemas/key_access_audit.schema.json" --jsonl "$tmp/external_key_access_jwks_audit.jsonl"
 python3 "$VALIDATOR" --schema "$REPO_ROOT/schemas/key_access_audit.schema.json" --jsonl "$tmp/key_agent_vault_access_audit.jsonl"
-python3 "$VALIDATOR" --schema "$REPO_ROOT/schemas/key_access_audit.schema.json" --jsonl "$tmp/key_agent_jwks_access_audit.jsonl"
 python3 "$VALIDATOR" --schema "$REPO_ROOT/schemas/key_access_audit.schema.json" --jsonl "$tmp/external_key_access_vault_audit.jsonl"
 python3 "$VALIDATOR" --schema "$REPO_ROOT/schemas/keyring.schema.json" --json "$tmp/keyring.json"
 python3 "$VALIDATOR" --schema "$REPO_ROOT/schemas/keyring.schema.json" --json "$tmp/keyring_vault.json"
@@ -660,9 +679,7 @@ python3 "$VALIDATOR" --schema "$REPO_ROOT/schemas/vault_kv_backend.schema.json" 
 python3 "$VALIDATOR" --schema "$REPO_ROOT/schemas/keyring.schema.json" --json "$tmp/keyring_external.json"
 python3 "$VALIDATOR" --schema "$REPO_ROOT/schemas/key_lifecycle_audit.schema.json" --jsonl "$tmp/external_kms_lifecycle_audit.jsonl"
 python3 -c 'import json, sys; payload=json.load(open(sys.argv[1], "r", encoding="utf-8")); assert payload["schema"] == "key_agent_result/v1", payload; assert payload["secret"] == "vault-bridge-secret-v1", payload; assert payload["key_version"] == "demo-v1", payload' "$tmp/key_agent_vault_result.json"
-python3 -c 'import json, sys; payload=json.load(open(sys.argv[1], "r", encoding="utf-8")); assert payload["schema"] == "key_agent_result/v1", payload; assert payload["secret"] == "contract-jwks-bridge-secret", payload; assert payload["key_version"] == "demo-v1", payload' "$tmp/key_agent_jwks_result.json"
 python3 -c 'import json, sys; payload=json.load(open(sys.argv[1], "r", encoding="utf-8")); assert payload["schema"] == "external_kms_result/v1", payload; assert payload["secret"] == "contract-check-secret", payload; assert payload["key_version"] == "demo-v1", payload' "$tmp/external_kms_env_result.json"
-python3 -c 'import json, sys; payload=json.load(open(sys.argv[1], "r", encoding="utf-8")); assert payload["schema"] == "external_kms_result/v1", payload; assert payload["secret"] == "contract-jwks-bridge-secret", payload; assert payload["key_version"] == "demo-v1", payload' "$tmp/external_kms_jwks_result.json"
 python3 -c 'import json, sys; payload=json.load(open(sys.argv[1], "r", encoding="utf-8")); assert payload["schema"] == "external_kms_result/v1", payload; assert payload["secret"] == "vault-bridge-secret-v2", payload; assert payload["key_version"] == "ext-v2", payload' "$tmp/external_kms_vault_result.json"
 python3 -c 'import json, sys; payload=json.load(open(sys.argv[1], "r", encoding="utf-8")); entry=payload["keys"]["bridge-token"]["versions"]["ext-v2"]["secret_ref"]; assert entry["kind"] == "vault_kv", entry; assert entry["name"] == "secret/data/bridge-token", entry; assert entry["version"] == "2", entry; assert entry["field"] == "value", entry; assert payload["keys"]["bridge-token"]["active_version"] == "ext-v2", payload["keys"]["bridge-token"]' "$tmp/keyring_external.json"
 python3 "$TABULAR_VALIDATOR" --contract pjc-server-csv --path "$tmp/bridge_job/server.csv"
@@ -1359,6 +1376,10 @@ SECCOMP_METADATA_JWKS_TOKEN="$(cat "$tmp/oidc_test_rs256.jwt")" python3 "$REPO_R
   > "$tmp/external_kms_jwks_result.json"
 kill "$external_kms_jwks_pid" 2>/dev/null || true
 wait "$external_kms_jwks_pid" 2>/dev/null || true
+python3 "$VALIDATOR" --schema "$REPO_ROOT/schemas/key_access_audit.schema.json" --jsonl "$tmp/key_agent_jwks_access_audit.jsonl"
+python3 "$VALIDATOR" --schema "$REPO_ROOT/schemas/key_access_audit.schema.json" --jsonl "$tmp/external_key_access_jwks_audit.jsonl"
+python3 -c 'import json, sys; payload=json.load(open(sys.argv[1], "r", encoding="utf-8")); assert payload["schema"] == "key_agent_result/v1", payload; assert payload["secret"] == "contract-jwks-bridge-secret", payload; assert payload["key_version"] == "demo-v1", payload' "$tmp/key_agent_jwks_result.json"
+python3 -c 'import json, sys; payload=json.load(open(sys.argv[1], "r", encoding="utf-8")); assert payload["schema"] == "external_kms_result/v1", payload; assert payload["secret"] == "contract-jwks-bridge-secret", payload; assert payload["key_version"] == "demo-v1", payload' "$tmp/external_kms_jwks_result.json"
 # Vault HTTP client mock-mode smoke
 python3 "$REPO_ROOT/scripts/vault_http_client.py" \
   --mock-file "$REPO_ROOT/config/vault_kv_backend.example.json" \
@@ -1378,6 +1399,32 @@ python3 "$VALIDATOR" \
   --schema "$REPO_ROOT/schemas/vault_http_client_result.schema.json" \
   --json "$tmp/vault_http_get.json"
 python3 -c 'import json, sys; payload=json.load(open(sys.argv[1], "r", encoding="utf-8")); assert payload["ok"] is True, payload; assert payload["value"] == "REDACTED", payload; assert payload["resolved_version"] == "1", payload' "$tmp/vault_http_get.json"
+python3 "$REPO_ROOT/scripts/issue_mtls_certs.py" \
+  --config "$REPO_ROOT/config/vault_pki.example.json" \
+  --out-dir "$tmp/vault_pki_mtls" \
+  --output "$tmp/mtls_cert_issue_report.json" \
+  --assert-ok
+python3 "$VALIDATOR" \
+  --schema "$REPO_ROOT/schemas/mtls_cert_issue_report.schema.json" \
+  --json "$tmp/mtls_cert_issue_report.json"
+python3 -c 'import json, pathlib, sys; payload=json.load(open(sys.argv[1], "r", encoding="utf-8")); assert payload["mode"] == "mock", payload; files=payload["issued_files"]; assert pathlib.Path(files["server_cert"]).exists(), files; assert pathlib.Path(files["server_key"]).exists(), files; assert pathlib.Path(files["ca_cert"]).exists(), files' "$tmp/mtls_cert_issue_report.json"
+cat > "$tmp/aws_kms_secret_ref.json" <<'EOF'
+{
+  "kind": "aws_kms",
+  "name": "bridge-token",
+  "region": "us-east-1",
+  "key_id": "alias/seccomp-bridge-token",
+  "ciphertext_b64": "Y29udHJhY3QtY2lwaGVydGV4dA=="
+}
+EOF
+python3 "$REPO_ROOT/scripts/cloud_kms_adapter.py" \
+  describe \
+  --secret-ref "$tmp/aws_kms_secret_ref.json" \
+  --output "$tmp/cloud_kms_adapter_describe.json"
+python3 "$VALIDATOR" \
+  --schema "$REPO_ROOT/schemas/cloud_kms_adapter_result.schema.json" \
+  --json "$tmp/cloud_kms_adapter_describe.json"
+python3 -c 'import json, sys; payload=json.load(open(sys.argv[1], "r", encoding="utf-8")); assert payload["ok"] is True, payload; assert payload["provider"] == "aws_kms", payload; assert payload["ciphertext_sha256"], payload' "$tmp/cloud_kms_adapter_describe.json"
 # Issuer credential rotation dry-run on the registry DB
 python3 "$REPO_ROOT/scripts/rotate_issuer_credentials.py" \
   --db-path "$tmp/platform_registry.db" \
@@ -2129,6 +2176,41 @@ python3 "$REPO_ROOT/scripts/check_openfga_authz.py" \
 python3 "$VALIDATOR" \
   --schema "$REPO_ROOT/schemas/openfga_check_result.schema.json" \
   --json "$tmp/openfga_check_allowed.json"
+if [[ -n "${OPENFGA_ENDPOINT:-}" && -n "${OPENFGA_STORE_ID:-}" ]]; then
+  python3 -c 'import json, os, sys; path=sys.argv[1]; payload={"schema":"openfga_config/v1","endpoint_url":os.environ["OPENFGA_ENDPOINT"],"store_id":os.environ["OPENFGA_STORE_ID"],"timeout_seconds":int(os.environ.get("OPENFGA_TIMEOUT_SECONDS","10"))}; token_env=os.environ.get("OPENFGA_AUTH_TOKEN_ENV","").strip(); token=os.environ.get("OPENFGA_AUTH_TOKEN","").strip(); payload.update({"auth_token_env": token_env} if token_env else ({"auth_token": token} if token else {})); json.dump(payload, open(path, "w", encoding="utf-8"), ensure_ascii=False, indent=2); open(path, "a", encoding="utf-8").write("\n")' "$tmp/openfga_live_config.json"
+  python3 "$VALIDATOR" \
+    --schema "$REPO_ROOT/schemas/openfga_config.schema.json" \
+    --json "$tmp/openfga_live_config.json"
+  python3 "$REPO_ROOT/scripts/sync_openfga_tuples.py" \
+    apply \
+    --policy-config "$REPO_ROOT/sse/config/ecommerce_access_policy.example.json" \
+    --openfga-config "$tmp/openfga_live_config.json" \
+    --output "$tmp/openfga_live_sync_apply.json" \
+    > /dev/null
+  python3 "$VALIDATOR" \
+    --schema "$REPO_ROOT/schemas/openfga_sync_report.schema.json" \
+    --json "$tmp/openfga_live_sync_apply.json"
+  python3 "$REPO_ROOT/scripts/check_openfga_authz.py" \
+    --openfga-config "$tmp/openfga_live_config.json" \
+    --user user:commerce_ops_demo \
+    --relation query_submitter \
+    --object dataset:orders_analytics \
+    --output "$tmp/openfga_live_check_allowed.json" \
+    --assert-allowed
+  python3 "$VALIDATOR" \
+    --schema "$REPO_ROOT/schemas/openfga_check_result.schema.json" \
+    --json "$tmp/openfga_live_check_allowed.json"
+  python3 "$REPO_ROOT/scripts/check_authority_governance.py" \
+    --openfga-config "$tmp/openfga_live_config.json" \
+    --openfga-user user:commerce_ops_demo \
+    --openfga-relation query_submitter \
+    --openfga-object dataset:orders_analytics \
+    --output "$tmp/authority_governance_openfga_live.json" \
+    --assert-ok
+  python3 "$VALIDATOR" \
+    --schema "$REPO_ROOT/schemas/authority_governance_report.schema.json" \
+    --json "$tmp/authority_governance_openfga_live.json"
+fi
 export A5_KMS_ENV_SECRET="contract-kms-reachability-secret"
 python3 "$REPO_ROOT/scripts/check_kms_reachability.py" \
   --keyring "$REPO_ROOT/config/keyring.example.json" \

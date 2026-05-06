@@ -50,10 +50,10 @@ SSE candidate export
    - registry/policy/permission managed write baseline
    - key registry / key version managed write + read baseline
 
-还没完成：
+还没完成（2026-05-06 之后更新）：
 
-1. 真实 OIDC / issuer-backed identity source 与长期凭证治理
-2. 真实远端 Vault / cloud KMS 权威源与 service identity
+1. 真实 Keycloak / OpenFGA / Vault / cloud KMS 的长期运行环境和凭证托管（repo 内 adapter、compose、dry-run/live 工具已完成；默认不启动外部服务）
+2. authority source 的生产凭证轮换和 SRE 托管流程
 3. durable workflow / dashboard 壳
 4. SQL sidecar 更深的 Postgres 迁移与 importer repair
 5. caller 画像仍然主要停留在“平台操作者 / 查询发起者”层级，还没细化成买家、商家店员、客服、快递员这类更贴近日常电商业务的人群模型
@@ -83,10 +83,18 @@ SSE candidate export
 5. 把 file-backed policy 展开成 `policy_bindings / caller_permissions`
 6. 导出 `authz_tuple_export/v1`，给 OpenFGA 风格系统做关系同步基线
 7. 用 `caller_identities` + `api_identity_resolution/v1` 做 token -> identity -> caller 映射
-8. metadata/query/audit/platform-health sidecar API 已统一走 identity resolver，并收紧 query execute / audit include_paths / platform health role gate
-9. `keyring/v1` 现支持 `secret_ref.kind=env|vault_kv`，key agent / external KMS / pipeline auto-start 已贯通 Vault KV 兼容 backend
+8. `map_oidc_claims.py` 已支持 RS256/JWKS token 验证；默认 contract smoke 用 synthetic RS256 JWT + `file://` JWKS 覆盖该 adapter，不强制依赖真实 Keycloak
+9. metadata/query/audit/platform-health sidecar API 已统一走 identity resolver，并收紧 query execute / audit include_paths / platform health role gate
+10. `request_oidc_client_credentials.py` 可对真实 Keycloak/OIDC issuer 执行 client-credentials token 请求；默认 smoke 只跑 dry-run contract
+11. `keyring/v1` 现支持 `secret_ref.kind=env|vault_kv|vault_http|aws_kms`，key agent / external KMS / pipeline auto-start 已贯通 Vault KV 兼容 backend
+12. OpenFGA tuple sync / check adapter 已支持 live HTTP backend；默认仍走 SQLite fallback，`OPENFGA_ENDPOINT` + `OPENFGA_STORE_ID` 才启用 live smoke
+13. `setup_openfga_model.py`、`issue_mtls_certs.py`、`cloud_kms_adapter.py` 分别覆盖 OpenFGA model setup、Vault PKI/mTLS 发证、AWS KMS adapter baseline
 
-当前这一层更像“谁能发起或审核隐私查询”的平台权限模型，而不是完整电商业务人员身份模型。
+14. HTTP recovery service 支持 `--rate-limit-per-caller`（token bucket 速率限制）；超限请求返回 HTTP 429 并写入结构化日志
+15. HTTP recovery service 暴露 `GET /metrics`（Prometheus 文本格式 counter + histogram），无需外部 client 库
+16. `scripts/metadata_db.py` 已包含 psycopg2 driver layer：`connect_db(dsn=…)` 支持 PostgreSQL；`adapt_sql` / `placeholder` / `is_postgres` 适配参数占位符；`scripts/init_metadata_db.py --db-dsn` 可初始化 PostgreSQL 数据库
+
+当前这一层更像”谁能发起或审核隐私查询”的平台权限模型，而不是完整电商业务人员身份模型。
 
 ### 3.3 SQL sidecar
 
@@ -120,7 +128,7 @@ SSE candidate export
 还不能：
 
 1. 作为完整生产级多租户平台上线
-2. 依赖真实 Keycloak / OpenFGA / Vault 作为在线权威源
+2. 默认依赖真实 Keycloak / OpenFGA / Vault / AWS KMS 作为在线权威源；当前 repo 提供 adapter 和 live 工具，但不托管生产服务本身
 3. 作为 HA PostgreSQL control plane 运行
 4. 提供成熟 dashboard、workflow、admin UI
 5. 提供完整的大规模真实性能压测体系

@@ -1,8 +1,8 @@
 # Production Readiness Guidebook
 # SSE + PJC E-Commerce Privacy Platform
 
-**Date:** 2026-05-05  
-**Status:** Post-baseline complete. This guidebook covers everything between "demo baseline" and "production platform."
+**Date:** 2026-05-06
+**Status:** Post-baseline complete. Production-readiness Category E is complete repo-side; this guidebook tracks the remaining work between "demo baseline" and "production platform."
 
 ---
 
@@ -16,14 +16,14 @@ The current codebase is a fully working, contract-frozen, demo-scale privacy pip
 SSE export → record recovery (mTLS) → bridge (Rust) → PJC/APSI → policy release
 ```
 
-All contracts are frozen (88 schemas with backcompat guard). All post-baseline tranches A–D are complete. The gap is that every authority source is a local adapter:
+All contracts are frozen under the backcompat guard. All post-baseline tranches A–E are complete repo-side. Category E live validation still needs operator-provided Keycloak / OpenFGA / Vault / cloud-KMS services and credentials, but the repository now carries the adapters, config artifacts, dry-run contracts, and runbook commands.
 
-| Component | Current State | Production Gap |
-|-----------|--------------|----------------|
-| Keycloak / OIDC | HS256 claim mapper, static token map | No real OIDC server; no RS256 asymmetric signing |
-| OpenFGA | Local SQLite `openfga_tuples` table | Not connected to real OpenFGA service |
-| Vault / KMS | File-based KV compatibility layer | No real Vault; no cloud KMS |
-| mTLS PKI | Manually generated self-signed certs | No cert automation or rotation |
+| Component | Current State | Remaining Production Gap |
+|-----------|--------------|--------------------------|
+| Keycloak / OIDC | Keycloak realm import, RS256/JWKS verifier, offline contract smoke, and optional client-credentials requester | Operator must run/import the realm, provide client secrets, and execute the live token path |
+| OpenFGA | SQLite fallback, OpenFGA HTTP backend, committed authorization model, model setup helper, and optional live governance check | Operator must run OpenFGA, create/select a store, upload the model, and provide live store env vars |
+| Vault / KMS | Vault HTTP token/AppRole client, Vault PKI cert issuer with mock fallback, and AWS KMS secret-ref baseline | Operator must run Vault/cloud KMS, provision policies/roles/keys, and execute live validation |
+| mTLS PKI | Vault PKI issuance helper plus mock cert generation in default smoke | Operator must enable Vault PKI and rotate issued certs in the target environment |
 | PostgreSQL | SQLite sidecar with Postgres-compatible DDL | No live PostgreSQL connection |
 | Benchmarks | Synthetic demo data (`intersection_size=2`) | Never tested at e-commerce scale |
 | External audit anchor | Local file ledger | Not connected to immutable external medium |
@@ -38,7 +38,7 @@ All contracts are frozen (88 schemas with backcompat guard). All post-baseline t
 ### 1.3 Recommended Execution Order
 
 ```
-E1 → E2 → E3 (authority sources first — prerequisites for meaningful G)
+Live E authority validation with operator-provided services (optional, environment-gated)
 F1 → F2 → F3 (PostgreSQL migration, parallel with E)
 G1–G6 (start after E1+F1 are at least smoke-tested)
 H1–H3 (parallel with G)
@@ -53,233 +53,169 @@ K1–K3 (after J)
 
 **Goal:** Replace all local adapter shims with real, running authority services. The main chain must still be able to run without these services (adapter-first principle), but the platform's identity and key resolution must not depend on static env tokens or file-backed KV in any non-demo environment.
 
-**Total: ~12 blocks / ~60h**
+**Remaining repo-side implementation total: 0 blocks / 0h**
+
+Live-service validation is still operator-environment work: start Keycloak / OpenFGA / Vault (or cloud KMS), provide secrets through env vars, and run the optional `--execute` / live smoke paths. The repo now contains the adapter code, config artifacts, dry-run contracts, and runbook commands needed for E.
+
+Progress recorded on 2026-05-06:
+
+1. `E1-a` / `E1-b` / `E1-c` are complete as repo-side adapter and deployment-artifact work.
+2. `E2-a` / `E2-b` / `E2-c` are complete as repo-side adapter and deployment-artifact work.
+3. `E3-a` / `E3-b` / `E3-c` / `E3-d` are complete as repo-side adapter and smoke-contract work.
 
 ---
 
-### E1 — Real Keycloak OIDC Integration (3 blocks / 15h)
+### E1 — Real Keycloak OIDC Integration (completed repo-side)
 
 #### Current Baseline
 
-- `scripts/map_oidc_claims.py`: parses HS256 JWT with configurable `claim_mapping` (dotted-path extraction, e.g., `realm_access.roles`).
+- `scripts/map_oidc_claims.py`: parses HS256 JWT and RS256 JWT with configurable `claim_mapping` (dotted-path extraction, e.g., `realm_access.roles`).
+- `scripts/map_oidc_claims.py --jwks-uri`: fetches JWKS over HTTP or `file://`, selects the RSA key by `kid`, verifies RS256 with `cryptography`, and emits `oidc_claim_map/v1`.
 - `migrations/metadata/006_add_issuer_registry.sql`: `issuer_registry` table stores `issuer_type`, `display_name`, `service_id`, `jwks_uri`, `token_endpoint`, `claim_mapping_json`, `trusted_audiences_json`.
 - `scripts/api_identity.py`: resolves `issuer + subject → caller_identities → caller/tenant_id/platform_roles`.
-- `config/oidc_claim_mapping.example.json`: Keycloak realm claim mapping example.
+- `config/oidc_claim_mapping.example.json`: Keycloak realm claim mapping example, including `jwks_uri`.
+- `config/keycloak_realm_seccomp_privacy.json`: Keycloak realm import with platform roles and service-account-enabled clients.
+- `docker-compose.authority.yml`: local authority-source stack with Keycloak realm import.
+- `scripts/request_oidc_client_credentials.py`: optional live client-credentials requester, outputting `oidc_client_credentials_report/v1`.
 - `scripts/rotate_issuer_credentials.py`: dry-run issuer credential rotation via `issuer_registry`.
+- `scripts/check_json_contracts.sh`: generates a synthetic RS256 JWT and offline `file://` JWKS, validates `oidc_claim_map/v1`, resolves API identity from the JWKS-backed token, and exercises JWKS-backed key-agent / external-KMS identity paths.
 
 #### Gap
 
-- Token signing is HS256 with shared secret. Keycloak uses RS256 asymmetric signing; `map_oidc_claims.py` does not fetch JWKS from `jwks_uri`.
-- No real Keycloak realm, clients, or service accounts exist.
-- `caller_identities.issuer` / `subject` are populated from static manifest, not from a live token flow.
+- RS256/JWKS verification exists, but it is currently contract-smoked with a synthetic `file://` JWKS rather than a real Keycloak realm.
+- The default local environment does not auto-start Keycloak; use `docker compose -f docker-compose.authority.yml up keycloak` or an operator-managed realm.
+- `caller_identities.issuer` / `subject` are still populated from static manifest or synthetic JWT fixtures, not from a live client-credentials flow.
 
 #### Tasks
 
-**E1-a — Deploy Keycloak (1 block)**
+**E1-a — Deploy Keycloak (1 block) — Completed 2026-05-06**
+
+Start the local authority stack:
 
 ```bash
-# Docker Compose (local dev)
-docker run -d --name keycloak \
-  -p 8080:8080 \
-  -e KEYCLOAK_ADMIN=admin \
-  -e KEYCLOAK_ADMIN_PASSWORD=admin \
-  quay.io/keycloak/keycloak:latest start-dev
+docker compose -f docker-compose.authority.yml up keycloak
 ```
 
-Realm configuration (via Admin UI or `kcadm.sh`):
+Implemented artifacts:
 
-1. Create realm: `seccomp-privacy`.
-2. Create realm roles: `platform_admin`, `platform_auditor`, `privacy_operator`, `query_submitter`, `service_operator`.
-3. Create clients:
-   - `metadata-api` (confidential, service account enabled) → maps to `service_id: metadata`
-   - `query-workflow-api` (confidential)
-   - `recovery-service` (confidential) → maps to `service_id: bridge-demo-recovery`
-   - `key-agent` (confidential)
-4. Map `realm_access.roles` claim into tokens (already the default in Keycloak).
-5. Create test users and assign roles.
+1. `config/keycloak_realm_seccomp_privacy.json` defines realm `seccomp-privacy`, platform roles, and confidential service-account clients: `metadata-api`, `query-workflow-api`, `recovery-service`, and `key-agent`.
+2. `docker-compose.authority.yml` mounts that realm import into Keycloak.
+3. `config/metadata_registry.example.json` already carries an issuer registry entry for a Keycloak realm; operators can adjust its URL to the running realm before `manage_metadata_db.py apply-registry`.
 
-Register the realm in the metadata DB:
+**E1-b — Switch map_oidc_claims.py to RS256 / JWKS (1 block) — Completed 2026-05-06**
+
+Implemented:
+
+1. `scripts/map_oidc_claims.py` supports `--jwks-uri`, `fetch_jwks()`, `verify_rs256()`, RSA JWK `n/e` conversion, and `kid` selection.
+2. `config/oidc_claim_mapping.example.json` includes a Keycloak-style `jwks_uri`.
+3. `scripts/api_identity.py` can resolve a JWT bearer token with a JWKS-backed config.
+4. `scripts/check_json_contracts.sh` now validates a synthetic RS256 JWT against an offline `file://` JWKS and carries that token through API identity, key-agent, external-KMS, and metadata `/v1/identity` smoke paths.
+
+**E1-c — Wire service accounts end-to-end (1 block) — Completed 2026-05-06**
+
+Implemented:
+
+1. `scripts/request_oidc_client_credentials.py` can request a real client-credentials token when `--execute` is set and the client secret env var is present.
+2. The dry-run path outputs `oidc_client_credentials_report/v1` and is covered by default contract smoke.
+3. The returned token can be written to a file with `--token-output-file`, exported into the appropriate bearer-token env var, and reused by `resolve_api_identity.py`, metadata `/v1/identity`, key-agent, external-KMS, and recovery-service identity gates.
+
+Example:
 
 ```bash
-python3 scripts/manage_metadata_db.py apply-registry \
-  --db-path tmp/platform_metadata.db \
-  --manifest config/metadata_registry.example.json
-```
-
-Add an `issuer_registry` entry for the new realm:
-
-```json
-{
-  "issuer_type": "keycloak",
-  "display_name": "seccomp-privacy realm",
-  "service_id": "keycloak-seccomp",
-  "jwks_uri": "http://localhost:8080/realms/seccomp-privacy/protocol/openid-connect/certs",
-  "token_endpoint": "http://localhost:8080/realms/seccomp-privacy/protocol/openid-connect/token",
-  "claim_mapping": {
-    "caller": "preferred_username",
-    "tenant_id": "tenant_id",
-    "platform_roles": "realm_access.roles"
-  },
-  "trusted_audiences": ["metadata-api", "query-workflow-api"]
-}
-```
-
-**E1-b — Switch map_oidc_claims.py to RS256 / JWKS (1 block)**
-
-Current: `map_oidc_claims.py` verifies HS256 using shared secret.  
-Required change: When `issuer_registry.jwks_uri` is non-empty, fetch the JWKS and verify with the matching RS256 public key.
-
-```python
-# In scripts/map_oidc_claims.py
-import urllib.request, json as _json
-
-def fetch_jwks(jwks_uri: str) -> dict:
-    with urllib.request.urlopen(jwks_uri, timeout=5) as r:
-        return _json.loads(r.read())
-
-def verify_rs256(token: str, jwks: dict) -> dict:
-    # Use PyJWT or cryptography library to verify RS256
-    # Select key by kid header
-    ...
-```
-
-Add `--jwks-uri` flag to `map_oidc_claims.py`; when present, skip HS256 and use RS256. Add `PyJWT>=2.0` and `cryptography` to requirements.
-
-Update `config/oidc_claim_mapping.example.json` to include a `jwks_uri` field.
-
-Add a new contract smoke assertion that JWKS-backed resolution produces a valid `oidc_claim_map/v1`.
-
-**E1-c — Wire service accounts end-to-end (1 block)**
-
-For each service that accepts `--identity-token-config`:
-
-1. Recovery service: use Keycloak client credentials flow to obtain a service account token; pass via `--record-recovery-identity-auth-env`.
-2. Key agent: wire `--identity-token-config` to real issuer.
-3. Metadata API: verify that `GET /v1/identity` resolves a real Keycloak token to the correct `caller`.
-
-Run the full authority governance smoke with a real Keycloak token:
-
-```bash
-python3 scripts/check_authority_governance.py \
-  --identity-resolution tmp/api_identity_resolution_keycloak.json \
-  ... \
+KEYCLOAK_RECOVERY_SERVICE_SECRET=<client-secret> \
+python3 scripts/request_oidc_client_credentials.py \
+  --token-endpoint http://127.0.0.1:8080/realms/seccomp-privacy/protocol/openid-connect/token \
+  --client-id recovery-service \
+  --client-secret-env KEYCLOAK_RECOVERY_SERVICE_SECRET \
+  --token-output-file tmp/keycloak_recovery_service.jwt \
+  --execute \
   --assert-ok
 ```
 
 #### Acceptance Criteria
 
-1. `map_oidc_claims.py --jwks-uri <realm-jwks-url>` verifies a real Keycloak RS256 token and produces `oidc_claim_map/v1`.
-2. `resolve_api_identity.py --bearer-token-env KEYCLOAK_TOKEN` resolves a real token to `caller + tenant_id + platform_roles`.
-3. `check_authority_governance.py --assert-ok` passes with a real Keycloak token as the identity source.
-4. No frozen field semantics change.
+1. `map_oidc_claims.py --jwks-uri file://...` verifies a synthetic RS256 token and produces valid `oidc_claim_map/v1`. Completed.
+2. `map_oidc_claims.py --jwks-uri <realm-jwks-url>` verifies a real Keycloak RS256 token and produces `oidc_claim_map/v1`. Live path supported; requires operator-provided realm.
+3. `resolve_api_identity.py --bearer-token-env KEYCLOAK_TOKEN` resolves a real token to `caller + tenant_id + platform_roles`. Live path supported; requires issuer registry and caller identity mapping.
+4. `check_authority_governance.py --assert-ok` passes with a real Keycloak token as the identity source. Live path supported; requires generated identity-resolution report.
+5. No frozen field semantics change.
 
 ---
 
-### E2 — Real OpenFGA Service (3 blocks / 15h)
+### E2 — Real OpenFGA Service (completed repo-side)
 
 #### Current Baseline
 
-- `scripts/sync_openfga_tuples.py`: dry-run / apply / reconcile modes; writes to local SQLite `openfga_tuples` table (migration 007).
-- `scripts/check_openfga_authz.py`: queries the same SQLite table; outputs `openfga_check_result/v1`.
+- `scripts/sync_openfga_tuples.py`: dry-run / apply / reconcile modes; writes to local SQLite `openfga_tuples` table by default and can target a live OpenFGA HTTP backend through `--openfga-config` or explicit endpoint/store flags.
+- `scripts/check_openfga_authz.py`: queries the SQLite tuple table by default and can call live OpenFGA `/check`; outputs `openfga_check_result/v1`.
+- `scripts/openfga_http.py`: shared OpenFGA HTTP helper for config resolution, read, write, delete, and check requests.
 - `schemas/openfga_sync_report.schema.json`, `schemas/openfga_check_result.schema.json`.
-- The authorization model draft is in `TASK_ENGINEER_A_CONTROL_PLANE_IDENTITY_ACCESS.md` §9.
+- `schemas/openfga_config.schema.json`, `config/openfga.example.json`.
+- `config/openfga_authorization_model.json`: concrete OpenFGA authorization model derived from the earlier draft.
+- `scripts/setup_openfga_model.py`: optional live store/model setup helper, outputting `openfga_model_setup_report/v1`.
+- `docker-compose.authority.yml`: local OpenFGA service.
 
 #### Gap
 
-- Both scripts talk to a local SQLite store, not an OpenFGA service.
-- The authorization model (FGA model definition) has never been uploaded to a real OpenFGA instance.
+- The HTTP adapter path exists, but the default environment still uses SQLite fallback.
+- Uploading the authorization model is now scripted, but the default contract smoke runs dry-run only.
+- No live OpenFGA store/model ID is committed as a required local dependency.
 
 #### Tasks
 
-**E2-a — Deploy OpenFGA and upload authorization model (1 block)**
+**E2-a — Deploy OpenFGA and upload authorization model (1 block) — Completed 2026-05-06**
 
 ```bash
-docker run -d --name openfga \
-  -p 8080:8080 \
-  -p 8081:8081 \
-  openfga/openfga run
+docker compose -f docker-compose.authority.yml up openfga
 ```
 
-Create a store and upload the authorization model:
+Dry-run validation:
 
 ```bash
-# Create store
-curl -X POST http://localhost:8080/stores \
-  -H "Content-Type: application/json" \
-  -d '{"name": "seccomp-privacy"}'
-
-# Upload model (translate the draft from TASK_ENGINEER_A doc into JSON DSL)
-curl -X POST http://localhost:8080/stores/<store-id>/authorization-models \
-  -H "Content-Type: application/json" \
-  -d @config/openfga_authorization_model.json
+python3 scripts/setup_openfga_model.py \
+  --openfga-config config/openfga.example.json \
+  --model config/openfga_authorization_model.json
 ```
 
-Create `config/openfga_authorization_model.json` from the §9 draft:
+Live setup:
 
-```json
-{
-  "type_definitions": [
-    {"type": "user", "relations": {}},
-    {"type": "service_account", "relations": {}},
-    {"type": "tenant", "relations": {
-      "admin": {"this": {}},
-      "auditor": {"this": {}}
-    }},
-    {"type": "dataset", "relations": {
-      "owner": {"this": {}},
-      "reader": {"this": {}},
-      "recovery_allowed": {"this": {}}
-    }},
-    {"type": "privacy_service", "relations": {
-      "operator": {"this": {}},
-      "can_recover": {"computedUserset": {"object": "", "relation": "recovery_allowed"}}
-    }},
-    {"type": "job", "relations": {
-      "owner": {"this": {}},
-      "viewer": {"this": {}}
-    }}
-  ]
-}
+```bash
+python3 scripts/setup_openfga_model.py \
+  --openfga-config config/openfga.example.json \
+  --model config/openfga_authorization_model.json \
+  --execute \
+  --assert-ok
 ```
 
-**E2-b — Add OpenFGA HTTP backend to sync and check scripts (1 block)**
+**E2-b — Add OpenFGA HTTP backend to sync and check scripts (1 block) — Completed 2026-05-06**
 
-Add `--openfga-endpoint <url>` and `--openfga-store-id <id>` flags to both scripts.
+Implemented:
 
-When `--openfga-endpoint` is provided:
-- `sync_openfga_tuples.py apply`: call `POST /stores/<id>/write` (Write API) instead of writing to SQLite.
-- `sync_openfga_tuples.py reconcile`: call `POST /stores/<id>/read` (Read API) to get current tuples, diff, then Write/Delete.
-- `check_openfga_authz.py`: call `POST /stores/<id>/check` (Check API) instead of querying SQLite.
+1. `sync_openfga_tuples.py` supports `--openfga-config`, `--openfga-endpoint`, and `--openfga-store-id`.
+2. `sync_openfga_tuples.py apply` calls OpenFGA Write API when a live backend is configured.
+3. `sync_openfga_tuples.py reconcile` reads current live tuples and reports the diff.
+4. `check_openfga_authz.py` calls OpenFGA Check API when a live backend is configured.
+5. SQLite remains the default CI path, so default contract smoke has no live OpenFGA dependency.
+6. `config/openfga.example.json` and `schemas/openfga_config.schema.json` define the adapter config.
 
-Keep the SQLite path as the default for CI (no live service dependency).
+**E2-c — Wire OpenFGA into authority governance smoke (1 block) — Completed 2026-05-06**
 
-Add `config/openfga.example.json` to record store ID and endpoint:
+Implemented:
 
-```json
-{
-  "schema": "openfga_config/v1",
-  "endpoint": "http://localhost:8080",
-  "store_id": "<store-id>",
-  "authorization_model_id": "<model-id>"
-}
-```
-
-**E2-c — Wire OpenFGA into authority governance smoke (1 block)**
-
-Update `check_authority_governance.py` to accept `--openfga-config config/openfga.example.json` and perform a live Check against the real service. The existing `--openfga-check` file path remains as a fallback.
-
-Add a new contract smoke variant that runs against a real OpenFGA instance (gated by `OPENFGA_ENDPOINT` env var; skipped if not set).
+1. `check_authority_governance.py` accepts `--openfga-config`, `--openfga-user`, `--openfga-relation`, and `--openfga-object`.
+2. The existing `--openfga-check` file path remains as the default fallback.
+3. `scripts/check_json_contracts.sh` has an optional live OpenFGA branch gated by `OPENFGA_ENDPOINT` and `OPENFGA_STORE_ID`. When both are set, it writes tuples to the configured store, checks `user:commerce_ops_demo query_submitter dataset:orders_analytics`, and validates the live authority governance rollup.
 
 #### Acceptance Criteria
 
-1. `sync_openfga_tuples.py --openfga-endpoint ... apply` writes tuples to a real OpenFGA store.
-2. `check_openfga_authz.py --openfga-endpoint ... --assert-allowed` passes against a live Check.
-3. `check_authority_governance.py --assert-ok` works with real OpenFGA as the authz source.
+1. `sync_openfga_tuples.py --openfga-config ... apply` writes tuples to a real OpenFGA store when `OPENFGA_ENDPOINT` / `OPENFGA_STORE_ID` point at a live instance. Code path implemented; live environment still operator-provided.
+2. `check_openfga_authz.py --openfga-config ... --assert-allowed` passes against a live Check when tuples/model are present. Code path implemented; live environment still operator-provided.
+3. `check_authority_governance.py --assert-ok` works with real OpenFGA as the authz source through the new live-check flags.
 4. CI still passes without `OPENFGA_ENDPOINT` set (SQLite fallback).
 
 ---
 
-### E3 — Real Vault / Cloud KMS Integration (4 blocks / 20h)
+### E3 — Real Vault / Cloud KMS Integration (completed repo-side)
 
 #### Current Baseline
 
@@ -287,23 +223,22 @@ Add a new contract smoke variant that runs against a real OpenFGA instance (gate
 - `scripts/external_kms_service.py`, `scripts/manage_external_kms.py`: support Vault KV references.
 - `scripts/rotate_issuer_credentials.py`: rotation writes new version to `key_refs`.
 - `config/vault_http_client.example.json`, `config/vault_kv_backend.example.json`.
+- `schemas/vault_http_client_config.schema.json`: freezes token/AppRole client config.
+- `scripts/issue_mtls_certs.py`: Vault PKI issuer with local mock fallback; outputs `mtls_cert_issue_report/v1`.
+- `scripts/cloud_kms_adapter.py`: optional AWS KMS adapter smoke helper; outputs `cloud_kms_adapter_result/v1`.
+- `keyring_lib.py` and `schemas/keyring.schema.json`: support `secret_ref.kind=vault_http|aws_kms` in addition to existing `env|vault_kv`.
 
 #### Gap
 
-- All CI smoke uses mock mode (local file). Real Vault has never been connected.
-- `vault_http_client.py` uses a static `vault_token` (root token equivalent). Production needs AppRole or Kubernetes auth.
-- No cloud KMS (AWS KMS / GCP KMS) adapter.
+- Default CI smoke uses mock mode or dry-run mode.
+- Live Vault/AppRole, Vault PKI, and AWS KMS are optional execution paths requiring operator-provided services and credentials.
 
 #### Tasks
 
-**E3-a — Deploy Vault in dev mode and test real-mode client (1 block)**
+**E3-a — Deploy Vault in dev mode and test real-mode client (1 block) — Completed 2026-05-06**
 
 ```bash
-docker run -d --name vault \
-  --cap-add=IPC_LOCK \
-  -p 8200:8200 \
-  -e VAULT_DEV_ROOT_TOKEN_ID=dev-root-token \
-  hashicorp/vault server -dev
+docker compose -f docker-compose.authority.yml up vault
 ```
 
 Initialize KV v2 and create test secrets:
@@ -322,13 +257,12 @@ Test `vault_http_client.py` in real mode:
 export VAULT_TOKEN=dev-root-token
 python3 scripts/vault_http_client.py \
   --config config/vault_http_client.example.json \
-  --secret-path secret/bridge-token \
-  --field value
+  get --path secret/bridge-token --field value --redact
 ```
 
 Verify `vault_http_client_result/v1` output.
 
-**E3-b — Replace root token with AppRole auth (1 block)**
+**E3-b — Replace root token with AppRole auth (1 block) — Completed 2026-05-06**
 
 AppRole allows each service to authenticate with a role ID and secret ID rather than a root token.
 
@@ -342,20 +276,14 @@ vault read auth/approle/role/bridge-service/role-id
 vault write -f auth/approle/role/bridge-service/secret-id
 ```
 
-Update `vault_http_client.py`:
+Implemented in `scripts/vault_http_client.py`:
 
-```python
-def _approle_login(config: dict) -> str:
-    role_id = os.environ.get(config["approle_role_id_env"])
-    secret_id = os.environ.get(config["approle_secret_id_env"])
-    response = _http_post(f"{config['vault_addr']}/v1/auth/approle/login",
-                          {"role_id": role_id, "secret_id": secret_id})
-    return response["auth"]["client_token"]
-```
+1. `auth_method=approle`.
+2. `approle_role_id_env` / `approle_secret_id_env`.
+3. AppRole login against `/v1/auth/approle/login`.
+4. `vault_http_client_result/v1` reports `auth_method` and non-secret auth metadata.
 
-Add `approle_role_id_env` and `approle_secret_id_env` fields to `vault_http_client_config/v1` schema (alongside existing `vault_token_env`). Token caching with TTL-aware refresh.
-
-**E3-c — Vault PKI for mTLS certificate issuance (1 block)**
+**E3-c — Vault PKI for mTLS certificate issuance (1 block) — Completed 2026-05-06**
 
 Replace the manual `openssl` cert generation workflow with Vault PKI:
 
@@ -372,40 +300,29 @@ vault write pki/roles/recovery-service \
 vault write pki/issue/recovery-service common_name="127.0.0.1" ip_sans="127.0.0.1" ttl=720h
 ```
 
-Create `scripts/issue_mtls_certs.py`:
-- Calls Vault PKI issue endpoint.
-- Writes `server.crt`, `server.key`, `ca.crt` to `tmp/mtls/`.
-- Optionally writes client cert.
-- Outputs a `mtls_cert_issue_report/v1` JSON.
+Implemented `scripts/issue_mtls_certs.py`:
 
-Wire into `manage_record_recovery_service.py start` via `--vault-pki-config`.
+1. Calls Vault PKI issue endpoint when `mock_mode=false`.
+2. Writes `server.crt`, `server.key`, `ca.crt`, and optional client cert/key.
+3. Outputs `mtls_cert_issue_report/v1`.
+4. Default contract smoke uses `config/vault_pki.example.json` in `mock_mode=true` to generate local dev certs without contacting Vault.
 
-**E3-d — Cloud KMS adapter baseline (AWS KMS or GCP KMS) (1 block)**
+**E3-d — Cloud KMS adapter baseline (AWS KMS or GCP KMS) (1 block) — Completed 2026-05-06**
 
-For cloud deployments, add a `secret_ref.kind=aws_kms` or `secret_ref.kind=gcp_kms` path to `keyring_lib.py`.
+Implemented:
 
-AWS KMS example:
-
-```python
-def resolve_aws_kms(secret_ref: dict) -> str:
-    import boto3
-    client = boto3.client("kms", region_name=secret_ref["region"])
-    response = client.decrypt(
-        CiphertextBlob=base64.b64decode(secret_ref["ciphertext_b64"]),
-        KeyId=secret_ref["key_id"],
-    )
-    return response["Plaintext"].decode()
-```
-
-Add `secret_ref.kind=aws_kms` to `schemas/keyring.schema.json`. Keep Vault as the primary path; cloud KMS as an alternative for organizations without a Vault deployment.
+1. `keyring_lib.py` supports `secret_ref.kind=aws_kms` with lazy `boto3` import.
+2. `schemas/keyring.schema.json` accepts `aws_kms` secret refs.
+3. `scripts/cloud_kms_adapter.py describe|decrypt` provides a smoke helper; default contract smoke only runs `describe` against a synthetic ciphertext and does not require AWS credentials.
+4. Vault remains the preferred production path; AWS KMS is the cloud alternative baseline.
 
 #### Acceptance Criteria
 
-1. `vault_http_client.py` in real mode resolves a secret from a live Vault instance using AppRole auth.
-2. `check_kms_reachability.py` reports `overall_status=ok` against a real Vault endpoint.
-3. `rotate_issuer_credentials.py` writes a new key version to Vault KV and the `key_refs` sidecar.
-4. `issue_mtls_certs.py` issues a valid server cert from Vault PKI and the recovery service starts with it.
-5. CI still passes without a real Vault (mock mode fallback).
+1. `vault_http_client.py` in real mode resolves a secret from a live Vault instance using token or AppRole auth. Live path supported.
+2. `check_kms_reachability.py` reports `overall_status=ok` against a real Vault endpoint when configured. Live path supported.
+3. `rotate_issuer_credentials.py` writes a new key version to the `key_refs` sidecar; Vault-backed secret material remains operator-managed.
+4. `issue_mtls_certs.py` issues a valid server cert from Vault PKI in live mode and generates local mock certs for CI.
+5. CI still passes without a real Vault, Keycloak, OpenFGA, or AWS account.
 
 ---
 
@@ -425,31 +342,23 @@ Add `secret_ref.kind=aws_kms` to `schemas/keyring.schema.json`. Keep Vault as th
 - `migrations/postgres/001_init.sql` has the complete Postgres-compatible DDL (SERIAL, TIMESTAMPTZ, JSONB, BOOLEAN, indexes).
 - `scripts/check_metadata_schema_portability.py` validates DDL is Postgres-compatible.
 - `scripts/export_postgres_ddl.py` exports the target DDL.
+- **F1-a completed (2026-05-06):** `scripts/metadata_db.py` now contains `connect_db(db_path, *, dsn)`, `connect_db_with_retry(…, retries, delay)`, `is_postgres(conn)`, `placeholder(conn)`, `adapt_sql(conn, sql)`, and `_split_sql_statements`. When `dsn` is provided, psycopg2 is used; migrations are applied statement-by-statement. `scripts/init_metadata_db.py` accepts `--db-dsn`.
 
 #### Tasks
 
-**F1-a — Add psycopg2 backend to metadata DB layer (1 block)**
+**F1-a — Add psycopg2 backend to metadata DB layer (1 block) — Completed 2026-05-06**
 
-Introduce a thin DB abstraction in a new module `scripts/metadata_db.py`:
+Implemented in `scripts/metadata_db.py`:
 
-```python
-import os, sqlite3
-try:
-    import psycopg2
-    _PSYCOPG2 = True
-except ImportError:
-    _PSYCOPG2 = False
+- `connect_db(db_path="", *, dsn="")`: uses psycopg2 when `dsn` is non-empty, SQLite otherwise.
+- `connect_db_with_retry(…, retries=3, delay=1.0)`: exponential-backoff retry wrapper for Patroni failover.
+- `is_postgres(conn)` / `placeholder(conn)` / `adapt_sql(conn, sql)`: helpers that rewrite `?` to `%s` for PostgreSQL.
+- `_split_sql_statements(sql)`: splits migration SQL on `;` since psycopg2 does not support `executescript`.
+- `scripts/init_metadata_db.py` accepts `--db-dsn postgresql://user:pass@host:5432/db`.
 
-def connect(db_path: str = "", dsn: str = "") -> "Connection":
-    if dsn:
-        if not _PSYCOPG2:
-            raise RuntimeError("psycopg2 is required for PostgreSQL; pip install psycopg2-binary")
-        return psycopg2.connect(dsn)
-    return sqlite3.connect(db_path)
-```
+Remaining: add `--db-dsn` to `import_run_metadata.py`, `query_metadata.py`, `manage_metadata_db.py`, `serve_metadata_api.py`, `serve_query_workflow_api.py`, `serve_audit_query_api.py` — each call site needs `adapt_sql()` wrapping for parameter placeholders.
 
 Add `--db-dsn postgresql://user:password@host:5432/dbname` to:
-- `scripts/init_metadata_db.py`
 - `scripts/import_run_metadata.py`
 - `scripts/query_metadata.py`
 - `scripts/manage_metadata_db.py`
@@ -1100,33 +1009,15 @@ One NetworkPolicy per tenant. The SSE bridge pipeline pod must carry the matchin
 
 #### Tasks
 
-**H2-a — Per-caller rate limiter in recovery service (1 block)**
+**H2-a — Per-caller rate limiter in recovery service (1 block) — Completed 2026-05-06**
 
-Add a token bucket rate limiter to `RecordRecoveryHttpHandler`. The limiter is keyed by `caller` extracted from the request payload:
+Implemented in `services/record_recovery/http_service.py`:
 
-```python
-# In services/record_recovery/http_service.py
-import threading, time
-
-class TokenBucket:
-    def __init__(self, rate: float, capacity: int):
-        self._tokens = capacity
-        self._rate = rate   # tokens per second
-        self._capacity = capacity
-        self._last = time.monotonic()
-        self._lock = threading.Lock()
-
-    def consume(self, n: int = 1) -> bool:
-        with self._lock:
-            now = time.monotonic()
-            self._tokens = min(self._capacity,
-                               self._tokens + (now - self._last) * self._rate)
-            self._last = now
-            if self._tokens >= n:
-                self._tokens -= n
-                return True
-            return False
-```
+- `TokenBucket(rate, capacity)`: thread-safe token bucket; `consume()` returns `False` when exhausted.
+- `ServiceMetrics`: in-memory Prometheus counter + histogram, exposed at `GET /metrics`.
+- `RecordRecoveryHttpServer` holds a per-caller bucket registry (`_rate_buckets`) with a `check_rate_limit(caller)` method.
+- `do_POST` checks the rate limit after extracting `caller`; exceeding returns HTTP 429 with `reason_code: rate_limited` in both the JSON error and the structured log.
+- CLI flags: `--rate-limit-per-caller <req/s>` (0 = disabled) and `--rate-limit-burst <n>` (defaults to ⌈rate⌉).
 
 Add `--rate-limit-per-caller <requests/s>` and `--rate-limit-burst <burst>` flags to `http_service.py`. When a rate limit is exceeded, return HTTP 429 with `reason_code: rate_limited` in the error response and structured log.
 
@@ -1492,28 +1383,31 @@ def connect_with_retry(dsn: str, retries: int = 3, delay: float = 1.0):
 
 #### Tasks
 
-**J3-a — Add /metrics endpoint to recovery service (1 block)**
+**J3-a — Add /metrics endpoint to recovery service (1 block) — Completed 2026-05-06**
 
-Add Prometheus text-format `/metrics` endpoint to `RecordRecoveryHttpHandler`:
+Implemented in `services/record_recovery/http_service.py`:
+
+- `ServiceMetrics`: thread-safe `threading.Lock`-protected counters + histogram. Tracks `recovery_requests_total{decision, op}` and `recovery_request_duration_seconds` (buckets: 0.05/0.1/0.25/0.5/1.0/2.0/5.0 s).
+- `_log_request()` calls `self.server.metrics.record(decision, op, duration_s)` on every request.
+- `do_GET` serves `GET /metrics` before the health check path; returns `text/plain; version=0.0.4` Prometheus exposition format. No external library required.
+- `ServiceMetrics.prometheus_text()` emits the full counter + histogram text block.
+
+Example output from a live service:
 
 ```
-# HELP recovery_requests_total Total recovery requests by decision
+# HELP recovery_requests_total Total recovery requests by decision and op
 # TYPE recovery_requests_total counter
 recovery_requests_total{decision="allow",op="recover"} 42
 recovery_requests_total{decision="deny",op="recover"} 3
-
-# HELP recovery_request_duration_seconds Recovery request latency
+# HELP recovery_request_duration_seconds Recovery request duration
 # TYPE recovery_request_duration_seconds histogram
 recovery_request_duration_seconds_bucket{le="0.1"} 10
 recovery_request_duration_seconds_bucket{le="0.5"} 38
 recovery_request_duration_seconds_bucket{le="1.0"} 42
-recovery_request_duration_seconds_sum 8.4
-recovery_request_duration_seconds_count 42
+recovery_request_duration_seconds_bucket{le="+Inf"} 45
+recovery_request_duration_seconds_sum 8.400000
+recovery_request_duration_seconds_count 45
 ```
-
-Use `threading.Lock`-protected in-memory counters; no external Prometheus client library required.
-
-Add to `GET /metrics` handler in `RecordRecoveryHttpHandler.do_GET`.
 
 **J3-b — SLO alert rules (1 block)**
 
@@ -1733,41 +1627,41 @@ Engage an external pen testing firm for the mTLS boundary and the Vault AppRole 
 ## 9. Execution Order and Dependencies
 
 ```
-Week 1-2:   E1-a, E1-b, F1-a (parallel)
-Week 2-3:   E1-c, F1-b, E2-a (parallel)
-Week 3-4:   E2-b, E2-c, F2-a (parallel)
-Week 4-5:   E3-a, E3-b, F2-b (parallel)
-Week 5-6:   E3-c, E3-d, F2-c, F3 (parallel)
-Week 6-7:   G1, G2-a, G3 (parallel, F1 prerequisite met)
-Week 7-8:   G2-b, G4-a, G5 (parallel)
-Week 8-9:   G4-b, G6, G7, G8, H1-a (parallel)
-Week 9-10:  H1-b, H2-a, H2-b, H3-a (parallel)
-Week 10-11: H3-b, I1-a, I2-a, J1 (parallel)
-Week 11-12: I1-b, I2-b, I3-a, J2-a (parallel)
-Week 12-13: I3-b, J2-b, J3-a, K1-a (parallel)
-Week 13-14: J3-b, J4, K1-b, K2 (parallel)
-Week 14-15: K3, F4-a, F4-b (parallel)
+Week 1-2:   F1-a, live E authority validation with operator-provided services (parallel)
+Week 2-3:   F1-b, F2-a (parallel)
+Week 3-4:   F2-b, F2-c, F3 (parallel)
+Week 4-5:   G1, G2-a, G3 (parallel, F1 prerequisite met)
+Week 5-6:   G2-b, G4-a, G5 (parallel)
+Week 6-7:   G4-b, G6, G7, G8, H1-a (parallel)
+Week 7-8:   H1-b, H2-a, H2-b, H3-a (parallel)
+Week 8-9:   H3-b, I1-a, I2-a, J1 (parallel)
+Week 9-10:  I1-b, I2-b, I3-a, J2-a (parallel)
+Week 10-11: I3-b, J2-b, J3-a, K1-a (parallel)
+Week 11-12: J3-b, J4, K1-b, K2 (parallel)
+Week 12-13: K3, F4-a, F4-b (parallel)
 ```
 
 ---
 
 ## 10. Summary Table
 
-| Category | Blocks | ~Hours | Key prerequisite |
-|----------|-------:|-------:|-----------------|
-| E — Real authority sources | 12 | 60h | None |
-| F — Production PostgreSQL | 8 | 40h | None |
-| G — Scale & optimization | 10 | 50h | E1 + F1 smoke-tested |
-| H — Multi-tenant isolation | 6 | 30h | E1 |
-| I — Production operator console | 6 | 30h | E1, G complete |
-| J — SRE / HA | 6 | 30h | F2 |
-| K — Compliance / external audit | 4 | 20h | J complete |
-| **Total** | **52** | **~260h** | |
+| Category | Blocks remaining | ~Hours remaining | Notes |
+|----------|----------------:|----------------:|-------|
+| E — Real authority sources | 0 repo-side | 0h | Complete; live validation is operator-environment work |
+| F — Production PostgreSQL | 7 | 35h | F1-a done (psycopg2 layer + init_metadata_db); F1-b + F2-F4 remain |
+| G — Scale & optimization | 10 | 50h | E1 + F1 smoke-tested prerequisite |
+| H — Multi-tenant isolation | 5 | 25h | H2-a done (token bucket rate limiter); H1, H2-b, H3 remain |
+| I — Production operator console | 6 | 30h | E1, G complete prerequisite |
+| J — SRE / HA | 5 | 25h | J3-a done (Prometheus /metrics); J1, J2, J3-b, J4 remain |
+| K — Compliance / external audit | 4 | 20h | J complete prerequisite |
+| **Total remaining** | **37** | **~185h** | |
+
+Completed since initial publication: F1-a, H2-a, J3-a (2026-05-06)
 
 **Optimization + large-scale benchmark only (G):** 10 blocks / 50h
 
 **Critical path (shortest path to a load-tested, authority-backed platform):**
-E1 → E3-a → F1 → G1–G5 → J1 → J2 → K1 = 26 blocks / 130h
+F1-b → F2 → G1–G5 → J1 → J2 → K1 = 21 remaining blocks / ~105h
 
 ---
 
@@ -1782,4 +1676,4 @@ The following are out of scope for this guidebook and should be treated as separ
 5. **HSM-backed key management** — using a Hardware Security Module instead of Vault for the bridge token secrets.
 6. **SOC 2 Type II certification** — formal certification process requires an audit period and policy documentation beyond this guidebook's scope.
 
-None of these are blocked by the work in this guidebook. They should be started after the 52 blocks above are complete.
+None of these are blocked by the work in this guidebook. They should be started after the 40 remaining blocks above are complete.

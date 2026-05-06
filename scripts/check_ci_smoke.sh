@@ -74,7 +74,17 @@ python3 -m py_compile \
   scripts/check_malformed_input_gate.py \
   scripts/check_pre_release_gate.py \
   scripts/check_authority_governance.py \
-  scripts/check_operator_readiness.py
+  scripts/check_operator_readiness.py \
+  scripts/api_identity.py \
+  scripts/resolve_api_identity.py \
+  scripts/map_oidc_claims.py \
+  scripts/vault_http_client.py \
+  scripts/issue_mtls_certs.py \
+  scripts/cloud_kms_adapter.py \
+  scripts/request_oidc_client_credentials.py \
+  scripts/setup_openfga_model.py \
+  scripts/openfga_http.py \
+  scripts/rotate_issuer_credentials.py
 
 SSE_PY="$REPO_ROOT/sse/.venv/bin/python"
 if [[ ! -x "$SSE_PY" ]]; then

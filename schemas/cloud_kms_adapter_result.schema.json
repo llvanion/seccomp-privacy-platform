@@ -1,0 +1,20 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "cloud_kms_adapter_result/v1",
+  "title": "Cloud KMS adapter result",
+  "type": "object",
+  "required": ["schema", "generated_at_utc", "operation", "provider", "ok"],
+  "properties": {
+    "schema": { "const": "cloud_kms_adapter_result/v1" },
+    "generated_at_utc": { "type": "string", "minLength": 1 },
+    "operation": { "enum": ["describe", "decrypt"] },
+    "provider": { "enum": ["aws_kms"] },
+    "key_id": { "type": ["string", "null"] },
+    "region": { "type": ["string", "null"] },
+    "ciphertext_sha256": { "type": ["string", "null"] },
+    "value": { "type": ["string", "null"] },
+    "ok": { "type": "boolean" },
+    "error": { "type": ["string", "null"] }
+  },
+  "additionalProperties": false
+}

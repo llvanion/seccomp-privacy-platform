@@ -132,6 +132,31 @@
 | 2026-05-05 | Tranche D / D3：external audit anchor baseline | `scripts/publish_external_audit_anchor.py`（chain verify + append to `external_audit_anchor_ledger/v1`；dry-run / publish / --require-signature / --assert-ok），`schemas/external_audit_anchor_report.schema.json`（冻结 `external_audit_anchor_report/v1`） | chain 完整性验证（payload_sha256、entry_sha256、chain linkage、HMAC）通过；dry-run / publish 两路径 schema 校验 ✓ |
 | 2026-05-05 | Tranche D / D4：ops runbook / failure recovery 收口 | `docs/OPS_RUNBOOK.md`（新增 mTLS Recovery Service 小节、External Audit Anchor Publishing 章节、Failure Recovery Decision Tree 新增 D1/D3 排障条目），`docs/RECORD_RECOVERY_INDEPENDENT_SERVICE_PLAN.md`（D1/D2/D3/D4 完成状态回写，4.6 TLS contract，5.6 mTLS 启动样例，6.1 mTLS 独立说明） | 文档回写覆盖 Tranche D 全部 4 块 ✓ |
 
+## 6. 生产就绪阶段新增完成记录（2026-05-06）
+
+这些记录属于 [PRODUCTION_READINESS_GUIDEBOOK.md](/home/llvanion/Desktop/seccomp-privacy-platform/docs/PRODUCTION_READINESS_GUIDEBOOK.md) 的 E 类 authority-source 生产化任务，不再计入平台基线或 post-baseline A-D tranche。
+
+| 完成时间 | Production Block | 入口 | 验证 |
+| --- | --- | --- | --- |
+| 2026-05-06 | E1-b：RS256 / JWKS OIDC claim mapper adapter | `scripts/map_oidc_claims.py --jwks-uri`，`config/oidc_claim_mapping.example.json`，`scripts/api_identity.py` JWKS bearer path | `check_json_contracts.sh` 生成 synthetic RS256 JWT + `file://` JWKS，校验 `oidc_claim_map/v1`、API identity、key-agent、external-KMS、metadata `/v1/identity` JWKS 路径 ✓ |
+| 2026-05-06 | E2-b：OpenFGA HTTP backend for sync/check adapters | `scripts/openfga_http.py`，`scripts/sync_openfga_tuples.py --openfga-config`，`scripts/check_openfga_authz.py --openfga-config`，`config/openfga.example.json` | SQLite fallback 仍为默认；live HTTP backend code path 由 `openfga_config/v1` 控制，schema 已纳入 contract smoke ✓ |
+| 2026-05-06 | E2-c：authority governance live OpenFGA gate | `scripts/check_authority_governance.py --openfga-config ... --openfga-user ...`，`scripts/check_json_contracts.sh` optional live branch | 默认 CI 不依赖 OpenFGA；当 `OPENFGA_ENDPOINT` + `OPENFGA_STORE_ID` 存在时，contract smoke 会 apply tuples、live check、并验证 `authority_governance_report/v1` ✓ |
+| 2026-05-06 | E1-a / E1-c：Keycloak realm + client-credentials wiring artifacts | `docker-compose.authority.yml`，`config/keycloak_realm_seccomp_privacy.json`，`scripts/request_oidc_client_credentials.py`，`schemas/oidc_client_credentials_report.schema.json` | 默认 smoke 走 dry-run contract；live token 请求由 `--execute` + client secret env 显式启用 ✓ |
+| 2026-05-06 | E2-a：OpenFGA authorization model setup artifact | `config/openfga_authorization_model.json`，`scripts/setup_openfga_model.py`，`schemas/openfga_model_setup_report.schema.json` | 默认 smoke 验证 model setup dry-run；live store/model upload 由 `--execute` 显式启用 ✓ |
+| 2026-05-06 | E3-a/E3-b：Vault HTTP real-mode + AppRole config | `scripts/vault_http_client.py`，`schemas/vault_http_client_config.schema.json`，`config/vault_http_client.example.json` | token/AppRole config schema 冻结；默认 smoke 仍使用 mock fallback ✓ |
+| 2026-05-06 | E3-c：Vault PKI / mTLS cert issue baseline | `scripts/issue_mtls_certs.py`，`config/vault_pki.example.json`，`schemas/mtls_cert_issue_report.schema.json` | 默认 smoke mock-mode 生成 CA/server/client certs 并校验 report schema；live Vault PKI 由 `mock_mode=false` 启用 ✓ |
+| 2026-05-06 | E3-d：cloud KMS adapter baseline | `scripts/cloud_kms_adapter.py`，`scripts/keyring_lib.py`，`schemas/keyring.schema.json`，`schemas/cloud_kms_adapter_result.schema.json` | `secret_ref.kind=aws_kms` schema + lazy boto3 decrypt path；默认 smoke 只跑 synthetic describe，不需要 AWS 凭证 ✓ |
+
+## 8. 生产就绪 F/H/J 初始 block 完成记录（2026-05-06）
+
+这些记录属于 [PRODUCTION_READINESS_GUIDEBOOK.md](/home/llvanion/Desktop/seccomp-privacy-platform/docs/PRODUCTION_READINESS_GUIDEBOOK.md) 的 F/H/J 类任务，独立于平台基线和 post-baseline A-D tranche。
+
+| 完成时间 | Production Block | 入口 | 验证 |
+| --- | --- | --- | --- |
+| 2026-05-06 | F1-a：psycopg2 PostgreSQL driver layer | `scripts/metadata_db.py`（`connect_db(dsn=…)`、`is_postgres`、`placeholder`、`adapt_sql`、`connect_db_with_retry`），`scripts/init_metadata_db.py --db-dsn` | `python3 -m py_compile` ✓；SQLite 默认路径不受影响；`check_ci_smoke.sh` ✓ |
+| 2026-05-06 | H2-a：per-caller token bucket rate limiter | `services/record_recovery/http_service.py`（`TokenBucket`、`RecordRecoveryHttpServer.check_rate_limit`、`do_POST` rate-limit gate → HTTP 429 `rate_limited`），CLI flags `--rate-limit-per-caller` / `--rate-limit-burst` | `python3 -m py_compile` ✓；`check_ci_smoke.sh` ✓ |
+| 2026-05-06 | J3-a：Prometheus /metrics endpoint | `services/record_recovery/http_service.py`（`ServiceMetrics`、`GET /metrics`），`_log_request` 自动记录 counter + histogram | `python3 -m py_compile` ✓；`check_ci_smoke.sh` ✓ |
+
 ## 7. 使用方式
 
 建议后续所有”公布工作量”统一写成：
