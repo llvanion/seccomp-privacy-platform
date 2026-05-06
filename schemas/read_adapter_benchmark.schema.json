@@ -36,6 +36,12 @@
       "type": "integer",
       "minimum": 1
     },
+    "db_backend": {
+      "type": "string"
+    },
+    "db_dsn": {
+      "type": ["string", "null"]
+    },
     "modes": {
       "type": "array",
       "items": {

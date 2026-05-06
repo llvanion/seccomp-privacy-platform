@@ -847,6 +847,8 @@
         "modes"
       ],
       "stable_properties": [
+        "db_backend",
+        "db_dsn",
         "fixture_job_id",
         "fixture_profile",
         "generated_at_utc",
@@ -2477,17 +2479,19 @@
       "path": "schemas/vault_http_client_config.schema.json",
       "schema_id": "vault_http_client_config/v1",
       "required": [
-        "schema"
+        "schema",
+        "mount",
+        "timeout_seconds"
       ],
       "stable_properties": [
         "approle_role_id_env",
         "approle_secret_id_env",
-        "auth_method",
         "base_url",
         "mock_file",
         "mount",
         "schema",
         "timeout_seconds",
+        "token_cache_file",
         "token_env"
       ]
     },

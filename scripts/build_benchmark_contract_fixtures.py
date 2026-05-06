@@ -48,6 +48,8 @@ def validate_pipeline_surface(pipeline_module: Any) -> None:
             mode=mode,
             out_base=Path("/tmp/seccomp_pipeline_benchmark_example"),
             job_id=f"contract_{mode}",
+            server_source=Path("/tmp/seccomp_pipeline_benchmark_example/server.csv"),
+            client_source=Path("/tmp/seccomp_pipeline_benchmark_example/client.csv"),
         )
         if mode == "file_handoff_retained":
             if (
@@ -128,6 +130,8 @@ def build_pipeline_fixture(pipeline_module: Any) -> dict[str, Any]:
                     mode=mode,
                     out_base=Path("/tmp/seccomp_pipeline_benchmark_example"),
                     job_id=f"fixture_{mode}",
+                    server_source=Path("/tmp/seccomp_pipeline_benchmark_example/server.csv"),
+                    client_source=Path("/tmp/seccomp_pipeline_benchmark_example/client.csv"),
                 ),
                 "summary": build_summary(),
                 "results": [
