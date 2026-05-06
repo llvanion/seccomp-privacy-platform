@@ -6,7 +6,7 @@ import tempfile
 from pathlib import Path
 from typing import Any
 
-from metadata_db import MIGRATIONS_DIR, apply_migrations, connect_db, utc_now
+from metadata_db import MIGRATIONS_DIR, apply_migrations, connect_db, database_backend, database_version, table_exists, utc_now
 
 
 SCHEMA_ID = "metadata_schema_portability/v1"
@@ -43,7 +43,14 @@ EXPECTED_INDEXES = (
 )
 
 
-def list_tables(conn: sqlite3.Connection) -> list[str]:
+def list_tables(conn: Any) -> list[str]:
+    if database_backend(conn) == "postgres":
+        return [
+            str(row[0])
+            for row in conn.execute(
+                "SELECT table_name FROM information_schema.tables WHERE table_schema = 'public' ORDER BY table_name"
+            ).fetchall()
+        ]
     return [
         str(row[0])
         for row in conn.execute(
@@ -52,7 +59,19 @@ def list_tables(conn: sqlite3.Connection) -> list[str]:
     ]
 
 
-def list_indexes(conn: sqlite3.Connection) -> list[str]:
+def list_indexes(conn: Any) -> list[str]:
+    if database_backend(conn) == "postgres":
+        return [
+            str(row[0])
+            for row in conn.execute(
+                """
+                SELECT indexname
+                FROM pg_indexes
+                WHERE schemaname = 'public'
+                ORDER BY indexname
+                """
+            ).fetchall()
+        ]
     return [
         str(row[0])
         for row in conn.execute(
@@ -112,6 +131,7 @@ def build_check(name: str, *, ok: bool, details: dict[str, Any]) -> dict[str, An
 
 def main() -> int:
     ap = argparse.ArgumentParser(description="Check metadata DB migrations for SQLite/PostgreSQL portability baseline.")
+    ap.add_argument("--db-dsn", default="", help="Optional PostgreSQL DSN for a live migration smoke")
     ap.add_argument("--output", default="", help="Optional path to write the JSON report")
     args = ap.parse_args()
 
@@ -125,62 +145,67 @@ def main() -> int:
         )
     )
 
+    backend = "sqlite"
+    db_version = ""
     with tempfile.TemporaryDirectory(prefix="seccomp_metadata_portability_") as tmpdir:
         db_path = Path(tmpdir) / "metadata_portability.db"
-        conn = connect_db(str(db_path))
+        conn = connect_db("" if args.db_dsn else str(db_path), dsn=args.db_dsn)
         try:
             applied = apply_migrations(conn)
+            backend = database_backend(conn)
+            db_version = database_version(conn)
             tables = list_tables(conn)
             indexes = list_indexes(conn)
-            table_infos = {table_name: table_info(conn, table_name) for table_name in tables}
-            fk_infos = {table_name: foreign_keys(conn, table_name) for table_name in tables}
+            table_infos = {table_name: table_info(conn, table_name) for table_name in tables} if backend == "sqlite" else {}
+            fk_infos = {table_name: foreign_keys(conn, table_name) for table_name in tables} if backend == "sqlite" else {}
         finally:
             conn.close()
 
-    tables_without_pk = sorted(
-        table_name
-        for table_name, columns in table_infos.items()
-        if not any(column["pk_ordinal"] > 0 for column in columns)
-    )
-    checks.append(
-        build_check(
-            "primary_keys_present",
-            ok=not tables_without_pk,
-            details={"tables_without_primary_key": tables_without_pk},
-        )
-    )
-
-    bad_utc_columns = sorted(
-        {
-            f"{table_name}.{column['name']}"
+    if backend == "sqlite":
+        tables_without_pk = sorted(
+            table_name
             for table_name, columns in table_infos.items()
-            for column in columns
-            if column["name"].endswith("_utc") and column["type"].upper() != "TEXT"
-        }
-    )
-    checks.append(
-        build_check(
-            "utc_columns_use_text",
-            ok=not bad_utc_columns,
-            details={"columns": bad_utc_columns},
+            if not any(column["pk_ordinal"] > 0 for column in columns)
         )
-    )
+        checks.append(
+            build_check(
+                "primary_keys_present",
+                ok=not tables_without_pk,
+                details={"tables_without_primary_key": tables_without_pk},
+            )
+        )
 
-    bad_json_columns = sorted(
-        {
-            f"{table_name}.{column['name']}"
-            for table_name, columns in table_infos.items()
-            for column in columns
-            if column["name"].endswith("_json") and column["type"].upper() != "TEXT"
-        }
-    )
-    checks.append(
-        build_check(
-            "json_columns_use_text",
-            ok=not bad_json_columns,
-            details={"columns": bad_json_columns},
+        bad_utc_columns = sorted(
+            {
+                f"{table_name}.{column['name']}"
+                for table_name, columns in table_infos.items()
+                for column in columns
+                if column["name"].endswith("_utc") and column["type"].upper() != "TEXT"
+            }
         )
-    )
+        checks.append(
+            build_check(
+                "utc_columns_use_text",
+                ok=not bad_utc_columns,
+                details={"columns": bad_utc_columns},
+            )
+        )
+
+        bad_json_columns = sorted(
+            {
+                f"{table_name}.{column['name']}"
+                for table_name, columns in table_infos.items()
+                for column in columns
+                if column["name"].endswith("_json") and column["type"].upper() != "TEXT"
+            }
+        )
+        checks.append(
+            build_check(
+                "json_columns_use_text",
+                ok=not bad_json_columns,
+                details={"columns": bad_json_columns},
+            )
+        )
 
     missing_indexes = sorted(index_name for index_name in EXPECTED_INDEXES if index_name not in indexes)
     checks.append(
@@ -191,27 +216,38 @@ def main() -> int:
         )
     )
 
-    unknown_fk_targets = sorted(
-        {
-            f"{table_name}.{fk['from']}->{fk['ref_table']}.{fk['to']}"
-            for table_name, fk_rows in fk_infos.items()
-            for fk in fk_rows
-            if fk["ref_table"] not in table_infos
-        }
-    )
-    checks.append(
-        build_check(
-            "foreign_key_targets_present",
-            ok=not unknown_fk_targets,
-            details={"unknown_foreign_key_targets": unknown_fk_targets},
+    if backend == "sqlite":
+        unknown_fk_targets = sorted(
+            {
+                f"{table_name}.{fk['from']}->{fk['ref_table']}.{fk['to']}"
+                for table_name, fk_rows in fk_infos.items()
+                for fk in fk_rows
+                if fk["ref_table"] not in table_infos
+            }
         )
-    )
+        checks.append(
+            build_check(
+                "foreign_key_targets_present",
+                ok=not unknown_fk_targets,
+                details={"unknown_foreign_key_targets": unknown_fk_targets},
+            )
+        )
+    else:
+        checks.append(
+            build_check(
+                "postgres_live_migration_smoke",
+                ok="schema_migrations" in tables and len(applied) == len(list(MIGRATIONS_DIR.glob("*.sql"))),
+                details={"db_dsn": bool(args.db_dsn), "table_count": len(tables)},
+            )
+        )
 
     status = "ok" if all(check["status"] == "ok" for check in checks) else "fail"
     report = {
         "schema": SCHEMA_ID,
         "generated_at_utc": utc_now(),
         "status": status,
+        "backend": backend,
+        "database_version": db_version,
         "migrations_dir": str(MIGRATIONS_DIR.resolve()),
         "applied_migrations": applied,
         "summary": {

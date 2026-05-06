@@ -63,12 +63,14 @@ class MetadataApiServer(ThreadingHTTPServer):
         handler_cls,
         *,
         db_path: str,
+        db_dsn: str,
         auth_token: str,
         identity_token_config: str,
         pid_file: str,
         ready_file: str,
     ) -> None:
-        self.db_path = str(Path(db_path).resolve())
+        self.db_path = str(Path(db_path).resolve()) if db_path else ""
+        self.db_dsn = db_dsn
         self.auth_token = auth_token
         self.identity_token_config = str(Path(identity_token_config).resolve()) if identity_token_config else ""
         self.pid_file = pid_file
@@ -107,6 +109,7 @@ class MetadataApiHandler(BaseHTTPRequestHandler):
             auth_header=self.headers.get("Authorization", ""),
             expected_bearer_token=self.server.auth_token,
             db_path=self.server.db_path,
+            db_dsn=self.server.db_dsn,
             identity_token_config=self.server.identity_token_config,
             auth_failure_label="metadata API",
         )
@@ -122,7 +125,8 @@ class MetadataApiHandler(BaseHTTPRequestHandler):
                     {
                         "schema": HEALTH_SCHEMA,
                         "ok": True,
-                        "db_path": self.server.db_path,
+                        "db_path": self.server.db_path or None,
+                        "db_dsn": self.server.db_dsn or None,
                         "auth_required": bool(self.server.auth_token or self.server.identity_token_config),
                     },
                 )
@@ -143,7 +147,7 @@ class MetadataApiHandler(BaseHTTPRequestHandler):
                 job_id = unquote(path.removeprefix("/v1/jobs/"))
                 if not job_id:
                     raise ValueError("job_id is required")
-                with connect_db(self.server.db_path) as conn:
+                with connect_db(self.server.db_path, dsn=self.server.db_dsn) as conn:
                     payload = query_job_detail(conn, job_id)
                 if identity is not None and not payload.get("job"):
                     raise PermissionError("job not found")
@@ -219,7 +223,7 @@ class MetadataApiHandler(BaseHTTPRequestHandler):
                 caller=scoped["caller"],
                 tenant_id=scoped["tenant_id"],
             )
-        with connect_db(self.server.db_path) as conn:
+        with connect_db(self.server.db_path, dsn=self.server.db_dsn) as conn:
             return query_jobs(
                 conn,
                 caller=scoped["caller"],
@@ -250,7 +254,7 @@ class MetadataApiHandler(BaseHTTPRequestHandler):
                 caller=scoped["caller"],
                 tenant_id=scoped["tenant_id"],
             )
-        with connect_db(self.server.db_path) as conn:
+        with connect_db(self.server.db_path, dsn=self.server.db_dsn) as conn:
             return query_entities(
                 conn,
                 entity=entity,
@@ -272,7 +276,8 @@ class MetadataApiHandler(BaseHTTPRequestHandler):
 
 def build_parser() -> argparse.ArgumentParser:
     ap = argparse.ArgumentParser(description="Serve a thin local read-only HTTP API over the metadata sidecar.")
-    ap.add_argument("--db-path", required=True, help="SQLite metadata DB path")
+    ap.add_argument("--db-path", default="", help="SQLite metadata DB path")
+    ap.add_argument("--db-dsn", default="", help="Optional PostgreSQL DSN")
     ap.add_argument("--bind-host", default="127.0.0.1")
     ap.add_argument("--port", type=int, default=18090)
     ap.add_argument("--auth-token-env", default="", help="Optional bearer-token env var for non-health endpoints")
@@ -284,15 +289,18 @@ def build_parser() -> argparse.ArgumentParser:
 
 def main() -> int:
     args = build_parser().parse_args()
-    db_path = Path(args.db_path)
-    if not db_path.is_file():
+    if not args.db_path and not args.db_dsn:
+        raise SystemExit("[ERROR] one of --db-path or --db-dsn is required")
+    db_path = Path(args.db_path) if args.db_path else None
+    if db_path is not None and not db_path.is_file():
         raise SystemExit(f"[ERROR] metadata DB does not exist: {db_path}")
 
     auth_token = read_auth_token(args.auth_token_env)
     server = MetadataApiServer(
         (args.bind_host, args.port),
         MetadataApiHandler,
-        db_path=str(db_path),
+        db_path=str(db_path) if db_path else "",
+        db_dsn=args.db_dsn,
         auth_token=auth_token,
         identity_token_config=args.identity_token_config,
         pid_file=args.pid_file,

@@ -513,7 +513,7 @@ def validate_metadata_api_permissions_payload(payload: dict[str, Any], *, label:
     return semantics
 
 
-def materialize_fixture(run_root: Path, *, env: dict[str, str]) -> tuple[Path, Path]:
+def materialize_fixture(run_root: Path, *, env: dict[str, str], db_dsn: str = "") -> tuple[Path, Path | None]:
     out_base = run_root / "completed_run"
     sse_exports = out_base / "sse_exports"
     bridge_job = out_base / "bridge_job"
@@ -841,29 +841,29 @@ def materialize_fixture(run_root: Path, *, env: dict[str, str]) -> tuple[Path, P
     )
 
     db_path = run_root / "platform_metadata.db"
-    run_checked(
-        [sys.executable, str(REPO_ROOT / "scripts" / "init_metadata_db.py"), "--db-path", str(db_path)],
-        env=env,
-        label="init_metadata_db",
-    )
-    run_checked(
-        [
-            sys.executable,
-            str(REPO_ROOT / "scripts" / "import_run_metadata.py"),
-            "--out-base",
-            str(out_base),
-            "--db-path",
-            str(db_path),
-        ],
-        env=env,
-        label="import_run_metadata",
-    )
+    init_command = [sys.executable, str(REPO_ROOT / "scripts" / "init_metadata_db.py")]
+    import_command = [
+        sys.executable,
+        str(REPO_ROOT / "scripts" / "import_run_metadata.py"),
+        "--out-base",
+        str(out_base),
+    ]
+    if db_dsn:
+        init_command.extend(["--db-dsn", db_dsn])
+        import_command.extend(["--db-dsn", db_dsn])
+        db_path = None
+    else:
+        init_command.extend(["--db-path", str(db_path)])
+        import_command.extend(["--db-path", str(db_path)])
+    run_checked(init_command, env=env, label="init_metadata_db")
+    run_checked(import_command, env=env, label="import_run_metadata")
     return out_base, db_path
 
 
 def build_parser() -> argparse.ArgumentParser:
     ap = argparse.ArgumentParser(description="Benchmark metadata and completed-run audit read adapters without modifying the privacy pipeline.")
     ap.add_argument("--iterations", type=int, default=3)
+    ap.add_argument("--db-dsn", default="", help="Optional PostgreSQL DSN for metadata-side benchmarks")
     ap.add_argument("--mode", choices=("all",) + MODES, default="all")
     ap.add_argument("--timeout-sec", type=float, default=30.0)
     ap.add_argument("--output", default="")
@@ -893,7 +893,7 @@ def main() -> int:
 
     with tempfile.TemporaryDirectory(prefix="seccomp_read_adapter_bench.") as tmp_dir:
         run_root = Path(tmp_dir)
-        out_base, db_path = materialize_fixture(run_root, env=common_env)
+        out_base, db_path = materialize_fixture(run_root, env=common_env, db_dsn=args.db_dsn)
 
         metadata_env = dict(common_env)
         metadata_env["SECCOMP_METADATA_API_TOKEN"] = "benchmark-metadata-token"
@@ -907,8 +907,6 @@ def main() -> int:
                 metadata_command = [
                     sys.executable,
                     str(REPO_ROOT / "scripts" / "serve_metadata_api.py"),
-                    "--db-path",
-                    str(db_path),
                     "--bind-host",
                     "127.0.0.1",
                     "--port",
@@ -916,6 +914,10 @@ def main() -> int:
                     "--auth-token-env",
                     "SECCOMP_METADATA_API_TOKEN",
                 ]
+                if args.db_dsn:
+                    metadata_command.extend(["--db-dsn", args.db_dsn])
+                else:
+                    metadata_command.extend(["--db-path", str(db_path)])
                 started = time.perf_counter()
                 metadata_api_process = subprocess.Popen(
                     metadata_command,
@@ -967,13 +969,15 @@ def main() -> int:
                     mode_command = [
                         sys.executable,
                         str(REPO_ROOT / "scripts" / "query_metadata.py"),
-                        "--db-path",
-                        str(db_path),
                         "--job-id",
                         FIXTURE_JOB_ID,
                         "--output-file",
                         str(output_path),
                     ]
+                    if args.db_dsn:
+                        mode_command[2:2] = ["--db-dsn", args.db_dsn]
+                    else:
+                        mode_command[2:2] = ["--db-path", str(db_path)]
                     for _ in range(args.iterations):
                         result = run_command(mode_command, env=common_env, timeout_sec=args.timeout_sec)
                         if result["exit_code"] == 0:
@@ -987,8 +991,6 @@ def main() -> int:
                     mode_command = [
                         sys.executable,
                         str(REPO_ROOT / "scripts" / "query_metadata.py"),
-                        "--db-path",
-                        str(db_path),
                         "--caller",
                         "auto_demo",
                         "--stage",
@@ -998,6 +1000,10 @@ def main() -> int:
                         "--output-file",
                         str(output_path),
                     ]
+                    if args.db_dsn:
+                        mode_command[2:2] = ["--db-dsn", args.db_dsn]
+                    else:
+                        mode_command[2:2] = ["--db-path", str(db_path)]
                     for _ in range(args.iterations):
                         result = run_command(mode_command, env=common_env, timeout_sec=args.timeout_sec)
                         if result["exit_code"] == 0:
@@ -1284,6 +1290,8 @@ def main() -> int:
         "repo_root": str(REPO_ROOT),
         "fixture_profile": FIXTURE_PROFILE,
         "fixture_job_id": FIXTURE_JOB_ID,
+        "db_backend": "postgres" if args.db_dsn else "sqlite",
+        "db_dsn": args.db_dsn or None,
         "iterations": args.iterations,
         "modes": results,
     }

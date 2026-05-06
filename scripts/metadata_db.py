@@ -1,8 +1,16 @@
 #!/usr/bin/env python3
 import hashlib
+import json
+import re
 import sqlite3
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import Any
+
+try:
+    import psycopg2  # type: ignore
+except ImportError:  # pragma: no cover - optional dependency
+    psycopg2 = None
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -13,7 +21,213 @@ def utc_now() -> str:
     return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
 
 
-def connect_db(db_path: str) -> sqlite3.Connection:
+def _split_sql_statements(script: str) -> list[str]:
+    statements: list[str] = []
+    current: list[str] = []
+    in_single = False
+    in_double = False
+    in_line_comment = False
+    in_block_comment = False
+    index = 0
+    while index < len(script):
+        char = script[index]
+        next_char = script[index + 1] if index + 1 < len(script) else ""
+        if in_line_comment:
+            current.append(char)
+            if char == "\n":
+                in_line_comment = False
+            index += 1
+            continue
+        if in_block_comment:
+            current.append(char)
+            if char == "*" and next_char == "/":
+                current.append(next_char)
+                in_block_comment = False
+                index += 2
+                continue
+            index += 1
+            continue
+        if not in_single and not in_double and char == "-" and next_char == "-":
+            current.append(char)
+            current.append(next_char)
+            in_line_comment = True
+            index += 2
+            continue
+        if not in_single and not in_double and char == "/" and next_char == "*":
+            current.append(char)
+            current.append(next_char)
+            in_block_comment = True
+            index += 2
+            continue
+        if char == "'" and not in_double:
+            in_single = not in_single
+            current.append(char)
+            index += 1
+            continue
+        if char == '"' and not in_single:
+            in_double = not in_double
+            current.append(char)
+            index += 1
+            continue
+        if char == ";" and not in_single and not in_double:
+            statement = "".join(current).strip()
+            if statement:
+                statements.append(statement)
+            current = []
+            index += 1
+            continue
+        current.append(char)
+        index += 1
+    tail = "".join(current).strip()
+    if tail:
+        statements.append(tail)
+    return statements
+
+
+def _translate_postgres_statement(statement: str) -> str:
+    translated = statement.strip()
+    if not translated:
+        return ""
+    upper = translated.upper()
+    if upper.startswith("PRAGMA "):
+        return ""
+    translated = re.sub(r"\bINTEGER\s+PRIMARY\s+KEY\b", "SERIAL PRIMARY KEY", translated, flags=re.IGNORECASE)
+    translated = re.sub(r"\bAUTOINCREMENT\b", "", translated, flags=re.IGNORECASE)
+    return translated
+
+
+def _convert_qmark_placeholders(query: str) -> str:
+    rendered: list[str] = []
+    in_single = False
+    in_double = False
+    for char in query:
+        if char == "'" and not in_double:
+            in_single = not in_single
+            rendered.append(char)
+            continue
+        if char == '"' and not in_single:
+            in_double = not in_double
+            rendered.append(char)
+            continue
+        if char == "?" and not in_single and not in_double:
+            rendered.append("%s")
+            continue
+        rendered.append(char)
+    return "".join(rendered)
+
+
+def _normalize_param(value: Any) -> Any:
+    if isinstance(value, (dict, list)):
+        return json.dumps(value, ensure_ascii=False)
+    return value
+
+
+class CompatRow:
+    def __init__(self, columns: list[str], values: list[Any]) -> None:
+        self._columns = columns
+        self._values = values
+        self._mapping = {column: values[index] for index, column in enumerate(columns)}
+
+    def __getitem__(self, key: int | str) -> Any:
+        if isinstance(key, int):
+            return self._values[key]
+        return self._mapping[key]
+
+    def keys(self) -> list[str]:
+        return list(self._columns)
+
+    def get(self, key: str, default: Any = None) -> Any:
+        return self._mapping.get(key, default)
+
+
+class PostgresCursorWrapper:
+    def __init__(self, cursor: Any) -> None:
+        self._cursor = cursor
+
+    def execute(self, query: str, params: tuple[Any, ...] | list[Any] = ()) -> "PostgresCursorWrapper":
+        normalized = tuple(_normalize_param(value) for value in params)
+        self._cursor.execute(_convert_qmark_placeholders(query), normalized)
+        return self
+
+    def executemany(self, query: str, rows: list[tuple[Any, ...]]) -> "PostgresCursorWrapper":
+        normalized_rows = [
+            tuple(_normalize_param(value) for value in row)
+            for row in rows
+        ]
+        self._cursor.executemany(_convert_qmark_placeholders(query), normalized_rows)
+        return self
+
+    def fetchone(self) -> CompatRow | None:
+        row = self._cursor.fetchone()
+        if row is None:
+            return None
+        columns = [item[0] for item in (self._cursor.description or [])]
+        return CompatRow(columns, list(row))
+
+    def fetchall(self) -> list[CompatRow]:
+        rows = self._cursor.fetchall()
+        columns = [item[0] for item in (self._cursor.description or [])]
+        return [CompatRow(columns, list(row)) for row in rows]
+
+    def __iter__(self):
+        columns = [item[0] for item in (self._cursor.description or [])]
+        for row in self._cursor:
+            yield CompatRow(columns, list(row))
+
+
+class PostgresConnectionWrapper:
+    def __init__(self, conn: Any, *, dsn: str) -> None:
+        self._conn = conn
+        self.dsn = dsn
+        self.backend = "postgres"
+
+    def cursor(self) -> PostgresCursorWrapper:
+        return PostgresCursorWrapper(self._conn.cursor())
+
+    def execute(self, query: str, params: tuple[Any, ...] | list[Any] = ()) -> PostgresCursorWrapper:
+        return self.cursor().execute(query, params)
+
+    def executemany(self, query: str, rows: list[tuple[Any, ...]]) -> PostgresCursorWrapper:
+        return self.cursor().executemany(query, rows)
+
+    def executescript(self, script: str) -> None:
+        cursor = self._conn.cursor()
+        try:
+            for statement in _split_sql_statements(script):
+                translated = _translate_postgres_statement(statement)
+                if translated:
+                    cursor.execute(translated)
+        finally:
+            cursor.close()
+
+    def commit(self) -> None:
+        self._conn.commit()
+
+    def rollback(self) -> None:
+        self._conn.rollback()
+
+    def close(self) -> None:
+        self._conn.close()
+
+    def __enter__(self) -> "PostgresConnectionWrapper":
+        return self
+
+    def __exit__(self, exc_type, exc, tb) -> bool:
+        if exc_type is not None:
+            self.rollback()
+        self.close()
+        return False
+
+
+def connect_db(db_path: str = "", dsn: str = "") -> Any:
+    if dsn:
+        if psycopg2 is None:
+            raise RuntimeError("psycopg2 is required for PostgreSQL; install psycopg2-binary")
+        conn = psycopg2.connect(dsn)
+        conn.autocommit = False
+        return PostgresConnectionWrapper(conn, dsn=dsn)
+    if not db_path:
+        raise ValueError("either db_path or dsn is required")
     path = Path(db_path)
     path.parent.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(path)
@@ -22,7 +236,35 @@ def connect_db(db_path: str) -> sqlite3.Connection:
     return conn
 
 
-def ensure_schema_migrations_table(conn: sqlite3.Connection) -> None:
+def database_backend(conn: Any) -> str:
+    if isinstance(conn, PostgresConnectionWrapper):
+        return "postgres"
+    return "sqlite"
+
+
+def database_version(conn: Any) -> str:
+    if database_backend(conn) == "postgres":
+        row = conn.execute("SELECT version()").fetchone()
+        return str(row[0] if row is not None else "")
+    row = conn.execute("SELECT sqlite_version()").fetchone()
+    return str(row[0] if row is not None else "")
+
+
+def table_exists(conn: Any, table_name: str) -> bool:
+    if database_backend(conn) == "postgres":
+        row = conn.execute(
+            "SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = ?",
+            (table_name,),
+        ).fetchone()
+        return bool(row)
+    row = conn.execute(
+        "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?",
+        (table_name,),
+    ).fetchone()
+    return bool(row)
+
+
+def ensure_schema_migrations_table(conn: Any) -> None:
     conn.execute(
         """
         CREATE TABLE IF NOT EXISTS schema_migrations (
@@ -33,10 +275,10 @@ def ensure_schema_migrations_table(conn: sqlite3.Connection) -> None:
     )
 
 
-def apply_migrations(conn: sqlite3.Connection) -> list[str]:
+def apply_migrations(conn: Any) -> list[str]:
     ensure_schema_migrations_table(conn)
     applied = {
-        row["version"]
+        str(row[0])
         for row in conn.execute("SELECT version FROM schema_migrations").fetchall()
     }
     versions: list[str] = []
@@ -44,7 +286,11 @@ def apply_migrations(conn: sqlite3.Connection) -> list[str]:
         version = migration_path.name
         if version in applied:
             continue
-        conn.executescript(migration_path.read_text(encoding="utf-8"))
+        script = migration_path.read_text(encoding="utf-8")
+        if database_backend(conn) == "postgres":
+            conn.executescript(script)
+        else:
+            conn.executescript(script)
         conn.execute(
             "INSERT INTO schema_migrations(version, applied_at_utc) VALUES(?, ?)",
             (version, utc_now()),
@@ -78,7 +324,9 @@ def file_format(path: str | Path | None) -> str | None:
     return suffix or None
 
 
-def row_to_dict(row: sqlite3.Row | None) -> dict | None:
+def row_to_dict(row: Any | None) -> dict | None:
     if row is None:
         return None
-    return {key: row[key] for key in row.keys()}
+    if hasattr(row, "keys"):
+        return {key: row[key] for key in row.keys()}
+    return None

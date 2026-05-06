@@ -12,7 +12,8 @@ from api_identity import (
 
 def build_parser() -> argparse.ArgumentParser:
     ap = argparse.ArgumentParser(description="Resolve a bearer token or issuer/subject pair into the platform caller identity context.")
-    ap.add_argument("--db-path", required=True)
+    ap.add_argument("--db-path", default="")
+    ap.add_argument("--db-dsn", default="")
     ap.add_argument("--identity-token-config", default="", help="Required when resolving via bearer token")
     ap.add_argument("--bearer-token-env", default="", help="Environment variable containing the bearer token to resolve")
     ap.add_argument("--issuer", default="", help="Resolve directly via issuer + subject instead of bearer token")
@@ -22,6 +23,8 @@ def build_parser() -> argparse.ArgumentParser:
 
 def main() -> int:
     args = build_parser().parse_args()
+    if not args.db_path and not args.db_dsn:
+        raise SystemExit("[ERROR] one of --db-path or --db-dsn is required")
     if args.bearer_token_env:
         if args.issuer or args.subject:
             raise SystemExit("[ERROR] --bearer-token-env cannot be combined with --issuer/--subject")
@@ -33,6 +36,7 @@ def main() -> int:
         payload = build_identity_resolution_payload(
             resolve_identity_context(
                 db_path=args.db_path,
+                db_dsn=args.db_dsn,
                 identity_token_config=args.identity_token_config,
                 bearer_token=bearer_token,
             ),
@@ -44,6 +48,7 @@ def main() -> int:
         payload = build_identity_resolution_payload(
             resolve_identity_subject_context(
                 db_path=args.db_path,
+                db_dsn=args.db_dsn,
                 issuer=args.issuer,
                 subject=args.subject,
             ),

@@ -4,12 +4,16 @@
   "base_url": "",
   "mount": "secret",
   "token_env": "VAULT_TOKEN",
+  "approle_role_id_env": "VAULT_APPROLE_ROLE_ID",
+  "approle_secret_id_env": "VAULT_APPROLE_SECRET_ID",
+  "token_cache_file": "",
   "timeout_seconds": 10,
   "mock_file": "config/vault_kv_backend.example.json",
   "notes": [
-    "Set base_url to your Vault address (e.g. http://127.0.0.1:8200) and VAULT_TOKEN env var to use live Vault",
-    "When base_url is empty or VAULT_TOKEN is unset, the client falls back to mock_file for local dev/CI",
+    "Set base_url to your Vault address (e.g. http://127.0.0.1:8200) and either VAULT_TOKEN or AppRole env vars to use live Vault",
+    "When base_url is empty or no live Vault credentials are available, the client falls back to mock_file for local dev/CI",
     "mount defaults to 'secret' (Vault KV v2 default mount)",
-    "mock_file must point to a vault_kv_backend/v1 JSON file"
+    "mock_file must point to a vault_kv_backend/v1 JSON file",
+    "token_cache_file is optional and stores short-lived AppRole login tokens between calls"
   ]
 }

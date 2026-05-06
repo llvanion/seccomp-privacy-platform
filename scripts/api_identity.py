@@ -132,6 +132,7 @@ def resolve_jwt_identity_token(
     *,
     config_path: str,
     db_path: str,
+    db_dsn: str,
     bearer_token: str,
 ) -> dict[str, Any] | None:
     payload = load_identity_token_config(config_path)
@@ -166,6 +167,7 @@ def resolve_jwt_identity_token(
         verify_secret=verify_secret,
         jwks_uri=str(jwt_bearer.get("jwks_uri") or "").strip() or None,
         db_path=db_path,
+        db_dsn=db_dsn or None,
         require_registered_issuer=bool(jwt_bearer.get("require_registered_issuer")),
         trusted_audiences=[str(item) for item in trusted_audiences] if trusted_audiences else None,
     )
@@ -264,10 +266,11 @@ def resolve_identity_record(
 def resolve_identity_subject_context(
     *,
     db_path: str,
+    db_dsn: str = "",
     issuer: str,
     subject: str,
 ) -> dict[str, Any]:
-    with connect_db(db_path) as conn:
+    with connect_db(db_path, dsn=db_dsn) as conn:
         return resolve_identity_record(conn, issuer=issuer, subject=subject)
 
 
@@ -307,6 +310,7 @@ def load_permission_summary(conn, *, caller: str) -> dict[str, Any]:
 def resolve_identity_context(
     *,
     db_path: str,
+    db_dsn: str = "",
     identity_token_config: str,
     bearer_token: str,
 ) -> dict[str, Any]:
@@ -314,6 +318,7 @@ def resolve_identity_context(
     if matched is not None:
         return resolve_identity_subject_context(
             db_path=db_path,
+            db_dsn=db_dsn,
             issuer=str(matched["issuer"]),
             subject=str(matched["subject"]),
         )
@@ -321,12 +326,14 @@ def resolve_identity_context(
     jwt_identity = resolve_jwt_identity_token(
         config_path=identity_token_config,
         db_path=db_path,
+        db_dsn=db_dsn,
         bearer_token=bearer_token,
     )
     if jwt_identity is None:
         raise PermissionError("identity bearer token auth failed")
     return resolve_identity_subject_context(
         db_path=db_path,
+        db_dsn=db_dsn,
         issuer=str(jwt_identity["issuer"]),
         subject=str(jwt_identity["subject"]),
     )
@@ -337,6 +344,7 @@ def resolve_request_identity(
     auth_header: str,
     expected_bearer_token: str,
     db_path: str,
+    db_dsn: str = "",
     identity_token_config: str,
     auth_failure_label: str,
 ) -> dict[str, Any] | None:
@@ -352,6 +360,7 @@ def resolve_request_identity(
         provided = auth_header[len("Bearer "):]
         return resolve_identity_context(
             db_path=db_path,
+            db_dsn=db_dsn,
             identity_token_config=identity_token_config,
             bearer_token=provided,
         )

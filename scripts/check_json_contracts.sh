@@ -38,6 +38,7 @@ SCHEMAS=(
   "$REPO_ROOT/schemas/key_manifest.schema.json"
   "$REPO_ROOT/schemas/keyring.schema.json"
   "$REPO_ROOT/schemas/vault_kv_backend.schema.json"
+  "$REPO_ROOT/schemas/vault_http_client_config.schema.json"
   "$REPO_ROOT/schemas/external_kms_config.schema.json"
   "$REPO_ROOT/schemas/api_identity_token_map.schema.json"
   "$REPO_ROOT/schemas/api_identity_resolution.schema.json"
@@ -125,6 +126,9 @@ python3 "$VALIDATOR" \
 python3 "$VALIDATOR" \
   --schema "$REPO_ROOT/schemas/vault_kv_backend.schema.json" \
   --json "$REPO_ROOT/config/vault_kv_backend.example.json"
+python3 "$VALIDATOR" \
+  --schema "$REPO_ROOT/schemas/vault_http_client_config.schema.json" \
+  --json "$REPO_ROOT/config/vault_http_client.example.json"
 python3 "$VALIDATOR" \
   --schema "$REPO_ROOT/schemas/external_kms_config.schema.json" \
   --json "$REPO_ROOT/config/external_kms.example.json"

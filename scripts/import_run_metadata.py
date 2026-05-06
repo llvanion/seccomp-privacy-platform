@@ -12,7 +12,7 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
-from scripts.metadata_db import apply_migrations, connect_db, file_format, sha256_file, utc_now  # noqa: E402
+from scripts.metadata_db import apply_migrations, connect_db, file_format, row_to_dict, sha256_file, utc_now  # noqa: E402
 from scripts.metadata_registry import apply_policy_plan, plan_policy_file  # noqa: E402
 
 
@@ -637,7 +637,7 @@ def existing_job_summary(conn: sqlite3.Connection, job_id: str) -> dict[str, Any
             "job_id": job_id,
             "row_counts": {table: 0 for table in JOB_DEPENDENT_TABLES},
         }
-    data = dict(row)
+    data = row_to_dict(row) or {}
     data["exists"] = True
     data["row_counts"] = existing_job_row_counts(conn, job_id)
     return data
@@ -835,18 +835,22 @@ def main() -> int:
     ap = argparse.ArgumentParser(description="Import one or more existing pipeline run directories into the sidecar metadata database.")
     ap.add_argument("--out-base", action="append", default=[], help="Run directory to import; may be provided multiple times")
     ap.add_argument("--out-base-file", default="", help="Optional newline-delimited file of run directories to import")
-    ap.add_argument("--db-path", required=True)
+    ap.add_argument("--db-path", default="")
+    ap.add_argument("--db-dsn", default="")
     ap.add_argument("--dry-run", action="store_true", help="Read and reconcile runs without writing to the DB")
     args = ap.parse_args()
+    if not args.db_path and not args.db_dsn:
+        raise SystemExit("[ERROR] one of --db-path or --db-dsn is required")
 
     out_bases = collect_out_bases(args)
-    conn = connect_db(args.db_path)
+    conn = connect_db(args.db_path, dsn=args.db_dsn)
     try:
         applied = apply_migrations(conn)
         report = import_runs(conn, out_bases, dry_run=args.dry_run)
     finally:
         conn.close()
-    report["db_path"] = str(Path(args.db_path).resolve())
+    report["db_path"] = str(Path(args.db_path).resolve()) if args.db_path else None
+    report["db_dsn"] = args.db_dsn or None
     report["applied_migrations"] = applied
     print(json.dumps(report, ensure_ascii=False, indent=2))
     return 0

@@ -27,7 +27,7 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
-from scripts.metadata_db import apply_migrations, connect_db, utc_now  # noqa: E402
+from scripts.metadata_db import apply_migrations, connect_db, row_to_dict, utc_now  # noqa: E402
 from cryptography.exceptions import InvalidSignature  # noqa: E402
 from cryptography.hazmat.primitives import hashes  # noqa: E402
 from cryptography.hazmat.primitives.asymmetric import padding, rsa  # noqa: E402
@@ -169,7 +169,7 @@ def lookup_issuer_registry(conn, issuer: str) -> dict[str, Any] | None:
     ).fetchone()
     if row is None:
         return None
-    rec = dict(row)
+    rec = row_to_dict(row) or {}
     for json_field in ("claim_mapping_json", "trusted_audiences_json"):
         if rec.get(json_field):
             try:
@@ -202,6 +202,7 @@ def map_token(
     verify_secret: str | None,
     jwks_uri: str | None,
     db_path: str | None,
+    db_dsn: str | None,
     require_registered_issuer: bool,
     trusted_audiences: list[str] | None,
 ) -> dict[str, Any]:
@@ -243,8 +244,8 @@ def map_token(
     issuer_registered = False
     issuer_enabled = False
     issuer_error: str | None = None
-    if db_path:
-        conn = connect_db(db_path)
+    if db_path or db_dsn:
+        conn = connect_db(db_path or "", dsn=db_dsn or "")
         apply_migrations(conn)
         issuer_record = lookup_issuer_registry(conn, raw_issuer)
         conn.close()
@@ -348,6 +349,7 @@ def main() -> None:
     parser.add_argument("--verify-secret-env", help="Env var with HMAC secret for HS256 verification")
     parser.add_argument("--jwks-uri", help="JWKS URI for RS256 verification")
     parser.add_argument("--db-path", help="Metadata SQLite DB for issuer_registry lookup")
+    parser.add_argument("--db-dsn", help="Metadata PostgreSQL DSN for issuer_registry lookup")
     parser.add_argument("--require-registered-issuer", action="store_true",
                         help="Reject tokens from issuers not in issuer_registry")
     parser.add_argument("--trusted-audience", action="append", dest="trusted_audiences",
@@ -383,6 +385,7 @@ def main() -> None:
         verify_secret=verify_secret,
         jwks_uri=args.jwks_uri,
         db_path=args.db_path,
+        db_dsn=args.db_dsn,
         require_registered_issuer=args.require_registered_issuer,
         trusted_audiences=args.trusted_audiences,
     )

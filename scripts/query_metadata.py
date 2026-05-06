@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Any
 
 from archive_audit_bundle import load_json_object, summarize_mainline_contract
-from metadata_db import connect_db, row_to_dict
+from metadata_db import connect_db, row_to_dict, table_exists as metadata_table_exists
 
 
 LIST_ENTITY_CHOICES = (
@@ -225,27 +225,19 @@ ENTITY_COLUMNS = {
 }
 
 
-def fetch_all_dicts(conn: sqlite3.Connection, query: str, params: tuple = ()) -> list[dict]:
+def fetch_all_dicts(conn: Any, query: str, params: tuple = ()) -> list[dict]:
     return [row_to_dict(row) for row in conn.execute(query, params).fetchall()]
 
 
-def fetch_scalar(conn: sqlite3.Connection, query: str, params: tuple = ()) -> Any:
+def fetch_scalar(conn: Any, query: str, params: tuple = ()) -> Any:
     row = conn.execute(query, params).fetchone()
     if row is None:
         return None
-    if isinstance(row, sqlite3.Row):
-        return row[0]
     return row[0]
 
 
-def table_exists(conn: sqlite3.Connection, table_name: str) -> bool:
-    return bool(
-        fetch_scalar(
-            conn,
-            "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?",
-            (table_name,),
-        )
-    )
+def table_exists(conn: Any, table_name: str) -> bool:
+    return metadata_table_exists(conn, table_name)
 
 
 def as_int(value) -> int | None:
@@ -1797,7 +1789,8 @@ def validate_list_entity_args(args: argparse.Namespace) -> None:
 
 def main() -> int:
     ap = argparse.ArgumentParser(description="Query the sidecar metadata database by job, scope, registry, or policy tables.")
-    ap.add_argument("--db-path", required=True)
+    ap.add_argument("--db-path", default="")
+    ap.add_argument("--db-dsn", default="")
     ap.add_argument("--job-id", default="")
     ap.add_argument("--list-entity", choices=LIST_ENTITY_CHOICES, default="")
     ap.add_argument("--caller", default="")
@@ -1821,8 +1814,10 @@ def main() -> int:
     ap.add_argument("--limit", type=int, default=50)
     ap.add_argument("--offset", type=int, default=0)
     args = ap.parse_args()
+    if not args.db_path and not args.db_dsn:
+        raise SystemExit("[ERROR] one of --db-path or --db-dsn is required")
 
-    conn = connect_db(args.db_path)
+    conn = connect_db(args.db_path, dsn=args.db_dsn)
     try:
         if args.list_entity:
             validate_list_entity_args(args)

@@ -26,6 +26,7 @@ import argparse
 import json
 import os
 import sys
+import time
 import urllib.error
 import urllib.request
 from pathlib import Path
@@ -77,6 +78,74 @@ def _vault_request(
     except urllib.error.HTTPError as exc:
         body_text = exc.read().decode(errors="replace") if exc.fp else ""
         raise RuntimeError(f"Vault HTTP {exc.code}: {body_text}") from exc
+
+
+def _cache_file_path(config: dict[str, Any]) -> Path | None:
+    raw = str(config.get("token_cache_file") or "").strip()
+    if not raw:
+        return None
+    return Path(raw)
+
+
+def _load_cached_token(config: dict[str, Any]) -> str:
+    cache_path = _cache_file_path(config)
+    if cache_path is None or not cache_path.is_file():
+        return ""
+    try:
+        payload = json.loads(cache_path.read_text(encoding="utf-8"))
+    except Exception:
+        return ""
+    if not isinstance(payload, dict):
+        return ""
+    expires_at = float(payload.get("expires_at_epoch") or 0)
+    token = str(payload.get("client_token") or "")
+    if not token or expires_at <= time.time() + 5:
+        return ""
+    return token
+
+
+def _write_cached_token(config: dict[str, Any], *, token: str, lease_duration: int) -> None:
+    cache_path = _cache_file_path(config)
+    if cache_path is None:
+        return
+    cache_path.parent.mkdir(parents=True, exist_ok=True)
+    payload = {
+        "client_token": token,
+        "expires_at_epoch": int(time.time()) + max(int(lease_duration), 0),
+    }
+    cache_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+
+
+def _approle_login(config: dict[str, Any]) -> str:
+    base_url = str(config.get("base_url") or "").strip()
+    if not base_url:
+        raise ValueError("approle login requires base_url")
+    cached = _load_cached_token(config)
+    if cached:
+        return cached
+    role_id_env = str(config.get("approle_role_id_env") or "").strip()
+    secret_id_env = str(config.get("approle_secret_id_env") or "").strip()
+    if not role_id_env or not secret_id_env:
+        raise ValueError("approle login requires approle_role_id_env and approle_secret_id_env")
+    role_id = os.environ.get(role_id_env, "")
+    secret_id = os.environ.get(secret_id_env, "")
+    if not role_id or not secret_id:
+        raise ValueError("approle credentials environment variables are not set")
+    resp = _vault_request(
+        "POST",
+        f"{base_url.rstrip('/')}/v1/auth/approle/login",
+        token="",
+        body={"role_id": role_id, "secret_id": secret_id},
+        timeout=int(config.get("timeout_seconds") or 10),
+    )
+    auth = resp.get("auth")
+    if not isinstance(auth, dict):
+        raise RuntimeError("Vault AppRole login response is missing auth")
+    token = str(auth.get("client_token") or "")
+    if not token:
+        raise RuntimeError("Vault AppRole login did not return client_token")
+    _write_cached_token(config, token=token, lease_duration=int(auth.get("lease_duration") or 0))
+    return token
 
 
 def resolve_from_real_vault(
@@ -162,6 +231,8 @@ def resolve_vault_http_secret_ref(
             token = os.environ.get(token_env_name, "")
         if not token:
             token = str(client_config.get("token") or "").strip()
+        if base_url and not token and client_config.get("approle_role_id_env") and client_config.get("approle_secret_id_env"):
+            token = _approle_login(client_config)
         if base_url and token:
             return resolve_from_real_vault(
                 base_url=base_url,
@@ -190,6 +261,11 @@ def cmd_status(config: dict[str, Any]) -> dict[str, Any]:
     if base_url:
         token_env = str(config.get("token_env") or "").strip()
         token = os.environ.get(token_env, "") if token_env else str(config.get("token") or "")
+        if not token and config.get("approle_role_id_env") and config.get("approle_secret_id_env"):
+            try:
+                token = _approle_login(config)
+            except Exception:
+                token = ""
         try:
             resp = _vault_request(
                 "GET",

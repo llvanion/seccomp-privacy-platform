@@ -24,7 +24,7 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
-from scripts.metadata_db import apply_migrations, connect_db, utc_now  # noqa: E402
+from scripts.metadata_db import apply_migrations, connect_db, row_to_dict, utc_now  # noqa: E402
 
 SCHEMA_ID = "issuer_credential_rotation/v1"
 
@@ -35,14 +35,14 @@ def fetch_issuer(conn, issuer: str) -> dict[str, Any] | None:
     ).fetchone()
     if row is None:
         return None
-    return dict(row)
+    return row_to_dict(row)
 
 
 def fetch_key_refs_for_service(conn, service_id: str) -> list[dict[str, Any]]:
     rows = conn.execute(
         "SELECT * FROM key_refs WHERE service_id = ? ORDER BY key_name", (service_id,)
     ).fetchall()
-    return [dict(r) for r in rows]
+    return [(row_to_dict(r) or {}) for r in rows]
 
 
 def fetch_active_key_version(conn, key_name: str, version: str) -> dict[str, Any] | None:
@@ -50,7 +50,7 @@ def fetch_active_key_version(conn, key_name: str, version: str) -> dict[str, Any
         "SELECT * FROM key_versions WHERE key_name = ? AND version = ?",
         (key_name, version),
     ).fetchone()
-    return dict(row) if row else None
+    return row_to_dict(row) if row else None
 
 
 def next_rotation_version(current_version: str) -> str:

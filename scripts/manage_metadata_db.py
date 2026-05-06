@@ -15,9 +15,12 @@ if str(REPO_ROOT) not in sys.path:
 from scripts.metadata_db import (  # noqa: E402
     apply_migrations,
     connect_db,
+    database_backend,
+    database_version,
     expected_migration_versions,
     row_to_dict,
     sha256_file,
+    table_exists,
     utc_now,
 )
 from scripts.metadata_registry import (  # noqa: E402
@@ -90,22 +93,17 @@ PLATFORM_ROLE_NAMES = (
 )
 
 
-def sqlite_scalar(conn: sqlite3.Connection, query: str, params: tuple[Any, ...] = ()) -> Any:
+def sqlite_scalar(conn: Any, query: str, params: tuple[Any, ...] = ()) -> Any:
     row = conn.execute(query, params).fetchone()
     if row is None:
         return None
     return row[0]
 
 
-def load_status_summary(conn: sqlite3.Connection) -> dict[str, Any]:
+def load_status_summary(conn: Any) -> dict[str, Any]:
     table_counts: dict[str, int] = {}
     for table_name in CORE_TABLES:
-        exists = sqlite_scalar(
-            conn,
-            "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?",
-            (table_name,),
-        )
-        if exists != 1:
+        if not table_exists(conn, table_name):
             table_counts[table_name] = 0
             continue
         count = sqlite_scalar(conn, f"SELECT COUNT(*) FROM {table_name}")
@@ -148,12 +146,8 @@ def load_status_summary(conn: sqlite3.Connection) -> dict[str, Any]:
     }
 
 
-def applied_migrations(conn: sqlite3.Connection) -> list[str]:
-    exists = sqlite_scalar(
-        conn,
-        "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'schema_migrations'",
-    )
-    if exists != 1:
+def applied_migrations(conn: Any) -> list[str]:
+    if not table_exists(conn, "schema_migrations"):
         return []
     return [
         str(row[0])
@@ -163,13 +157,14 @@ def applied_migrations(conn: sqlite3.Connection) -> list[str]:
     ]
 
 
-def build_status_report(db_path: str) -> dict[str, Any]:
-    path = Path(db_path).resolve()
-    if not path.is_file():
+def build_status_report(*, db_path: str = "", db_dsn: str = "") -> dict[str, Any]:
+    path = Path(db_path).resolve() if db_path else None
+    if path is not None and not path.is_file():
         raise SystemExit(f"[ERROR] metadata DB does not exist: {path}")
-    conn = connect_db(str(path))
+    conn = connect_db(str(path) if path else "", dsn=db_dsn)
     try:
-        sqlite_version = sqlite_scalar(conn, "SELECT sqlite_version()")
+        backend = database_backend(conn)
+        db_version = database_version(conn)
         applied = applied_migrations(conn)
         expected = expected_migration_versions()
         pending = [version for version in expected if version not in applied]
@@ -186,11 +181,13 @@ def build_status_report(db_path: str) -> dict[str, Any]:
     return {
         "schema": STATUS_SCHEMA,
         "generated_at_utc": utc_now(),
-        "db_path": str(path),
+        "db_path": str(path) if path else None,
+        "db_dsn": db_dsn or None,
         "status": "warn" if warnings else "ok",
-        "sqlite_version": str(sqlite_version or ""),
-        "size_bytes": path.stat().st_size,
-        "sha256": sha256_file(path),
+        "backend": backend,
+        "sqlite_version": str(db_version or ""),
+        "size_bytes": path.stat().st_size if path else None,
+        "sha256": sha256_file(path) if path else None,
         "applied_migrations": applied,
         "expected_migrations": expected,
         "pending_migrations": pending,
@@ -1288,7 +1285,7 @@ def cmd_apply_registry(args: argparse.Namespace) -> int:
     validate_unique_keys(issuer_entries, entity_name="issuer", key_name="issuer")
     validate_unique_keys(policies, entity_name="policy path", key_name="path")
 
-    conn = connect_db(args.db_path)
+    conn = connect_db(args.db_path, dsn=args.db_dsn)
     try:
         applied_migrations = apply_migrations(conn)
         entity_plans = {
@@ -1409,7 +1406,8 @@ def cmd_apply_registry(args: argparse.Namespace) -> int:
     report = {
         "schema": REGISTRY_APPLY_SCHEMA,
         "generated_at_utc": utc_now(),
-        "db_path": str(Path(args.db_path).resolve()),
+        "db_path": str(Path(args.db_path).resolve()) if args.db_path else None,
+        "db_dsn": args.db_dsn or None,
         "manifest_path": str(manifest_path),
         "manifest_sha256": sha256_file(manifest_path),
         "mode": "dry_run" if args.dry_run else "apply",
@@ -1433,7 +1431,7 @@ def cmd_apply_registry(args: argparse.Namespace) -> int:
 
 
 def cmd_status(args: argparse.Namespace) -> int:
-    report = build_status_report(args.db_path)
+    report = build_status_report(db_path=args.db_path, db_dsn=args.db_dsn)
     if args.output:
         write_json(args.output, report)
     print(json.dumps(report, ensure_ascii=False, indent=2))
@@ -1457,7 +1455,7 @@ def cmd_backup(args: argparse.Namespace) -> int:
             source_conn.backup(dest_conn)
         finally:
             dest_conn.close()
-        status = build_status_report(str(source_path))
+        status = build_status_report(db_path=str(source_path))
     finally:
         source_conn.close()
 
@@ -1498,7 +1496,7 @@ def cmd_restore(args: argparse.Namespace) -> int:
     finally:
         source_conn.close()
 
-    restored_status = build_status_report(str(restored_path))
+    restored_status = build_status_report(db_path=str(restored_path))
     report = {
         "schema": RESTORE_SCHEMA,
         "generated_at_utc": utc_now(),
@@ -1536,16 +1534,16 @@ def export_entities(conn: sqlite3.Connection, *, limit: int) -> dict[str, Any]:
 
 
 def cmd_export_json(args: argparse.Namespace) -> int:
-    db_path = Path(args.db_path).resolve()
-    if not db_path.is_file():
+    db_path = Path(args.db_path).resolve() if args.db_path else None
+    if db_path is not None and not db_path.is_file():
         raise SystemExit(f"[ERROR] metadata DB does not exist: {db_path}")
     if args.job_limit <= 0 or args.entity_limit <= 0:
         raise SystemExit("[ERROR] --job-limit and --entity-limit must be positive")
     out_path = ensure_output_path(args.out_path, overwrite=args.overwrite)
 
-    conn = connect_db(str(db_path))
+    conn = connect_db(str(db_path) if db_path else "", dsn=args.db_dsn)
     try:
-        status = build_status_report(str(db_path))
+        status = build_status_report(db_path=str(db_path) if db_path else "", db_dsn=args.db_dsn)
         jobs = query_jobs(conn, limit=args.job_limit)
         entities = export_entities(conn, limit=args.entity_limit)
         sample_artifacts = [
@@ -1566,7 +1564,8 @@ def cmd_export_json(args: argparse.Namespace) -> int:
     export_payload = {
         "schema": EXPORT_SCHEMA,
         "generated_at_utc": utc_now(),
-        "db_path": str(db_path),
+        "db_path": str(db_path) if db_path else None,
+        "db_dsn": args.db_dsn or None,
         "out_path": str(out_path),
         "job_limit": args.job_limit,
         "entity_limit": args.entity_limit,
@@ -1586,7 +1585,8 @@ def build_parser() -> argparse.ArgumentParser:
     sub = ap.add_subparsers(dest="command", required=True)
 
     status = sub.add_parser("status", help="Report metadata DB status, migrations, and table counts.")
-    status.add_argument("--db-path", required=True)
+    status.add_argument("--db-path", default="")
+    status.add_argument("--db-dsn", default="")
     status.add_argument("--output", default="")
 
     backup = sub.add_parser("backup", help="Create a consistent SQLite backup copy with the backup API.")
@@ -1600,7 +1600,8 @@ def build_parser() -> argparse.ArgumentParser:
     restore.add_argument("--overwrite", action="store_true")
 
     export_json = sub.add_parser("export-json", help="Export a portable JSON snapshot of the metadata sidecar.")
-    export_json.add_argument("--db-path", required=True)
+    export_json.add_argument("--db-path", default="")
+    export_json.add_argument("--db-dsn", default="")
     export_json.add_argument("--out-path", required=True)
     export_json.add_argument("--job-limit", type=int, default=20)
     export_json.add_argument("--entity-limit", type=int, default=20)
@@ -1611,7 +1612,8 @@ def build_parser() -> argparse.ArgumentParser:
         "apply-registry",
         help="Apply a controlled registry/policy manifest into the metadata sidecar.",
     )
-    apply_registry.add_argument("--db-path", required=True)
+    apply_registry.add_argument("--db-path", default="")
+    apply_registry.add_argument("--db-dsn", default="")
     apply_registry.add_argument("--manifest", required=True)
     apply_registry.add_argument("--dry-run", action="store_true")
     apply_registry.add_argument("--output", default="")
@@ -1621,6 +1623,8 @@ def build_parser() -> argparse.ArgumentParser:
 
 def main() -> int:
     args = build_parser().parse_args()
+    if args.command in {"status", "export-json", "apply-registry"} and not getattr(args, "db_path", "") and not getattr(args, "db_dsn", ""):
+        raise SystemExit("[ERROR] one of --db-path or --db-dsn is required")
     if args.command == "status":
         return cmd_status(args)
     if args.command == "backup":

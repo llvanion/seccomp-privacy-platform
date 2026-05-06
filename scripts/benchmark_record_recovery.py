@@ -193,12 +193,20 @@ def make_service_config(
     write_json(config_path, payload)
 
 
-def create_record_store(*, store_path: Path, env: dict[str, str]) -> None:
+def synthetic_candidate_email(index: int) -> str:
+    return f"candidate-{index:06d}@example.com"
+
+
+def create_record_store(*, store_path: Path, env: dict[str, str], candidate_count: int) -> None:
     rows = [
-        {"email": "alice@example.com", "campaign": "demo", "amount": "125"},
-        {"email": "bob@example.com", "campaign": "demo", "amount": "300"},
-        {"email": "carol@example.com", "campaign": "other", "amount": "50"},
+        {
+            "email": synthetic_candidate_email(index),
+            "campaign": "demo",
+            "amount": str(100 + index),
+        }
+        for index in range(candidate_count)
     ]
+    rows.append({"email": "nonmatch@example.com", "campaign": "other", "amount": "50"})
     original = os.environ.get(KEY_ENV)
     os.environ[KEY_ENV] = env[KEY_ENV]
     try:
@@ -213,19 +221,20 @@ def create_record_store(*, store_path: Path, env: dict[str, str]) -> None:
             os.environ.pop(KEY_ENV, None)
         else:
             os.environ[KEY_ENV] = original
-    if count != 3:
+    if count != candidate_count + 1:
         raise SystemExit(f"[ERROR] unexpected synthetic record-store row count: {count}")
 
 
-def verify_recovered_csv(path: Path) -> None:
+def verify_recovered_csv(path: Path, *, expected_output_rows: int) -> None:
     if not path.is_file():
         raise RuntimeError(f"record recovery output file missing: {path}")
     with path.open("r", encoding="utf-8", newline="") as handle:
         rows = list(csv.DictReader(handle))
-    if len(rows) != EXPECTED_OUTPUT_ROWS:
-        raise RuntimeError(f"unexpected recovered row count: {len(rows)} != {EXPECTED_OUTPUT_ROWS}")
-    emails = {row.get("email") for row in rows}
-    if emails != {"alice@example.com", "bob@example.com"}:
+    if len(rows) != expected_output_rows:
+        raise RuntimeError(f"unexpected recovered row count: {len(rows)} != {expected_output_rows}")
+    emails = {str(row.get("email") or "") for row in rows}
+    expected_emails = {synthetic_candidate_email(index) for index in range(expected_output_rows)}
+    if emails != expected_emails:
         raise RuntimeError(f"unexpected recovered email set: {sorted(emails)}")
 
 
@@ -249,6 +258,7 @@ def run_checked(command: list[str], *, env: dict[str, str], timeout_sec: float, 
 def build_parser() -> argparse.ArgumentParser:
     ap = argparse.ArgumentParser(description="Benchmark standalone record recovery service health and recover operations over Unix-socket and HTTP transports.")
     ap.add_argument("--iterations", type=int, default=3)
+    ap.add_argument("--candidate-count", type=int, default=EXPECTED_OUTPUT_ROWS)
     ap.add_argument("--mode", choices=("all",) + MODES, default="all")
     ap.add_argument("--timeout-sec", type=float, default=30.0)
     ap.add_argument("--output", default="")
@@ -258,6 +268,8 @@ def build_parser() -> argparse.ArgumentParser:
 
 def main() -> int:
     args = build_parser().parse_args()
+    if args.candidate_count <= 0:
+        raise SystemExit("[ERROR] --candidate-count must be positive")
     if args.iterations <= 0:
         raise SystemExit("[ERROR] --iterations must be positive")
     if args.timeout_sec <= 0:
@@ -277,7 +289,7 @@ def main() -> int:
             run_root = Path(tmp_dir)
             (run_root / "outputs").mkdir(parents=True, exist_ok=True)
             store_path = run_root / "records.enc.jsonl"
-            create_record_store(store_path=store_path, env=common_env)
+            create_record_store(store_path=store_path, env=common_env, candidate_count=args.candidate_count)
 
             transport_set = []
             if any(mode.startswith("unix_socket_") for mode in selected_modes):
@@ -386,13 +398,13 @@ def main() -> int:
                                         join_key_field="email",
                                         value_field="amount",
                                         filter_pairs=[("campaign", "demo")],
-                                        candidate_ids={"alice@example.com", "bob@example.com"},
+                                        candidate_ids={synthetic_candidate_email(index) for index in range(args.candidate_count)},
                                         min_output_rows=1,
-                                        max_output_rows=5,
+                                        max_output_rows=max(args.candidate_count, 5),
                                     )
-                                    if int(result.get("output_rows", -1)) != EXPECTED_OUTPUT_ROWS:
+                                    if int(result.get("output_rows", -1)) != args.candidate_count:
                                         raise RuntimeError(f"unexpected recover output_rows: {result}")
-                                    verify_recovered_csv(out_path)
+                                    verify_recovered_csv(out_path, expected_output_rows=args.candidate_count)
                                     return result
 
                                 mode_results.append(run_callable(recover_call, timeout_sec=args.timeout_sec))
@@ -440,7 +452,7 @@ def main() -> int:
             "service_id": FIXTURE_SERVICE_ID,
             "transports": transport_set,
             "iterations": args.iterations,
-            "candidate_count": EXPECTED_OUTPUT_ROWS,
+            "candidate_count": args.candidate_count,
             "modes": results,
         }
         text = json.dumps(report, ensure_ascii=False, indent=2)

@@ -16,7 +16,7 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
-from scripts.metadata_db import apply_migrations, connect_db, utc_now  # noqa: E402
+from scripts.metadata_db import apply_migrations, connect_db, row_to_dict, utc_now  # noqa: E402
 
 SCHEMA_ID = "mutation_log_query/v1"
 
@@ -75,7 +75,7 @@ def query_mutations(
 
     records = []
     for row in rows:
-        rec = dict(row)
+        rec = row_to_dict(row) or {}
         for json_field in ("old_state_json", "new_state_json"):
             if rec.get(json_field):
                 try:
