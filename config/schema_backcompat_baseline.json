@@ -493,6 +493,7 @@
       ],
       "stable_properties": [
         "applied_migrations",
+        "db_dsn",
         "db_path",
         "generated_at_utc",
         "imported",

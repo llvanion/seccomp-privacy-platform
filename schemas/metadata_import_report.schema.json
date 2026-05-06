@@ -22,8 +22,11 @@
       "minLength": 1
     },
     "db_path": {
-      "type": "string",
+      "type": ["string", "null"],
       "minLength": 1
+    },
+    "db_dsn": {
+      "type": ["string", "null"]
     },
     "mode": {
       "type": "string",
