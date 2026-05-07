@@ -1,0 +1,75 @@
+name: seccomp-postgres-ha
+services:
+  pg-primary:
+    image: postgres:16
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: seccomp_metadata
+      POSTGRES_USER: seccomp
+      POSTGRES_PASSWORD: "${POSTGRES_PRIMARY_PASSWORD:-CHANGE_ME_PRIMARY_PASSWORD}"
+      POSTGRES_REPLICATION_USER: replicator
+      POSTGRES_REPLICATION_PASSWORD: "${POSTGRES_REPLICATION_PASSWORD:-CHANGE_ME_REPLICATION_PASSWORD}"
+      POSTGRES_INITDB_ARGS: "--auth-host=scram-sha-256"
+    command:
+      - postgres
+      - -c
+      - wal_level=replica
+      - -c
+      - max_wal_senders=3
+      - -c
+      - wal_keep_size=64MB
+      - -c
+      - hot_standby=on
+    ports:
+      - "5432:5432"
+    volumes:
+      - pg-primary-data:/var/lib/postgresql/data
+      - ./primary-init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  pg-replica:
+    image: postgres:16
+    restart: unless-stopped
+    environment:
+      PGDATA: /var/lib/postgresql/data
+      POSTGRES_REPLICATION_USER: replicator
+      POSTGRES_REPLICATION_PASSWORD: "${POSTGRES_REPLICATION_PASSWORD:-CHANGE_ME_REPLICATION_PASSWORD}"
+    command:
+      - bash
+      - -c
+      - |
+        set -euo pipefail
+        if [ ! -s "$$PGDATA/PG_VERSION" ]; then
+          rm -rf "$$PGDATA"/*
+          until pg_isready -h pg-primary -p 5432 -U "$$POSTGRES_REPLICATION_USER"; do
+            sleep 1
+          done
+          PGPASSWORD="$$POSTGRES_REPLICATION_PASSWORD" pg_basebackup \
+            -h pg-primary \
+            -D "$$PGDATA" \
+            -U "$$POSTGRES_REPLICATION_USER" \
+            -P \
+            -Xs \
+            -R
+        fi
+        exec postgres -c hot_standby=on
+    depends_on:
+      pg-primary:
+        condition: service_healthy
+    ports:
+      - "5433:5432"
+    volumes:
+      - pg-replica-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_REPLICATION_USER -d postgres"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+volumes:
+  pg-primary-data:
+  pg-replica-data:

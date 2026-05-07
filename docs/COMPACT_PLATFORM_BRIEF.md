@@ -92,7 +92,13 @@ SSE candidate export
 
 14. HTTP recovery service 支持 `--rate-limit-per-caller`（token bucket 速率限制）；超限请求返回 HTTP 429 并写入结构化日志
 15. HTTP recovery service 暴露 `GET /metrics`（Prometheus 文本格式 counter + histogram），无需外部 client 库
-16. `scripts/metadata_db.py` 已包含 psycopg2 driver layer：`connect_db(dsn=…)` 支持 PostgreSQL；`adapt_sql` / `placeholder` / `is_postgres` / `row_to_dict` 适配参数占位符和行读取；`init/import/query/manage/metadata API` 已支持 `--db-dsn`，query/audit/platform-health API 的 identity resolution 已支持 `--metadata-db-dsn`，`benchmark_read_adapters.py --db-dsn` 可做 SQLite/PostgreSQL 读侧对比；真实 PostgreSQL live gate 仍是后续 F1-b
+16. Operator dashboard 支持 `--max-concurrent-jobs-per-tenant`，可按 `tenant_id` 限制同一 history root 下的 running job 数；超限 start/relaunch 返回 HTTP 429 `tenant_job_quota_exceeded`
+17. `scripts/metadata_db.py` 已包含 psycopg2 driver layer：`connect_db(dsn=…)` 支持 PostgreSQL；`adapt_sql` / `placeholder` / `is_postgres` / `row_to_dict` 适配参数占位符和行读取；`init/import/query/manage/metadata API` 已支持 `--db-dsn`，query/audit/platform-health API 的 identity resolution 已支持 `--metadata-db-dsn`，`benchmark_read_adapters.py --db-dsn` 可做 SQLite/PostgreSQL 读侧对比；`POSTGRES_DSN` live gate 现在还会导入真实 run bundle 并查询同一 job，真实 PostgreSQL 执行仍归 F1-b operator 环境验证
+18. `archive_audit_bundle.py --tenant-id <tenant>` 支持按租户分区本地审计归档：参数必须匹配 `audit_chain.json` 内的 tenant scope，索引与 anchor 写入 `<archive-dir>/<tenant-id>/`
+19. Unix-socket record-recovery service 在配置省略 `socket_path` 时可从 `tenant_id` / `service_id` / `dataset_id` 派生 `/tmp/seccomp_rr_<tenant>_<hash>.sock`，manager、standalone launcher 和 contract smoke 使用同一规则，避免多租户服务误落到共享 socket 默认值
+20. `scripts/render_k8s_network_policies.py` 可按租户生成 Kubernetes `NetworkPolicy`：只允许同租户 `sse-bridge-pipeline` pod 访问同租户 `recovery-service` pod；示例在 `config/k8s/netpol-recovery-service-demo-tenant.yaml`，报告 contract 为 `k8s_network_policy_report/v1`
+21. `scripts/render_postgres_ha_topology.py` 可生成 PostgreSQL 16 primary/replica HA 目录：`config/postgres-ha/docker-compose.primary-replica.yml` 是 checked-in 示例，包含 `pg_basebackup -Xs -R` replica bootstrap、health-gated `depends_on`、复制 role init、`.env.example` 和 `verify_replication.sql`；报告 contract 为 `postgres_ha_topology_report/v1`
+22. `scripts/render_patroni_failover_topology.py` 可生成 F2-b Patroni automated failover 拓扑：`config/patroni-ha/` 是 checked-in 示例，包含 etcd DCS、`patroni-primary.yml`、`patroni-replica.yml`、REST API 端口、`use_pg_rewind`、replication slots、SCRAM `pg_hba` 和 `patronictl list/switchover/failover` 命令；报告 contract 为 `patroni_failover_topology_report/v1`
 
 当前这一层更像”谁能发起或审核隐私查询”的平台权限模型，而不是完整电商业务人员身份模型。
 

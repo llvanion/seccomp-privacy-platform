@@ -24,6 +24,13 @@
       "type": "string",
       "enum": ["ok", "fail"]
     },
+    "backend": {
+      "type": "string",
+      "enum": ["sqlite", "postgres"]
+    },
+    "database_version": {
+      "type": "string"
+    },
     "migrations_dir": {
       "type": "string",
       "minLength": 1
@@ -73,7 +80,9 @@
               "utc_columns_use_text",
               "json_columns_use_text",
               "expected_indexes_present",
-              "foreign_key_targets_present"
+              "foreign_key_targets_present",
+              "postgres_live_migration_smoke",
+              "postgres_live_import_query_smoke"
             ]
           },
           "status": {

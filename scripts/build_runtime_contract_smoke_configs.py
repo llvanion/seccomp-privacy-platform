@@ -34,13 +34,13 @@ def build_record_recovery_unix(
     service_id: str = "contract-recovery-service",
     tenant_id: str = "contract-tenant",
     dataset_id: str = "contract-dataset",
+    omit_socket_path: bool = False,
 ) -> None:
     payload = {
         "schema": "record_recovery_service_config/v1",
         "service_id": service_id,
         "tenant_id": tenant_id,
         "dataset_id": dataset_id,
-        "socket_path": str((tmp_dir / "record_recovery.sock").resolve()),
         "socket_mode": "600",
         "auth_token_env": "SSE_RECORD_RECOVERY_TOKEN",
         "authz_config": authz_config or None,
@@ -54,6 +54,8 @@ def build_record_recovery_unix(
             "log_file": str((tmp_dir / "record_recovery_service.log").resolve()),
         },
     }
+    if not omit_socket_path:
+        payload["socket_path"] = str((tmp_dir / "record_recovery.sock").resolve())
     write_json(out_config, payload)
 
 
@@ -125,6 +127,7 @@ def build_parser() -> argparse.ArgumentParser:
     unix_rr.add_argument("--service-id", default="contract-recovery-service")
     unix_rr.add_argument("--tenant-id", default="contract-tenant")
     unix_rr.add_argument("--dataset-id", default="contract-dataset")
+    unix_rr.add_argument("--omit-socket-path", action="store_true")
 
     http_rr = sub.add_parser("record-recovery-http")
     http_rr.add_argument("--out-config", required=True)
@@ -161,6 +164,7 @@ def main() -> int:
             service_id=args.service_id,
             tenant_id=args.tenant_id,
             dataset_id=args.dataset_id,
+            omit_socket_path=bool(args.omit_socket_path),
         )
     elif args.cmd == "record-recovery-http":
         tls = None

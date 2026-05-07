@@ -22,6 +22,12 @@
     "source_anchor_file": {
       "type": "string"
     },
+    "tenant_id": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
     "external_sink": {
       "type": "object",
       "additionalProperties": false,
@@ -37,6 +43,12 @@
         },
         "path": {
           "type": "string"
+        },
+        "tenant_id": {
+          "type": [
+            "string",
+            "null"
+          ]
         }
       }
     },
@@ -80,6 +92,12 @@
           "minimum": 0
         },
         "last_entry_sha256": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "tenant_id": {
           "type": [
             "string",
             "null"
@@ -128,6 +146,12 @@
           "signature_verified": {
             "type": [
               "boolean",
+              "null"
+            ]
+          },
+          "tenant_id": {
+            "type": [
+              "string",
               "null"
             ]
           },

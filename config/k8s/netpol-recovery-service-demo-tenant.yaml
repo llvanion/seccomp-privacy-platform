@@ -1,0 +1,27 @@
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: recovery-service-ingress-demo-tenant
+  namespace: seccomp-privacy
+  labels:
+    app: recovery-service
+    tenant: demo-tenant
+spec:
+  podSelector:
+    matchLabels:
+      app: recovery-service
+      tenant: demo-tenant
+  policyTypes:
+    - Ingress
+  ingress:
+    -
+      from:
+        -
+          podSelector:
+            matchLabels:
+              app: sse-bridge-pipeline
+              tenant: demo-tenant
+      ports:
+        -
+          port: 18443
+          protocol: TCP

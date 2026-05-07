@@ -1,0 +1,59 @@
+name: seccomp-patroni-ha
+services:
+  etcd:
+    image: quay.io/coreos/etcd:v3.5.15
+    restart: unless-stopped
+    command:
+      - /usr/local/bin/etcd
+      - --name
+      - etcd
+      - --data-dir
+      - /etcd-data
+      - --initial-advertise-peer-urls
+      - http://etcd:2380
+      - --listen-peer-urls
+      - http://0.0.0.0:2380
+      - --advertise-client-urls
+      - http://etcd:2379
+      - --listen-client-urls
+      - http://0.0.0.0:2379
+      - --initial-cluster
+      - etcd=http://etcd:2380
+      - --initial-cluster-state
+      - new
+      - --initial-cluster-token
+      - seccomp-postgres-ha
+    volumes:
+      - patroni-etcd-data:/etcd-data
+
+  pg-primary:
+    image: ghcr.io/zalando/spilo-16:3.2-p3
+    restart: unless-stopped
+    command: ["patroni", "/etc/patroni/patroni.yml"]
+    volumes:
+      - ./patroni-primary.yml:/etc/patroni/patroni.yml:ro
+      - patroni-primary-data:/var/lib/postgresql/data
+    depends_on:
+      - etcd
+    ports:
+      - "5432:5432"
+      - "8008:8008"
+
+  pg-replica:
+    image: ghcr.io/zalando/spilo-16:3.2-p3
+    restart: unless-stopped
+    command: ["patroni", "/etc/patroni/patroni.yml"]
+    volumes:
+      - ./patroni-replica.yml:/etc/patroni/patroni.yml:ro
+      - patroni-replica-data:/var/lib/postgresql/data
+    depends_on:
+      - etcd
+      - pg-primary
+    ports:
+      - "5433:5432"
+      - "8009:8008"
+
+volumes:
+  patroni-etcd-data:
+  patroni-primary-data:
+  patroni-replica-data:

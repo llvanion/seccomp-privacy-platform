@@ -353,6 +353,8 @@
       "stable_properties": [
         "allow_execute",
         "auth_required",
+        "metadata_db_dsn",
+        "metadata_db_path",
         "ok",
         "request_base_dir_default",
         "schema"
@@ -417,6 +419,7 @@
       ],
       "stable_properties": [
         "auth_required",
+        "db_dsn",
         "db_path",
         "ok",
         "schema"
@@ -470,7 +473,9 @@
       ],
       "stable_properties": [
         "applied_migrations",
+        "backend",
         "checks",
+        "database_version",
         "generated_at_utc",
         "migrations_dir",
         "schema",
@@ -522,6 +527,8 @@
       ],
       "stable_properties": [
         "applied_migrations",
+        "backend",
+        "db_dsn",
         "db_path",
         "expected_migrations",
         "generated_at_utc",
@@ -615,6 +622,7 @@
       ],
       "stable_properties": [
         "artifact_limit",
+        "db_dsn",
         "db_path",
         "entities",
         "entity_limit",
@@ -655,6 +663,7 @@
       ],
       "stable_properties": [
         "applied_migrations",
+        "db_dsn",
         "db_path",
         "entities",
         "generated_at_utc",
@@ -704,6 +713,8 @@
       "stable_properties": [
         "auth_required",
         "available_results",
+        "metadata_db_dsn",
+        "metadata_db_path",
         "ok",
         "out_base",
         "schema"
@@ -1127,6 +1138,7 @@
         "source_audit_chain_file",
         "source_audit_seal_file",
         "source_out_base",
+        "tenant_id",
         "ts_utc"
       ]
     },
@@ -1171,6 +1183,7 @@
         "secret_source",
         "signature",
         "signature_algorithm",
+        "tenant_id",
         "ts_utc"
       ]
     },
@@ -1193,7 +1206,8 @@
         "records",
         "schema",
         "source_anchor_file",
-        "summary"
+        "summary",
+        "tenant_id"
       ]
     },
     {
@@ -2589,6 +2603,102 @@
         "provider",
         "region",
         "schema"
+      ]
+    },
+    {
+      "path": "schemas/k8s_network_policy_report.schema.json",
+      "schema_id": "k8s_network_policy_report/v1",
+      "required": [
+        "schema",
+        "generated_at_utc",
+        "status",
+        "out_dir",
+        "tenant_count",
+        "recovery_app",
+        "pipeline_app",
+        "manifests"
+      ],
+      "stable_properties": [
+        "generated_at_utc",
+        "manifests",
+        "out_dir",
+        "pipeline_app",
+        "recovery_app",
+        "schema",
+        "status",
+        "tenant_count"
+      ]
+    },
+    {
+      "path": "schemas/postgres_ha_topology_report.schema.json",
+      "schema_id": "postgres_ha_topology_report/v1",
+      "required": [
+        "schema",
+        "generated_at_utc",
+        "status",
+        "out_dir",
+        "compose_path",
+        "primary_service",
+        "replica_service",
+        "postgres_image",
+        "primary_port",
+        "replica_port",
+        "replication_user",
+        "artifacts",
+        "checks",
+        "docker_compose_config"
+      ],
+      "stable_properties": [
+        "artifacts",
+        "checks",
+        "compose_path",
+        "docker_compose_config",
+        "generated_at_utc",
+        "out_dir",
+        "postgres_image",
+        "primary_port",
+        "primary_service",
+        "replica_port",
+        "replica_service",
+        "replication_user",
+        "schema",
+        "status"
+      ]
+    },
+    {
+      "path": "schemas/patroni_failover_topology_report.schema.json",
+      "schema_id": "patroni_failover_topology_report/v1",
+      "required": [
+        "schema",
+        "generated_at_utc",
+        "status",
+        "out_dir",
+        "scope",
+        "primary_service",
+        "replica_service",
+        "etcd_service",
+        "patroni_image",
+        "etcd_image",
+        "maximum_lag_on_failover",
+        "artifacts",
+        "checks",
+        "docker_compose_config"
+      ],
+      "stable_properties": [
+        "artifacts",
+        "checks",
+        "docker_compose_config",
+        "etcd_image",
+        "etcd_service",
+        "generated_at_utc",
+        "maximum_lag_on_failover",
+        "out_dir",
+        "patroni_image",
+        "primary_service",
+        "replica_service",
+        "schema",
+        "scope",
+        "status"
       ]
     }
   ]

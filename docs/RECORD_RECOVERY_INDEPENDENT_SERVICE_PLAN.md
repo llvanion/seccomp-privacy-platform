@@ -82,6 +82,21 @@ HTTP 模式最小配置：
 
 1. [record_recovery_http_service.example.json](/home/llvanion/Desktop/seccomp-privacy-platform/config/record_recovery_http_service.example.json)
 
+Unix-socket 模式下，`socket_path` 仍然可以显式配置；如果省略 `socket_path`，但配置或 CLI 提供了非空 `tenant_id`，resolver 会从 `tenant_id` / `service_id` / `dataset_id` 派生租户隔离 socket：
+
+```text
+/tmp/seccomp_rr_<tenant>_<hash>.sock
+```
+
+这个规则由 `services/record_recovery/config.py` 统一提供，`manage_record_recovery_service.py`、`run_record_recovery_service.py` 和 `request_record_recovery_service.py --config` 都走同一解析路径。这样 operator 可以用同一份 `record_recovery_service_config/v1` 启动、探活和停止服务，同时避免多个租户意外共用单个 Unix socket。
+
+Kubernetes 部署场景下，网络层隔离由 `scripts/render_k8s_network_policies.py` 生成 per-tenant `NetworkPolicy`：
+
+1. recovery-service pod selector 固定为 `app=recovery-service, tenant=<tenant_id>`。
+2. ingress source 固定为 `app=sse-bridge-pipeline, tenant=<same tenant_id>`。
+3. 默认端口为 `18443/TCP`，可通过脚本参数调整。
+4. 输出报告遵循 `k8s_network_policy_report/v1`，示例 manifest 位于 `config/k8s/netpol-recovery-service-demo-tenant.yaml`。
+
 `authz_config` 现在有两种稳定来源：
 
 1. 直接指向 `sse_export_policy/v1` 或 `record_recovery_service_policy/v1` JSON。

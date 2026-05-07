@@ -56,6 +56,70 @@ def stringify(value: Any) -> str | None:
     return str(value)
 
 
+def validate_path_segment(value: str, *, field_name: str) -> str:
+    normalized = value.strip()
+    if not normalized:
+        raise ValueError(f"{field_name} must not be empty")
+    if normalized in {".", ".."} or os.sep in normalized or (os.altsep and os.altsep in normalized):
+        raise ValueError(f"{field_name} must be a single path segment")
+    return normalized
+
+
+def collect_audit_chain_tenant_ids(audit_chain: Dict[str, Any]) -> set[str]:
+    tenant_ids: set[str] = set()
+
+    def add(value: Any) -> None:
+        tenant_id = stringify(value)
+        if tenant_id:
+            tenant_ids.add(tenant_id)
+
+    add(audit_chain.get("tenant_id"))
+    mainline_contract_check = audit_chain.get("mainline_contract_check")
+    if isinstance(mainline_contract_check, dict):
+        canonical_scope = mainline_contract_check.get("canonical_scope")
+        if isinstance(canonical_scope, dict):
+            add(canonical_scope.get("tenant_id"))
+    for section in (
+        "key_access_audit",
+        "sse_export_audit",
+        "record_recovery_service_audit",
+        "bridge_audit",
+        "pjc_audit",
+        "policy_audit",
+    ):
+        records = audit_chain.get(section)
+        if isinstance(records, list):
+            for record in records:
+                if isinstance(record, dict):
+                    add(record.get("tenant_id"))
+    for section in ("bridge_job_meta", "pjc_result", "public_report"):
+        payload = audit_chain.get(section)
+        if isinstance(payload, dict):
+            add(payload.get("tenant_id"))
+    return tenant_ids
+
+
+def resolve_archive_tenant_id(*, requested_tenant_id: str, audit_chain: Dict[str, Any]) -> str | None:
+    tenant_ids = collect_audit_chain_tenant_ids(audit_chain)
+    if not requested_tenant_id:
+        return None
+
+    tenant_id = validate_path_segment(requested_tenant_id, field_name="tenant_id")
+    if not tenant_ids:
+        raise ValueError("cannot validate --tenant-id because audit_chain.json does not contain tenant_id")
+    if tenant_ids != {tenant_id}:
+        expected = ", ".join(sorted(tenant_ids))
+        raise ValueError(f"tenant_id mismatch: expected one of [{expected}], got {tenant_id}")
+    return tenant_id
+
+
+def inferred_record_tenant_id(*, archive_tenant_id: str | None, audit_chain: Dict[str, Any]) -> str | None:
+    if archive_tenant_id:
+        return archive_tenant_id
+    tenant_ids = collect_audit_chain_tenant_ids(audit_chain)
+    return next(iter(tenant_ids)) if len(tenant_ids) == 1 else None
+
+
 def role_records(records: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
     result: dict[str, dict[str, Any]] = {}
     for record in records:
@@ -296,7 +360,22 @@ def copy_if_missing(src: str, dst: str, *, expected_sha256: str) -> None:
         raise ValueError(f"archived file hash mismatch after copy: {dst}")
 
 
-def build_archive_paths(*, archive_dir: str, job_id: str, audit_chain_sha256: str, audit_seal_sha256: str) -> Dict[str, str]:
+def build_archive_paths(*,
+                        archive_dir: str,
+                        job_id: str,
+                        audit_chain_sha256: str,
+                        audit_seal_sha256: str,
+                        tenant_id: str | None) -> Dict[str, str]:
+    if tenant_id:
+        job_segment = validate_path_segment(job_id, field_name="job_id")
+        archive_root = os.path.abspath(os.path.join(archive_dir, tenant_id))
+        job_archive_dir = os.path.join(archive_root, "audit_chains", job_segment)
+        return {
+            "archive_root": archive_root,
+            "audit_chain": os.path.join(job_archive_dir, "audit_chain.json"),
+            "audit_seal": os.path.join(job_archive_dir, "audit_chain.seal.json"),
+            "index": os.path.join(archive_root, "audit_chain_index.jsonl"),
+        }
     archive_root = os.path.abspath(archive_dir)
     return {
         "archive_root": archive_root,
@@ -330,6 +409,11 @@ def main() -> int:
         default="",
         help="Optional env var used to HMAC-sign append-only archive anchor records",
     )
+    ap.add_argument(
+        "--tenant-id",
+        default="",
+        help="Optional tenant partition. When set, the archive is written under <archive-dir>/<tenant-id>/ and must match audit_chain.json.",
+    )
     args = ap.parse_args()
 
     audit_chain, audit_seal, audit_chain_sha256, audit_seal_sha256, signature_verified = verify_audit_bundle(
@@ -338,13 +422,16 @@ def main() -> int:
         job_id=args.job_id,
         hmac_key_env=args.hmac_key_env,
     )
+    tenant_id = resolve_archive_tenant_id(requested_tenant_id=args.tenant_id, audit_chain=audit_chain)
+    record_tenant_id = inferred_record_tenant_id(archive_tenant_id=tenant_id, audit_chain=audit_chain)
     archive_paths = build_archive_paths(
         archive_dir=args.archive_dir,
         job_id=args.job_id,
         audit_chain_sha256=audit_chain_sha256,
         audit_seal_sha256=audit_seal_sha256,
+        tenant_id=tenant_id,
     )
-    anchor_paths = build_anchor_paths(archive_dir=args.archive_dir)
+    anchor_paths = build_anchor_paths(archive_dir=archive_paths["archive_root"])
     copy_if_missing(args.audit_chain, archive_paths["audit_chain"], expected_sha256=audit_chain_sha256)
     copy_if_missing(args.audit_seal, archive_paths["audit_seal"], expected_sha256=audit_seal_sha256)
 
@@ -354,6 +441,7 @@ def main() -> int:
         "event": "archive_audit_bundle",
         "job_id": args.job_id,
         "correlation_id": args.job_id,
+        "tenant_id": record_tenant_id,
         "archive_dir": archive_paths["archive_root"],
         "index_file": os.path.abspath(archive_paths["index"]),
         "source_audit_chain_file": os.path.abspath(args.audit_chain),
@@ -378,6 +466,7 @@ def main() -> int:
         "event": "anchor_audit_bundle",
         "job_id": args.job_id,
         "correlation_id": args.job_id,
+        "tenant_id": record_tenant_id,
         "archive_dir": archive_paths["archive_root"],
         "anchor_file": os.path.abspath(anchor_paths["anchor_file"]),
         "index_file": os.path.abspath(archive_paths["index"]),

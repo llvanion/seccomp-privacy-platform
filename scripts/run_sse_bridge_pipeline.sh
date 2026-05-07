@@ -192,7 +192,7 @@ Options:
   --external-kms-log <path>        optional stdout/stderr log for auto-started external KMS
   --key-access-audit-log <path>    default: <out-base>/key_access_audit.jsonl
   --audit-seal-key-env <env>       optional env var used to HMAC-seal audit_chain.json
-  --audit-archive-dir <dir>        optional local archive dir for indexed audit bundle copies
+  --audit-archive-dir <dir>        optional local archive dir; resolved --tenant-id writes under <dir>/<tenant-id>
   --pjc-audit-log <path>           default: <out-base>/a_psi_run/pjc_audit.jsonl
   --sse-export-policy-config <path> SSE export policy config
   --sse-export-audit-log <path>     default: <out-base>/sse_exports/export_audit.jsonl
@@ -1583,13 +1583,18 @@ if [[ -n "$AUDIT_ARCHIVE_DIR" ]]; then
     --archive-dir "$AUDIT_ARCHIVE_DIR"
     --job-id "$JOB_ID"
   )
+  AUDIT_ARCHIVE_INDEX="$AUDIT_ARCHIVE_DIR/audit_chain_index.jsonl"
+  if [[ -n "$TENANT_ID" ]]; then
+    AUDIT_ARCHIVE_CMD+=(--tenant-id "$TENANT_ID")
+    AUDIT_ARCHIVE_INDEX="$AUDIT_ARCHIVE_DIR/$TENANT_ID/audit_chain_index.jsonl"
+  fi
   if [[ -n "$AUDIT_SEAL_KEY_ENV" ]]; then
     AUDIT_ARCHIVE_CMD+=(--hmac-key-env "$AUDIT_SEAL_KEY_ENV")
   fi
   "${AUDIT_ARCHIVE_CMD[@]}"
   python3 "$VALIDATE_JSON_CONTRACT_PY" \
     --schema "$REPO_ROOT/schemas/audit_archive_index.schema.json" \
-    --jsonl "$AUDIT_ARCHIVE_DIR/audit_chain_index.jsonl"
+    --jsonl "$AUDIT_ARCHIVE_INDEX"
 fi
 
 log "OK"
@@ -1638,5 +1643,8 @@ log "  contract check:$OUT_BASE/mainline_contract_check.json"
 log "  audit seal:    $OUT_BASE/audit_chain.seal.json"
 if [[ -n "$AUDIT_ARCHIVE_DIR" ]]; then
   log "  audit archive: $AUDIT_ARCHIVE_DIR"
-  log "  audit index:   $AUDIT_ARCHIVE_DIR/audit_chain_index.jsonl"
+  if [[ -n "$TENANT_ID" ]]; then
+    log "  audit tenant:  $TENANT_ID"
+  fi
+  log "  audit index:   ${AUDIT_ARCHIVE_INDEX:-$AUDIT_ARCHIVE_DIR/audit_chain_index.jsonl}"
 fi

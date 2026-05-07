@@ -38,6 +38,7 @@ from submit_query_workflow import (
 )
 
 CACHE_TTL = 5.0
+UNSPECIFIED_TENANT_ID = "__unspecified__"
 
 # ---------------------------------------------------------------------------
 # HTML dashboard (single-file, no external deps)
@@ -1241,6 +1242,7 @@ def _job_snapshot(job: dict[str, Any]) -> dict[str, Any]:
     out_base = Path(job["out_base"])
     snapshot = {
         "job_id": job.get("job_id"),
+        "tenant_id": job.get("tenant_id"),
         "state": job.get("state"),
         "terminal": job.get("terminal"),
         "started_at_utc": job.get("started_at_utc"),
@@ -1265,6 +1267,7 @@ def _seed_job_from_out_base(out_base: Path) -> dict[str, Any] | None:
     state = status.get("state") or "unknown"
     return {
         "job_id": status.get("job_id"),
+        "tenant_id": status.get("tenant_id"),
         "state": state,
         "terminal": bool(status.get("terminal")),
         "started_at_utc": None,
@@ -1425,6 +1428,11 @@ def _load_start_request(body: dict[str, Any], *, default_out_base: Path) -> tupl
     return payload, request_source, request_dir
 
 
+def _normalized_tenant_id(payload: dict[str, Any]) -> str:
+    tenant_id = str(payload.get("tenant_id") or "").strip()
+    return tenant_id or UNSPECIFIED_TENANT_ID
+
+
 def _load_relaunch_request(
     body: dict[str, Any],
     *,
@@ -1500,6 +1508,7 @@ def _start_job_thread(server: "DashboardServer", *, payload: dict[str, Any], req
 
     job_record = {
         "job_id": normalized.get("job_id"),
+        "tenant_id": _normalized_tenant_id(normalized),
         "state": "running",
         "terminal": False,
         "started_at_utc": _utc_now(),
@@ -1550,6 +1559,7 @@ def _start_job_thread(server: "DashboardServer", *, payload: dict[str, Any], req
         write_json(sidecar_paths["status"], final_status)
         server.set_job({
             "job_id": normalized.get("job_id"),
+            "tenant_id": _normalized_tenant_id(normalized),
             "state": "completed" if exit_code in (None, 0) else "failed",
             "terminal": True,
             "started_at_utc": job_record["started_at_utc"],
@@ -1582,12 +1592,14 @@ class DashboardServer(ThreadingHTTPServer):
         history_limit: int,
         pid_file: str,
         ready_file: str,
+        max_concurrent_jobs_per_tenant: int,
     ) -> None:
         self.out_base = out_base
         self.history_root = history_root
         self.history_limit = history_limit
         self.pid_file = pid_file
         self.ready_file = ready_file
+        self.max_concurrent_jobs_per_tenant = max(0, int(max_concurrent_jobs_per_tenant))
         self.job_lock = threading.Lock()
         self.current_job: dict[str, Any] | None = _seed_job_from_out_base(out_base)
         super().__init__(server_address, handler_cls)
@@ -1601,6 +1613,99 @@ class DashboardServer(ThreadingHTTPServer):
     def set_job(self, job: dict[str, Any] | None) -> None:
         with self.job_lock:
             self.current_job = dict(job) if job is not None else None
+        invalidate_dashboard_cache()
+
+    def _filesystem_active_keys_for_tenant(self, tenant_id: str) -> set[str]:
+        target = tenant_id or UNSPECIFIED_TENANT_ID
+        active_keys: set[str] = set()
+        statuses, _ = scan_status_files(
+            self.history_root,
+            filter_state="running",
+            limit=1000000,
+        )
+        for item in statuses:
+            item_tenant = str(item.get("tenant_id") or UNSPECIFIED_TENANT_ID)
+            if item_tenant == target:
+                active_keys.add(str(item.get("out_base") or item.get("job_id") or len(active_keys)))
+        return active_keys
+
+    def active_jobs_for_tenant(self, tenant_id: str) -> int:
+        target = tenant_id or UNSPECIFIED_TENANT_ID
+        active_keys = self._filesystem_active_keys_for_tenant(target)
+        with self.job_lock:
+            current = self.current_job
+            if current is not None and current.get("state") == "running":
+                current_tenant = str(current.get("tenant_id") or UNSPECIFIED_TENANT_ID)
+                if current_tenant == target:
+                    active_keys.add(str(current.get("out_base") or current.get("job_id") or "__current__"))
+        return len(active_keys)
+
+    def try_reserve_job(
+        self,
+        *,
+        tenant_id: str,
+        job_id: str | None,
+        out_base: Path | None,
+        request_source: str | None,
+    ) -> dict[str, Any] | None:
+        """Atomically check single-active-job + per-tenant quota and reserve a slot.
+
+        Returns None on success (placeholder installed under job_lock); on failure returns
+        ``{"status": int, "body": {...}}`` describing the HTTP error to send back.
+        """
+        target_tenant = tenant_id or UNSPECIFIED_TENANT_ID
+        fs_active_keys: set[str] = set()
+        if self.max_concurrent_jobs_per_tenant > 0:
+            fs_active_keys = self._filesystem_active_keys_for_tenant(target_tenant)
+        with self.job_lock:
+            current = self.current_job
+            if current is not None and current.get("state") == "running":
+                return {
+                    "status": 409,
+                    "body": {
+                        "error": "job_already_running",
+                        "job_id": current.get("job_id"),
+                    },
+                }
+            if self.max_concurrent_jobs_per_tenant > 0:
+                if len(fs_active_keys) >= self.max_concurrent_jobs_per_tenant:
+                    return {
+                        "status": 429,
+                        "body": {
+                            "error": "tenant_job_quota_exceeded",
+                            "reason_code": "tenant_job_quota_exceeded",
+                            "tenant_id": target_tenant,
+                            "active_jobs": len(fs_active_keys),
+                            "max_concurrent_jobs_per_tenant": self.max_concurrent_jobs_per_tenant,
+                            "message": (
+                                f"tenant {target_tenant!r} already has {len(fs_active_keys)} active job(s); "
+                                f"quota is {self.max_concurrent_jobs_per_tenant}"
+                            ),
+                        },
+                    }
+            now = _utc_now()
+            self.current_job = {
+                "job_id": job_id,
+                "tenant_id": target_tenant,
+                "state": "running",
+                "terminal": False,
+                "started_at_utc": now,
+                "finished_at_utc": None,
+                "last_updated_at_utc": now,
+                "last_exit_code": None,
+                "out_base": str(out_base) if out_base is not None else None,
+                "request_source": request_source,
+                "reservation": True,
+            }
+        invalidate_dashboard_cache()
+        return None
+
+    def release_reservation(self) -> None:
+        """Drop the placeholder installed by try_reserve_job after a launch failure."""
+        with self.job_lock:
+            current = self.current_job
+            if current is not None and current.get("reservation"):
+                self.current_job = None
         invalidate_dashboard_cache()
 
     def recent_runs(
@@ -1814,7 +1919,29 @@ class DashboardHandler(BaseHTTPRequestHandler):
                     workflow_status_raw=workflow_status_raw,
                     workflow_status=workflow_status,
                 )
-                _start_job_thread(self.server, payload=payload, request_source=request_source, request_dir=request_dir)
+                normalized_preview = normalize_request_paths(payload, request_dir=request_dir)
+                validate_request(normalized_preview)
+                preview_out_base_raw = normalized_preview.get("out_base")
+                preview_out_base = (
+                    Path(str(preview_out_base_raw)).resolve()
+                    if isinstance(preview_out_base_raw, str) and preview_out_base_raw
+                    else None
+                )
+                preview_job_id = str(normalized_preview.get("job_id") or "") or None
+                reservation_error = self.server.try_reserve_job(
+                    tenant_id=_normalized_tenant_id(normalized_preview),
+                    job_id=preview_job_id,
+                    out_base=preview_out_base,
+                    request_source=request_source,
+                )
+                if reservation_error is not None:
+                    self._send_json(reservation_error["status"], reservation_error["body"])
+                    return
+                try:
+                    _start_job_thread(self.server, payload=payload, request_source=request_source, request_dir=request_dir)
+                except BaseException:
+                    self.server.release_reservation()
+                    raise
                 snapshot = self._current_job_snapshot() or {}
                 self._send_json(202, {
                     "job_id": snapshot.get("job_id"),
@@ -1834,14 +1961,32 @@ class DashboardHandler(BaseHTTPRequestHandler):
         if path != "/v1/jobs/start":
             self._send_json(404, {"error": "not_found", "path": path})
             return
-        current = self.server.get_job()
-        if current is not None and current.get("state") == "running":
-            self._send_json(409, {"error": "job_already_running", "job_id": current.get("job_id")})
-            return
         try:
             body = self._read_json_body()
             payload, request_source, request_dir = _load_start_request(body, default_out_base=self.server.out_base)
-            _start_job_thread(self.server, payload=payload, request_source=request_source, request_dir=request_dir)
+            normalized_preview = normalize_request_paths(payload, request_dir=request_dir)
+            validate_request(normalized_preview)
+            preview_out_base_raw = normalized_preview.get("out_base")
+            preview_out_base = (
+                Path(str(preview_out_base_raw)).resolve()
+                if isinstance(preview_out_base_raw, str) and preview_out_base_raw
+                else None
+            )
+            preview_job_id = str(normalized_preview.get("job_id") or "") or None
+            reservation_error = self.server.try_reserve_job(
+                tenant_id=_normalized_tenant_id(normalized_preview),
+                job_id=preview_job_id,
+                out_base=preview_out_base,
+                request_source=request_source,
+            )
+            if reservation_error is not None:
+                self._send_json(reservation_error["status"], reservation_error["body"])
+                return
+            try:
+                _start_job_thread(self.server, payload=payload, request_source=request_source, request_dir=request_dir)
+            except BaseException:
+                self.server.release_reservation()
+                raise
             snapshot = self._current_job_snapshot() or {}
             self._send_json(202, {
                 "job_id": snapshot.get("job_id"),
@@ -1887,6 +2032,12 @@ def build_parser() -> argparse.ArgumentParser:
     ap.add_argument("--port", type=int, default=18094)
     ap.add_argument("--pid-file", default="", help="Write server PID here on start")
     ap.add_argument("--ready-file", default="", help="Write '1' here when server is ready")
+    ap.add_argument(
+        "--max-concurrent-jobs-per-tenant",
+        type=int,
+        default=0,
+        help="Reject job starts with HTTP 429 when this many running jobs already exist for the tenant (0 disables)",
+    )
     return ap
 
 
@@ -1907,6 +2058,7 @@ def main() -> int:
         history_limit=max(1, args.history_limit),
         pid_file=args.pid_file,
         ready_file=args.ready_file,
+        max_concurrent_jobs_per_tenant=args.max_concurrent_jobs_per_tenant,
     )
 
     def _shutdown(sig: int, frame: Any) -> None:
@@ -1925,6 +2077,7 @@ def main() -> int:
         "url": f"http://{args.bind_host}:{args.port}/",
         "out_base": str(out_base),
         "history_root": str(history_root),
+        "max_concurrent_jobs_per_tenant": max(0, int(args.max_concurrent_jobs_per_tenant)),
         "pid": os.getpid(),
     }))
     sys.stdout.flush()

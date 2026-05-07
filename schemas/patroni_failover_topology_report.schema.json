@@ -1,0 +1,110 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "patroni_failover_topology_report/v1",
+  "title": "Patroni failover topology render report",
+  "type": "object",
+  "required": [
+    "schema",
+    "generated_at_utc",
+    "status",
+    "out_dir",
+    "scope",
+    "primary_service",
+    "replica_service",
+    "etcd_service",
+    "patroni_image",
+    "etcd_image",
+    "maximum_lag_on_failover",
+    "artifacts",
+    "checks",
+    "docker_compose_config"
+  ],
+  "properties": {
+    "schema": {
+      "const": "patroni_failover_topology_report/v1"
+    },
+    "generated_at_utc": {
+      "type": "string",
+      "minLength": 1
+    },
+    "status": {
+      "type": "string",
+      "enum": ["ok", "fail"]
+    },
+    "out_dir": {
+      "type": "string",
+      "minLength": 1
+    },
+    "scope": {
+      "type": "string",
+      "minLength": 1
+    },
+    "primary_service": {
+      "type": "string",
+      "minLength": 1
+    },
+    "replica_service": {
+      "type": "string",
+      "minLength": 1
+    },
+    "etcd_service": {
+      "type": "string",
+      "minLength": 1
+    },
+    "patroni_image": {
+      "type": "string",
+      "minLength": 1
+    },
+    "etcd_image": {
+      "type": "string",
+      "minLength": 1
+    },
+    "maximum_lag_on_failover": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "artifacts": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["kind", "path"],
+        "properties": {
+          "kind": {
+            "type": "string",
+            "enum": ["compose", "primary_config", "replica_config", "failover_commands"]
+          },
+          "path": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    "checks": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["name", "status", "detail"],
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1
+          },
+          "status": {
+            "type": "string",
+            "enum": ["ok", "fail"]
+          },
+          "detail": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    "docker_compose_config": {
+      "type": "object"
+    }
+  },
+  "additionalProperties": false
+}

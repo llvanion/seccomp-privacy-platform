@@ -114,6 +114,48 @@
 
 1. [POST_BASELINE_ROADMAP.md](/home/llvanion/Desktop/seccomp-privacy-platform/docs/POST_BASELINE_ROADMAP.md)
 
+## 4.1 生产就绪剩余 block 快照（2026-05-06）
+
+这个快照按 [PRODUCTION_READINESS_GUIDEBOOK.md](/home/llvanion/Desktop/seccomp-privacy-platform/docs/PRODUCTION_READINESS_GUIDEBOOK.md) 的生产就绪口径统计，不改变上方“平台基线已完成”的结论。
+
+当前剩余：**30 blocks / 约 150h**。
+
+| 类别 | 剩余 block 数 | 具体 block |
+| --- | ---: | --- |
+| E — Real authority sources | 0 repo-side | repo-side 已完成；live validation 是 operator 环境工作 |
+| F — Production PostgreSQL | 5 | F1-b；F2-c；F3；F4-a；F4-b |
+| G — Scale & optimization | 10 | G1；G2-a；G2-b；G3；G4-a；G4-b；G5；G6；G7；G8 |
+| H — Multi-tenant isolation | 0 | H 类已完成（H1-a / H1-b / H2-a / H2-b / H3-a / H3-b） |
+| I — Production operator console | 6 | I1-a；I1-b；I2-a；I2-b；I3-a；I3-b |
+| J — SRE / HA | 5 | J1；J2-a；J2-b；J3-b；J4 |
+| K — Compliance / external audit | 4 | K1-a；K1-b；K2；K3 |
+
+### 当前 review 返工项
+
+这些返工项属于已完成 block 的缺陷修复，不新增生产就绪 block；应先于下一块新任务处理：
+
+1. ~~**H2-b 返工：**~~ ✓ 2026-05-06 — dashboard per-tenant quota 的 check/start reservation 已原子化，覆盖 start 和 relaunch；新增 `try_reserve_job` / `release_reservation`，并发同租户请求不再绕过 `--max-concurrent-jobs-per-tenant`。
+2. ~~**H3-a 返工：**~~ ✓ 2026-05-06 — `run_sse_bridge_pipeline.sh` 在 tenant archive 模式下最终 summary 现在打印 resolved `AUDIT_ARCHIVE_INDEX`（`<dir>/<tenant-id>/audit_chain_index.jsonl`）并新增 `audit tenant` 行，operator 不会再复制到旧的非分区路径。
+
+返工完成时间：2026-05-06，详情见 §8 的对应记录条目。
+
+建议下一步顺序：
+
+1. ~~H2-b / H3-a review 返工~~ ✓ 已完成（2026-05-06）
+2. ~~H3-b：per-tenant external ledger paths~~ ✓ 已完成（2026-05-06）
+3. F1-b：real PostgreSQL portability gate
+4. ~~H1-a：per-tenant Unix socket~~ ✓ 已完成（2026-05-07）
+5. ~~H1-b：Kubernetes NetworkPolicy~~ ✓ 已完成（2026-05-07）
+6. ~~F2-a：PostgreSQL primary/replica HA topology~~ ✓ repo-side 已完成（2026-05-07）
+7. ~~F2-b：Patroni automated failover~~ ✓ repo-side 已完成（2026-05-07）
+8. F2-c：read-replica routing for sidecar reads
+
+2026-05-07 进展：F1-b 的 repo-side live gate 已加强。`POSTGRES_DSN` 分支现在会通过 `check_metadata_schema_portability.py --smoke-out-base --smoke-job-id` 在 PostgreSQL 上完成 migration + import_run_metadata + query_metadata job detail 三段检查，并输出 `postgres_live_import_query_smoke`；真实 PostgreSQL 16 环境执行仍未在本地完成，因此剩余 block 数暂不下调。
+
+2026-05-07 进展：F2-a repo-side 已完成。新增 `scripts/render_postgres_ha_topology.py`、`postgres_ha_topology_report/v1`、`config/postgres-ha/docker-compose.primary-replica.yml`、`primary-init/01-create-replicator.sh`、`.env.example` 与 `verify_replication.sql`；contract smoke 会渲染 HA 目录、校验 report schema，并断言 PostgreSQL 16 primary/replica、`wal_level=replica`、`pg_basebackup -Xs -R`、health-gated `depends_on`、复制 role init 和 `pg_stat_replication` LSN 查询。
+
+2026-05-07 进展：F2-b repo-side 已完成。新增 `scripts/render_patroni_failover_topology.py`、`patroni_failover_topology_report/v1`、`config/patroni-ha/docker-compose.patroni.yml`、`patroni-primary.yml`、`patroni-replica.yml` 与 `patroni_failover_commands.sh`；contract smoke 会渲染 Patroni/etcd 拓扑、校验 report schema，并断言 `etcd3` DCS、`ttl/loop_wait/retry_timeout`、`maximum_lag_on_failover`、`use_pg_rewind`、replication slots、SCRAM `pg_hba`、REST API 端口和 `patronictl list/switchover/failover` 命令。
+
 ## 5. 平台基线之后已完成 block 记录（2026-05-05）
 
 | 完成时间 | Tranche/Block | 入口 | 验证 |
@@ -157,7 +199,16 @@
 | 2026-05-06 | G2-b 第一版：record-recovery HTTP concurrent benchmark scaffold | `scripts/benchmark_record_recovery.py --mode http_recover_concurrent --concurrency <n>`，`schemas/record_recovery_benchmark.schema.json`，`scripts/check_benchmark_smoke_reports.py` | 最小 HTTP 并发 smoke ✓（2 concurrent requests / 4 total output rows）；schema/backcompat ✓；真实 1k candidates × 10 concurrency 阈值验证仍归 G2-b live benchmark |
 | 2026-05-06 | G6 第一版：record-recovery mTLS benchmark scaffold | `scripts/benchmark_record_recovery.py --mode http_recover_mtls`，mock-issued recovery-service mTLS certs，`record_recovery_benchmark/v1` transport `https_mtls` | 最小 mTLS recover smoke ✓（output_rows=2）；默认 benchmark mode 不强制跑 TLS |
 | 2026-05-06 | H2-a：per-caller token bucket rate limiter | `services/record_recovery/http_service.py`（`TokenBucket`、`RecordRecoveryHttpServer.check_rate_limit`、`do_POST` rate-limit gate → HTTP 429 `rate_limited`），CLI flags `--rate-limit-per-caller` / `--rate-limit-burst` | `python3 -m py_compile` ✓；`check_ci_smoke.sh` ✓ |
+| 2026-05-06 | H2-b：per-tenant dashboard job quota | `scripts/serve_operator_dashboard.py --max-concurrent-jobs-per-tenant <n>`；`POST /v1/jobs/start` 与 `POST /v1/jobs/{job_id}/relaunch` 在启动 subprocess 前按 `tenant_id` 检查当前 in-memory job + `history_root` running status；超限返回 HTTP 429 `tenant_job_quota_exceeded` | `python3 -m py_compile` ✓；loopback quota smoke 返回 429 ✓；`bash -n scripts/check_ci_smoke.sh` ✓ |
+| 2026-05-06 | H3-a：per-tenant audit archive partition | `scripts/archive_audit_bundle.py --tenant-id <tenant>`；租户模式写入 `<archive-dir>/<tenant-id>/audit_chain_anchor.jsonl`、`audit_chain_index.jsonl` 和 `audit_chains/<job_id>/audit_chain*.json`；归档前校验 `audit_chain.json` 中的 tenant scope 与参数一致 | `python3 -m py_compile` ✓；`check_json_contracts.sh` 正向租户分区 + mismatched tenant reject ✓；`check_ci_smoke.sh` ✓ |
 | 2026-05-06 | J3-a：Prometheus /metrics endpoint | `services/record_recovery/http_service.py`（`ServiceMetrics`、`GET /metrics`），`_log_request` 自动记录 counter + histogram | `python3 -m py_compile` ✓；`check_ci_smoke.sh` ✓ |
+| 2026-05-06 | H2-b 返工：dashboard per-tenant quota 原子化 | `scripts/serve_operator_dashboard.py` 新增 `DashboardServer.try_reserve_job()` / `release_reservation()`，统一覆盖 `POST /v1/jobs/start` 与 `POST /v1/jobs/{job_id}/relaunch` 的「检查 + 占位」流程；占位记录带 `reservation=True`，`_start_job_thread` 失败时由 handler 回滚；旧的非原子 `tenant_quota_violation` helper 已移除 | `python3 -m py_compile scripts/serve_operator_dashboard.py` ✓；in-process 8-thread 并发 smoke：1 success / 7 × HTTP 409 `job_already_running`，且占位释放后其他租户可继续 reserve ✓；`bash -n scripts/check_ci_smoke.sh` ✓ |
+| 2026-05-06 | H3-a 返工：tenant archive summary 路径修正 | `scripts/run_sse_bridge_pipeline.sh` 最终成功 summary 现在打印 `${AUDIT_ARCHIVE_INDEX}`（tenant 模式 = `<dir>/<tenant>/audit_chain_index.jsonl`），并新增 `audit tenant: <tenant_id>` 行，避免 operator 复制到旧的非分区路径 | `bash -n scripts/run_sse_bridge_pipeline.sh` ✓；trace harness：non-tenant 输出 `…/audit_chain_index.jsonl`，tenant 模式输出 `…/<tenant_id>/audit_chain_index.jsonl` ✓ |
+| 2026-05-06 | H3-b：per-tenant external ledger paths | `scripts/publish_external_audit_anchor.py` 新增 `--tenant-id`（语法白名单 `^[A-Za-z0-9][A-Za-z0-9_.\-]*$`），强制 `--anchor-file` 与 `--external-ledger` 路径都包含 `<tenant_id>` 段，且每条 `audit_archive_anchor/v1` 记录的 `tenant_id` 必须等于命令行 tenant；report 与 `external_audit_anchor_ledger/v1` 行均带 `tenant_id`；非-tenant 旧调用保持兼容（`tenant_id: null`）。`schemas/external_audit_anchor_report.schema.json` 在顶层、`external_sink`、`summary`、`records[*]` 各加可选 `tenant_id`；`config/schema_backcompat_baseline.json` 把 `tenant_id` 加入 `external_audit_anchor_report/v1` 的 `stable_properties` | `python3 scripts/check_schema_backcompat.py`：98 schema / 0 fail ✓；`scripts/check_json_contracts.sh` 新增 tenant-mode 正向 + cross-tenant reject 两条断言并通过 ✓；本地 6 路径功能 smoke（tenant 正常、anchor 路径缺段拒绝、ledger 路径缺段拒绝、record tenant mismatch 拒绝、tenant-id 路径穿越拒绝、legacy 兼容）全绿 ✓ |
+| 2026-05-07 | H1-a：per-tenant Unix socket | `services/record_recovery/config.py` 新增 tenant/service/dataset 作用域派生 socket（`/tmp/seccomp_rr_<tenant>_<hash>.sock`）；`manage_record_recovery_service.py` 与 `run_record_recovery_service.py` 在 Unix-socket 模式下复用同一派生逻辑；`record_recovery_service_config/v1` 支持非空 `tenant_id` 作为省略 `socket_path` 时的最小地址来源 | `python3 -m py_compile` ✓；schema/backcompat ✓；`check_json_contracts.sh` 新增 omit-socket config 启动、health 成功、other-tenant 派生 socket 不可达断言 ✓ |
+| 2026-05-07 | H1-b：Kubernetes NetworkPolicy | `scripts/render_k8s_network_policies.py` 按 `tenant_id` 渲染 recovery-service ingress NetworkPolicy；每个 manifest 只允许同租户 `app=sse-bridge-pipeline` 访问同租户 `app=recovery-service`；新增 `k8s_network_policy_report/v1` schema 和 `config/k8s/netpol-recovery-service-demo-tenant.yaml` 示例 | `python3 -m py_compile` ✓；schema/backcompat ✓；`check_json_contracts.sh` 渲染双租户 manifest、校验报告、断言 tenant/app/port 字段 ✓；operator 环境可加 `--kubectl-dry-run` |
+| 2026-05-07 | F2-a：PostgreSQL primary/replica HA topology | `scripts/render_postgres_ha_topology.py` 生成 PostgreSQL 16 primary/replica compose 目录；`config/postgres-ha/docker-compose.primary-replica.yml`、`primary-init/01-create-replicator.sh`、`.env.example`、`verify_replication.sql` 作为 checked-in operator 示例；新增 `postgres_ha_topology_report/v1` schema | `python3 -m py_compile` ✓；schema/backcompat 100 / 0 fail ✓；`check_json_contracts.sh` 渲染 HA 目录、校验 report schema、断言 `wal_level=replica`、`max_wal_senders`、`wal_keep_size`、`pg_basebackup -Xs -R`、health-gated `depends_on`、复制 role init 和 `pg_stat_replication` 查询 ✓；真实容器启动/复制滞后观测留给 operator 环境 |
+| 2026-05-07 | F2-b：Patroni automated failover | `scripts/render_patroni_failover_topology.py` 生成 etcd-backed two-node Patroni 拓扑；`config/patroni-ha/docker-compose.patroni.yml`、`patroni-primary.yml`、`patroni-replica.yml`、`patroni_failover_commands.sh` 作为 checked-in operator 示例；新增 `patroni_failover_topology_report/v1` schema | `python3 -m py_compile` ✓；schema/backcompat 101 / 0 fail ✓；`check_json_contracts.sh` 渲染 Patroni HA 目录、校验 report schema、断言 `etcd3`、`ttl/loop_wait/retry_timeout`、`maximum_lag_on_failover`、`use_pg_rewind`、replication slots、SCRAM `pg_hba`、REST API 端口和 `patronictl list/switchover/failover` 命令 ✓；真实 switchover/failover 时长验证留给 operator 环境 |
 
 ## 7. 使用方式
 

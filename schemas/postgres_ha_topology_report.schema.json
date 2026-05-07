@@ -1,0 +1,110 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "postgres_ha_topology_report/v1",
+  "title": "PostgreSQL HA topology render report",
+  "type": "object",
+  "required": [
+    "schema",
+    "generated_at_utc",
+    "status",
+    "out_dir",
+    "compose_path",
+    "primary_service",
+    "replica_service",
+    "postgres_image",
+    "primary_port",
+    "replica_port",
+    "replication_user",
+    "artifacts",
+    "checks",
+    "docker_compose_config"
+  ],
+  "properties": {
+    "schema": {
+      "const": "postgres_ha_topology_report/v1"
+    },
+    "generated_at_utc": {
+      "type": "string",
+      "minLength": 1
+    },
+    "status": {
+      "type": "string",
+      "enum": ["ok", "fail"]
+    },
+    "out_dir": {
+      "type": "string",
+      "minLength": 1
+    },
+    "compose_path": {
+      "type": "string",
+      "minLength": 1
+    },
+    "primary_service": {
+      "type": "string",
+      "minLength": 1
+    },
+    "replica_service": {
+      "type": "string",
+      "minLength": 1
+    },
+    "postgres_image": {
+      "type": "string",
+      "minLength": 1
+    },
+    "primary_port": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "replica_port": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "replication_user": {
+      "type": "string",
+      "minLength": 1
+    },
+    "artifacts": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["kind", "path"],
+        "properties": {
+          "kind": {
+            "type": "string",
+            "enum": ["compose", "primary_init", "verify_sql", "env_example"]
+          },
+          "path": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    "checks": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["name", "status", "detail"],
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1
+          },
+          "status": {
+            "type": "string",
+            "enum": ["ok", "fail"]
+          },
+          "detail": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    "docker_compose_config": {
+      "type": "object"
+    }
+  },
+  "additionalProperties": false
+}

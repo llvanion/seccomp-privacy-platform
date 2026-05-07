@@ -1,0 +1,99 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "k8s_network_policy_report/v1",
+  "title": "Kubernetes NetworkPolicy render report",
+  "type": "object",
+  "required": [
+    "schema",
+    "generated_at_utc",
+    "status",
+    "out_dir",
+    "tenant_count",
+    "recovery_app",
+    "pipeline_app",
+    "manifests"
+  ],
+  "properties": {
+    "schema": {
+      "const": "k8s_network_policy_report/v1"
+    },
+    "generated_at_utc": {
+      "type": "string",
+      "minLength": 1
+    },
+    "status": {
+      "type": "string",
+      "enum": ["ok", "fail"]
+    },
+    "out_dir": {
+      "type": "string",
+      "minLength": 1
+    },
+    "tenant_count": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "recovery_app": {
+      "type": "string",
+      "minLength": 1
+    },
+    "pipeline_app": {
+      "type": "string",
+      "minLength": 1
+    },
+    "manifests": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "tenant_id",
+          "path",
+          "metadata_name",
+          "namespace",
+          "port",
+          "protocol",
+          "valid",
+          "errors",
+          "kubectl_dry_run"
+        ],
+        "properties": {
+          "tenant_id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "path": {
+            "type": ["string", "null"]
+          },
+          "metadata_name": {
+            "type": ["string", "null"]
+          },
+          "namespace": {
+            "type": ["string", "null"]
+          },
+          "port": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "protocol": {
+            "type": "string",
+            "enum": ["TCP", "UDP", "SCTP"]
+          },
+          "valid": {
+            "type": "boolean"
+          },
+          "errors": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "kubectl_dry_run": {
+            "type": "object"
+          }
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  "additionalProperties": false
+}

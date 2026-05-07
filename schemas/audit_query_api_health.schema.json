@@ -24,6 +24,12 @@
     "auth_required": {
       "type": "boolean"
     },
+    "metadata_db_path": {
+      "type": ["string", "null"]
+    },
+    "metadata_db_dsn": {
+      "type": ["string", "null"]
+    },
     "available_results": {
       "type": "array",
       "items": {

@@ -21,6 +21,27 @@
       "required": [
         "http_listener"
       ]
+    },
+    {
+      "required": [
+        "tenant_id"
+      ],
+      "properties": {
+        "tenant_id": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "not": {
+        "required": [
+          "transport"
+        ],
+        "properties": {
+          "transport": {
+            "const": "http"
+          }
+        }
+      }
     }
   ],
   "properties": {

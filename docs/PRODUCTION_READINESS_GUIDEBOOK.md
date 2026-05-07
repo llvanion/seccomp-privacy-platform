@@ -24,7 +24,7 @@ All contracts are frozen under the backcompat guard. All post-baseline tranches 
 | OpenFGA | SQLite fallback, OpenFGA HTTP backend, committed authorization model, model setup helper, and optional live governance check | Operator must run OpenFGA, create/select a store, upload the model, and provide live store env vars |
 | Vault / KMS | Vault HTTP token/AppRole client, Vault PKI cert issuer with mock fallback, and AWS KMS secret-ref baseline | Operator must run Vault/cloud KMS, provision policies/roles/keys, and execute live validation |
 | mTLS PKI | Vault PKI issuance helper plus mock cert generation in default smoke | Operator must enable Vault PKI and rotate issued certs in the target environment |
-| PostgreSQL | SQLite sidecar with Postgres-compatible DDL | No live PostgreSQL connection |
+| PostgreSQL | SQLite sidecar with Postgres-compatible DDL, psycopg2 driver layer, optional live portability gate, and repo-side primary/replica HA topology artifacts | F1-b still needs live PostgreSQL execution; Patroni/failover, read routing, backup/restore, and runbook work remain |
 | Benchmarks | Synthetic demo data (`intersection_size=2`) | Never tested at e-commerce scale |
 | External audit anchor | Local file ledger | Not connected to immutable external medium |
 
@@ -360,6 +360,8 @@ Implemented in `scripts/metadata_db.py`:
 
 Remaining in F1: run the existing PostgreSQL paths against a real PostgreSQL 16 instance, fix any live-driver issues that only show up outside SQLite, and keep default SQLite contract smoke unchanged. `scripts/check_json_contracts.sh` now also runs the live PostgreSQL portability gate when `POSTGRES_DSN` is set.
 
+**2026-05-07 repo-side gate update:** the `POSTGRES_DSN` branch now goes beyond applying migrations. `scripts/check_metadata_schema_portability.py --db-dsn ... --smoke-out-base <run> --smoke-job-id <job>` imports a real completed-run bundle into PostgreSQL and queries the same `job_id` through the metadata read path, emitting a `postgres_live_import_query_smoke` check in `metadata_schema_portability/v1`. Default SQLite smoke is unchanged; F1-b is still not marked complete until this gate is executed against an operator-provided PostgreSQL 16 instance.
+
 **F1-b — Run portability gate against real PostgreSQL (1 block)**
 
 ```bash
@@ -378,6 +380,8 @@ psql postgresql://postgres:test@localhost:5432/postgres \
 # Run portability gate against real PostgreSQL
 python3 scripts/check_metadata_schema_portability.py \
   --db-dsn postgresql://postgres:test@localhost:5432/postgres \
+  --smoke-out-base tmp/sse_bridge_pipeline_demo \
+  --smoke-job-id auto_demo_job \
   --output tmp/pg_portability_report.json
 ```
 
@@ -399,36 +403,27 @@ Port any remaining SQLite-specific syntax (especially `AUTOINCREMENT` → `SERIA
 
 #### Tasks
 
-**F2-a — Primary + replica setup (1 block)**
+**F2-a — Primary + replica setup (1 block) — Completed repo-side 2026-05-07**
 
-```yaml
-# docker-compose.yml (development HA)
-services:
-  pg-primary:
-    image: postgres:16
-    environment:
-      POSTGRES_PASSWORD: primary_pass
-      POSTGRES_REPLICATION_USER: replicator
-      POSTGRES_REPLICATION_PASSWORD: repl_pass
-    command: >
-      postgres
-        -c wal_level=replica
-        -c max_wal_senders=3
-        -c wal_keep_size=64
-    ports: ["5432:5432"]
+Repo-side implementation now lives in:
 
-  pg-replica:
-    image: postgres:16
-    environment:
-      PGUSER: replicator
-      PGPASSWORD: repl_pass
-    command: >
-      bash -c "
-        pg_basebackup -h pg-primary -D /var/lib/postgresql/data -U replicator -P -Xs -R
-        postgres
-      "
-    depends_on: [pg-primary]
-    ports: ["5433:5432"]
+- `scripts/render_postgres_ha_topology.py`
+- `schemas/postgres_ha_topology_report.schema.json`
+- `config/postgres-ha/docker-compose.primary-replica.yml`
+- `config/postgres-ha/primary-init/01-create-replicator.sh`
+- `config/postgres-ha/verify_replication.sql`
+
+The renderer emits a self-contained development HA directory with a PostgreSQL 16 primary, a streaming replica bootstrapped by `pg_basebackup -Xs -R`, health-gated `depends_on`, replication role initialization, an `.env.example`, and the `pg_stat_replication` verification query. `check_json_contracts.sh` now validates the `postgres_ha_topology_report/v1` contract and asserts the critical HA fields (`wal_level=replica`, `max_wal_senders`, `wal_keep_size`, primary/replica ports, `pg_basebackup`, `pg_hba.conf`, and LSN columns). Operators can additionally run `--docker-compose-config` in an environment with Docker to validate compose syntax with the local Docker plugin.
+
+Render a local copy or inspect the checked-in example:
+
+```bash
+python3 scripts/render_postgres_ha_topology.py \
+  --out-dir tmp/postgres-ha \
+  --output tmp/postgres_ha_topology_report.json \
+  --assert-ok
+
+sed -n '1,120p' config/postgres-ha/docker-compose.primary-replica.yml
 ```
 
 Verify replication lag with:
@@ -438,50 +433,36 @@ SELECT client_addr, state, sent_lsn, write_lsn, flush_lsn, replay_lsn
 FROM pg_stat_replication;
 ```
 
-**F2-b — Patroni automated failover (1 block)**
+**F2-b — Patroni automated failover (1 block) — Completed repo-side 2026-05-07**
 
-Add Patroni cluster config (`config/patroni.yml`):
+Repo-side implementation now lives in:
 
-```yaml
-scope: seccomp-privacy
-name: pg-primary
+- `scripts/render_patroni_failover_topology.py`
+- `schemas/patroni_failover_topology_report.schema.json`
+- `config/patroni-ha/docker-compose.patroni.yml`
+- `config/patroni-ha/patroni-primary.yml`
+- `config/patroni-ha/patroni-replica.yml`
+- `config/patroni-ha/patroni_failover_commands.sh`
 
-restapi:
-  listen: 0.0.0.0:8008
-  connect_address: pg-primary:8008
+The renderer emits an etcd-backed two-node Patroni topology with one primary candidate and one replica/failover candidate. The configs include Patroni REST API addresses, shared `scope`, `etcd3` DCS, `ttl=30`, `loop_wait=10`, `retry_timeout=10`, `maximum_lag_on_failover=1048576`, `use_pg_rewind`, replication slots, SCRAM `pg_hba` entries, and WAL replication parameters. `check_json_contracts.sh` now validates `patroni_failover_topology_report/v1` and asserts the expected Patroni/etcd topology plus `patronictl list`, `switchover`, and `failover` commands. Operators can additionally run `--docker-compose-config` in an environment with Docker to validate compose syntax.
 
-etcd3:
-  hosts: etcd:2379
-
-bootstrap:
-  dcs:
-    ttl: 30
-    loop_wait: 10
-    retry_timeout: 10
-    maximum_lag_on_failover: 1048576
-  pg_hba:
-    - host replication replicator 0.0.0.0/0 md5
-    - host all all 0.0.0.0/0 md5
-
-postgresql:
-  listen: 0.0.0.0:5432
-  connect_address: pg-primary:5432
-  data_dir: /var/lib/postgresql/data
-  authentication:
-    replication:
-      username: replicator
-      password: repl_pass
-    superuser:
-      username: postgres
-      password: primary_pass
-```
-
-Add a runbook section in `OPS_RUNBOOK.md` for Patroni failover commands:
+Render a local copy or inspect the checked-in example:
 
 ```bash
-patronictl -c config/patroni.yml list
-patronictl -c config/patroni.yml switchover
-patronictl -c config/patroni.yml failover
+python3 scripts/render_patroni_failover_topology.py \
+  --out-dir tmp/patroni-ha \
+  --output tmp/patroni_failover_topology_report.json \
+  --assert-ok
+
+sed -n '1,120p' config/patroni-ha/patroni-primary.yml
+```
+
+Patroni operator commands are captured in `config/patroni-ha/patroni_failover_commands.sh`:
+
+```bash
+patronictl -c "$PATRONI_CONFIG" list
+patronictl -c "$PATRONI_CONFIG" switchover --master pg-primary --candidate pg-replica --force
+patronictl -c "$PATRONI_CONFIG" failover --candidate pg-replica --force
 ```
 
 **F2-c — Read-replica routing for sidecar reads (1 block)**
@@ -941,33 +922,34 @@ Measure:
 
 #### Tasks
 
-**H1-a — Per-tenant Unix socket (1 block)**
+**H1-a — Per-tenant Unix socket (1 block) — Completed 2026-05-07**
 
-Rather than a single shared Unix socket, issue one socket per tenant or per `service_id`:
+Rather than a single shared Unix socket, the record-recovery config resolver and lifecycle manager now issue a deterministic socket path per tenant/service scope when `socket_path` is omitted:
 
 ```bash
-# Instead of:
 python3 scripts/run_record_recovery_service.py serve \
-  --socket-path /tmp/seccomp_recovery.sock
-
-# Per-tenant:
-python3 scripts/run_record_recovery_service.py serve \
-  --socket-path /tmp/seccomp_recovery_tenant_demo.sock \
+  --transport unix_socket \
   --tenant-id demo_tenant
 ```
 
-Modify `manage_record_recovery_service.py start` to generate `socket_path` from `tenant_id` when not explicitly set. Update `pipeline_configs` that reference socket paths accordingly.
+Implemented:
 
-**H1-b — Kubernetes NetworkPolicy (1 block)**
+1. `services/record_recovery/config.py` derives `/tmp/seccomp_rr_<tenant>_<hash>.sock` from `tenant_id`, `service_id`, and `dataset_id` when `transport=unix_socket` and no `socket_path` is provided.
+2. `scripts/manage_record_recovery_service.py start|status|stop|render-systemd` and `scripts/run_record_recovery_service.py serve` use the same derivation after CLI/config scope merging.
+3. `record_recovery_service_config/v1` now accepts a non-empty `tenant_id` as the minimum Unix-socket address source, while existing explicit `socket_path`, `endpoint_url`, and `http_listener` configs remain valid.
+4. Contract smoke starts a service from a config that omits `socket_path`, confirms the derived `/tmp/seccomp_rr_contract-tenant-derived_<hash>.sock` is reachable, then builds another tenant config and verifies that probing the different tenant's derived socket fails.
 
-For Kubernetes deployments, add `NetworkPolicy` manifests:
+This keeps explicit socket paths as the compatibility path, but removes the accidental shared-socket default for tenant-scoped Unix-socket services.
+
+**H1-b — Kubernetes NetworkPolicy (1 block) — Completed 2026-05-07**
+
+For Kubernetes deployments, `scripts/render_k8s_network_policies.py` now renders one tenant-scoped `NetworkPolicy` per tenant and emits `k8s_network_policy_report/v1`.
 
 ```yaml
-# config/k8s/netpol-recovery-service.yaml
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
-  name: recovery-service-ingress
+  name: recovery-service-ingress-demo-tenant
 spec:
   podSelector:
     matchLabels:
@@ -985,13 +967,33 @@ spec:
           protocol: TCP
 ```
 
-One NetworkPolicy per tenant. The SSE bridge pipeline pod must carry the matching `tenant` label.
+Implemented:
+
+1. `scripts/render_k8s_network_policies.py` renders deterministic YAML manifests under `--out-dir` for each repeated `--tenant-id`.
+2. Each policy selects `app=recovery-service, tenant=<tenant>` and only allows ingress from `app=sse-bridge-pipeline, tenant=<same-tenant>` on the configured port/protocol.
+3. `schemas/k8s_network_policy_report.schema.json` freezes `k8s_network_policy_report/v1`, including manifest paths, tenant IDs, port/protocol, structural validation status, and optional kubectl dry-run result.
+4. `config/k8s/netpol-recovery-service-demo-tenant.yaml` provides a checked-in example manifest.
+5. Contract smoke renders two tenant policies, validates the report schema, and asserts that the YAML contains the matching recovery/pipeline app labels, tenant label, and port. Operators can add `--kubectl-dry-run` where `kubectl` and a target Kubernetes client config are available.
+
+Example:
+
+```bash
+python3 scripts/render_k8s_network_policies.py \
+  --tenant-id demo-tenant \
+  --namespace seccomp-privacy \
+  --out-dir tmp/k8s \
+  --output tmp/k8s_network_policy_report.json \
+  --kubectl-dry-run \
+  --assert-ok
+```
+
+The SSE bridge pipeline pod must carry the matching `tenant` label, or Kubernetes will deny ingress to that tenant's recovery-service pod.
 
 #### Acceptance Criteria
 
 1. A per-tenant socket path is derived from `tenant_id` when `socket_path` is omitted.
 2. `health` probe to a different tenant's socket fails with connection refused.
-3. NetworkPolicy manifests generated and validated with `kubectl apply --dry-run`.
+3. NetworkPolicy manifests generated and validated structurally in contract smoke; `kubectl apply --dry-run=client` is supported by `--kubectl-dry-run` for operator environments.
 
 ---
 
@@ -1011,13 +1013,29 @@ Implemented in `services/record_recovery/http_service.py`:
 
 Add `--rate-limit-per-caller <requests/s>` and `--rate-limit-burst <burst>` flags to `http_service.py`. When a rate limit is exceeded, return HTTP 429 with `reason_code: rate_limited` in the error response and structured log.
 
-**H2-b — Per-tenant job quota in dashboard (1 block)**
+**H2-b — Per-tenant job quota in dashboard (1 block) — Completed 2026-05-06; review fixup applied 2026-05-06**
 
-Add `--max-concurrent-jobs-per-tenant <n>` to `serve_operator_dashboard.py`. When a `POST /v1/jobs/start` request exceeds the quota, return HTTP 429 with a structured error.
+`serve_operator_dashboard.py` now accepts `--max-concurrent-jobs-per-tenant <n>`. When a `POST /v1/jobs/start` request exceeds the quota, it returns HTTP 429 with a structured error.
 
-Track active jobs per `tenant_id` in the dashboard's in-memory job table. The count is decremented when a job reaches a terminal state.
+The dashboard tracks the current in-memory job and running `query_workflow/status.json` records by `tenant_id`; terminal jobs no longer count because only `state=running` records are included.
+
+**Review fixup (2026-05-06):** the original implementation evaluated the quota and started the subprocess in two unsynchronised steps, so two concurrent same-tenant requests could both pass the check before either updated `current_job`. The fixup folds the single-active-job rule, the per-tenant quota count, and the placeholder write into one critical section (`DashboardServer.try_reserve_job()` under `job_lock`), and adds `release_reservation()` for launch-time rollback. Both `POST /v1/jobs/start` and `POST /v1/jobs/{job_id}/relaunch` go through the same path, so neither entry can race the other. An 8-thread in-process smoke confirmed exactly one reservation wins (1 × 202, 7 × 409 `job_already_running`).
 
 `--max-rows-per-request` is already implemented in the recovery service HTTP handler; verify it is enforced even under concurrent load (G2-b).
+
+Implemented in `scripts/serve_operator_dashboard.py`:
+
+1. CLI flag `--max-concurrent-jobs-per-tenant <n>`; `0` keeps the existing unlimited/default behavior.
+2. `POST /v1/jobs/start` and `POST /v1/jobs/{job_id}/relaunch` validate the normalized request, derive `tenant_id`, and reject quota violations before launching the subprocess.
+3. Active job count is derived from the current in-memory job plus `history_root` running `query_workflow/status.json` records, so multiple dashboard instances sharing the same history root cannot silently bypass the quota.
+4. Quota failures return HTTP 429 with `error=tenant_job_quota_exceeded`, `reason_code=tenant_job_quota_exceeded`, `tenant_id`, `active_jobs`, and `max_concurrent_jobs_per_tenant`.
+5. Job snapshots now carry `tenant_id`, including jobs seeded from an existing `query_workflow/status.json`.
+
+Verification:
+
+1. `python3 -m py_compile scripts/serve_operator_dashboard.py scripts/verify_operator_shell_regression.py` passed.
+2. A loopback quota smoke with a synthetic same-tenant running status returned HTTP 429 and `tenant_job_quota_exceeded`.
+3. `bash -n scripts/check_ci_smoke.sh` passed.
 
 #### Acceptance Criteria
 
@@ -1031,17 +1049,23 @@ Track active jobs per `tenant_id` in the dashboard's in-memory job table. The co
 
 #### Tasks
 
-**H3-a — Partition audit anchor by tenant (1 block)**
+**H3-a — Partition audit anchor by tenant (1 block) — Completed 2026-05-06; review fixup applied 2026-05-06**
 
-Current: single `audit_chain_anchor.jsonl` for all jobs.
+Implemented:
 
-Add `--tenant-id` filter to `archive_audit_bundle.py`:
+1. `scripts/archive_audit_bundle.py --tenant-id <tenant>` validates the requested tenant against tenant scope values embedded in `audit_chain.json`.
+2. Tenant-partitioned archive mode writes `audit_chain_index.jsonl` and `audit_chain_anchor.jsonl` under `<archive-dir>/<tenant-id>/`.
+3. In tenant mode, archived bundle files use the stable path `audit_chains/<job_id>/audit_chain.json` plus `audit_chains/<job_id>/audit_chain.seal.json`.
+4. `scripts/run_sse_bridge_pipeline.sh --audit-archive-dir <dir>` passes through the resolved `tenant_id` when one exists, so integrated pipeline archives use the same tenant partition.
+5. `audit_archive_index/v1` and `audit_archive_anchor/v1` now carry optional `tenant_id`; contract smoke validates both the positive tenant path and a mismatched-tenant reject path.
+
+**Review fixup (2026-05-06):** the original implementation correctly wrote the index under the tenant subdirectory but the pipeline's final success summary still printed the legacy `<archive-dir>/audit_chain_index.jsonl`, which made operators copy from the wrong path. The fixup updates `run_sse_bridge_pipeline.sh` so the success summary prints the resolved `${AUDIT_ARCHIVE_INDEX}` (already set to the tenant-partitioned location at archive time) plus an explicit `audit tenant: <tenant_id>` line. The non-tenant path is unchanged.
 
 ```bash
 python3 scripts/archive_audit_bundle.py \
   --audit-chain out/audit_chain.json \
   --audit-seal out/audit_chain.seal.json \
-  --archive-dir archive/tenant_demo \
+  --archive-dir archive \
   --job-id auto_demo_job \
   --tenant-id demo_tenant \
   --anchor-key-env SECCOMP_AUDIT_ARCHIVE_ANCHOR_KEY
@@ -1062,11 +1086,17 @@ archive/
     ...
 ```
 
-Add tenant validation in `archive_audit_bundle.py`: if `tenant_id` does not match the `audit_chain.json` payload's `tenant_id`, reject with an error.
+If `--tenant-id` is omitted, the legacy non-partitioned archive layout remains available for compatibility.
 
-**H3-b — Per-tenant external ledger paths (1 block)**
+**H3-b — Per-tenant external ledger paths (1 block) — Completed 2026-05-06**
 
-Update `publish_external_audit_anchor.py` to accept `--tenant-id` and use a tenant-namespaced external ledger path:
+`publish_external_audit_anchor.py` now accepts `--tenant-id <tenant>`. When set, the script enforces tenant scope at three levels and propagates the tenant into the report and ledger:
+
+1. **Tenant id syntax.** `--tenant-id` must match `^[A-Za-z0-9][A-Za-z0-9_.\-]*$` (and is not `.` or `..`), so it cannot escape the partition with path traversal.
+2. **Anchor file partition.** `--anchor-file` resolves to an absolute path that must include `<tenant_id>` as a path segment; otherwise the script exits with an error and writes nothing. This blocks cross-tenant publishes from a tenant directory that doesn't belong to the caller.
+3. **External ledger namespace.** `--external-ledger` resolves to an absolute path that must include `<tenant_id>` as a path segment. The example layout below is the canonical one; for S3-backed external ledgers (K1), the key prefix becomes `s3://bucket/audit/<tenant_id>/ledger.jsonl` using the same path-segment rule.
+4. **Anchor record tenant.** Every loaded `audit_archive_anchor/v1` record must carry `tenant_id == <tenant_id>`. Records without `tenant_id`, or with a different `tenant_id`, are rejected before any ledger write.
+5. **Report + ledger output.** The `external_audit_anchor_report/v1` report now carries `tenant_id` at the top level, in `external_sink`, in `summary`, and per record. Each appended `external_audit_anchor_ledger/v1` line also carries `tenant_id`. Legacy non-tenant mode (`--tenant-id` omitted) is preserved and emits `tenant_id: null` everywhere; the schema marks all of these `tenant_id` fields as optional `string|null`, so non-tenant pipelines remain backwards compatible.
 
 ```bash
 python3 scripts/publish_external_audit_anchor.py \
@@ -1079,6 +1109,8 @@ python3 scripts/publish_external_audit_anchor.py \
 ```
 
 For S3-backed external ledgers (K1), the key prefix becomes `s3://bucket/audit/<tenant_id>/ledger.jsonl`.
+
+Implemented in `scripts/publish_external_audit_anchor.py`, `schemas/external_audit_anchor_report.schema.json`, and `config/schema_backcompat_baseline.json` (added `tenant_id` to `stable_properties` so future changes can't silently drop it). Validated by `scripts/check_json_contracts.sh`, which now exercises the tenant-mode publish (tenant-namespaced ledger + per-record tenant_id assertion) and a cross-tenant reject path (anchor under `contract-tenant/` with `--tenant-id other-tenant` must exit non-zero and must not create the ledger file).
 
 #### Acceptance Criteria
 
@@ -1618,13 +1650,13 @@ Engage an external pen testing firm for the mTLS boundary and the Vault AppRole 
 
 ```
 Week 1-2:   F1-a, live E authority validation with operator-provided services (parallel)
-Week 2-3:   F1-b, F2-a (parallel)
-Week 3-4:   F2-b, F2-c, F3 (parallel)
+Week 2-3:   F1-b, F2-a repo-side completed 2026-05-07
+Week 3-4:   F2-b repo-side completed 2026-05-07; F2-c, F3 (parallel)
 Week 4-5:   G1, G2-a, G3 (parallel, F1 prerequisite met)
 Week 5-6:   G2-b, G4-a, G5 (parallel)
-Week 6-7:   G4-b, G6, G7, G8, H1-a (parallel)
-Week 7-8:   H1-b, H2-a, H2-b, H3-a (parallel)
-Week 8-9:   H3-b, I1-a, I2-a, J1 (parallel)
+Week 6-7:   G4-b, G6, G7, G8 (parallel; H1-a completed 2026-05-07)
+Week 7-8:   H category complete as of 2026-05-07 (H1-b/H2-a/H2-b/H3-a completed)
+Week 8-9:   I1-a, I2-a, J1 (parallel; H3-b completed 2026-05-06)
 Week 9-10:  I1-b, I2-b, I3-a, J2-a (parallel)
 Week 10-11: I3-b, J2-b, J3-a, K1-a (parallel)
 Week 11-12: J3-b, J4, K1-b, K2 (parallel)
@@ -1638,20 +1670,54 @@ Week 12-13: K3, F4-a, F4-b (parallel)
 | Category | Blocks remaining | ~Hours remaining | Notes |
 |----------|----------------:|----------------:|-------|
 | E — Real authority sources | 0 repo-side | 0h | Complete; live validation is operator-environment work |
-| F — Production PostgreSQL | 7 | 35h | F1-a done (psycopg2 layer + main metadata `--db-dsn` surfaces); F1-b + F2-F4 remain |
+| F — Production PostgreSQL | 5 | 25h | F1-a done; F2-a/F2-b repo-side HA artifacts done; F1-b + F2-c + F3/F4 remain |
 | G — Scale & optimization | 10 | 50h | E1 + F1 smoke-tested prerequisite |
-| H — Multi-tenant isolation | 5 | 25h | H2-a done (token bucket rate limiter); H1, H2-b, H3 remain |
+| H — Multi-tenant isolation | 0 | 0h | Complete: H1-a/H1-b/H2-a/H2-b/H3-a/H3-b |
 | I — Production operator console | 6 | 30h | E1, G complete prerequisite |
 | J — SRE / HA | 5 | 25h | J3-a done (Prometheus /metrics); J1, J2, J3-b, J4 remain |
 | K — Compliance / external audit | 4 | 20h | J complete prerequisite |
-| **Total remaining** | **37** | **~185h** | |
+| **Total remaining** | **30** | **~150h** | |
 
-Completed since initial publication: F1-a, H2-a, J3-a (2026-05-06)
+Completed since initial publication: F1-a, H2-a, H2-b, H3-a, H3-b, J3-a (2026-05-06); H1-a/H1-b and F2-a/F2-b repo-side (2026-05-07)
+
+### 10.1 Remaining Block Breakdown
+
+As of 2026-05-06, the remaining production-readiness scope is:
+
+| Category | Remaining blocks |
+|----------|------------------|
+| E — Real authority sources | None repo-side; live validation is operator-environment work |
+| F — Production PostgreSQL | F1-b, F2-c, F3, F4-a, F4-b |
+| G — Scale & optimization | G1, G2-a, G2-b, G3, G4-a, G4-b, G5, G6, G7, G8 |
+| H — Multi-tenant isolation | None |
+| I — Production operator console | I1-a, I1-b, I2-a, I2-b, I3-a, I3-b |
+| J — SRE / HA | J1, J2-a, J2-b, J3-b, J4 |
+| K — Compliance / external audit | K1-a, K1-b, K2, K3 |
+
+Current total: **30 blocks / ~150h**.
+
+### 10.2 Active Review Fixups
+
+Both fixups are now resolved (2026-05-06). Kept here as a record so the next reviewer can see exactly what was changed and how it was validated:
+
+1. **H2-b review fixup — Completed 2026-05-06.** `scripts/serve_operator_dashboard.py` now performs the per-tenant quota check and the launch reservation atomically under `DashboardServer.job_lock` for both `POST /v1/jobs/start` and `POST /v1/jobs/{job_id}/relaunch`. New helpers `try_reserve_job()` / `release_reservation()` install a placeholder `current_job` (state `running`, `reservation=True`) inside the lock; the placeholder is replaced by `_start_job_thread()`'s real status write, or rolled back via `release_reservation()` if the launch raises. Concurrent same-tenant requests can no longer bypass `--max-concurrent-jobs-per-tenant`. Validated by an in-process 8-thread race smoke: exactly 1 reservation succeeds and 7 receive HTTP 409 `job_already_running`; releasing the placeholder allows another tenant to reserve. Legacy non-atomic `tenant_quota_violation` helper removed.
+2. **H3-a review fixup — Completed 2026-05-06.** `scripts/run_sse_bridge_pipeline.sh` final success summary now prints the resolved tenant-partitioned `${AUDIT_ARCHIVE_INDEX}` (i.e. `<dir>/<tenant_id>/audit_chain_index.jsonl`) when `--audit-archive-dir` is combined with `--tenant-id`, plus an explicit `audit tenant: <tenant_id>` line; the legacy non-partitioned fallback path remains for the no-tenant case. Validated by a bash trace exercising both modes.
+
+Recommended next order:
+
+1. ~~H2-b / H3-a review fixups~~ ✓ Completed 2026-05-06
+2. ~~H3-b — per-tenant external ledger paths~~ ✓ Completed 2026-05-06
+3. ~~H1-a — per-tenant Unix socket~~ ✓ Completed 2026-05-07
+4. ~~H1-b — Kubernetes NetworkPolicy~~ ✓ Completed 2026-05-07
+5. ~~F2-a — PostgreSQL primary/replica HA topology~~ ✓ Completed repo-side 2026-05-07
+6. F1-b — real PostgreSQL portability gate
+7. ~~F2-b — Patroni automated failover~~ ✓ Completed repo-side 2026-05-07
+8. F2-c — read-replica routing for sidecar reads
 
 **Optimization + large-scale benchmark only (G):** 10 blocks / 50h
 
 **Critical path (shortest path to a load-tested, authority-backed platform):**
-F1-b → F2 → G1–G5 → J1 → J2 → K1 = 21 remaining blocks / ~105h
+F1-b → F2-c → G1–G5 → J1 → J2 → K1 = 19 remaining blocks / ~95h
 
 ---
 
@@ -1666,4 +1732,4 @@ The following are out of scope for this guidebook and should be treated as separ
 5. **HSM-backed key management** — using a Hardware Security Module instead of Vault for the bridge token secrets.
 6. **SOC 2 Type II certification** — formal certification process requires an audit period and policy documentation beyond this guidebook's scope.
 
-None of these are blocked by the work in this guidebook. They should be started after the 40 remaining blocks above are complete.
+None of these are blocked by the work in this guidebook. They should be started after the 30 remaining blocks above are complete.

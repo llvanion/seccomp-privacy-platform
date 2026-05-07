@@ -17,8 +17,11 @@
       "type": "boolean"
     },
     "db_path": {
-      "type": "string",
+      "type": ["string", "null"],
       "minLength": 1
+    },
+    "db_dsn": {
+      "type": ["string", "null"]
     },
     "auth_required": {
       "type": "boolean"

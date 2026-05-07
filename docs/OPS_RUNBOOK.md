@@ -41,6 +41,175 @@ python3 scripts/check_platform_health.py \
 
 If the service uses `auth_token_env`, the corresponding environment variable must be set before probing.
 
+### Per-Tenant Unix Socket
+
+For Unix-socket recovery services, `record_recovery_service_config/v1` can omit `socket_path` when `tenant_id` is set. The config resolver derives a deterministic tenant-scoped socket:
+
+```text
+/tmp/seccomp_rr_<tenant>_<hash>.sock
+```
+
+The hash includes `tenant_id`, `service_id`, and `dataset_id`, so two tenant/service scopes do not silently share the same socket. `manage_record_recovery_service.py start|status|stop|render-systemd`, `run_record_recovery_service.py serve`, and `request_record_recovery_service.py --config` all resolve the same path.
+
+Minimal tenant-derived Unix config:
+
+```json
+{
+  "schema": "record_recovery_service_config/v1",
+  "transport": "unix_socket",
+  "service_id": "orders-recovery",
+  "tenant_id": "tenant_demo",
+  "dataset_id": "orders_analytics",
+  "auth_token_env": "SSE_RECORD_RECOVERY_TOKEN",
+  "lifecycle": {
+    "pid_file": "tmp/tenant_demo_rr.pid",
+    "ready_file": "tmp/tenant_demo_rr.ready",
+    "log_file": "tmp/tenant_demo_rr.log"
+  }
+}
+```
+
+Start and probe:
+
+```bash
+export SSE_RECORD_RECOVERY_TOKEN=<token>
+python3 scripts/manage_record_recovery_service.py start \
+  --config tmp/tenant_demo_record_recovery.json
+
+python3 scripts/request_record_recovery_service.py \
+  --config tmp/tenant_demo_record_recovery.json
+```
+
+If an operator probes a config for a different `tenant_id` with no explicit `socket_path`, it resolves to a different socket and should be unreachable unless that tenant's service is running.
+
+### Kubernetes NetworkPolicy
+
+For Kubernetes deployments, render one ingress `NetworkPolicy` per tenant:
+
+```bash
+python3 scripts/render_k8s_network_policies.py \
+  --tenant-id demo-tenant \
+  --namespace seccomp-privacy \
+  --out-dir tmp/k8s \
+  --output tmp/k8s_network_policy_report.json \
+  --assert-ok
+
+python3 scripts/validate_json_contract.py \
+  --schema schemas/k8s_network_policy_report.schema.json \
+  --json tmp/k8s_network_policy_report.json
+```
+
+The generated policy selects recovery-service pods with:
+
+```text
+app=recovery-service
+tenant=<tenant-id>
+```
+
+and allows ingress only from pipeline pods with:
+
+```text
+app=sse-bridge-pipeline
+tenant=<same-tenant-id>
+```
+
+Use `--kubectl-dry-run` in an operator environment with `kubectl` configured:
+
+```bash
+python3 scripts/render_k8s_network_policies.py \
+  --tenant-id demo-tenant \
+  --namespace seccomp-privacy \
+  --out-dir tmp/k8s \
+  --output tmp/k8s_network_policy_report.json \
+  --kubectl-dry-run \
+  --assert-ok
+```
+
+Checked-in example:
+
+```text
+config/k8s/netpol-recovery-service-demo-tenant.yaml
+```
+
+### PostgreSQL Primary/Replica Topology
+
+Render the F2-a development HA topology for the metadata PostgreSQL backend:
+
+```bash
+python3 scripts/render_postgres_ha_topology.py \
+  --out-dir tmp/postgres-ha \
+  --output tmp/postgres_ha_topology_report.json \
+  --assert-ok
+
+python3 scripts/validate_json_contract.py \
+  --schema schemas/postgres_ha_topology_report.schema.json \
+  --json tmp/postgres_ha_topology_report.json
+```
+
+Checked-in examples:
+
+```text
+config/postgres-ha/docker-compose.primary-replica.yml
+config/postgres-ha/primary-init/01-create-replicator.sh
+config/postgres-ha/.env.example
+config/postgres-ha/verify_replication.sql
+```
+
+The generated compose topology uses PostgreSQL 16, `wal_level=replica`, `max_wal_senders`, `wal_keep_size`, a health-gated replica dependency, and `pg_basebackup -Xs -R` for standby bootstrap. In an operator environment with Docker available, add `--docker-compose-config` to run `docker compose -f <compose> config` as an extra syntax check before starting containers.
+
+After the containers are running, verify replication from the primary with:
+
+```bash
+psql "$POSTGRES_PRIMARY_DSN" -f config/postgres-ha/verify_replication.sql
+```
+
+F2-a is a repo-side topology and contract artifact. Live startup, credential rotation, failover behavior, and lag SLOs remain operator-environment work and the later F2-b/F2-c/J blocks.
+
+### Patroni Automated Failover
+
+Render the F2-b Patroni/etcd topology:
+
+```bash
+python3 scripts/render_patroni_failover_topology.py \
+  --out-dir tmp/patroni-ha \
+  --output tmp/patroni_failover_topology_report.json \
+  --assert-ok
+
+python3 scripts/validate_json_contract.py \
+  --schema schemas/patroni_failover_topology_report.schema.json \
+  --json tmp/patroni_failover_topology_report.json
+```
+
+Checked-in examples:
+
+```text
+config/patroni-ha/docker-compose.patroni.yml
+config/patroni-ha/patroni-primary.yml
+config/patroni-ha/patroni-replica.yml
+config/patroni-ha/patroni_failover_commands.sh
+```
+
+The generated Patroni configs share `scope=seccomp-privacy`, use `etcd3` as the DCS, expose REST APIs on `8008` / `8009`, set `ttl=30`, `loop_wait=10`, `retry_timeout=10`, and cap `maximum_lag_on_failover` at `1048576` bytes. They also enable `use_pg_rewind`, replication slots, WAL replica parameters, and SCRAM `pg_hba` entries.
+
+In an operator environment with Docker available, add `--docker-compose-config` before startup to validate compose syntax:
+
+```bash
+python3 scripts/render_patroni_failover_topology.py \
+  --out-dir tmp/patroni-ha \
+  --output tmp/patroni_failover_topology_report.json \
+  --docker-compose-config \
+  --assert-ok
+```
+
+After the cluster is running, execute the checked-in command file from the topology directory or run the commands directly:
+
+```bash
+cd config/patroni-ha
+PATRONI_CONFIG=patroni-primary.yml bash patroni_failover_commands.sh
+```
+
+F2-b is a repo-side topology and contract artifact. Actual switchover/failover timing, production credentials, quorum sizing, and HA SLO evidence remain operator-environment work.
+
 ### Recovery Service Runtime Logs
 
 When the recovery service is started through `scripts/manage_record_recovery_service.py start` with a `log_file` in its config lifecycle block, stdout/stderr are captured there. The service now writes one JSON object per line using `record_recovery_service_log/v1`.
@@ -694,6 +863,7 @@ python3 scripts/archive_audit_bundle.py \
   --audit-seal tmp/sse_bridge_pipeline_demo/audit_chain.seal.json \
   --archive-dir tmp/audit_archive \
   --job-id auto_demo_job \
+  --tenant-id demo_tenant \
   --anchor-key-env SECCOMP_AUDIT_ARCHIVE_ANCHOR_KEY
 ```
 
@@ -710,13 +880,13 @@ Verify and restore from the archive index:
 
 ```bash
 python3 scripts/verify_audit_bundle.py \
-  --archive-index tmp/audit_archive/audit_chain_index.jsonl \
+  --archive-index tmp/audit_archive/demo_tenant/audit_chain_index.jsonl \
   --job-id auto_demo_job \
   --restore-dir tmp/restored_audit_bundle \
   --anchor-key-env SECCOMP_AUDIT_ARCHIVE_ANCHOR_KEY
 ```
 
-`archive_audit_bundle.py` now appends an `audit_archive_anchor/v1` record to `audit_chain_anchor.jsonl` for each archived bundle. The anchor log is locally append-only: every entry carries the previous entry hash plus the current index-record hash, and `--anchor-key-env` adds an HMAC over the anchor entry without logging the secret value.
+`archive_audit_bundle.py` now appends an `audit_archive_anchor/v1` record to `audit_chain_anchor.jsonl` for each archived bundle. When `--tenant-id` is set, the tool first verifies that the requested tenant matches tenant scope values inside `audit_chain.json`, then writes the local index and anchor log under `tmp/audit_archive/<tenant-id>/`. The anchor log is locally append-only: every entry carries the previous entry hash plus the current index-record hash, and `--anchor-key-env` adds an HMAC over the anchor entry without logging the secret value.
 
 If the seal was created with `--hmac-key-env`, pass the same env var to `verify_audit_bundle.py` to verify the seal HMAC signature. If the archive anchor was created with `--anchor-key-env`, pass the same env var to verify the anchor signature as well. Without those env vars, the tool still verifies artifact SHA-256 values and the anchor-chain linkage, but reports `signature_verified` or `anchor_signature_verified` as `null`. Archive index records and verification reports now also expose a compact `mainline_contract_summary`, including whether `mainline_contract_check/v1` was embedded in `audit_chain.json`, the final `server` / `client` handoff cleanup states, and the per-role `service_audit_consistency` summary for recovery-service runs.
 
@@ -729,7 +899,7 @@ Dry-run (verify only, no write):
 ```bash
 export SECCOMP_AUDIT_ARCHIVE_ANCHOR_KEY=local-audit-anchor
 python3 scripts/publish_external_audit_anchor.py \
-  --anchor-file tmp/audit_archive/audit_chain_anchor.jsonl \
+  --anchor-file tmp/audit_archive/demo_tenant/audit_chain_anchor.jsonl \
   --external-ledger tmp/external_audit_ledger.jsonl \
   --anchor-key-env SECCOMP_AUDIT_ARCHIVE_ANCHOR_KEY \
   --require-signature \
@@ -740,7 +910,7 @@ Publish (append to external ledger):
 
 ```bash
 python3 scripts/publish_external_audit_anchor.py \
-  --anchor-file tmp/audit_archive/audit_chain_anchor.jsonl \
+  --anchor-file tmp/audit_archive/demo_tenant/audit_chain_anchor.jsonl \
   --external-ledger tmp/external_audit_ledger.jsonl \
   --anchor-key-env SECCOMP_AUDIT_ARCHIVE_ANCHOR_KEY \
   --require-signature \
@@ -1301,6 +1471,7 @@ python3 scripts/archive_audit_bundle.py \
   --audit-seal  <out-base>/audit_chain.seal.json \
   --archive-dir <archive-dir> \
   --job-id      <job-id> \
+  --tenant-id   <tenant-id> \
   --anchor-key-env SECCOMP_AUDIT_ARCHIVE_ANCHOR_KEY
 ```
 
@@ -1308,7 +1479,7 @@ python3 scripts/archive_audit_bundle.py \
 
 ```bash
 python3 scripts/verify_audit_bundle.py \
-  --archive-index <archive-dir>/audit_chain_index.jsonl \
+  --archive-index <archive-dir>/<tenant-id>/audit_chain_index.jsonl \
   --job-id <job-id> \
   --anchor-key-env SECCOMP_AUDIT_ARCHIVE_ANCHOR_KEY
 ```

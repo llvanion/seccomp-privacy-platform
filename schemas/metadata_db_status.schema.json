@@ -26,8 +26,15 @@
       "minLength": 1
     },
     "db_path": {
-      "type": "string",
+      "type": ["string", "null"],
       "minLength": 1
+    },
+    "db_dsn": {
+      "type": ["string", "null"]
+    },
+    "backend": {
+      "type": "string",
+      "enum": ["sqlite", "postgres"]
     },
     "status": {
       "type": "string",
@@ -38,7 +45,7 @@
       "minLength": 1
     },
     "size_bytes": {
-      "type": "integer",
+      "type": ["integer", "null"],
       "minimum": 0
     },
     "sha256": {

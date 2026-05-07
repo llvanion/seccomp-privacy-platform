@@ -5,6 +5,7 @@ import urllib.parse
 
 from services.record_recovery.bootstrap import ensure_repo_paths
 from services.record_recovery.config import (
+    derive_tenant_socket_path,
     load_resolved_record_recovery_service_config,
     merged_record_recovery_service_scope_value,
     merged_record_recovery_service_value,
@@ -53,6 +54,12 @@ def _resolved_runtime(args: argparse.Namespace) -> dict:
         field_name="dataset_id",
     )
     socket_path = merged_record_recovery_service_value(args.socket_path, config.get("socket_path", ""))
+    if transport == "unix_socket" and not socket_path and tenant_id:
+        socket_path = derive_tenant_socket_path(
+            tenant_id=tenant_id,
+            service_id=service_id,
+            dataset_id=dataset_id,
+        )
     socket_mode = merged_record_recovery_service_value(args.socket_mode, config.get("socket_mode", "600"))
     endpoint_url = merged_record_recovery_service_value(args.endpoint_url, config.get("endpoint_url", ""))
     bind_host = merged_record_recovery_service_value(args.bind_host, config.get("bind_host", ""))

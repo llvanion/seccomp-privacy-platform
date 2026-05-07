@@ -41,6 +41,12 @@
     "correlation_id": {
       "type": "string"
     },
+    "tenant_id": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
     "archive_dir": {
       "type": "string"
     },

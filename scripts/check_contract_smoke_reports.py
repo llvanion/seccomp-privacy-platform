@@ -11,6 +11,18 @@ def load(path: Path) -> dict[str, Any]:
     return json.load(path.open("r", encoding="utf-8"))
 
 
+def load_jsonl(path: Path) -> list[dict[str, Any]]:
+    records = []
+    with path.open("r", encoding="utf-8") as f:
+        for line in f:
+            line = line.strip()
+            if line:
+                payload = json.loads(line)
+                if isinstance(payload, dict):
+                    records.append(payload)
+    return records
+
+
 def require(condition: bool, message: str) -> None:
     if not condition:
         raise SystemExit(message)
@@ -110,8 +122,17 @@ def validate_audit_bundle(tmp_dir: Path) -> None:
         isinstance(archive.get("anchor_entry_sha256"), str) and len(archive.get("anchor_entry_sha256")) >= 64,
         f"archived audit bundle verification missing anchor_entry_sha256: {archive}",
     )
-    require((tmp_dir / "audit_archive" / "audit_chain_anchor.jsonl").is_file(),
-            f"audit archive anchor log missing: {tmp_dir / 'audit_archive' / 'audit_chain_anchor.jsonl'}")
+    archive_tenant_dir = tmp_dir / "audit_archive" / "contract-tenant"
+    anchor_log = archive_tenant_dir / "audit_chain_anchor.jsonl"
+    index_log = archive_tenant_dir / "audit_chain_index.jsonl"
+    require(anchor_log.is_file(), f"audit archive anchor log missing: {anchor_log}")
+    require(index_log.is_file(), f"audit archive index log missing: {index_log}")
+    anchor_records = load_jsonl(anchor_log)
+    index_records = load_jsonl(index_log)
+    require(anchor_records and anchor_records[-1].get("tenant_id") == "contract-tenant",
+            f"audit archive anchor tenant_id mismatch: {anchor_records[-1] if anchor_records else None}")
+    require(index_records and index_records[-1].get("tenant_id") == "contract-tenant",
+            f"audit archive index tenant_id mismatch: {index_records[-1] if index_records else None}")
 
     for name in ("audit_restore/audit_chain.json", "audit_restore/audit_chain.seal.json"):
         require((tmp_dir / name).is_file(), f"restored audit bundle file missing: {tmp_dir / name}")

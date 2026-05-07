@@ -1,10 +1,13 @@
 # -*- coding:utf-8 _*-
 import json
+import hashlib
+import re
 from pathlib import Path
 from typing import Any, Dict
 
 
 CONFIG_SCHEMA = "record_recovery_service_config/v1"
+_SOCKET_SEGMENT_RE = re.compile(r"[^A-Za-z0-9_.-]+")
 
 
 def load_json_object(path: str) -> Dict[str, Any]:
@@ -36,6 +39,21 @@ def resolve_relative_path(config: Dict[str, Any], path_value: str) -> str:
     if not config_dir:
         raise ValueError("record recovery service config missing _config_dir")
     return str((Path(config_dir) / path).resolve())
+
+
+def sanitize_socket_segment(value: str, *, fallback: str) -> str:
+    cleaned = _SOCKET_SEGMENT_RE.sub("-", str(value or "").strip()).strip(".-")
+    return cleaned[:40] or fallback
+
+
+def derive_tenant_socket_path(*, tenant_id: str, service_id: str = "", dataset_id: str = "") -> str:
+    tenant = str(tenant_id or "").strip()
+    if not tenant:
+        raise ValueError("record recovery unix_socket transport requires socket_path or tenant_id")
+    label = sanitize_socket_segment(tenant, fallback="tenant")
+    seed = "|".join([tenant, str(service_id or ""), str(dataset_id or "")])
+    digest = hashlib.sha256(seed.encode("utf-8")).hexdigest()[:12]
+    return f"/tmp/seccomp_rr_{label}_{digest}.sock"
 
 
 def _string_list(value: Any, *, field_name: str) -> list[str]:
@@ -107,7 +125,16 @@ def resolve_record_recovery_service_config(config: Dict[str, Any]) -> Dict[str, 
     if transport not in {"unix_socket", "http"}:
         raise ValueError("record recovery service transport must be unix_socket or http")
 
+    service_id = str(config.get("service_id", "") or "")
+    tenant_id = str(config.get("tenant_id", "") or "")
+    dataset_id = str(config.get("dataset_id", "") or "")
     socket_path = resolve_relative_path(config, str(config.get("socket_path", ""))) if config.get("socket_path") else ""
+    if transport == "unix_socket" and not socket_path and tenant_id:
+        socket_path = derive_tenant_socket_path(
+            tenant_id=tenant_id,
+            service_id=service_id,
+            dataset_id=dataset_id,
+        )
     endpoint_url = str(config.get("endpoint_url", "") or "").strip()
     bind_host = str(http_listener.get("bind_host", "") or "").strip()
     port = int(http_listener.get("port")) if http_listener.get("port") not in (None, "") else None
@@ -119,15 +146,15 @@ def resolve_record_recovery_service_config(config: Dict[str, Any]) -> Dict[str, 
         tls = _resolve_tls_config(config)
 
     if transport == "unix_socket" and not socket_path:
-        raise ValueError("record recovery service unix_socket transport requires socket_path")
+        raise ValueError("record recovery service unix_socket transport requires socket_path or tenant_id")
     if transport == "http" and not endpoint_url:
         raise ValueError("record recovery service http transport requires endpoint_url or http_listener")
 
     return {
         "transport": transport,
-        "service_id": str(config.get("service_id", "") or ""),
-        "tenant_id": str(config.get("tenant_id", "") or ""),
-        "dataset_id": str(config.get("dataset_id", "") or ""),
+        "service_id": service_id,
+        "tenant_id": tenant_id,
+        "dataset_id": dataset_id,
         "socket_path": socket_path,
         "socket_mode": str(config.get("socket_mode", "600") or "600") if transport == "unix_socket" else "",
         "endpoint_url": endpoint_url,

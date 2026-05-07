@@ -129,9 +129,36 @@ def build_check(name: str, *, ok: bool, details: dict[str, Any]) -> dict[str, An
     }
 
 
+def run_postgres_import_query_smoke(conn: Any, *, out_base: str, job_id: str) -> dict[str, Any]:
+    from import_run_metadata import import_runs
+    from query_metadata import query_job_detail
+
+    imported = import_runs(conn, [Path(out_base).resolve()], dry_run=False)
+    query_id = job_id.strip() or str((imported.get("imports") or [{}])[0].get("job_id") or "")
+    if not query_id:
+        raise ValueError("could not infer job_id for PostgreSQL import/query smoke")
+    detail = query_job_detail(conn, query_id)
+    job = detail.get("job") or {}
+    stage_status = detail.get("stage_status") or []
+    return {
+        "out_base": str(Path(out_base).resolve()),
+        "job_id": query_id,
+        "import_mode": imported.get("mode"),
+        "import_summary": imported.get("summary"),
+        "queried_status": job.get("status"),
+        "queried_tenant_id": job.get("tenant_id"),
+        "queried_dataset_id": job.get("dataset_id"),
+        "queried_service_id": job.get("service_id"),
+        "stage_status_count": len(stage_status),
+        "audit_event_count": len(detail.get("audit_events") or []),
+    }
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description="Check metadata DB migrations for SQLite/PostgreSQL portability baseline.")
     ap.add_argument("--db-dsn", default="", help="Optional PostgreSQL DSN for a live migration smoke")
+    ap.add_argument("--smoke-out-base", default="", help="Optional pipeline run directory to import/query during PostgreSQL live smoke")
+    ap.add_argument("--smoke-job-id", default="", help="Optional job_id to query after --smoke-out-base import")
     ap.add_argument("--output", default="", help="Optional path to write the JSON report")
     args = ap.parse_args()
 
@@ -147,6 +174,8 @@ def main() -> int:
 
     backend = "sqlite"
     db_version = ""
+    postgres_import_query_smoke: dict[str, Any] | None = None
+    postgres_import_query_error = ""
     with tempfile.TemporaryDirectory(prefix="seccomp_metadata_portability_") as tmpdir:
         db_path = Path(tmpdir) / "metadata_portability.db"
         conn = connect_db("" if args.db_dsn else str(db_path), dsn=args.db_dsn)
@@ -158,6 +187,15 @@ def main() -> int:
             indexes = list_indexes(conn)
             table_infos = {table_name: table_info(conn, table_name) for table_name in tables} if backend == "sqlite" else {}
             fk_infos = {table_name: foreign_keys(conn, table_name) for table_name in tables} if backend == "sqlite" else {}
+            if backend == "postgres" and args.smoke_out_base:
+                try:
+                    postgres_import_query_smoke = run_postgres_import_query_smoke(
+                        conn,
+                        out_base=args.smoke_out_base,
+                        job_id=args.smoke_job_id,
+                    )
+                except (Exception, SystemExit) as exc:
+                    postgres_import_query_error = str(exc)
         finally:
             conn.close()
 
@@ -240,6 +278,17 @@ def main() -> int:
                 details={"db_dsn": bool(args.db_dsn), "table_count": len(tables)},
             )
         )
+        if args.smoke_out_base:
+            details = postgres_import_query_smoke or {"error": postgres_import_query_error}
+            checks.append(
+                build_check(
+                    "postgres_live_import_query_smoke",
+                    ok=postgres_import_query_smoke is not None
+                    and int(postgres_import_query_smoke.get("stage_status_count") or 0) > 0
+                    and int(postgres_import_query_smoke.get("audit_event_count") or 0) > 0,
+                    details=details,
+                )
+            )
 
     status = "ok" if all(check["status"] == "ok" for check in checks) else "fail"
     report = {
@@ -251,7 +300,7 @@ def main() -> int:
         "migrations_dir": str(MIGRATIONS_DIR.resolve()),
         "applied_migrations": applied,
         "summary": {
-            "table_count": len(table_infos),
+            "table_count": len(tables),
             "index_count": len(indexes),
             "foreign_key_count": sum(len(items) for items in fk_infos.values()),
             "utc_text_column_count": sum(

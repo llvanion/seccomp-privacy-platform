@@ -110,6 +110,9 @@ SCHEMAS=(
   "$REPO_ROOT/schemas/service_token_report.schema.json"
   "$REPO_ROOT/schemas/authority_governance_report.schema.json"
   "$REPO_ROOT/schemas/control_plane_deepening_report.schema.json"
+  "$REPO_ROOT/schemas/k8s_network_policy_report.schema.json"
+  "$REPO_ROOT/schemas/postgres_ha_topology_report.schema.json"
+  "$REPO_ROOT/schemas/patroni_failover_topology_report.schema.json"
 )
 
 for schema in "${SCHEMAS[@]}"; do
@@ -739,6 +742,35 @@ python3 "$VALIDATOR" --schema "$REPO_ROOT/schemas/record_recovery_service_metric
 [[ ! -e "$tmp/record_recovery_service.pid" ]] || { echo "[ERROR] record recovery pid file still exists after stop" >&2; exit 1; }
 [[ ! -e "$tmp/record_recovery_service.ready" ]] || { echo "[ERROR] record recovery ready file still exists after stop" >&2; exit 1; }
 
+python3 "$REPO_ROOT/scripts/build_runtime_contract_smoke_configs.py" \
+  record-recovery-unix \
+  --out-config "$tmp/record_recovery_service_tenant_derived_config.json" \
+  --tmp-dir "$tmp" \
+  --tenant-id contract-tenant-derived \
+  --omit-socket-path
+python3 "$VALIDATOR" --schema "$REPO_ROOT/schemas/record_recovery_service_config.schema.json" --json "$tmp/record_recovery_service_tenant_derived_config.json"
+python3 "$REPO_ROOT/scripts/manage_record_recovery_service.py" start \
+  --config "$tmp/record_recovery_service_tenant_derived_config.json" \
+  > "$tmp/record_recovery_service_tenant_derived_start.json"
+record_recovery_service_pid="$(python3 "$RUNTIME_SERVICE_HELPERS" read-json-field --json-file "$tmp/record_recovery_service_tenant_derived_start.json" --field started_pid)"
+python3 -c 'import json, sys; payload=json.load(open(sys.argv[1], "r", encoding="utf-8")); socket_path=payload.get("socket_path") or ""; assert "/tmp/seccomp_rr_contract-tenant-derived_" in socket_path, payload; assert payload.get("reachable") is True, payload' "$tmp/record_recovery_service_tenant_derived_start.json"
+python3 "$REPO_ROOT/scripts/request_record_recovery_service.py" \
+  --config "$tmp/record_recovery_service_tenant_derived_config.json" \
+  > "$tmp/record_recovery_service_tenant_derived_health.json"
+python3 "$VALIDATOR" --schema "$REPO_ROOT/schemas/record_recovery_service_health.schema.json" --json "$tmp/record_recovery_service_tenant_derived_health.json"
+python3 "$REPO_ROOT/scripts/build_runtime_contract_smoke_configs.py" \
+  record-recovery-unix \
+  --out-config "$tmp/record_recovery_service_other_tenant_config.json" \
+  --tmp-dir "$tmp" \
+  --tenant-id other-tenant \
+  --omit-socket-path
+expect_failure python3 "$REPO_ROOT/scripts/manage_record_recovery_service.py" status \
+  --config "$tmp/record_recovery_service_other_tenant_config.json"
+python3 "$REPO_ROOT/scripts/manage_record_recovery_service.py" stop \
+  --config "$tmp/record_recovery_service_tenant_derived_config.json" \
+  > "$tmp/record_recovery_service_tenant_derived_stop.json"
+record_recovery_service_pid=""
+
 export SSE_RECORD_STORE_PASSPHRASE="contract-record-store-passphrase"
 "$SSE_PY" "$REPO_ROOT/scripts/record_recovery_contract_smoke_helpers.py" \
   build-store \
@@ -923,11 +955,22 @@ python3 "$REPO_ROOT/scripts/archive_audit_bundle.py" \
   --audit-seal "$tmp/audit_chain.seal.json" \
   --archive-dir "$tmp/audit_archive" \
   --job-id contract-check \
+  --tenant-id contract-tenant \
   --anchor-key-env SECCOMP_AUDIT_ARCHIVE_ANCHOR_KEY
-python3 "$VALIDATOR" --schema "$REPO_ROOT/schemas/audit_archive_index.schema.json" --jsonl "$tmp/audit_archive/audit_chain_index.jsonl"
-python3 "$VALIDATOR" --schema "$REPO_ROOT/schemas/audit_archive_anchor.schema.json" --jsonl "$tmp/audit_archive/audit_chain_anchor.jsonl"
+if python3 "$REPO_ROOT/scripts/archive_audit_bundle.py" \
+  --audit-chain "$tmp/audit_chain.json" \
+  --audit-seal "$tmp/audit_chain.seal.json" \
+  --archive-dir "$tmp/audit_archive_mismatch" \
+  --job-id contract-check \
+  --tenant-id other-tenant \
+  --anchor-key-env SECCOMP_AUDIT_ARCHIVE_ANCHOR_KEY > "$tmp/audit_archive_mismatch.stdout" 2> "$tmp/audit_archive_mismatch.stderr"; then
+  echo "[ERROR] archive_audit_bundle accepted mismatched tenant_id" >&2
+  exit 1
+fi
+python3 "$VALIDATOR" --schema "$REPO_ROOT/schemas/audit_archive_index.schema.json" --jsonl "$tmp/audit_archive/contract-tenant/audit_chain_index.jsonl"
+python3 "$VALIDATOR" --schema "$REPO_ROOT/schemas/audit_archive_anchor.schema.json" --jsonl "$tmp/audit_archive/contract-tenant/audit_chain_anchor.jsonl"
 python3 "$REPO_ROOT/scripts/publish_external_audit_anchor.py" \
-  --anchor-file "$tmp/audit_archive/audit_chain_anchor.jsonl" \
+  --anchor-file "$tmp/audit_archive/contract-tenant/audit_chain_anchor.jsonl" \
   --external-ledger "$tmp/external_audit_anchor_ledger.jsonl" \
   --anchor-key-env SECCOMP_AUDIT_ARCHIVE_ANCHOR_KEY \
   --require-signature \
@@ -936,6 +979,32 @@ python3 "$REPO_ROOT/scripts/publish_external_audit_anchor.py" \
   > /dev/null
 python3 "$VALIDATOR" --schema "$REPO_ROOT/schemas/external_audit_anchor_report.schema.json" --json "$tmp/external_audit_anchor_report.json"
 python3 -c 'import json, sys; payload=json.load(open(sys.argv[1], "r", encoding="utf-8")); s=payload["summary"]; assert payload["mode"] == "publish", payload; assert s["status"] == "ok", s; assert s["verified_chain"] is True, s; assert s["published_count"] == s["anchor_record_count"] >= 1, s; assert s["signed_count"] >= 1, s; assert payload["records"][0]["signature_verified"] is True, payload["records"]' "$tmp/external_audit_anchor_report.json"
+python3 "$REPO_ROOT/scripts/publish_external_audit_anchor.py" \
+  --anchor-file "$tmp/audit_archive/contract-tenant/audit_chain_anchor.jsonl" \
+  --external-ledger "$tmp/external_audit/contract-tenant/ledger.jsonl" \
+  --tenant-id contract-tenant \
+  --anchor-key-env SECCOMP_AUDIT_ARCHIVE_ANCHOR_KEY \
+  --require-signature \
+  --output "$tmp/external_audit_anchor_report_tenant.json" \
+  --assert-ok \
+  > /dev/null
+python3 "$VALIDATOR" --schema "$REPO_ROOT/schemas/external_audit_anchor_report.schema.json" --json "$tmp/external_audit_anchor_report_tenant.json"
+python3 -c 'import json, sys; payload=json.load(open(sys.argv[1], "r", encoding="utf-8")); assert payload["tenant_id"] == "contract-tenant", payload; sink=payload["external_sink"]; assert sink["tenant_id"] == "contract-tenant", sink; assert "/contract-tenant/" in sink["path"], sink; s=payload["summary"]; assert s["tenant_id"] == "contract-tenant", s; assert s["status"] == "ok", s; assert s["published_count"] == s["anchor_record_count"] >= 1, s; assert payload["records"][0]["tenant_id"] == "contract-tenant", payload["records"]' "$tmp/external_audit_anchor_report_tenant.json"
+python3 -c 'import json, sys; lines=[json.loads(l) for l in open(sys.argv[1], "r", encoding="utf-8") if l.strip()]; assert lines, "ledger empty"; assert all(l.get("tenant_id") == "contract-tenant" for l in lines), lines; assert all(l.get("schema") == "external_audit_anchor_ledger/v1" for l in lines), lines' "$tmp/external_audit/contract-tenant/ledger.jsonl"
+if python3 "$REPO_ROOT/scripts/publish_external_audit_anchor.py" \
+  --anchor-file "$tmp/audit_archive/contract-tenant/audit_chain_anchor.jsonl" \
+  --external-ledger "$tmp/external_audit/other-tenant/ledger.jsonl" \
+  --tenant-id other-tenant \
+  --anchor-key-env SECCOMP_AUDIT_ARCHIVE_ANCHOR_KEY \
+  --require-signature \
+  > "$tmp/external_audit_anchor_mismatch.stdout" 2> "$tmp/external_audit_anchor_mismatch.stderr"; then
+  echo "[ERROR] publish_external_audit_anchor accepted mismatched tenant_id" >&2
+  exit 1
+fi
+if [[ -e "$tmp/external_audit/other-tenant/ledger.jsonl" ]]; then
+  echo "[ERROR] mismatched-tenant ledger should not have been created" >&2
+  exit 1
+fi
 python3 "$REPO_ROOT/scripts/verify_audit_bundle.py" \
   --audit-chain "$tmp/audit_chain.json" \
   --audit-seal "$tmp/audit_chain.seal.json" \
@@ -943,7 +1012,7 @@ python3 "$REPO_ROOT/scripts/verify_audit_bundle.py" \
   > "$tmp/audit_bundle_verify_direct.json"
 python3 "$VALIDATOR" --schema "$REPO_ROOT/schemas/audit_bundle_verification.schema.json" --json "$tmp/audit_bundle_verify_direct.json"
 python3 "$REPO_ROOT/scripts/verify_audit_bundle.py" \
-  --archive-index "$tmp/audit_archive/audit_chain_index.jsonl" \
+  --archive-index "$tmp/audit_archive/contract-tenant/audit_chain_index.jsonl" \
   --job-id contract-check \
   --anchor-key-env SECCOMP_AUDIT_ARCHIVE_ANCHOR_KEY \
   --restore-dir "$tmp/audit_restore" \
@@ -999,12 +1068,14 @@ python3 -c 'import json, sys; payload=json.load(open(sys.argv[1], "r", encoding=
 if [[ -n "${POSTGRES_DSN:-}" ]]; then
   python3 "$REPO_ROOT/scripts/check_metadata_schema_portability.py" \
     --db-dsn "$POSTGRES_DSN" \
+    --smoke-out-base "$tmp" \
+    --smoke-job-id contract-check \
     --output "$tmp/platform_metadata_schema_portability_postgres.json" \
     > /dev/null
   python3 "$VALIDATOR" \
     --schema "$REPO_ROOT/schemas/metadata_schema_portability.schema.json" \
     --json "$tmp/platform_metadata_schema_portability_postgres.json"
-  python3 -c 'import json, sys; payload=json.load(open(sys.argv[1], "r", encoding="utf-8")); assert payload["status"] == "ok", payload; assert payload["backend"] == "postgres", payload; check_names={item["name"] for item in payload["checks"]}; assert "postgres_live_migration_smoke" in check_names, payload' "$tmp/platform_metadata_schema_portability_postgres.json"
+  python3 -c 'import json, sys; payload=json.load(open(sys.argv[1], "r", encoding="utf-8")); assert payload["status"] == "ok", payload; assert payload["backend"] == "postgres", payload; checks={item["name"]: item for item in payload["checks"]}; assert "postgres_live_migration_smoke" in checks and "postgres_live_import_query_smoke" in checks, payload; smoke=checks["postgres_live_import_query_smoke"]["details"]; assert smoke["job_id"] == "contract-check", smoke; assert smoke["stage_status_count"] > 0 and smoke["audit_event_count"] > 0, smoke' "$tmp/platform_metadata_schema_portability_postgres.json"
 fi
 # Postgres DDL target validation
 python3 "$REPO_ROOT/scripts/export_postgres_ddl.py" \
@@ -2272,6 +2343,76 @@ python3 "$REPO_ROOT/scripts/check_authority_governance.py" \
 python3 "$VALIDATOR" \
   --schema "$REPO_ROOT/schemas/authority_governance_report.schema.json" \
   --json "$tmp/authority_governance_report.json"
+python3 "$REPO_ROOT/scripts/render_k8s_network_policies.py" \
+  --tenant-id contract-tenant \
+  --tenant-id tenant-demo-2 \
+  --namespace seccomp-privacy \
+  --out-dir "$tmp/k8s" \
+  --output "$tmp/k8s_network_policy_report.json" \
+  --assert-ok \
+  > /dev/null
+python3 "$VALIDATOR" \
+  --schema "$REPO_ROOT/schemas/k8s_network_policy_report.schema.json" \
+  --json "$tmp/k8s_network_policy_report.json"
+python3 -c 'import json, pathlib, sys; p=json.load(open(sys.argv[1], "r", encoding="utf-8")); assert p["status"] == "ok", p; assert p["tenant_count"] == 2, p; tenants={m["tenant_id"] for m in p["manifests"]}; assert tenants == {"contract-tenant", "tenant-demo-2"}, p;
+for manifest in p["manifests"]:
+    path=pathlib.Path(manifest["path"])
+    text=path.read_text(encoding="utf-8")
+    assert "kind: NetworkPolicy" in text, text
+    assert "tenant: " + manifest["tenant_id"] in text, text
+    assert "app: sse-bridge-pipeline" in text, text
+    assert "app: recovery-service" in text, text
+    assert "port: 18443" in text, text' "$tmp/k8s_network_policy_report.json"
+python3 "$REPO_ROOT/scripts/render_postgres_ha_topology.py" \
+  --out-dir "$tmp/postgres-ha" \
+  --output "$tmp/postgres_ha_topology_report.json" \
+  --assert-ok \
+  > /dev/null
+python3 "$VALIDATOR" \
+  --schema "$REPO_ROOT/schemas/postgres_ha_topology_report.schema.json" \
+  --json "$tmp/postgres_ha_topology_report.json"
+python3 -c 'import json, pathlib, sys; p=json.load(open(sys.argv[1], "r", encoding="utf-8")); assert p["status"] == "ok", p; assert p["primary_service"] == "pg-primary", p; assert p["replica_service"] == "pg-replica", p; kinds={a["kind"] for a in p["artifacts"]}; assert kinds == {"compose", "primary_init", "verify_sql", "env_example"}, p
+compose=pathlib.Path(p["compose_path"]).read_text(encoding="utf-8")
+assert "image: postgres:16" in compose, compose
+assert "wal_level=replica" in compose, compose
+assert "max_wal_senders=3" in compose, compose
+assert "wal_keep_size=64MB" in compose, compose
+assert "pg_basebackup" in compose and "-R" in compose and "-Xs" in compose, compose
+assert "condition: service_healthy" in compose, compose
+assert "\"5432:5432\"" in compose and "\"5433:5432\"" in compose, compose
+artifacts={a["kind"]: pathlib.Path(a["path"]) for a in p["artifacts"]}
+init=artifacts["primary_init"].read_text(encoding="utf-8")
+verify=artifacts["verify_sql"].read_text(encoding="utf-8")
+assert "WITH REPLICATION LOGIN" in init and "pg_hba.conf" in init and "scram-sha-256" in init, init
+assert "pg_stat_replication" in verify and "replay_lsn" in verify and "replay_lag_bytes" in verify, verify' "$tmp/postgres_ha_topology_report.json"
+python3 "$REPO_ROOT/scripts/render_patroni_failover_topology.py" \
+  --out-dir "$tmp/patroni-ha" \
+  --output "$tmp/patroni_failover_topology_report.json" \
+  --assert-ok \
+  > /dev/null
+python3 "$VALIDATOR" \
+  --schema "$REPO_ROOT/schemas/patroni_failover_topology_report.schema.json" \
+  --json "$tmp/patroni_failover_topology_report.json"
+python3 -c 'import json, pathlib, sys; p=json.load(open(sys.argv[1], "r", encoding="utf-8")); assert p["status"] == "ok", p; assert p["scope"] == "seccomp-privacy", p; assert p["primary_service"] == "pg-primary", p; assert p["replica_service"] == "pg-replica", p; assert p["etcd_service"] == "etcd", p
+artifacts={a["kind"]: pathlib.Path(a["path"]) for a in p["artifacts"]}
+assert set(artifacts) == {"compose", "primary_config", "replica_config", "failover_commands"}, p
+primary=artifacts["primary_config"].read_text(encoding="utf-8")
+replica=artifacts["replica_config"].read_text(encoding="utf-8")
+compose=artifacts["compose"].read_text(encoding="utf-8")
+commands=artifacts["failover_commands"].read_text(encoding="utf-8")
+for text in (primary, replica):
+    assert "etcd3:" in text and "hosts: etcd:2379" in text, text
+    assert "ttl: 30" in text and "loop_wait: 10" in text and "retry_timeout: 10" in text, text
+    assert "maximum_lag_on_failover: 1048576" in text, text
+    assert "use_pg_rewind: true" in text and "use_slots: true" in text, text
+    assert "wal_level: replica" in text and "max_wal_senders" in text and "max_replication_slots" in text, text
+    assert "host replication replicator" in text and "scram-sha-256" in text, text
+assert "command: [\"patroni\", \"/etc/patroni/patroni.yml\"]" in compose, compose
+assert "quay.io/coreos/etcd:v3.5.15" in compose and "ghcr.io/zalando/spilo-16:3.2-p3" in compose, compose
+assert "\"8008:8008\"" in compose and "\"8009:8008\"" in compose, compose
+assert "patronictl -c \"$PATRONI_CONFIG\" list" in commands, commands
+assert "switchover --master pg-primary --candidate pg-replica --force" in commands, commands
+assert "failover --candidate pg-replica --force" in commands, commands' "$tmp/patroni_failover_topology_report.json"
 test "$(python3 "$RUNTIME_SERVICE_HELPERS" read-json-field --json-file "$tmp/platform_metadata_caller_permissions_page.json" --field pagination.limit)" = "2"
 test "$(python3 "$RUNTIME_SERVICE_HELPERS" read-json-field --json-file "$tmp/platform_metadata_caller_permissions_page.json" --field pagination.offset)" = "2"
 test "$(python3 "$RUNTIME_SERVICE_HELPERS" read-json-field --json-file "$tmp/platform_metadata_caller_permissions_page.json" --field pagination.returned_count)" = "2"
