@@ -62,6 +62,7 @@ class QueryWorkflowApiServer(ThreadingHTTPServer):
         auth_token: str,
         metadata_db_path: str,
         metadata_db_dsn: str,
+        metadata_db_read_dsn: str,
         identity_token_config: str,
         allow_execute: bool,
         pid_file: str,
@@ -70,6 +71,7 @@ class QueryWorkflowApiServer(ThreadingHTTPServer):
         self.auth_token = auth_token
         self.metadata_db_path = str(Path(metadata_db_path).resolve()) if metadata_db_path else ""
         self.metadata_db_dsn = metadata_db_dsn
+        self.metadata_db_read_dsn = metadata_db_read_dsn
         self.identity_token_config = str(Path(identity_token_config).resolve()) if identity_token_config else ""
         self.allow_execute = allow_execute
         self.pid_file = pid_file
@@ -109,6 +111,7 @@ class QueryWorkflowApiHandler(BaseHTTPRequestHandler):
             expected_bearer_token=self.server.auth_token,
             db_path=self.server.metadata_db_path,
             db_dsn=self.server.metadata_db_dsn,
+            db_read_dsn=self.server.metadata_db_read_dsn,
             identity_token_config=self.server.identity_token_config,
             auth_failure_label="query workflow API",
         )
@@ -268,6 +271,11 @@ def build_parser() -> argparse.ArgumentParser:
     ap.add_argument("--auth-token-env", default="", help="Optional bearer-token env var for non-health endpoints")
     ap.add_argument("--metadata-db-path", default="", help="Metadata DB path required when --identity-token-config is used")
     ap.add_argument("--metadata-db-dsn", default="", help="Metadata PostgreSQL DSN required when --identity-token-config is used")
+    ap.add_argument(
+        "--metadata-db-dsn-read-replica",
+        default="",
+        help="Optional PostgreSQL replica DSN; preferred for identity-resolution SELECTs when set",
+    )
     ap.add_argument("--identity-token-config", default="", help="Optional bearer-token to caller-identity mapping config")
     ap.add_argument("--allow-execute", action="store_true", help="Enable the /v1/query-workflows/execute endpoint")
     ap.add_argument("--pid-file", default="")
@@ -286,6 +294,7 @@ def main() -> int:
         auth_token=auth_token,
         metadata_db_path=args.metadata_db_path,
         metadata_db_dsn=args.metadata_db_dsn,
+        metadata_db_read_dsn=args.metadata_db_dsn_read_replica,
         identity_token_config=args.identity_token_config,
         allow_execute=args.allow_execute,
         pid_file=args.pid_file,

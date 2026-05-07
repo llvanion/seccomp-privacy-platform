@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Any
 
 from archive_audit_bundle import load_json_object, summarize_mainline_contract
-from metadata_db import connect_db, row_to_dict, table_exists as metadata_table_exists
+from metadata_db import connect_db, connect_read_db, row_to_dict, table_exists as metadata_table_exists
 
 
 LIST_ENTITY_CHOICES = (
@@ -1791,6 +1791,11 @@ def main() -> int:
     ap = argparse.ArgumentParser(description="Query the sidecar metadata database by job, scope, registry, or policy tables.")
     ap.add_argument("--db-path", default="")
     ap.add_argument("--db-dsn", default="")
+    ap.add_argument(
+        "--db-dsn-read-replica",
+        default="",
+        help="Optional PostgreSQL replica DSN for read-only queries; falls back to --db-dsn / --db-path when unset",
+    )
     ap.add_argument("--job-id", default="")
     ap.add_argument("--list-entity", choices=LIST_ENTITY_CHOICES, default="")
     ap.add_argument("--caller", default="")
@@ -1814,10 +1819,10 @@ def main() -> int:
     ap.add_argument("--limit", type=int, default=50)
     ap.add_argument("--offset", type=int, default=0)
     args = ap.parse_args()
-    if not args.db_path and not args.db_dsn:
+    if not args.db_path and not args.db_dsn and not args.db_dsn_read_replica:
         raise SystemExit("[ERROR] one of --db-path or --db-dsn is required")
 
-    conn = connect_db(args.db_path, dsn=args.db_dsn)
+    conn = connect_read_db(args.db_path, dsn=args.db_dsn, read_dsn=args.db_dsn_read_replica)
     try:
         if args.list_entity:
             validate_list_entity_args(args)

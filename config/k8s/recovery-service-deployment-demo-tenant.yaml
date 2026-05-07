@@ -1,0 +1,77 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: recovery-service-demo-tenant
+  labels:
+    app: recovery-service
+    tenant: demo-tenant
+  namespace: seccomp-privacy
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: recovery-service
+      tenant: demo-tenant
+  template:
+    metadata:
+      labels:
+        app: recovery-service
+        tenant: demo-tenant
+    spec:
+      containers:
+        - name: recovery-service
+          image: ghcr.io/seccomp-privacy/recovery-service:0.1.0
+          imagePullPolicy: IfNotPresent
+          args:
+            - python3
+            - scripts/run_record_recovery_service.py
+            - serve
+            - --config
+            - /etc/seccomp/recovery-service-config.json
+          ports:
+            - name: https
+              containerPort: 18443
+              protocol: TCP
+          env:
+            - name: SSE_RECORD_RECOVERY_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: recovery-service-auth-token
+                  key: token
+          volumeMounts:
+            - name: recovery-config
+              mountPath: /etc/seccomp
+              readOnly: true
+            - name: recovery-tls
+              mountPath: /etc/seccomp/mtls
+              readOnly: true
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: https
+              scheme: HTTPS
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            timeoutSeconds: 3
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: https
+              scheme: HTTPS
+            initialDelaySeconds: 15
+            periodSeconds: 30
+            timeoutSeconds: 3
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+      volumes:
+        - name: recovery-config
+          secret:
+            secretName: recovery-service-config
+        - name: recovery-tls
+          secret:
+            secretName: recovery-service-tls

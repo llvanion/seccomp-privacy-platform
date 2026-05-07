@@ -78,6 +78,7 @@ class AuditQueryApiServer(ThreadingHTTPServer):
         auth_token: str,
         metadata_db_path: str,
         metadata_db_dsn: str,
+        metadata_db_read_dsn: str,
         identity_token_config: str,
         pid_file: str,
         ready_file: str,
@@ -88,6 +89,7 @@ class AuditQueryApiServer(ThreadingHTTPServer):
         self.auth_token = auth_token
         self.metadata_db_path = str(Path(metadata_db_path).resolve()) if metadata_db_path else ""
         self.metadata_db_dsn = metadata_db_dsn
+        self.metadata_db_read_dsn = metadata_db_read_dsn
         self.identity_token_config = str(Path(identity_token_config).resolve()) if identity_token_config else ""
         self.pid_file = pid_file
         self.ready_file = ready_file
@@ -125,6 +127,7 @@ class AuditQueryApiHandler(BaseHTTPRequestHandler):
             expected_bearer_token=self.server.auth_token,
             db_path=self.server.metadata_db_path,
             db_dsn=self.server.metadata_db_dsn,
+            db_read_dsn=self.server.metadata_db_read_dsn,
             identity_token_config=self.server.identity_token_config,
             auth_failure_label="audit query API",
         )
@@ -293,6 +296,11 @@ def build_parser() -> argparse.ArgumentParser:
     ap.add_argument("--auth-token-env", default="", help="Optional bearer-token env var for non-health endpoints")
     ap.add_argument("--metadata-db-path", default="", help="Metadata DB path required when --identity-token-config is used")
     ap.add_argument("--metadata-db-dsn", default="", help="Metadata PostgreSQL DSN required when --identity-token-config is used")
+    ap.add_argument(
+        "--metadata-db-dsn-read-replica",
+        default="",
+        help="Optional PostgreSQL replica DSN; preferred for identity-resolution SELECTs when set",
+    )
     ap.add_argument("--identity-token-config", default="", help="Optional bearer-token to caller-identity mapping config")
     ap.add_argument("--pid-file", default="")
     ap.add_argument("--ready-file", default="")
@@ -321,6 +329,7 @@ def main() -> int:
         auth_token=auth_token,
         metadata_db_path=args.metadata_db_path,
         metadata_db_dsn=args.metadata_db_dsn,
+        metadata_db_read_dsn=args.metadata_db_dsn_read_replica,
         identity_token_config=args.identity_token_config,
         pid_file=args.pid_file,
         ready_file=args.ready_file,

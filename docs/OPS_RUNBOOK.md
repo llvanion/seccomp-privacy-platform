@@ -1541,6 +1541,147 @@ python3 scripts/check_platform_health.py | python3 -c \
 
 Follow the component-specific guidance above for each failing check name.
 
+### Deployment Topology (J1)
+
+The canonical multi-node topology is documented in `config/topology.md`. It covers the load-balancer → recovery-service → pgBouncer → Patroni layout, lists every port in use, classifies each component as stateless or stateful, and spells out the mTLS vs bearer-token authentication boundaries.
+
+The recovery-service Kubernetes manifests live under `config/k8s/recovery-service-*.yaml` (one `Deployment`, one `Service`, one `HorizontalPodAutoscaler` per tenant). To regenerate them with different scaling parameters or for a new tenant, use the renderer:
+
+```bash
+python3 scripts/render_recovery_service_k8s.py \
+  --tenant-id demo-tenant \
+  --namespace seccomp-privacy \
+  --replicas 2 \
+  --min-replicas 2 \
+  --max-replicas 6 \
+  --target-cpu-utilization 70 \
+  --container-port 18443 \
+  --service-port 443 \
+  --image ghcr.io/seccomp-privacy/recovery-service:0.1.0 \
+  --out-dir tmp/k8s \
+  --output tmp/k8s_recovery_service_topology_report.json \
+  --kubectl-dry-run \
+  --assert-ok
+```
+
+The renderer emits a structurally-validated `Deployment`, `Service`, and `HorizontalPodAutoscaler`, plus a `k8s_recovery_service_topology_report/v1` report. Pair the manifests with `scripts/render_k8s_network_policies.py` (H1-b) so each tenant's recovery-service pods only accept ingress from their own pipeline pods. Running with `--kubectl-dry-run` additionally feeds each manifest through `kubectl apply --dry-run=client` when `kubectl` is on `PATH`; default contract smoke runs structural validation only.
+
+Triage:
+
+1. **`spec.replicas mismatch`** → the `--replicas` flag conflicts with the existing manifest; regenerate with the same value or update `--replicas`.
+2. **`container.readinessProbe is required` / `livenessProbe is required`** → a hand-edited manifest dropped the health probes; load balancers will not be able to drain/restart the pod cleanly. Restore the probes from the renderer output.
+3. **`container.resources.{requests,limits} are required for HPA scheduling`** → the HPA cannot scale on CPU without resource requests + limits. Restore the `resources:` block.
+4. **`hpa.scaleTargetRef.kind must be Deployment`** → the HPA was retargeted at a different workload; this is almost always a copy/paste mistake.
+5. **`kubectl_dry_run.status=fail`** → run `kubectl apply --dry-run=client -f <manifest> -o yaml` directly to see the API-server validation error; common causes are namespace mismatch and missing `app=recovery-service` / `tenant=<tenant-id>` labels on Secrets the pod mounts.
+
+### SLO Alerts (J3-b)
+
+`config/prometheus/alert-rules.yml` carries the recovery-service SLO alert set targeting the J3-a `/metrics` endpoint:
+
+| Alert | Severity | For | What it means |
+| --- | --- | --- | --- |
+| `RecoveryServiceErrorRateHigh` | warning | 2m | deny rate > 5% over 5min — authz drift, expired tokens, or upstream policy change |
+| `RecoveryServiceLatencyHigh` | critical | 5m | p95 `recovery_request_duration_seconds` > 2s — SLO breach |
+| `RecoveryServiceNoTraffic` | warning | 10m | 0 req/s for 10min — load balancer mis-routed or scrape target wrong |
+| `RecoveryServiceRateLimitedSpike` | warning | 5m | sustained `decision="rate_limited"` rejections from H2-a token-bucket — re-tune `--rate-limit-per-caller` or investigate the caller |
+
+Validate the rules file structurally with the repo-side validator:
+
+```bash
+python3 scripts/validate_prometheus_alert_rules.py \
+  --rules config/prometheus/alert-rules.yml \
+  --output tmp/prometheus_alert_rules_report.json \
+  --assert-ok
+```
+
+The validator emits `prometheus_alert_rules_report/v1` and confirms (a) YAML is well-formed, (b) the four required alert names are present, (c) every alert has `labels.severity` and a `for:` window. For full Prometheus-side validation, operators run `promtool check rules config/prometheus/alert-rules.yml` against the same file; once I2-a (`scripts/check_observability_alerts.py --webhook-url`) is finished, the alerts route into the existing operator notification path.
+
+### Recovery Service Failover Drill (J2-a)
+
+`scripts/test_failover_recovery_service.py` runs a full recovery-service failover drill: it spawns two HTTP recovery-service instances on free loopback ports, issues a baseline recovery to the primary, SIGKILLs the primary, then issues a follow-up recovery that exercises the client retry path against the secondary. The script emits `recovery_service_failover_test/v1` and is suitable for both CI smoke and operator drills.
+
+```bash
+python3 scripts/test_failover_recovery_service.py \
+  --candidate-count 1000 \
+  --failover-target-seconds 5 \
+  --output tmp/recovery_service_failover_test.json \
+  --assert-ok
+```
+
+Acceptance bar (built into `--assert-ok`):
+
+1. Both services start cleanly via `manage_record_recovery_service.py start`.
+2. Primary serves the baseline request and writes one `record_recovery_service_request` audit entry with `decision=allow`.
+3. Primary is SIGKILLed and its TCP port stops accepting connections within `--unreachable-deadline-sec`.
+4. Secondary serves the failover request within `--failover-target-seconds` (target derived from the J2-a SLO of < 10s end-to-end including client retry).
+5. Audit-log integrity holds: each side's audit log carries exactly its own job's recover record; neither service contaminates the other side's log.
+
+Triage:
+
+1. **`primary start failed: ... port already in use`** → another service has the loopback port; rerun with a fresh free port (the script auto-selects one, but a stuck previous run can leak a port). Check `lsof -i :<port>`.
+2. **`baseline recovery failed: HTTP error 400 service_id ... does not match`** → a stale config snuck a different `service_id`; use the rendered config exactly as the script writes it.
+3. **`primary endpoint still reachable after SIGKILL`** → the primary process did not terminate; check the audit `service.log` and `pid_file`. May indicate the process forked beyond what `pid_file` tracks.
+4. **`failover request was served by the primary even after SIGKILL`** → the kill happened too early or the secondary URL was wrong; rerun and inspect the report's `primary.killed_at_utc`.
+5. **`failover recovery request failed: <error>`** → both primary and secondary failed; check the secondary's `service.log` for the underlying cause (TLS, authz, allowed-roots).
+6. **`audit_integrity.errors`** → the report flags exactly which side is missing the expected record. Cross-check against `<work-dir>/<role>/audit.jsonl` (use `--work-dir` to keep the temp dir for inspection).
+
+Use `--work-dir <path>` to pin the work directory if you want to inspect the audit logs and per-service `service.log` post-run; without `--work-dir` the script cleans up its temp directory on exit.
+
+### Metadata DB Backup / Restore (F4)
+
+Use `scripts/backup_metadata_db.py` and `scripts/restore_metadata_db.py` for sidecar metadata backups and disaster-recovery drills. Both emit signed-off reports (`metadata_db_backup_report/v1`, `metadata_db_restore_report/v1`) for audit; `--assert-ok` makes them safe to chain in cron jobs and CI gates.
+
+Daily backup (PostgreSQL):
+
+```bash
+python3 scripts/backup_metadata_db.py \
+  --db-dsn postgresql://app:pass@pg-primary:5432/seccomp_metadata \
+  --out-path /var/backups/seccomp_metadata_$(date +%Y%m%d).dump \
+  --format custom \
+  --verify \
+  --upload-s3 s3://seccomp-audit-archive/metadata/seccomp_metadata_$(date +%Y%m%d).dump \
+  --execute \
+  --output /var/log/seccomp/metadata_db_backup_$(date +%Y%m%d).json \
+  --assert-ok
+```
+
+Daily backup (SQLite sidecar — demo / non-HA path):
+
+```bash
+python3 scripts/backup_metadata_db.py \
+  --db-path tmp/platform_metadata.db \
+  --out-path tmp/platform_metadata.backup.db \
+  --verify \
+  --output tmp/metadata_db_backup_report.json \
+  --assert-ok
+```
+
+Restore drill into a scratch database (PostgreSQL):
+
+```bash
+python3 scripts/restore_metadata_db.py \
+  --backup-path /var/backups/seccomp_metadata_20260507.dump \
+  --restore-dsn postgresql://app:pass@pg-restore-test:5432/seccomp_metadata \
+  --format custom \
+  --verify-portability \
+  --download-s3 s3://seccomp-audit-archive/metadata/seccomp_metadata_20260507.dump \
+  --execute \
+  --output /var/log/seccomp/metadata_db_restore_$(date +%Y%m%d).json \
+  --assert-ok
+```
+
+Triage:
+
+1. **`pg_dump exited 1`** → check the source DSN credentials, network reachability, and the user's `pg_dump` privileges (`CONNECT` + `USAGE` on schemas + `SELECT` on all tables).
+2. **`pg_restore --list returned 0 TOC entries`** → the dump file is empty or truncated; do not delete the previous backup until a successful re-run.
+3. **`backup verification failed: PRAGMA integrity_check`** → the SQLite source DB is corrupt; restore from the last good backup before retrying.
+4. **`SQLite restore requires a SQLite backup file; got pg_dump_custom`** (or vice versa) → backend mismatch between `--backup-path` and `--out-db-path` / `--restore-dsn`; pick the matching target.
+5. **`portability_check.status=error: restored DB is missing migrations`** → the backup predates the current migration baseline; either re-run on a recent backup or apply pending migrations to the restored DB before swapping it in.
+6. **`s3_upload.status=error` / `s3_download.status=error`** → check `boto3` credentials (`AWS_PROFILE` / `AWS_ACCESS_KEY_ID`), the S3 bucket policy, and Object Lock retention if applicable.
+7. **`s3_upload.status=planned`** without an error → `--upload-s3` was supplied without `--execute`; the report is a dry-run plan, not a real upload. Add `--execute` once the destination is verified.
+
+Both scripts redact passwords from any DSN they emit (`db_dsn_redacted`), so the JSON reports are safe to upload to a long-term audit archive.
+
 ## SLO Baseline
 
 The table below documents the **expected performance floor** for each benchmark gate, derived from the pre-release gate's `--iterations 1` timing on the reference machine. Values are soft targets: exceeding them in CI does not automatically fail a gate, but a 5× regression warrants investigation.

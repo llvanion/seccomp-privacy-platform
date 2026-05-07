@@ -1,0 +1,97 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "prometheus_alert_rules_report/v1",
+  "title": "Prometheus alert rules structural validation report (J3-b)",
+  "type": "object",
+  "required": [
+    "schema",
+    "generated_at_utc",
+    "status",
+    "rules_path",
+    "groups",
+    "alerts",
+    "missing_alerts",
+    "errors"
+  ],
+  "properties": {
+    "schema": {
+      "const": "prometheus_alert_rules_report/v1"
+    },
+    "generated_at_utc": {
+      "type": "string",
+      "minLength": 1
+    },
+    "status": {
+      "type": "string",
+      "enum": ["ok", "fail"]
+    },
+    "rules_path": {
+      "type": "string",
+      "minLength": 1
+    },
+    "yaml_round_trip": {
+      "type": "string",
+      "enum": ["ok", "skipped", "fail"]
+    },
+    "groups": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["name", "rule_count"],
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1
+          },
+          "rule_count": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "interval": {
+            "type": ["string", "null"]
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    "alerts": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["name", "group", "severity"],
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1
+          },
+          "group": {
+            "type": "string",
+            "minLength": 1
+          },
+          "severity": {
+            "type": ["string", "null"]
+          },
+          "for_window": {
+            "type": ["string", "null"]
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    "missing_alerts": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "errors": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    }
+  },
+  "additionalProperties": false
+}

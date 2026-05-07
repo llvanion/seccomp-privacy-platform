@@ -26,7 +26,7 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
-from scripts.metadata_db import apply_migrations, connect_db, row_to_dict, utc_now  # noqa: E402
+from scripts.metadata_db import apply_migrations, connect_db, connect_read_db, row_to_dict, utc_now  # noqa: E402
 from cryptography.exceptions import InvalidSignature  # noqa: E402
 from cryptography.hazmat.primitives import hashes  # noqa: E402
 from cryptography.hazmat.primitives.asymmetric import padding, rsa  # noqa: E402
@@ -204,6 +204,7 @@ def map_token(
     db_dsn: str | None,
     require_registered_issuer: bool,
     trusted_audiences: list[str] | None,
+    db_read_dsn: str | None = None,
 ) -> dict[str, Any]:
     header, claims, _ = parse_jwt(token)
     alg = str(header.get("alg") or "none")
@@ -243,9 +244,11 @@ def map_token(
     issuer_registered = False
     issuer_enabled = False
     issuer_error: str | None = None
-    if db_path or db_dsn:
-        conn = connect_db(db_path or "", dsn=db_dsn or "")
-        apply_migrations(conn)
+    if db_path or db_dsn or db_read_dsn:
+        conn = connect_read_db(db_path or "", dsn=db_dsn or "", read_dsn=db_read_dsn or "")
+        # Replicas are read-only and assumed to already mirror primary migrations.
+        if not db_read_dsn:
+            apply_migrations(conn)
         issuer_record = lookup_issuer_registry(conn, raw_issuer)
         conn.close()
         if issuer_record:
@@ -349,6 +352,10 @@ def main() -> None:
     parser.add_argument("--jwks-uri", help="JWKS URI for RS256 verification")
     parser.add_argument("--db-path", help="Metadata SQLite DB for issuer_registry lookup")
     parser.add_argument("--db-dsn", help="Metadata PostgreSQL DSN for issuer_registry lookup")
+    parser.add_argument(
+        "--db-dsn-read-replica",
+        help="Optional PostgreSQL replica DSN; preferred for issuer_registry SELECTs when set",
+    )
     parser.add_argument("--require-registered-issuer", action="store_true",
                         help="Reject tokens from issuers not in issuer_registry")
     parser.add_argument("--trusted-audience", action="append", dest="trusted_audiences",
@@ -387,6 +394,7 @@ def main() -> None:
         db_dsn=args.db_dsn,
         require_registered_issuer=args.require_registered_issuer,
         trusted_audiences=args.trusted_audiences,
+        db_read_dsn=args.db_dsn_read_replica,
     )
 
     out = json.dumps(result, indent=2)

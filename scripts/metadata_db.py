@@ -257,6 +257,48 @@ def connect_db_with_retry(
     raise last_exc  # type: ignore[misc]
 
 
+def connect_read_db(
+    db_path: str = "",
+    *,
+    dsn: str = "",
+    read_dsn: str = "",
+) -> Any:
+    """Open a read-oriented connection, preferring read_dsn (a replica) when set.
+
+    Read-only callers (query CLI, read-only HTTP APIs, identity resolution) use this
+    to route SELECTs to a PostgreSQL streaming replica while writers keep targeting
+    the primary DSN. When read_dsn is empty the call falls back to the primary
+    db_path / dsn pair, so SQLite-only and primary-only deployments are unchanged.
+    """
+    if read_dsn:
+        if psycopg2 is None:
+            raise RuntimeError("psycopg2 is required for PostgreSQL read replica; install psycopg2-binary")
+        return connect_db("", dsn=read_dsn)
+    return connect_db(db_path, dsn=dsn)
+
+
+def connect_read_db_with_retry(
+    db_path: str = "",
+    *,
+    dsn: str = "",
+    read_dsn: str = "",
+    retries: int = 3,
+    delay: float = 1.0,
+) -> Any:
+    """Retrying variant of connect_read_db for replicas behind a Patroni-style VIP."""
+    import time
+
+    last_exc: Exception | None = None
+    for attempt in range(retries):
+        try:
+            return connect_read_db(db_path, dsn=dsn, read_dsn=read_dsn)
+        except Exception as exc:
+            last_exc = exc
+            if attempt < retries - 1:
+                time.sleep(delay * (2 ** attempt))
+    raise last_exc  # type: ignore[misc]
+
+
 def database_backend(conn: Any) -> str:
     if isinstance(conn, PostgresConnectionWrapper):
         return "postgres"

@@ -375,6 +375,142 @@ python3 scripts/platform_api_client.py \
 3. external KMS rotate 后再次 resolve 返回 vault-backed secret
 4. keyring / lifecycle audit / client config schema 继续保持兼容
 
+### J2-a recovery service 故障切换演练收口（2026-05-07）
+
+围绕 SRE / HA 工作线，新增一条 recovery-service 故障切换端到端演练：
+
+```bash
+python3 scripts/test_failover_recovery_service.py \
+  --candidate-count 1000 \
+  --failover-target-seconds 5 \
+  --output tmp/recovery_service_failover_test.json \
+  --assert-ok
+```
+
+实现要点：
+
+1. 演练脚本会临时拉起两个 HTTP recovery-service 实例（同一个 `service_id`、不同 loopback 端口），所以客户端可以像负载均衡背后一样无差别访问。
+2. 流程顺序：health probe → primary baseline recover → 读 `pid_file` 后 SIGKILL primary → 等 primary TCP 端口拒连 → 客户端先打 primary（预期 ConnectionRefusedError）再打 secondary。
+3. 全程时间被卡在 `--failover-target-seconds`（默认 10s，acceptance criteria）；reference 机器实测 baseline 130ms / 总切换时间 ~125ms。
+4. 审计完整性校验三件套：primary audit 必须包含 baseline job 的 `record_recovery_service_request decision=allow` 记录；secondary audit 必须包含 failover job 同样字段的记录；任何一边都不能记录"对方"的 job（防止跨实例污染）。
+5. `recovery_service_failover_test/v1` schema 已冻结到 `schemas/recovery_service_failover_test.schema.json`，并加入 backcompat baseline；总 schema 数 105 → 106，0 fail。
+6. 默认 contract smoke 跑 `--candidate-count 2 --failover-target-seconds 10`，对 `status=ok` / `kill_method=SIGKILL` / `served_by` / `within_failover_target=true` / `no_audit_events_lost=true` / `primary_records_for_baseline_job >= 1` / `secondary_records_for_failover_job >= 1` 全部断言。
+7. 默认场景使用纯 HTTP（loopback）；mTLS 路径在 `tls_config` 钩子里留好了入口，operator 在拥有 Vault PKI 或自签 CA 的环境里直接用 J1 的 `--config` 模板就可以。
+8. 收尾时除非 operator 显式 `--work-dir` 钉死目录，否则 temp 工作目录自动清理；钉死场景下保留 `<work-dir>/<role>/audit.jsonl` 与 `service.log` 供事后取证。
+
+边界：本基线不强制主链路依赖 SIGKILL / 双实例 LB 拓扑；脚本只跑临时演练。`OPS_RUNBOOK.md` 已新增 "Recovery Service Failover Drill (J2-a)" 段，覆盖 6 类常见 triage（端口冲突、stale `service_id`、SIGKILL 未生效、failover 被 primary 反吃、双侧失败、audit_integrity 错位）。
+
+### J1 多节点拓扑与 J3-b 告警规则收口（2026-05-07）
+
+围绕生产部署拓扑与 SRE 告警侧，新增两条互补入口：
+
+```bash
+# J1 — recovery-service Deployment / Service / HPA renderer
+python3 scripts/render_recovery_service_k8s.py \
+  --tenant-id demo-tenant \
+  --namespace seccomp-privacy \
+  --replicas 2 \
+  --min-replicas 2 \
+  --max-replicas 6 \
+  --target-cpu-utilization 70 \
+  --container-port 18443 \
+  --service-port 443 \
+  --image ghcr.io/seccomp-privacy/recovery-service:0.1.0 \
+  --out-dir tmp/k8s \
+  --output tmp/k8s_recovery_service_topology_report.json \
+  --kubectl-dry-run \
+  --assert-ok
+
+# J3-b — Prometheus 告警规则结构校验
+python3 scripts/validate_prometheus_alert_rules.py \
+  --rules config/prometheus/alert-rules.yml \
+  --output tmp/prometheus_alert_rules_report.json \
+  --assert-ok
+```
+
+实现要点：
+
+1. `config/topology.md` 把 LB → recovery-service → pgBouncer → Patroni 的端口、stateful/stateless、mTLS vs bearer 边界写成一份可被 on-call 直接读的拓扑图，作为后续 J/K 章节的参考点。
+2. `scripts/render_recovery_service_k8s.py` 渲染 `Deployment` / `Service` / `HorizontalPodAutoscaler` 三件套，结构校验 apiVersion / kind / 标签 / 探针 / 资源请求-限制 / HPA 上下界，可选 `--kubectl-dry-run` 走 `kubectl apply --dry-run=client`。输出 `k8s_recovery_service_topology_report/v1`。
+3. 渲染产物已经 check-in 到 `config/k8s/recovery-service-{deployment,service,hpa}-demo-tenant.yaml`，配合 H1-b 的 `render_k8s_network_policies.py` 形成租户级网络隔离 + 部署 + 自动扩缩容三层。
+4. `config/prometheus/alert-rules.yml` 落了四条 SLO 告警（`RecoveryServiceErrorRateHigh` / `RecoveryServiceLatencyHigh` / `RecoveryServiceNoTraffic` / `RecoveryServiceRateLimitedSpike`），每条都带 `severity` / `component` / `slo` 标签和指向 `OPS_RUNBOOK.md` 或本指南的 `triage_path` 注解。
+5. `scripts/validate_prometheus_alert_rules.py` 同时支持 PyYAML 与一个最小缩进解析器作为兜底，校验 YAML 形式、四条必备告警名、`labels.severity`、`for:` 窗口；输出 `prometheus_alert_rules_report/v1`。
+6. 两个新模块都进了默认 contract smoke：J1 校验 YAML body 中的 `replicas: 2` / `containerPort: 18443` / `port: 443` / `targetPort: https` / HPA 上下界，J3-b 校验四条告警全部存在并且同时覆盖 `critical` 与 `warning` 严重级。
+7. `scripts/check_schema_backcompat.py` 现在覆盖 105 schemas，0 fail（新增 `k8s_recovery_service_topology_report/v1` 与 `prometheus_alert_rules_report/v1`）。
+
+边界：本基线不强制主链路依赖 `kubectl` / Prometheus / Alertmanager；默认 CI 只跑 repo-side 结构校验。后续 I2-a 完成后才会把 J3-b 的告警从 Prometheus 一侧路由到 Alertmanager + webhook，操作员现阶段可以直接把告警规则装进独立 Prometheus 实例使用。`OPS_RUNBOOK.md` 已新增 "Deployment Topology (J1)" 与 "SLO Alerts (J3-b)" 两段，覆盖 5 类常见 K8s 部署 triage 与 4 条告警含义。
+
+### F4 metadata DB 备份/恢复收口（2026-05-07）
+
+围绕 PostgreSQL 元数据 sidecar 的灾难恢复，新增两条独立 CLI 入口：
+
+```bash
+# F4-a — backup（SQLite copy 或 pg_dump 自定义/纯文本格式）
+python3 scripts/backup_metadata_db.py \
+  --db-dsn postgresql://app:pass@pg-primary:5432/seccomp_metadata \
+  --out-path /var/backups/seccomp_metadata_$(date +%Y%m%d).dump \
+  --format custom \
+  --verify \
+  --upload-s3 s3://seccomp-audit-archive/metadata/seccomp_metadata_$(date +%Y%m%d).dump \
+  --execute \
+  --output /var/log/seccomp/metadata_db_backup_$(date +%Y%m%d).json \
+  --assert-ok
+
+# F4-b — restore（含 portability 校验）
+python3 scripts/restore_metadata_db.py \
+  --backup-path /var/backups/seccomp_metadata_20260507.dump \
+  --restore-dsn postgresql://app:pass@pg-restore-test:5432/seccomp_metadata \
+  --format custom \
+  --verify-portability \
+  --output /var/log/seccomp/metadata_db_restore_$(date +%Y%m%d).json \
+  --assert-ok
+```
+
+实现要点：
+
+1. 双 backend：SQLite 走 `sqlite3.Connection.backup` 热备份 API；PostgreSQL 走 `pg_dump --format=custom|plain --file=...`。两条路径产物可以走同一份 reporting schema (`metadata_db_backup_report/v1`)。
+2. 报告里固定显式 `backend`、`source.db_dsn_redacted`（去除密码）、`backup.format`、`backup.sha256`、`verification.{mode,status,details}`，所以审计 archive 直接拿到的就是脱敏后的不可执行命令文本。
+3. `--verify` 在 SQLite 上跑 `PRAGMA integrity_check`，在 PostgreSQL 上跑 `pg_restore --list <out>` 并统计 TOC 条目数，把结果落到 `verification` 区块。
+4. `--upload-s3` 默认是 `s3_upload.status=planned` 干跑模式；只有显式加 `--execute` 才会 lazy-import `boto3` 真上传，因此默认 contract smoke / 操作演练不会触发 AWS 调用。
+5. restore 端会从 backup file header 自动识别 `SQLite format 3` vs `PGDMP`，发现 backend 不匹配 (SQLite backup → `--restore-dsn` 或 PostgreSQL backup → `--out-db-path`) 时立即报 error，并不会真去碰目标 DSN。
+6. `--verify-portability` 在 SQLite 上调用 `manage_metadata_db.build_status_report` 比对 `applied_migrations == expected_migrations`；在 PostgreSQL 上调用 `scripts/check_metadata_schema_portability.py --db-dsn <restored>` 重放迁移并把 `metadata_schema_portability/v1` 嵌入到 `portability_check.report`。
+7. 默认 contract smoke 用 SQLite 路径走完 backup → verify → planned-S3 → restore → portability，并加一条 cross-backend reject smoke（SQLite backup 喂给 `--restore-dsn`，必须 `status=error` 但产物仍然 schema-valid）。`scripts/check_schema_backcompat.py` 现在覆盖 103 schemas，0 fail。
+
+边界：本基线不强制主链路依赖 `pg_dump` / `pg_restore`，也不让默认 CI 依赖真实 PostgreSQL；只有 operator 显式给 `--db-dsn` / `--restore-dsn` 时才会触发外部命令。`OPS_RUNBOOK.md` 已经新增 "Metadata DB Backup / Restore (F4)" 章节，覆盖 daily backup、restore drill 与 7 类常见失败的 triage。
+
+### F2-c read-replica 路由收口（2026-05-07）
+
+围绕 PostgreSQL HA 拓扑下的 sidecar 读路径，metadata sidecar 现在统一支持 read-replica DSN：
+
+```bash
+python3 scripts/query_metadata.py \
+  --db-dsn-read-replica postgresql://reader:pass@pg-replica:5432/seccomp_metadata \
+  --job-id auto_demo_job
+
+python3 scripts/serve_metadata_api.py \
+  --db-dsn postgresql://app:pass@pg-primary:5432/seccomp_metadata \
+  --db-dsn-read-replica postgresql://reader:pass@pg-replica:5432/seccomp_metadata \
+  --auth-token-env SECCOMP_METADATA_API_TOKEN
+
+python3 scripts/serve_audit_query_api.py \
+  --out-base tmp/completed_run \
+  --metadata-db-dsn postgresql://app:pass@pg-primary:5432/seccomp_metadata \
+  --metadata-db-dsn-read-replica postgresql://reader:pass@pg-replica:5432/seccomp_metadata \
+  --identity-token-config config/api_identity_tokens.example.json
+```
+
+实现要点：
+
+1. `scripts/metadata_db.py` 新增 `connect_read_db(db_path, *, dsn, read_dsn)` 与 `connect_read_db_with_retry(...)`：当 `read_dsn` 非空时优先连接 replica，否则回落到 `db_path` / 主 DSN。
+2. 只读 CLI / API 入口加 `--db-dsn-read-replica` / `--metadata-db-dsn-read-replica`：`query_metadata.py`、`serve_metadata_api.py`、`serve_audit_query_api.py`、`serve_query_workflow_api.py`、`serve_platform_health_api.py`、`benchmark_read_adapters.py`。
+3. 身份解析链 `api_identity.resolve_request_identity` → `resolve_identity_context` → `resolve_identity_subject_context` 与 `map_oidc_claims.map_token` 都接收 `db_read_dsn`，因此 bearer token 反查 / JWT issuer_registry / `caller_identities` 三类 SELECT 都能走 replica。Replica 连接跳过 `apply_migrations`（replica 是只读，schema 由主库流式复制）。
+4. 写侧入口（`init_metadata_db.py`、`import_run_metadata.py`、`manage_metadata_db.py apply-registry`、`materialize_control_plane_deepening.py`、policy / key drift `--repair`、mutation log writer 等）只看 `--db-path` / `--db-dsn`，因此主库仍然是唯一写目标。
+5. `read_adapter_benchmark/v1` 报告新增可选字段 `db_dsn_read_replica`，让 reviewer 可以从产物里看出本次基准实际跑的是哪条路由；schema backcompat baseline 已同步更新。
+
+回归：`bash scripts/check_json_contracts.sh` 全绿（SQLite 默认路径不变）；`python3 scripts/check_schema_backcompat.py` 101 schema 0 fail；`query_metadata.py --db-dsn-read-replica postgresql://...` 已确认会通过 psycopg2 走 replica DSN（在没有该驱动的环境下会以 `psycopg2 is required for PostgreSQL read replica` 失败），证明路由生效。
+
+边界：本基线不强制主链路依赖 PostgreSQL replica，也不让基准 / contract smoke 默认连接 replica；只有显式传 `--db-dsn-read-replica` 时才会路由到 replica。配合 F2-a/F2-b 的 primary+replica 拓扑产物，operator 在拥有真实 replica 时即可直接用本入口完成 sidecar 读侧分流。
+
 ### A5-A6 authority governance 与回归收口（2026-05-05）
 
 当前工程师 A 的 post-baseline 收口已经补了一条统一 operator 视角：

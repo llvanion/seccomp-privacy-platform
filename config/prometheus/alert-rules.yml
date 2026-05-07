@@ -1,0 +1,81 @@
+# J3-b — Prometheus / Alertmanager alert rules for the recovery-service /metrics
+# endpoint exposed by services/record_recovery/http_service.py (J3-a).
+#
+# Scrape config (operator-managed prometheus.yml):
+#
+#   scrape_configs:
+#     - job_name: recovery-service
+#       scheme: https
+#       tls_config:
+#         ca_file: /etc/prometheus/seccomp-ca.crt
+#         cert_file: /etc/prometheus/scrape-client.crt
+#         key_file: /etc/prometheus/scrape-client.key
+#       metrics_path: /metrics
+#       static_configs:
+#         - targets:
+#           - recovery-service-demo-tenant.seccomp-privacy.svc.cluster.local:443
+#
+# These rules pair with config/k8s/recovery-service-deployment-*.yaml so each
+# tenant's pods are scraped via its own Service. Wire the alerts into
+# Alertmanager, and from Alertmanager into the operator notification path
+# defined by I2-a (scripts/check_observability_alerts.py --webhook-url).
+groups:
+  - name: seccomp-privacy-slo
+    interval: 30s
+    rules:
+      - alert: RecoveryServiceErrorRateHigh
+        expr: |
+          sum by (job) (rate(recovery_requests_total{decision="deny"}[5m]))
+          /
+          sum by (job) (rate(recovery_requests_total[5m])) > 0.05
+        for: 2m
+        labels:
+          severity: warning
+          component: recovery-service
+          slo: error-rate
+        annotations:
+          summary: "recovery-service deny rate above 5% for 2 minutes"
+          description: "More than 5% of recovery-service decisions are deny in the last 5 minutes; investigate authz drift, expired tokens, or upstream policy changes."
+          triage_path: "docs/OPS_RUNBOOK.md#record-recovery-service-failure"
+
+      - alert: RecoveryServiceLatencyHigh
+        expr: |
+          histogram_quantile(
+            0.95,
+            sum by (le, job) (rate(recovery_request_duration_seconds_bucket[5m]))
+          ) > 2.0
+        for: 5m
+        labels:
+          severity: critical
+          component: recovery-service
+          slo: latency
+        annotations:
+          summary: "recovery-service p95 latency above 2s for 5 minutes"
+          description: "p95 of recovery_request_duration_seconds is above 2s for 5 minutes; SLO target is 500ms (1k candidates) or 2s (10k candidates)."
+          triage_path: "docs/PRODUCTION_READINESS_GUIDEBOOK.md#g2--record-recovery-throughput-2-blocks--10h"
+
+      - alert: RecoveryServiceNoTraffic
+        expr: |
+          sum by (job) (rate(recovery_requests_total[10m])) == 0
+        for: 10m
+        labels:
+          severity: warning
+          component: recovery-service
+          slo: availability
+        annotations:
+          summary: "recovery-service has not served any request in 10 minutes"
+          description: "rate(recovery_requests_total[10m]) is 0; either the load balancer is mis-routed, the pipeline is paused, or the scrape target is wrong."
+          triage_path: "docs/OPS_RUNBOOK.md#record-recovery-service-failure"
+
+      - alert: RecoveryServiceRateLimitedSpike
+        expr: |
+          sum by (job) (rate(recovery_requests_total{decision="rate_limited"}[5m])) > 1
+        for: 5m
+        labels:
+          severity: warning
+          component: recovery-service
+          slo: throughput
+        annotations:
+          summary: "recovery-service rate-limited rate is sustained above 1 req/s"
+          description: "Per-caller token-bucket rejections (H2-a) are firing for 5 minutes; either re-tune --rate-limit-per-caller or the caller is misbehaving."
+          triage_path: "docs/PRODUCTION_READINESS_GUIDEBOOK.md#h2--rate-limiting-and-quota-enforcement-2-blocks--10h"

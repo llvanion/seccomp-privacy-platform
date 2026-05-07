@@ -864,6 +864,11 @@ def build_parser() -> argparse.ArgumentParser:
     ap = argparse.ArgumentParser(description="Benchmark metadata and completed-run audit read adapters without modifying the privacy pipeline.")
     ap.add_argument("--iterations", type=int, default=3)
     ap.add_argument("--db-dsn", default="", help="Optional PostgreSQL DSN for metadata-side benchmarks")
+    ap.add_argument(
+        "--db-dsn-read-replica",
+        default="",
+        help="Optional PostgreSQL replica DSN; preferred for read-only SELECTs in metadata CLI/HTTP modes",
+    )
     ap.add_argument("--mode", choices=("all",) + MODES, default="all")
     ap.add_argument("--timeout-sec", type=float, default=30.0)
     ap.add_argument("--output", default="")
@@ -918,6 +923,8 @@ def main() -> int:
                     metadata_command.extend(["--db-dsn", args.db_dsn])
                 else:
                     metadata_command.extend(["--db-path", str(db_path)])
+                if args.db_dsn_read_replica:
+                    metadata_command.extend(["--db-dsn-read-replica", args.db_dsn_read_replica])
                 started = time.perf_counter()
                 metadata_api_process = subprocess.Popen(
                     metadata_command,
@@ -978,6 +985,8 @@ def main() -> int:
                         mode_command[2:2] = ["--db-dsn", args.db_dsn]
                     else:
                         mode_command[2:2] = ["--db-path", str(db_path)]
+                    if args.db_dsn_read_replica:
+                        mode_command[2:2] = ["--db-dsn-read-replica", args.db_dsn_read_replica]
                     for _ in range(args.iterations):
                         result = run_command(mode_command, env=common_env, timeout_sec=args.timeout_sec)
                         if result["exit_code"] == 0:
@@ -1004,6 +1013,8 @@ def main() -> int:
                         mode_command[2:2] = ["--db-dsn", args.db_dsn]
                     else:
                         mode_command[2:2] = ["--db-path", str(db_path)]
+                    if args.db_dsn_read_replica:
+                        mode_command[2:2] = ["--db-dsn-read-replica", args.db_dsn_read_replica]
                     for _ in range(args.iterations):
                         result = run_command(mode_command, env=common_env, timeout_sec=args.timeout_sec)
                         if result["exit_code"] == 0:
@@ -1292,6 +1303,7 @@ def main() -> int:
         "fixture_job_id": FIXTURE_JOB_ID,
         "db_backend": "postgres" if args.db_dsn else "sqlite",
         "db_dsn": args.db_dsn or None,
+        "db_dsn_read_replica": args.db_dsn_read_replica or None,
         "iterations": args.iterations,
         "modes": results,
     }

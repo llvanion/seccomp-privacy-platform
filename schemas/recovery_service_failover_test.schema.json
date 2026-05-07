@@ -1,0 +1,238 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "recovery_service_failover_test/v1",
+  "title": "Recovery service failover test report (J2-a)",
+  "type": "object",
+  "required": [
+    "schema",
+    "generated_at_utc",
+    "status",
+    "configuration",
+    "primary",
+    "secondary",
+    "baseline_request",
+    "failover_request",
+    "audit_integrity",
+    "errors"
+  ],
+  "properties": {
+    "schema": {
+      "const": "recovery_service_failover_test/v1"
+    },
+    "generated_at_utc": {
+      "type": "string",
+      "minLength": 1
+    },
+    "status": {
+      "type": "string",
+      "enum": ["ok", "fail"]
+    },
+    "configuration": {
+      "type": "object",
+      "required": [
+        "transport",
+        "primary_port",
+        "secondary_port",
+        "candidate_count",
+        "failover_target_seconds"
+      ],
+      "properties": {
+        "transport": {
+          "type": "string",
+          "enum": ["http", "https_mtls"]
+        },
+        "primary_port": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 65535
+        },
+        "secondary_port": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 65535
+        },
+        "candidate_count": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "failover_target_seconds": {
+          "type": "number",
+          "minimum": 0
+        }
+      },
+      "additionalProperties": false
+    },
+    "primary": {
+      "type": "object",
+      "required": [
+        "endpoint_url",
+        "audit_log_path",
+        "started",
+        "killed_at_utc",
+        "kill_method",
+        "audit_record_count"
+      ],
+      "properties": {
+        "endpoint_url": {
+          "type": "string",
+          "minLength": 1
+        },
+        "audit_log_path": {
+          "type": "string",
+          "minLength": 1
+        },
+        "started": {
+          "type": "boolean"
+        },
+        "killed_at_utc": {
+          "type": ["string", "null"]
+        },
+        "kill_method": {
+          "type": ["string", "null"],
+          "enum": [null, "SIGKILL", "SIGTERM", "subprocess.terminate"]
+        },
+        "audit_record_count": {
+          "type": "integer",
+          "minimum": 0
+        }
+      },
+      "additionalProperties": false
+    },
+    "secondary": {
+      "type": "object",
+      "required": [
+        "endpoint_url",
+        "audit_log_path",
+        "started",
+        "audit_record_count"
+      ],
+      "properties": {
+        "endpoint_url": {
+          "type": "string",
+          "minLength": 1
+        },
+        "audit_log_path": {
+          "type": "string",
+          "minLength": 1
+        },
+        "started": {
+          "type": "boolean"
+        },
+        "audit_record_count": {
+          "type": "integer",
+          "minimum": 0
+        }
+      },
+      "additionalProperties": false
+    },
+    "baseline_request": {
+      "type": "object",
+      "required": [
+        "served_by",
+        "duration_ms",
+        "ok",
+        "job_id"
+      ],
+      "properties": {
+        "served_by": {
+          "type": "string",
+          "enum": ["primary", "secondary"]
+        },
+        "duration_ms": {
+          "type": "number",
+          "minimum": 0
+        },
+        "ok": {
+          "type": "boolean"
+        },
+        "job_id": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "additionalProperties": false
+    },
+    "failover_request": {
+      "type": "object",
+      "required": [
+        "primary_attempt_failed",
+        "primary_failure_reason",
+        "served_by",
+        "secondary_duration_ms",
+        "total_failover_duration_ms",
+        "within_failover_target",
+        "ok",
+        "job_id"
+      ],
+      "properties": {
+        "primary_attempt_failed": {
+          "type": "boolean"
+        },
+        "primary_failure_reason": {
+          "type": ["string", "null"]
+        },
+        "served_by": {
+          "type": "string",
+          "enum": ["primary", "secondary", "none"]
+        },
+        "secondary_duration_ms": {
+          "type": ["number", "null"],
+          "minimum": 0
+        },
+        "total_failover_duration_ms": {
+          "type": ["number", "null"],
+          "minimum": 0
+        },
+        "within_failover_target": {
+          "type": "boolean"
+        },
+        "ok": {
+          "type": "boolean"
+        },
+        "job_id": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "additionalProperties": false
+    },
+    "audit_integrity": {
+      "type": "object",
+      "required": [
+        "primary_records_for_baseline_job",
+        "secondary_records_for_failover_job",
+        "no_audit_events_lost",
+        "errors"
+      ],
+      "properties": {
+        "primary_records_for_baseline_job": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "secondary_records_for_failover_job": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "no_audit_events_lost": {
+          "type": "boolean"
+        },
+        "errors": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "errors": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    }
+  },
+  "additionalProperties": false
+}

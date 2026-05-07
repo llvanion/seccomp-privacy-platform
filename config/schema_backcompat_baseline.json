@@ -605,6 +605,54 @@
       ]
     },
     {
+      "path": "schemas/metadata_db_backup_report.schema.json",
+      "schema_id": "metadata_db_backup_report/v1",
+      "required": [
+        "schema",
+        "generated_at_utc",
+        "status",
+        "backend",
+        "source",
+        "backup",
+        "verification",
+        "s3_upload"
+      ],
+      "stable_properties": [
+        "backend",
+        "backup",
+        "generated_at_utc",
+        "s3_upload",
+        "schema",
+        "source",
+        "status",
+        "verification"
+      ]
+    },
+    {
+      "path": "schemas/metadata_db_restore_report.schema.json",
+      "schema_id": "metadata_db_restore_report/v1",
+      "required": [
+        "schema",
+        "generated_at_utc",
+        "status",
+        "backend",
+        "backup",
+        "restore",
+        "portability_check",
+        "s3_download"
+      ],
+      "stable_properties": [
+        "backend",
+        "backup",
+        "generated_at_utc",
+        "portability_check",
+        "restore",
+        "s3_download",
+        "schema",
+        "status"
+      ]
+    },
+    {
       "path": "schemas/metadata_db_export.schema.json",
       "schema_id": "metadata_db_export/v1",
       "required": [
@@ -861,6 +909,7 @@
       "stable_properties": [
         "db_backend",
         "db_dsn",
+        "db_dsn_read_replica",
         "fixture_job_id",
         "fixture_profile",
         "generated_at_utc",
@@ -2627,6 +2676,86 @@
         "schema",
         "status",
         "tenant_count"
+      ]
+    },
+    {
+      "path": "schemas/k8s_recovery_service_topology_report.schema.json",
+      "schema_id": "k8s_recovery_service_topology_report/v1",
+      "required": [
+        "schema",
+        "generated_at_utc",
+        "status",
+        "out_dir",
+        "namespace",
+        "recovery_app",
+        "tenant_id",
+        "service_port",
+        "container_port",
+        "manifests"
+      ],
+      "stable_properties": [
+        "container_port",
+        "generated_at_utc",
+        "manifests",
+        "namespace",
+        "out_dir",
+        "recovery_app",
+        "schema",
+        "service_port",
+        "status",
+        "tenant_id"
+      ]
+    },
+    {
+      "path": "schemas/prometheus_alert_rules_report.schema.json",
+      "schema_id": "prometheus_alert_rules_report/v1",
+      "required": [
+        "schema",
+        "generated_at_utc",
+        "status",
+        "rules_path",
+        "groups",
+        "alerts",
+        "missing_alerts",
+        "errors"
+      ],
+      "stable_properties": [
+        "alerts",
+        "errors",
+        "generated_at_utc",
+        "groups",
+        "missing_alerts",
+        "rules_path",
+        "schema",
+        "status"
+      ]
+    },
+    {
+      "path": "schemas/recovery_service_failover_test.schema.json",
+      "schema_id": "recovery_service_failover_test/v1",
+      "required": [
+        "schema",
+        "generated_at_utc",
+        "status",
+        "configuration",
+        "primary",
+        "secondary",
+        "baseline_request",
+        "failover_request",
+        "audit_integrity",
+        "errors"
+      ],
+      "stable_properties": [
+        "audit_integrity",
+        "baseline_request",
+        "configuration",
+        "errors",
+        "failover_request",
+        "generated_at_utc",
+        "primary",
+        "schema",
+        "secondary",
+        "status"
       ]
     },
     {

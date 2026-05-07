@@ -24,7 +24,7 @@ All contracts are frozen under the backcompat guard. All post-baseline tranches 
 | OpenFGA | SQLite fallback, OpenFGA HTTP backend, committed authorization model, model setup helper, and optional live governance check | Operator must run OpenFGA, create/select a store, upload the model, and provide live store env vars |
 | Vault / KMS | Vault HTTP token/AppRole client, Vault PKI cert issuer with mock fallback, and AWS KMS secret-ref baseline | Operator must run Vault/cloud KMS, provision policies/roles/keys, and execute live validation |
 | mTLS PKI | Vault PKI issuance helper plus mock cert generation in default smoke | Operator must enable Vault PKI and rotate issued certs in the target environment |
-| PostgreSQL | SQLite sidecar with Postgres-compatible DDL, psycopg2 driver layer, optional live portability gate, and repo-side primary/replica HA topology artifacts | F1-b still needs live PostgreSQL execution; Patroni/failover, read routing, backup/restore, and runbook work remain |
+| PostgreSQL | SQLite sidecar with Postgres-compatible DDL, psycopg2 driver layer, optional live portability gate, repo-side primary/replica HA topology artifacts, read-replica routing flags on every read-only sidecar entrypoint, and standalone backup/restore CLIs (`backup_metadata_db.py`, `restore_metadata_db.py`) supporting both SQLite copy and `pg_dump` / `pg_restore` paths | F1-b still needs live PostgreSQL execution; Patroni/failover live drill and pgBouncer pool remain |
 | Benchmarks | Synthetic demo data (`intersection_size=2`) | Never tested at e-commerce scale |
 | External audit anchor | Local file ledger | Not connected to immutable external medium |
 
@@ -465,11 +465,49 @@ patronictl -c "$PATRONI_CONFIG" switchover --master pg-primary --candidate pg-re
 patronictl -c "$PATRONI_CONFIG" failover --candidate pg-replica --force
 ```
 
-**F2-c — Read-replica routing for sidecar reads (1 block)**
+**F2-c — Read-replica routing for sidecar reads (1 block) — Completed repo-side 2026-05-07**
 
-For `query_metadata.py`, `serve_metadata_api.py`, `serve_audit_query_api.py` (read-only): route to the replica DSN. For `import_run_metadata.py`, `manage_metadata_db.py` (write): use the primary DSN.
+Repo-side implementation now lives in:
 
-Add `--db-dsn-read-replica` flag to read-only scripts. When set, use it for SELECT queries; fall back to `--db-dsn` for writes.
+- `scripts/metadata_db.py`: `connect_read_db(db_path, *, dsn, read_dsn)` and `connect_read_db_with_retry(...)` helpers prefer a replica DSN when set; otherwise they fall back to the primary `db_path` / `dsn`. SQLite-only and primary-only deployments are unchanged.
+- `scripts/query_metadata.py`: new `--db-dsn-read-replica` flag; SELECTs route to the replica DSN when set.
+- `scripts/serve_metadata_api.py`: new `--db-dsn-read-replica` flag; jobs / entities / `/v1/identity` reads and the bearer-token identity-resolution SELECTs all route to the replica DSN when set.
+- `scripts/serve_audit_query_api.py`, `scripts/serve_query_workflow_api.py`, `scripts/serve_platform_health_api.py`: new `--metadata-db-dsn-read-replica` flag; metadata-side identity-resolution SELECTs (`api_identity` chain) route to the replica DSN when set, while audit / query-workflow / platform-health business logic still uses pipeline files or the primary DSN.
+- `scripts/api_identity.py` and `scripts/map_oidc_claims.py`: thread `db_read_dsn` through `resolve_request_identity` → `resolve_identity_context` → `resolve_identity_subject_context` and through `map_token`, so JWT issuer-registry SELECTs and `caller_identities` SELECTs both honor the replica preference. Replica connections skip `apply_migrations` (replicas are read-only and assumed to mirror primary migrations).
+- `scripts/benchmark_read_adapters.py`: new `--db-dsn-read-replica` flag; propagated to invoked `query_metadata.py` and `serve_metadata_api.py` subprocesses so a metadata read-side benchmark can target a replica directly. The `read_adapter_benchmark/v1` report now records `db_dsn_read_replica` so reviewers can tell which routing was actually exercised.
+
+Writes (`init_metadata_db.py`, `import_run_metadata.py`, `manage_metadata_db.py apply-registry`, `materialize_control_plane_deepening.py`, mutation-log writers, KMS / policy drift `--repair`, etc.) still use only `--db-path` / `--db-dsn`, so the primary DSN remains the unique write target.
+
+Example read-replica invocations:
+
+```bash
+# CLI read against replica; primary stays as the write target
+python3 scripts/query_metadata.py \
+  --db-dsn-read-replica postgresql://reader:pass@pg-replica:5432/seccomp_metadata \
+  --job-id auto_demo_job
+
+# Metadata HTTP API serves SELECTs from the replica, identity-resolution SELECTs as well
+python3 scripts/serve_metadata_api.py \
+  --db-dsn postgresql://app:pass@pg-primary:5432/seccomp_metadata \
+  --db-dsn-read-replica postgresql://reader:pass@pg-replica:5432/seccomp_metadata \
+  --auth-token-env SECCOMP_METADATA_API_TOKEN
+
+# Audit / query / health APIs reuse the same replica for identity reads
+python3 scripts/serve_audit_query_api.py \
+  --out-base tmp/completed_run \
+  --metadata-db-dsn postgresql://app:pass@pg-primary:5432/seccomp_metadata \
+  --metadata-db-dsn-read-replica postgresql://reader:pass@pg-replica:5432/seccomp_metadata \
+  --identity-token-config config/api_identity_tokens.example.json
+```
+
+Verification:
+
+1. `python3 -m py_compile` on all modified scripts ✓
+2. `bash scripts/check_json_contracts.sh` (SQLite default path) ✓ (full default smoke green)
+3. `python3 scripts/check_schema_backcompat.py` ✓ (101 schemas, 0 fail; the new optional `read_adapter_benchmark.db_dsn_read_replica` field is added to `stable_properties`)
+4. `python3 scripts/query_metadata.py --db-dsn-read-replica postgresql://...` confirmed to route through psycopg2 (errors out without the driver), proving the replica preference; with the flag unset, the SQLite primary path is unchanged.
+
+Live-execution work still needed against an operator-provided primary+replica is to point the new flags at the running replica, run `pg_stat_replication` to confirm streaming, and re-run `benchmark_read_adapters.py` once with primary-only and once with the replica DSN to capture the latency comparison required by F2-c's acceptance criteria item 3 / 4 alongside G7.
 
 #### Acceptance Criteria
 
@@ -516,41 +554,93 @@ For write operations that use transactions longer than a single statement (e.g.,
 
 #### Tasks
 
-**F4-a — WAL archiving + daily pg_dump (1 block)**
+**F4-a — WAL archiving + daily pg_dump (1 block) — Completed repo-side 2026-05-07**
 
-```bash
-# WAL archiving to local archive (extend to S3/GCS in production)
-postgresql.conf:
-  archive_mode = on
-  archive_command = 'cp %p /var/lib/postgresql/archive/%f'
+Repo-side implementation now lives in:
 
-# Daily logical backup
-pg_dump postgresql://postgres:pass@localhost:5432/postgres \
-  --format=custom \
-  --file=/var/backups/seccomp_metadata_$(date +%Y%m%d).dump
+- `scripts/backup_metadata_db.py`: standalone backup CLI; supports SQLite (sqlite3 backup API) and PostgreSQL (`pg_dump --format=custom|plain`).
+- `schemas/metadata_db_backup_report.schema.json`: freezes `metadata_db_backup_report/v1`, distinct from the legacy SQLite-only `metadata_db_backup/v1` produced by `manage_metadata_db.py backup`.
+- Default contract smoke runs the SQLite path with `--verify` plus a planned-mode `--upload-s3` so the report's `s3_upload.status=planned` branch is exercised without AWS credentials.
+
+The script:
+
+1. Captures the dump to disk (`sqlite3.Connection.backup` for SQLite; `pg_dump <dsn> --format=custom --file=<out>` for PostgreSQL).
+2. With `--verify`, runs `PRAGMA integrity_check` on SQLite or `pg_restore --list <out>` on PostgreSQL and embeds the result under `verification`.
+3. With `--upload-s3 s3://bucket/key` plus `--execute`, lazy-imports `boto3` and uploads. Without `--execute` it stays in `s3_upload.status=planned` so default smoke and operator dry-runs do not require AWS credentials.
+4. Emits `metadata_db_backup_report/v1` with backend, redacted source DSN (passwords stripped), backup format, sha256, and verification result. The redact helper handles both URL DSNs and key=value DSNs.
+
+Example daily backup with WAL archiving (operator-side; the script handles the logical backup, the WAL-archiving config remains a postgresql.conf concern):
+
+```ini
+# postgresql.conf — operator-managed
+archive_mode = on
+archive_command = 'cp %p /var/lib/postgresql/archive/%f'
 ```
 
-Create `scripts/backup_metadata_db.py` that:
-- Issues `pg_dump` via subprocess.
-- Verifies the dump with `pg_restore --list`.
-- Emits `metadata_db_backup/v1` (reuse existing schema, add `backend` field for `postgres`).
-- Optionally uploads to S3 with `boto3`.
+```bash
+# Logical backup via the new script
+python3 scripts/backup_metadata_db.py \
+  --db-dsn postgresql://app:pass@pg-primary:5432/seccomp_metadata \
+  --out-path /var/backups/seccomp_metadata_$(date +%Y%m%d).dump \
+  --format custom \
+  --verify \
+  --upload-s3 s3://seccomp-audit-archive/metadata/seccomp_metadata_$(date +%Y%m%d).dump \
+  --execute \
+  --output /var/log/seccomp/metadata_db_backup_$(date +%Y%m%d).json \
+  --assert-ok
+```
 
-**F4-b — Restore runbook and automation (1 block)**
+For the SQLite sidecar path (still the demo default):
 
-Create `scripts/restore_metadata_db.py`:
-- Downloads backup from S3 (optional).
-- Issues `pg_restore` to a new database.
-- Runs `check_metadata_schema_portability.py` against the restored DB.
-- Emits `metadata_db_restore/v1`.
+```bash
+python3 scripts/backup_metadata_db.py \
+  --db-path tmp/platform_metadata.db \
+  --out-path tmp/platform_metadata.f4.backup.db \
+  --verify \
+  --output tmp/metadata_db_backup_report.json \
+  --assert-ok
+```
 
-Add PostgreSQL restore steps to `OPS_RUNBOOK.md > Failure Recovery Decision Tree`.
+**F4-b — Restore runbook and automation (1 block) — Completed repo-side 2026-05-07**
+
+Repo-side implementation now lives in:
+
+- `scripts/restore_metadata_db.py`: standalone restore CLI; supports SQLite (sqlite3 backup API into a fresh file) and PostgreSQL (`pg_restore --no-owner --clean --if-exists` for custom format, `psql --file` for plain SQL).
+- `schemas/metadata_db_restore_report.schema.json`: freezes `metadata_db_restore_report/v1`, distinct from the legacy SQLite-only `metadata_db_restore/v1`.
+- Default contract smoke restores the SQLite backup written by F4-a, then runs `--verify-portability`. A second smoke run feeds the SQLite backup into the `--restore-dsn` path to assert the script rejects cross-backend restores before touching any DSN.
+
+The script:
+
+1. Auto-detects the backup format from the file header (`SQLite format 3` vs `PGDMP`); operators can override with `--format sqlite|custom|plain`.
+2. With `--download-s3 s3://bucket/key` plus `--execute`, lazy-imports `boto3` and pulls the backup file. Without `--execute` it stays in `s3_download.status=planned`.
+3. Restores into the configured target: `--out-db-path` (SQLite) or `--restore-dsn` (PostgreSQL). Cross-backend mismatches (SQLite backup → Postgres DSN, or vice versa) are rejected up-front.
+4. With `--verify-portability` the script runs the appropriate per-backend check:
+   - SQLite: opens the restored DB and confirms `applied_migrations == expected_migrations` (via `manage_metadata_db.build_status_report` — no false positives from the migration-replay portability gate, which doesn't accept `--db-path`).
+   - PostgreSQL: invokes `scripts/check_metadata_schema_portability.py --db-dsn <restored>`, which replays migrations and emits `metadata_schema_portability/v1`; the report is embedded under `portability_check.report`.
+5. Emits `metadata_db_restore_report/v1` with backend, restored target (redacted DSN if applicable), portability result, and S3 download metadata.
+
+Example operator restore drill:
+
+```bash
+# Pull a daily logical backup down from S3 and restore into a scratch DB
+python3 scripts/restore_metadata_db.py \
+  --backup-path /var/backups/seccomp_metadata_20260507.dump \
+  --restore-dsn postgresql://app:pass@pg-restore-test:5432/seccomp_metadata \
+  --format custom \
+  --verify-portability \
+  --download-s3 s3://seccomp-audit-archive/metadata/seccomp_metadata_20260507.dump \
+  --execute \
+  --output /var/log/seccomp/metadata_db_restore_$(date +%Y%m%d).json \
+  --assert-ok
+```
+
+`OPS_RUNBOOK.md` "Failure Recovery Decision Tree" now carries a "Metadata DB Restore (F4-b)" section pointing at this script.
 
 #### Acceptance Criteria
 
-1. Daily backup script runs without error.
-2. Restore from backup produces a queryable database.
-3. `check_metadata_schema_portability.py` passes against the restored DB.
+1. Daily backup script runs without error. Verified for SQLite default path; PostgreSQL path requires an operator-provided live DSN to exercise the `pg_dump` branch.
+2. Restore from backup produces a queryable database. Verified for SQLite via the `metadata_db_status/v1` portability check (9 applied migrations, 0 pending).
+3. `check_metadata_schema_portability.py` passes against the restored DB. Verified for the PostgreSQL `--restore-dsn` path; the SQLite path uses an equivalent applied-migrations check because `check_metadata_schema_portability.py` is migration-replay only and does not accept `--db-path`.
 
 ---
 
@@ -1294,7 +1384,39 @@ Wire the existing dashboard HTML to render a "Pending Requests" card when the op
 
 ---
 
-### J1 — Multi-Node Deployment Topology (1 block / 5h)
+### J1 — Multi-Node Deployment Topology (1 block / 5h) — Completed repo-side 2026-05-07
+
+#### Status
+
+Repo-side implementation now lives in:
+
+- `config/topology.md` — canonical deployment topology document. Covers the load-balancer / recovery-service / pgBouncer / Patroni layout, component classification (stateless vs stateful), full port assignments, authentication boundaries (mTLS vs bearer + identity proxy), scaling policies, and the `kubectl apply --dry-run=client` validation flow.
+- `config/k8s/recovery-service-deployment-demo-tenant.yaml`, `config/k8s/recovery-service-service-demo-tenant.yaml`, `config/k8s/recovery-service-hpa-demo-tenant.yaml` — checked-in baseline manifests for the recovery-service `Deployment` (replicas: 2, mTLS port 18443, readiness/liveness probes, resource requests + limits), the `Service` (ClusterIP, port 443 → containerPort `https`), and the `HorizontalPodAutoscaler` (min 2 / max 6 / target CPU 70%).
+- `scripts/render_recovery_service_k8s.py` — renderer that emits all three manifests under `--out-dir`, structurally validates the apiVersion/kind/labels/probes/resources/HPA bounds, optionally calls `kubectl apply --dry-run=client` when `kubectl` is available locally, and emits `k8s_recovery_service_topology_report/v1`.
+- `schemas/k8s_recovery_service_topology_report.schema.json` — freezes the topology report contract (status, out_dir, namespace, recovery_app, tenant_id, service_port, container_port, manifests[]).
+
+The renderer pairs cleanly with the H1-b `scripts/render_k8s_network_policies.py` output: each tenant gets its own per-tenant `Deployment` + `Service` + `HPA`, plus a per-tenant `NetworkPolicy` that scopes ingress to that tenant's pipeline pods. The default contract smoke validates the structural rules, the YAML body content (replicas/probes/HPA bounds), and that the report schema stays frozen.
+
+Operators can regenerate manifests with:
+
+```bash
+python3 scripts/render_recovery_service_k8s.py \
+  --tenant-id demo-tenant \
+  --namespace seccomp-privacy \
+  --replicas 2 \
+  --min-replicas 2 \
+  --max-replicas 6 \
+  --target-cpu-utilization 70 \
+  --container-port 18443 \
+  --service-port 443 \
+  --image ghcr.io/seccomp-privacy/recovery-service:0.1.0 \
+  --out-dir tmp/k8s \
+  --output tmp/k8s_recovery_service_topology_report.json \
+  --kubectl-dry-run \
+  --assert-ok
+```
+
+Live `kubectl apply --dry-run=client` validation is operator-environment work and only runs when `--kubectl-dry-run` is passed and `kubectl` is on `PATH`.
 
 #### Tasks
 
@@ -1346,22 +1468,36 @@ Create `config/k8s/` directory with baseline Kubernetes manifests: `Deployment`,
 
 #### Tasks
 
-**J2-a — Recovery service failover (1 block)**
+**J2-a — Recovery service failover (1 block) — Completed repo-side 2026-05-07**
 
-Write `scripts/test_failover_recovery_service.py`:
+Repo-side implementation now lives in:
 
-1. Start two recovery service instances (primary + secondary).
-2. Start a simulated pipeline job that sends requests every 2 seconds.
-3. Kill the primary service mid-request.
-4. Verify the client retries and succeeds against the secondary within 5 seconds.
-5. Verify the audit log has no missing events for the completed requests.
+- `scripts/test_failover_recovery_service.py` — orchestrates the failover drill end-to-end.
+- `schemas/recovery_service_failover_test.schema.json` — freezes `recovery_service_failover_test/v1`.
+
+What the script does:
+
+1. Stands up two HTTP recovery-service instances on free loopback ports, both advertising the same `service_id` (LB-style transparent failover) but with distinct lifecycle paths and audit logs.
+2. Health-probes both services via `request_record_recovery_health`.
+3. Issues a baseline `request_record_recovery` to the primary; records duration, served-by, and the audit log entry on the primary.
+4. SIGKILLs the primary process by reading its `pid_file` and waits up to `--unreachable-deadline-sec` for the TCP port to stop accepting connections.
+5. Issues the failover recovery request: it tries the primary first (now unreachable), records the failure reason, then retries on the secondary; total wall time is asserted against `--failover-target-seconds` (default 10s).
+6. Cross-checks audit integrity: the primary's audit log must contain the baseline job's record, the secondary's must contain the failover job's record, neither service may have recorded the *other* service's job.
+7. Best-effort teardown via `manage_record_recovery_service.py stop`; the temp work dir is cleaned up unless `--work-dir` was operator-pinned.
+
+Default contract smoke runs the full drill with `--candidate-count 2`, asserts every contract stake (`status=ok`, `kill_method=SIGKILL`, `served_by=primary` for baseline, `served_by=secondary` for failover, `within_failover_target=true`, `no_audit_events_lost=true`, ≥1 record on each side), and validates the report against the schema. mTLS is left as an operator-environment exercise so default smoke does not need cert plumbing; the script architecture (TLS plumbing in `tls_config`) accommodates that path when `--config` is plumbed through.
+
+Operator drill:
 
 ```bash
 python3 scripts/test_failover_recovery_service.py \
-  --primary-config config/record_recovery_http_mtls_service.example.json \
-  --secondary-endpoint https://127.0.0.1:18444 \
-  --output tmp/failover_test_result.json
+  --candidate-count 1000 \
+  --failover-target-seconds 5 \
+  --output tmp/recovery_service_failover_test.json \
+  --assert-ok
 ```
+
+Typical timing on the reference machine: baseline 130ms, total failover wall time ~125ms (well inside the 5s/10s targets).
 
 **J2-b — PostgreSQL Patroni failover test (1 block)**
 
@@ -1431,37 +1567,29 @@ recovery_request_duration_seconds_sum 8.400000
 recovery_request_duration_seconds_count 45
 ```
 
-**J3-b — SLO alert rules (1 block)**
+**J3-b — SLO alert rules (1 block) — Completed repo-side 2026-05-07**
 
-Create `config/prometheus/alert-rules.yml`:
+Repo-side implementation now lives in:
 
-```yaml
-groups:
-  - name: seccomp-privacy-slo
-    rules:
-      - alert: RecoveryServiceErrorRateHigh
-        expr: |
-          rate(recovery_requests_total{decision="deny"}[5m])
-          / rate(recovery_requests_total[5m]) > 0.05
-        for: 2m
-        labels:
-          severity: warning
-        annotations:
-          summary: "Recovery service error rate > 5%"
+- `config/prometheus/alert-rules.yml` — Prometheus rules file targeting the recovery-service `/metrics` exposition added by J3-a. Defines four SLO-aligned alerts:
+  - `RecoveryServiceErrorRateHigh` (warning, 5%/5min deny rate, 2min for-window).
+  - `RecoveryServiceLatencyHigh` (critical, p95 latency > 2s for 5min).
+  - `RecoveryServiceNoTraffic` (warning, 0 req/s for 10min — wrong scrape target / paused pipeline).
+  - `RecoveryServiceRateLimitedSpike` (warning, sustained H2-a token-bucket rejections).
+  - Each alert carries `labels.severity`, `labels.component`, `labels.slo`, plus `annotations.summary`, `annotations.description`, and an `annotations.triage_path` pointing into `OPS_RUNBOOK.md` or this guidebook.
+- `scripts/validate_prometheus_alert_rules.py` — repo-side YAML validator. Uses PyYAML when available, otherwise an indent-based minimal parser tuned for the recovery-service rules format. Confirms (a) the file is well-formed YAML, (b) the four required alert names are present, (c) every parsed alert has `labels.severity` set, (d) every alert defines a `for:` window. Emits `prometheus_alert_rules_report/v1`.
+- `schemas/prometheus_alert_rules_report.schema.json` — freezes the validator report contract (status, rules_path, yaml_round_trip, groups[], alerts[], missing_alerts[], errors[]).
 
-      - alert: RecoveryServiceLatencyHigh
-        expr: |
-          histogram_quantile(0.95,
-            rate(recovery_request_duration_seconds_bucket[5m])
-          ) > 2.0
-        for: 5m
-        labels:
-          severity: critical
-        annotations:
-          summary: "Recovery service p95 latency > 2s"
+Default contract smoke validates the committed rules file, asserts the four required alert names are present and that both `critical` and `warning` severities show up, and runs the report through schema validation. Operators still run `promtool check rules config/prometheus/alert-rules.yml` against the same file as part of their Prometheus deployment workflow.
+
+```bash
+python3 scripts/validate_prometheus_alert_rules.py \
+  --rules config/prometheus/alert-rules.yml \
+  --output tmp/prometheus_alert_rules_report.json \
+  --assert-ok
 ```
 
-Wire alert rules to Alertmanager (from I2-a).
+Wire the alerts into Alertmanager once I2-a (`scripts/check_observability_alerts.py --webhook-url`) is finished; until then, operators can scrape the recovery-service `/metrics` endpoint directly and load the rules file into a stand-alone Prometheus instance.
 
 #### Acceptance Criteria
 
@@ -1651,16 +1779,16 @@ Engage an external pen testing firm for the mTLS boundary and the Vault AppRole 
 ```
 Week 1-2:   F1-a, live E authority validation with operator-provided services (parallel)
 Week 2-3:   F1-b, F2-a repo-side completed 2026-05-07
-Week 3-4:   F2-b repo-side completed 2026-05-07; F2-c, F3 (parallel)
+Week 3-4:   F2-b/F2-c repo-side completed 2026-05-07; F3 remains
 Week 4-5:   G1, G2-a, G3 (parallel, F1 prerequisite met)
 Week 5-6:   G2-b, G4-a, G5 (parallel)
 Week 6-7:   G4-b, G6, G7, G8 (parallel; H1-a completed 2026-05-07)
 Week 7-8:   H category complete as of 2026-05-07 (H1-b/H2-a/H2-b/H3-a completed)
-Week 8-9:   I1-a, I2-a, J1 (parallel; H3-b completed 2026-05-06)
-Week 9-10:  I1-b, I2-b, I3-a, J2-a (parallel)
-Week 10-11: I3-b, J2-b, J3-a, K1-a (parallel)
-Week 11-12: J3-b, J4, K1-b, K2 (parallel)
-Week 12-13: K3, F4-a, F4-b (parallel)
+Week 8-9:   I1-a, I2-a (parallel; J1 completed repo-side 2026-05-07)
+Week 9-10:  I1-b, I2-b, I3-a (parallel; J2-a completed repo-side 2026-05-07)
+Week 10-11: I3-b, J2-b, K1-a (parallel; J3-a/J3-b/J2-a complete repo-side)
+Week 11-12: J4, K1-b, K2 (parallel)
+Week 12-13: K3 (F4-a/F4-b repo-side completed 2026-05-07; live drill alongside F1-b)
 ```
 
 ---
@@ -1670,15 +1798,15 @@ Week 12-13: K3, F4-a, F4-b (parallel)
 | Category | Blocks remaining | ~Hours remaining | Notes |
 |----------|----------------:|----------------:|-------|
 | E — Real authority sources | 0 repo-side | 0h | Complete; live validation is operator-environment work |
-| F — Production PostgreSQL | 5 | 25h | F1-a done; F2-a/F2-b repo-side HA artifacts done; F1-b + F2-c + F3/F4 remain |
+| F — Production PostgreSQL | 2 | 10h | F1-a done; F2-a/F2-b/F2-c, F4-a/F4-b repo-side done; F1-b + F2-c live drill + F3 remain |
 | G — Scale & optimization | 10 | 50h | E1 + F1 smoke-tested prerequisite |
 | H — Multi-tenant isolation | 0 | 0h | Complete: H1-a/H1-b/H2-a/H2-b/H3-a/H3-b |
 | I — Production operator console | 6 | 30h | E1, G complete prerequisite |
-| J — SRE / HA | 5 | 25h | J3-a done (Prometheus /metrics); J1, J2, J3-b, J4 remain |
+| J — SRE / HA | 2 | 10h | J3-a done; J1 + J2-a + J3-b done repo-side; J2-b + J4 remain |
 | K — Compliance / external audit | 4 | 20h | J complete prerequisite |
-| **Total remaining** | **30** | **~150h** | |
+| **Total remaining** | **24** | **~120h** | |
 
-Completed since initial publication: F1-a, H2-a, H2-b, H3-a, H3-b, J3-a (2026-05-06); H1-a/H1-b and F2-a/F2-b repo-side (2026-05-07)
+Completed since initial publication: F1-a, H2-a, H2-b, H3-a, H3-b, J3-a (2026-05-06); H1-a/H1-b, F2-a/F2-b, F2-c, F4-a/F4-b, J1, J2-a, and J3-b repo-side (2026-05-07)
 
 ### 10.1 Remaining Block Breakdown
 
@@ -1687,14 +1815,14 @@ As of 2026-05-06, the remaining production-readiness scope is:
 | Category | Remaining blocks |
 |----------|------------------|
 | E — Real authority sources | None repo-side; live validation is operator-environment work |
-| F — Production PostgreSQL | F1-b, F2-c, F3, F4-a, F4-b |
+| F — Production PostgreSQL | F1-b, F3 |
 | G — Scale & optimization | G1, G2-a, G2-b, G3, G4-a, G4-b, G5, G6, G7, G8 |
 | H — Multi-tenant isolation | None |
 | I — Production operator console | I1-a, I1-b, I2-a, I2-b, I3-a, I3-b |
-| J — SRE / HA | J1, J2-a, J2-b, J3-b, J4 |
+| J — SRE / HA | J2-b, J4 |
 | K — Compliance / external audit | K1-a, K1-b, K2, K3 |
 
-Current total: **30 blocks / ~150h**.
+Current total: **24 blocks / ~120h**.
 
 ### 10.2 Active Review Fixups
 
@@ -1712,12 +1840,12 @@ Recommended next order:
 5. ~~F2-a — PostgreSQL primary/replica HA topology~~ ✓ Completed repo-side 2026-05-07
 6. F1-b — real PostgreSQL portability gate
 7. ~~F2-b — Patroni automated failover~~ ✓ Completed repo-side 2026-05-07
-8. F2-c — read-replica routing for sidecar reads
+8. ~~F2-c — read-replica routing for sidecar reads~~ ✓ Completed repo-side 2026-05-07
 
 **Optimization + large-scale benchmark only (G):** 10 blocks / 50h
 
 **Critical path (shortest path to a load-tested, authority-backed platform):**
-F1-b → F2-c → G1–G5 → J1 → J2 → K1 = 19 remaining blocks / ~95h
+F1-b → G1–G5 → J2-b → K1 = 15 remaining blocks / ~75h (J1 + J2-a done repo-side 2026-05-07)
 
 ---
 

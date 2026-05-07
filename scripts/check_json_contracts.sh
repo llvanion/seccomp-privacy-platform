@@ -67,6 +67,11 @@ SCHEMAS=(
   "$REPO_ROOT/schemas/metadata_db_status.schema.json"
   "$REPO_ROOT/schemas/metadata_db_backup.schema.json"
   "$REPO_ROOT/schemas/metadata_db_restore.schema.json"
+  "$REPO_ROOT/schemas/metadata_db_backup_report.schema.json"
+  "$REPO_ROOT/schemas/metadata_db_restore_report.schema.json"
+  "$REPO_ROOT/schemas/k8s_recovery_service_topology_report.schema.json"
+  "$REPO_ROOT/schemas/prometheus_alert_rules_report.schema.json"
+  "$REPO_ROOT/schemas/recovery_service_failover_test.schema.json"
   "$REPO_ROOT/schemas/metadata_batch_reconcile.schema.json"
   "$REPO_ROOT/schemas/mutation_log_query.schema.json"
   "$REPO_ROOT/schemas/oidc_claim_map.schema.json"
@@ -1150,6 +1155,67 @@ platform_metadata_restored_job_count="$(python3 "$RUNTIME_SERVICE_HELPERS" read-
   --json-file "$tmp/platform_metadata_restore.json" \
   --field restored_status.summary.job_count)"
 [[ "$platform_metadata_restored_job_count" == "1" ]] || { echo "[ERROR] metadata DB restore reported unexpected job_count: $platform_metadata_restored_job_count" >&2; exit 1; }
+
+# F4-a / F4-b: standalone backup_metadata_db.py / restore_metadata_db.py default smoke
+# Exercises the SQLite path with optional verification, S3 dry-run plan, and the
+# portability-via-status-report check on the restored DB.
+python3 "$REPO_ROOT/scripts/backup_metadata_db.py" \
+  --db-path "$tmp/platform_metadata.db" \
+  --out-path "$tmp/platform_metadata_f4.backup.db" \
+  --verify \
+  --upload-s3 "s3://seccomp-audit-archive/metadata/platform_metadata_f4.dump" \
+  --output "$tmp/metadata_db_backup_report.json" \
+  --overwrite \
+  --assert-ok \
+  > /dev/null
+python3 "$VALIDATOR" \
+  --schema "$REPO_ROOT/schemas/metadata_db_backup_report.schema.json" \
+  --json "$tmp/metadata_db_backup_report.json"
+metadata_db_backup_status="$(python3 "$RUNTIME_SERVICE_HELPERS" read-json-field \
+  --json-file "$tmp/metadata_db_backup_report.json" \
+  --field status)"
+[[ "$metadata_db_backup_status" == "ok" ]] || { echo "[ERROR] backup_metadata_db reported status: $metadata_db_backup_status" >&2; exit 1; }
+metadata_db_backup_verify="$(python3 "$RUNTIME_SERVICE_HELPERS" read-json-field \
+  --json-file "$tmp/metadata_db_backup_report.json" \
+  --field verification.status)"
+[[ "$metadata_db_backup_verify" == "ok" ]] || { echo "[ERROR] backup verification status: $metadata_db_backup_verify" >&2; exit 1; }
+metadata_db_backup_s3_status="$(python3 "$RUNTIME_SERVICE_HELPERS" read-json-field \
+  --json-file "$tmp/metadata_db_backup_report.json" \
+  --field s3_upload.status)"
+[[ "$metadata_db_backup_s3_status" == "planned" ]] || { echo "[ERROR] backup s3_upload status (expected planned dry-run): $metadata_db_backup_s3_status" >&2; exit 1; }
+python3 "$REPO_ROOT/scripts/restore_metadata_db.py" \
+  --backup-path "$tmp/platform_metadata_f4.backup.db" \
+  --out-db-path "$tmp/platform_metadata_f4.restored.db" \
+  --verify-portability \
+  --output "$tmp/metadata_db_restore_report.json" \
+  --overwrite \
+  --assert-ok \
+  > /dev/null
+python3 "$VALIDATOR" \
+  --schema "$REPO_ROOT/schemas/metadata_db_restore_report.schema.json" \
+  --json "$tmp/metadata_db_restore_report.json"
+metadata_db_restore_status="$(python3 "$RUNTIME_SERVICE_HELPERS" read-json-field \
+  --json-file "$tmp/metadata_db_restore_report.json" \
+  --field status)"
+[[ "$metadata_db_restore_status" == "ok" ]] || { echo "[ERROR] restore_metadata_db reported status: $metadata_db_restore_status" >&2; exit 1; }
+metadata_db_restore_portability="$(python3 "$RUNTIME_SERVICE_HELPERS" read-json-field \
+  --json-file "$tmp/metadata_db_restore_report.json" \
+  --field portability_check.status)"
+[[ "$metadata_db_restore_portability" == "ok" ]] || { echo "[ERROR] restore portability_check status: $metadata_db_restore_portability" >&2; exit 1; }
+# Cross-backend rejection: a SQLite backup file fed into the postgres restore path must error out before touching any DSN.
+python3 "$REPO_ROOT/scripts/restore_metadata_db.py" \
+  --backup-path "$tmp/platform_metadata_f4.backup.db" \
+  --restore-dsn "postgresql://nope:nope@127.0.0.1:1/none" \
+  --output "$tmp/metadata_db_restore_report_reject.json" \
+  > /dev/null || true
+python3 "$VALIDATOR" \
+  --schema "$REPO_ROOT/schemas/metadata_db_restore_report.schema.json" \
+  --json "$tmp/metadata_db_restore_report_reject.json"
+metadata_db_restore_reject_status="$(python3 "$RUNTIME_SERVICE_HELPERS" read-json-field \
+  --json-file "$tmp/metadata_db_restore_report_reject.json" \
+  --field status)"
+[[ "$metadata_db_restore_reject_status" == "error" ]] || { echo "[ERROR] cross-backend reject expected status=error, got: $metadata_db_restore_reject_status" >&2; exit 1; }
+
 # Cross-batch reconcile on the imported DB (fresh import should be clean)
 python3 "$REPO_ROOT/scripts/reconcile_metadata_batches.py" \
   --db-path "$tmp/platform_metadata.db" \
@@ -2363,6 +2429,61 @@ for manifest in p["manifests"]:
     assert "app: sse-bridge-pipeline" in text, text
     assert "app: recovery-service" in text, text
     assert "port: 18443" in text, text' "$tmp/k8s_network_policy_report.json"
+# J1 — recovery-service Deployment / Service / HPA renderer
+python3 "$REPO_ROOT/scripts/render_recovery_service_k8s.py" \
+  --tenant-id contract-tenant \
+  --namespace seccomp-privacy \
+  --replicas 2 \
+  --min-replicas 2 \
+  --max-replicas 6 \
+  --target-cpu-utilization 70 \
+  --container-port 18443 \
+  --service-port 443 \
+  --image ghcr.io/seccomp-privacy/recovery-service:0.1.0 \
+  --out-dir "$tmp/k8s_recovery" \
+  --output "$tmp/k8s_recovery_service_topology_report.json" \
+  --assert-ok \
+  > /dev/null
+python3 "$VALIDATOR" \
+  --schema "$REPO_ROOT/schemas/k8s_recovery_service_topology_report.schema.json" \
+  --json "$tmp/k8s_recovery_service_topology_report.json"
+python3 -c 'import json, pathlib, sys; p=json.load(open(sys.argv[1], "r", encoding="utf-8")); assert p["status"] == "ok", p; assert p["service_port"] == 443, p; assert p["container_port"] == 18443, p; kinds={m["kind"] for m in p["manifests"]}; assert kinds == {"Deployment", "Service", "HorizontalPodAutoscaler"}, p
+for manifest in p["manifests"]:
+    text = pathlib.Path(manifest["path"]).read_text(encoding="utf-8")
+    assert "tenant: contract-tenant" in text, text
+    assert "app: recovery-service" in text, text
+    if manifest["kind"] == "Deployment":
+        assert "replicas: 2" in text, text
+        assert "containerPort: 18443" in text, text
+        assert "readinessProbe:" in text and "livenessProbe:" in text, text
+    if manifest["kind"] == "Service":
+        assert "port: 443" in text, text
+        assert "targetPort: https" in text, text
+    if manifest["kind"] == "HorizontalPodAutoscaler":
+        assert "minReplicas: 2" in text, text
+        assert "maxReplicas: 6" in text, text
+        assert "averageUtilization: 70" in text, text' "$tmp/k8s_recovery_service_topology_report.json"
+# J3-b — Prometheus alert rules structural validator
+python3 "$REPO_ROOT/scripts/validate_prometheus_alert_rules.py" \
+  --rules "$REPO_ROOT/config/prometheus/alert-rules.yml" \
+  --output "$tmp/prometheus_alert_rules_report.json" \
+  --assert-ok \
+  > /dev/null
+python3 "$VALIDATOR" \
+  --schema "$REPO_ROOT/schemas/prometheus_alert_rules_report.schema.json" \
+  --json "$tmp/prometheus_alert_rules_report.json"
+python3 -c 'import json, sys; p=json.load(open(sys.argv[1], "r", encoding="utf-8")); assert p["status"] == "ok", p; assert p["missing_alerts"] == [], p; alert_names={a["name"] for a in p["alerts"]}; required={"RecoveryServiceErrorRateHigh","RecoveryServiceLatencyHigh","RecoveryServiceNoTraffic","RecoveryServiceRateLimitedSpike"}; assert required.issubset(alert_names), p; severities={a["severity"] for a in p["alerts"]}; assert "critical" in severities and "warning" in severities, p' "$tmp/prometheus_alert_rules_report.json"
+# J2-a — recovery-service failover test (starts two HTTP recovery services, kills primary, verifies secondary serves the failover request)
+python3 "$REPO_ROOT/scripts/test_failover_recovery_service.py" \
+  --candidate-count 2 \
+  --failover-target-seconds 10 \
+  --output "$tmp/recovery_service_failover_test.json" \
+  --assert-ok \
+  > /dev/null
+python3 "$VALIDATOR" \
+  --schema "$REPO_ROOT/schemas/recovery_service_failover_test.schema.json" \
+  --json "$tmp/recovery_service_failover_test.json"
+python3 -c 'import json, sys; p=json.load(open(sys.argv[1], "r", encoding="utf-8")); assert p["status"] == "ok", p; assert p["primary"]["started"] is True, p; assert p["secondary"]["started"] is True, p; assert p["primary"]["kill_method"] == "SIGKILL", p; assert p["baseline_request"]["ok"] is True, p; assert p["baseline_request"]["served_by"] == "primary", p; assert p["failover_request"]["served_by"] == "secondary", p; assert p["failover_request"]["primary_attempt_failed"] is True, p; assert p["failover_request"]["within_failover_target"] is True, p; assert p["audit_integrity"]["no_audit_events_lost"] is True, p; assert p["audit_integrity"]["primary_records_for_baseline_job"] >= 1, p; assert p["audit_integrity"]["secondary_records_for_failover_job"] >= 1, p' "$tmp/recovery_service_failover_test.json"
 python3 "$REPO_ROOT/scripts/render_postgres_ha_topology.py" \
   --out-dir "$tmp/postgres-ha" \
   --output "$tmp/postgres_ha_topology_report.json" \

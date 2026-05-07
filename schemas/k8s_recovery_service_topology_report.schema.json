@@ -1,0 +1,116 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "k8s_recovery_service_topology_report/v1",
+  "title": "Kubernetes deployment topology report for the recovery service (J1)",
+  "type": "object",
+  "required": [
+    "schema",
+    "generated_at_utc",
+    "status",
+    "out_dir",
+    "namespace",
+    "recovery_app",
+    "tenant_id",
+    "service_port",
+    "container_port",
+    "manifests"
+  ],
+  "properties": {
+    "schema": {
+      "const": "k8s_recovery_service_topology_report/v1"
+    },
+    "generated_at_utc": {
+      "type": "string",
+      "minLength": 1
+    },
+    "status": {
+      "type": "string",
+      "enum": ["ok", "fail"]
+    },
+    "out_dir": {
+      "type": "string",
+      "minLength": 1
+    },
+    "namespace": {
+      "type": ["string", "null"]
+    },
+    "recovery_app": {
+      "type": "string",
+      "minLength": 1
+    },
+    "tenant_id": {
+      "type": ["string", "null"]
+    },
+    "service_port": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 65535
+    },
+    "container_port": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 65535
+    },
+    "manifests": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "kind",
+          "path",
+          "metadata_name",
+          "valid",
+          "errors",
+          "kubectl_dry_run"
+        ],
+        "properties": {
+          "kind": {
+            "type": "string",
+            "enum": ["Deployment", "Service", "HorizontalPodAutoscaler"]
+          },
+          "path": {
+            "type": ["string", "null"]
+          },
+          "metadata_name": {
+            "type": ["string", "null"]
+          },
+          "valid": {
+            "type": "boolean"
+          },
+          "errors": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "kubectl_dry_run": {
+            "type": "object",
+            "required": ["status"],
+            "properties": {
+              "status": {
+                "type": "string",
+                "enum": ["ok", "fail", "skipped", "not_requested", "not_run"]
+              },
+              "reason": {
+                "type": ["string", "null"]
+              },
+              "exit_code": {
+                "type": ["integer", "null"]
+              },
+              "stdout": {
+                "type": ["string", "null"]
+              },
+              "stderr": {
+                "type": ["string", "null"]
+              }
+            },
+            "additionalProperties": false
+          }
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  "additionalProperties": false
+}

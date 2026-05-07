@@ -42,6 +42,9 @@
     "db_dsn": {
       "type": ["string", "null"]
     },
+    "db_dsn_read_replica": {
+      "type": ["string", "null"]
+    },
     "modes": {
       "type": "array",
       "items": {

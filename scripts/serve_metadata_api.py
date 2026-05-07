@@ -11,7 +11,7 @@ from typing import Any
 from urllib.parse import parse_qs, urlparse, unquote
 
 from api_identity import build_identity_resolution_payload, enforce_identity_scope, metadata_scope_filters, resolve_request_identity
-from metadata_db import connect_db
+from metadata_db import connect_read_db
 from query_metadata import LIST_ENTITY_CHOICES, query_entities, query_job_detail, query_jobs
 
 
@@ -64,6 +64,7 @@ class MetadataApiServer(ThreadingHTTPServer):
         *,
         db_path: str,
         db_dsn: str,
+        db_read_dsn: str,
         auth_token: str,
         identity_token_config: str,
         pid_file: str,
@@ -71,6 +72,7 @@ class MetadataApiServer(ThreadingHTTPServer):
     ) -> None:
         self.db_path = str(Path(db_path).resolve()) if db_path else ""
         self.db_dsn = db_dsn
+        self.db_read_dsn = db_read_dsn
         self.auth_token = auth_token
         self.identity_token_config = str(Path(identity_token_config).resolve()) if identity_token_config else ""
         self.pid_file = pid_file
@@ -110,6 +112,7 @@ class MetadataApiHandler(BaseHTTPRequestHandler):
             expected_bearer_token=self.server.auth_token,
             db_path=self.server.db_path,
             db_dsn=self.server.db_dsn,
+            db_read_dsn=self.server.db_read_dsn,
             identity_token_config=self.server.identity_token_config,
             auth_failure_label="metadata API",
         )
@@ -147,7 +150,7 @@ class MetadataApiHandler(BaseHTTPRequestHandler):
                 job_id = unquote(path.removeprefix("/v1/jobs/"))
                 if not job_id:
                     raise ValueError("job_id is required")
-                with connect_db(self.server.db_path, dsn=self.server.db_dsn) as conn:
+                with connect_read_db(self.server.db_path, dsn=self.server.db_dsn, read_dsn=self.server.db_read_dsn) as conn:
                     payload = query_job_detail(conn, job_id)
                 if identity is not None and not payload.get("job"):
                     raise PermissionError("job not found")
@@ -223,7 +226,7 @@ class MetadataApiHandler(BaseHTTPRequestHandler):
                 caller=scoped["caller"],
                 tenant_id=scoped["tenant_id"],
             )
-        with connect_db(self.server.db_path, dsn=self.server.db_dsn) as conn:
+        with connect_read_db(self.server.db_path, dsn=self.server.db_dsn, read_dsn=self.server.db_read_dsn) as conn:
             return query_jobs(
                 conn,
                 caller=scoped["caller"],
@@ -254,7 +257,7 @@ class MetadataApiHandler(BaseHTTPRequestHandler):
                 caller=scoped["caller"],
                 tenant_id=scoped["tenant_id"],
             )
-        with connect_db(self.server.db_path, dsn=self.server.db_dsn) as conn:
+        with connect_read_db(self.server.db_path, dsn=self.server.db_dsn, read_dsn=self.server.db_read_dsn) as conn:
             return query_entities(
                 conn,
                 entity=entity,
@@ -278,6 +281,11 @@ def build_parser() -> argparse.ArgumentParser:
     ap = argparse.ArgumentParser(description="Serve a thin local read-only HTTP API over the metadata sidecar.")
     ap.add_argument("--db-path", default="", help="SQLite metadata DB path")
     ap.add_argument("--db-dsn", default="", help="Optional PostgreSQL DSN")
+    ap.add_argument(
+        "--db-dsn-read-replica",
+        default="",
+        help="Optional PostgreSQL replica DSN; preferred for read-only SELECTs (jobs/entities/identity)",
+    )
     ap.add_argument("--bind-host", default="127.0.0.1")
     ap.add_argument("--port", type=int, default=18090)
     ap.add_argument("--auth-token-env", default="", help="Optional bearer-token env var for non-health endpoints")
@@ -301,6 +309,7 @@ def main() -> int:
         MetadataApiHandler,
         db_path=str(db_path) if db_path else "",
         db_dsn=args.db_dsn,
+        db_read_dsn=args.db_dsn_read_replica,
         auth_token=auth_token,
         identity_token_config=args.identity_token_config,
         pid_file=args.pid_file,

@@ -1,0 +1,150 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "metadata_db_restore_report/v1",
+  "title": "Multi-backend metadata sidecar DB restore report (F4-b)",
+  "type": "object",
+  "required": [
+    "schema",
+    "generated_at_utc",
+    "status",
+    "backend",
+    "backup",
+    "restore",
+    "portability_check",
+    "s3_download"
+  ],
+  "properties": {
+    "schema": {
+      "const": "metadata_db_restore_report/v1"
+    },
+    "generated_at_utc": {
+      "type": "string",
+      "minLength": 1
+    },
+    "status": {
+      "type": "string",
+      "enum": ["ok", "error"]
+    },
+    "backend": {
+      "type": "string",
+      "enum": ["sqlite", "postgres"]
+    },
+    "backup": {
+      "type": "object",
+      "required": [
+        "path",
+        "size_bytes",
+        "sha256",
+        "format"
+      ],
+      "properties": {
+        "path": {
+          "type": "string",
+          "minLength": 1
+        },
+        "size_bytes": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "sha256": {
+          "type": ["string", "null"]
+        },
+        "format": {
+          "type": ["string", "null"],
+          "enum": [null, "sqlite_backup_api", "pg_dump_custom", "pg_dump_plain"]
+        }
+      },
+      "additionalProperties": false
+    },
+    "restore": {
+      "type": "object",
+      "required": [
+        "db_path",
+        "db_dsn_redacted",
+        "size_bytes",
+        "sha256",
+        "command"
+      ],
+      "properties": {
+        "db_path": {
+          "type": ["string", "null"]
+        },
+        "db_dsn_redacted": {
+          "type": ["string", "null"]
+        },
+        "size_bytes": {
+          "type": ["integer", "null"],
+          "minimum": 0
+        },
+        "sha256": {
+          "type": ["string", "null"]
+        },
+        "command": {
+          "type": ["string", "null"]
+        }
+      },
+      "additionalProperties": false
+    },
+    "portability_check": {
+      "type": "object",
+      "required": [
+        "enabled",
+        "status",
+        "details"
+      ],
+      "properties": {
+        "enabled": {
+          "type": "boolean"
+        },
+        "status": {
+          "type": "string",
+          "enum": ["ok", "error", "skipped"]
+        },
+        "details": {
+          "type": ["string", "null"]
+        },
+        "report": {
+          "type": ["object", "null"]
+        }
+      },
+      "additionalProperties": false
+    },
+    "s3_download": {
+      "type": "object",
+      "required": [
+        "requested",
+        "executed",
+        "source_uri",
+        "status",
+        "details"
+      ],
+      "properties": {
+        "requested": {
+          "type": "boolean"
+        },
+        "executed": {
+          "type": "boolean"
+        },
+        "source_uri": {
+          "type": ["string", "null"]
+        },
+        "status": {
+          "type": "string",
+          "enum": ["planned", "downloaded", "skipped", "error"]
+        },
+        "details": {
+          "type": ["string", "null"]
+        }
+      },
+      "additionalProperties": false
+    },
+    "errors": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    }
+  },
+  "additionalProperties": false
+}
