@@ -2909,6 +2909,203 @@
         "status",
         "upstream_dbname"
       ]
+    },
+    {
+      "path": "schemas/bridge_benchmark.schema.json",
+      "schema_id": "bridge_benchmark/v1",
+      "required": [
+        "schema",
+        "generated_at_utc",
+        "repo_root",
+        "bridge_cwd",
+        "fixture_profile",
+        "scale",
+        "setup",
+        "profile",
+        "iterations",
+        "modes"
+      ],
+      "stable_properties": [
+        "bridge_cwd",
+        "fixture_profile",
+        "generated_at_utc",
+        "iterations",
+        "modes",
+        "profile",
+        "repo_root",
+        "scale",
+        "schema",
+        "setup"
+      ]
+    },
+    {
+      "path": "schemas/dashboard_jobs_benchmark.schema.json",
+      "schema_id": "dashboard_jobs_benchmark/v1",
+      "required": [
+        "schema",
+        "generated_at_utc",
+        "repo_root",
+        "mode",
+        "configuration",
+        "summary",
+        "start_requests",
+        "dashboard_reads"
+      ],
+      "stable_properties": [
+        "configuration",
+        "dashboard_reads",
+        "generated_at_utc",
+        "mode",
+        "repo_root",
+        "schema",
+        "start_requests",
+        "summary"
+      ]
+    },
+    {
+      "path": "schemas/audit_tamper_resistance.schema.json",
+      "schema_id": "audit_tamper_resistance/v1",
+      "required": [
+        "schema",
+        "generated_at_utc",
+        "status",
+        "audit_chain_path",
+        "audit_seal_path",
+        "scenarios",
+        "summary"
+      ],
+      "stable_properties": [
+        "audit_chain_path",
+        "audit_seal_path",
+        "generated_at_utc",
+        "schema",
+        "scenarios",
+        "status",
+        "summary"
+      ]
+    },
+    {
+      "path": "schemas/http_malformed_input_gate.schema.json",
+      "schema_id": "http_malformed_input_gate/v1",
+      "required": [
+        "schema",
+        "generated_at_utc",
+        "endpoint",
+        "spawned_in_process",
+        "configuration",
+        "summary",
+        "scenarios"
+      ],
+      "stable_properties": [
+        "configuration",
+        "endpoint",
+        "generated_at_utc",
+        "schema",
+        "scenarios",
+        "spawned_in_process",
+        "summary"
+      ]
+    },
+    {
+      "path": "schemas/recovery_mtls_benchmark.schema.json",
+      "schema_id": "recovery_mtls_benchmark/v1",
+      "required": [
+        "schema",
+        "generated_at_utc",
+        "configuration",
+        "summary",
+        "transports"
+      ],
+      "stable_properties": [
+        "configuration",
+        "generated_at_utc",
+        "schema",
+        "summary",
+        "transports"
+      ]
+    },
+    {
+      "path": "schemas/observability_topology_report.schema.json",
+      "schema_id": "observability_topology_report/v1",
+      "required": [
+        "schema",
+        "generated_at_utc",
+        "topology_root",
+        "compose_file",
+        "tempo_config",
+        "prometheus_config",
+        "grafana_datasources",
+        "grafana_dashboards_config",
+        "grafana_dashboards",
+        "summary"
+      ],
+      "stable_properties": [
+        "compose_file",
+        "generated_at_utc",
+        "grafana_dashboards",
+        "grafana_dashboards_config",
+        "grafana_datasources",
+        "prometheus_config",
+        "schema",
+        "summary",
+        "tempo_config",
+        "topology_root"
+      ]
+    },
+    {
+      "path": "schemas/ecommerce_fact_layer_report.schema.json",
+      "schema_id": "ecommerce_fact_layer_report/v1",
+      "required": [
+        "schema",
+        "generated_at_utc",
+        "migration_path",
+        "tables",
+        "summary"
+      ],
+      "stable_properties": [
+        "generated_at_utc",
+        "migration_path",
+        "schema",
+        "summary",
+        "tables"
+      ]
+    },
+    {
+      "path": "schemas/console_manifest.schema.json",
+      "schema_id": "console_manifest/v1",
+      "required": [
+        "schema",
+        "generated_at_utc",
+        "title",
+        "sections"
+      ],
+      "stable_properties": [
+        "feature_flags",
+        "generated_at_utc",
+        "schema",
+        "sections",
+        "title"
+      ]
+    },
+    {
+      "path": "schemas/operator_console_manifest_report.schema.json",
+      "schema_id": "operator_console_manifest_report/v1",
+      "required": [
+        "schema",
+        "generated_at_utc",
+        "manifest_path",
+        "static_index_path",
+        "manifest",
+        "summary"
+      ],
+      "stable_properties": [
+        "generated_at_utc",
+        "manifest",
+        "manifest_path",
+        "schema",
+        "static_index_path",
+        "summary"
+      ]
     }
   ]
 }

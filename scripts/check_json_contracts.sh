@@ -35,6 +35,13 @@ SCHEMAS=(
   "$REPO_ROOT/schemas/audit_archive_anchor.schema.json"
   "$REPO_ROOT/schemas/external_audit_anchor_report.schema.json"
   "$REPO_ROOT/schemas/audit_bundle_verification.schema.json"
+  "$REPO_ROOT/schemas/audit_tamper_resistance.schema.json"
+  "$REPO_ROOT/schemas/http_malformed_input_gate.schema.json"
+  "$REPO_ROOT/schemas/recovery_mtls_benchmark.schema.json"
+  "$REPO_ROOT/schemas/observability_topology_report.schema.json"
+  "$REPO_ROOT/schemas/ecommerce_fact_layer_report.schema.json"
+  "$REPO_ROOT/schemas/console_manifest.schema.json"
+  "$REPO_ROOT/schemas/operator_console_manifest_report.schema.json"
   "$REPO_ROOT/schemas/key_manifest.schema.json"
   "$REPO_ROOT/schemas/keyring.schema.json"
   "$REPO_ROOT/schemas/vault_kv_backend.schema.json"
@@ -52,6 +59,8 @@ SCHEMAS=(
   "$REPO_ROOT/schemas/query_workflow_benchmark.schema.json"
   "$REPO_ROOT/schemas/read_adapter_benchmark.schema.json"
   "$REPO_ROOT/schemas/sse_export_benchmark.schema.json"
+  "$REPO_ROOT/schemas/bridge_benchmark.schema.json"
+  "$REPO_ROOT/schemas/dashboard_jobs_benchmark.schema.json"
   "$REPO_ROOT/schemas/record_recovery_benchmark.schema.json"
   "$REPO_ROOT/schemas/pipeline_benchmark.schema.json"
   "$REPO_ROOT/schemas/pjc_benchmark.schema.json"
@@ -277,7 +286,7 @@ python3 "$REPO_ROOT/scripts/benchmark_read_adapters.py" \
 python3 "$VALIDATOR" \
   --schema "$REPO_ROOT/schemas/read_adapter_benchmark.schema.json" \
   --json "$tmp/read_adapter_benchmark.json"
-python3 "$REPO_ROOT/scripts/benchmark_sse_export.py" \
+"$SSE_PY" "$REPO_ROOT/scripts/benchmark_sse_export.py" \
   --record-count 5 \
   --candidate-count 3 \
   --iterations 1 \
@@ -317,7 +326,9 @@ python3 "$VALIDATOR" \
 python3 "$REPO_ROOT/scripts/build_benchmark_contract_fixtures.py" \
   --pipeline-out "$tmp/pipeline_benchmark_contract_fixture.json" \
   --live-out "$tmp/live_sse_benchmark_contract_fixture.json" \
-  --pjc-out "$tmp/pjc_benchmark_contract_fixture.json"
+  --pjc-out "$tmp/pjc_benchmark_contract_fixture.json" \
+  --bridge-out "$tmp/bridge_benchmark_contract_fixture.json" \
+  --dashboard-jobs-out "$tmp/dashboard_jobs_benchmark_contract_fixture.json"
 python3 "$VALIDATOR" \
   --schema "$REPO_ROOT/schemas/pipeline_benchmark.schema.json" \
   --json "$tmp/pipeline_benchmark_contract_fixture.json"
@@ -327,10 +338,18 @@ python3 "$VALIDATOR" \
 python3 "$VALIDATOR" \
   --schema "$REPO_ROOT/schemas/pjc_benchmark.schema.json" \
   --json "$tmp/pjc_benchmark_contract_fixture.json"
+python3 "$VALIDATOR" \
+  --schema "$REPO_ROOT/schemas/bridge_benchmark.schema.json" \
+  --json "$tmp/bridge_benchmark_contract_fixture.json"
+python3 "$VALIDATOR" \
+  --schema "$REPO_ROOT/schemas/dashboard_jobs_benchmark.schema.json" \
+  --json "$tmp/dashboard_jobs_benchmark_contract_fixture.json"
 python3 "$REPO_ROOT/scripts/check_benchmark_smoke_reports.py" \
   --query-workflow "$tmp/query_workflow_benchmark.json" \
   --read-adapter "$tmp/read_adapter_benchmark.json" \
   --sse-export "$tmp/sse_export_benchmark.json" \
+  --bridge "$tmp/bridge_benchmark_contract_fixture.json" \
+  --dashboard-jobs "$tmp/dashboard_jobs_benchmark_contract_fixture.json" \
   --record-recovery "$tmp/record_recovery_benchmark.json" \
   --pipeline "$tmp/pipeline_benchmark_contract_fixture.json" \
   --live-sse "$tmp/live_sse_benchmark_contract_fixture.json" \
@@ -966,6 +985,51 @@ python3 "$REPO_ROOT/scripts/check_pipeline_artifact_smoke_reports.py" \
   --tmp-dir "$tmp"
 python3 "$REPO_ROOT/scripts/seal_audit_artifact.py" --input "$tmp/audit_chain.json" --out "$tmp/audit_chain.seal.json" --job-id contract-check
 python3 "$VALIDATOR" --schema "$REPO_ROOT/schemas/audit_seal.schema.json" --json "$tmp/audit_chain.seal.json"
+python3 "$REPO_ROOT/scripts/verify_audit_tamper_resistance.py" \
+  --audit-chain "$tmp/audit_chain.json" \
+  --audit-seal "$tmp/audit_chain.seal.json" \
+  --job-id contract-check \
+  --output "$tmp/audit_tamper_resistance.json" > /dev/null
+python3 "$VALIDATOR" \
+  --schema "$REPO_ROOT/schemas/audit_tamper_resistance.schema.json" \
+  --json "$tmp/audit_tamper_resistance.json"
+python3 -c 'import json,sys; p=json.load(open(sys.argv[1])); assert p["status"]=="ok", p; assert p["summary"]["total"]>=4 and p["summary"]["missed"]==0 and p["summary"]["detected"]==p["summary"]["total"], p; assert p["post_restore_check"]["audit_chain_sha256_matches_baseline"] is True, p; assert p["post_restore_check"]["audit_seal_sha256_matches_baseline"] is True, p; assert p["post_restore_check"]["verifier_passes_after_restore"] is True, p' "$tmp/audit_tamper_resistance.json"
+python3 "$REPO_ROOT/scripts/check_http_malformed_input_gate.py" \
+  --output "$tmp/http_malformed_input_gate.json" \
+  --max-rows-per-request 10 \
+  --body-size-bytes 50000 > /dev/null
+python3 "$VALIDATOR" \
+  --schema "$REPO_ROOT/schemas/http_malformed_input_gate.schema.json" \
+  --json "$tmp/http_malformed_input_gate.json"
+python3 -c 'import json,sys; p=json.load(open(sys.argv[1])); s=p["summary"]; assert s["status"]=="ok", p; assert s["total"]>=8 and s["missed"]==0 and s["detected"]==s["total"], p; names={r["scenario"] for r in p["scenarios"]}; required={"missing_request_signature","expired_request_timestamp","future_request_timestamp","sql_injection_strings","bad_json_payload","non_object_json_payload","missing_required_field","wrong_http_method","unknown_path","oversized_body"}; assert required.issubset(names), names' "$tmp/http_malformed_input_gate.json"
+python3 "$REPO_ROOT/scripts/benchmark_mtls_overhead.py" \
+  --iterations 5 \
+  --output "$tmp/recovery_mtls_benchmark.json" > /dev/null
+python3 "$VALIDATOR" \
+  --schema "$REPO_ROOT/schemas/recovery_mtls_benchmark.schema.json" \
+  --json "$tmp/recovery_mtls_benchmark.json"
+python3 -c 'import json,sys; p=json.load(open(sys.argv[1])); s=p["summary"]; assert s["status"]=="ok", p; assert s["total_requests"]==s["successful_requests"]==4*5, p; transports={(t["transport"], t["connection_mode"]) for t in p["transports"]}; required={("plain_http","fresh_connection"),("plain_http","persistent_connection"),("mtls","fresh_connection"),("mtls","persistent_connection")}; assert required.issubset(transports), transports' "$tmp/recovery_mtls_benchmark.json"
+python3 "$REPO_ROOT/scripts/render_observability_topology.py" \
+  --output "$tmp/observability_topology_report.json" > /dev/null
+python3 "$VALIDATOR" \
+  --schema "$REPO_ROOT/schemas/observability_topology_report.schema.json" \
+  --json "$tmp/observability_topology_report.json"
+python3 -c 'import json,sys; p=json.load(open(sys.argv[1])); s=p["summary"]; assert s["status"]=="ok", p; assert {"tempo","prometheus","grafana"}.issubset(set(s["compose_services_present"])), p; assert s["tempo_grpc_listener_present"] and s["tempo_http_listener_present"], p; assert s["prometheus_alert_rules_mounted"] is True, p; assert {"seccomp-tempo","seccomp-prometheus"}.issubset(set(s["datasources_present"])), p; assert s["dashboard_count"] >= 2, p; uids={d["uid"] for d in p["grafana_dashboards"]}; assert {"seccomp-pipeline-overview","seccomp-recovery-service"}.issubset(uids), uids' "$tmp/observability_topology_report.json"
+python3 "$REPO_ROOT/scripts/render_ecommerce_fact_layer.py" \
+  --output "$tmp/ecommerce_fact_layer_report.json" > /dev/null
+python3 "$VALIDATOR" \
+  --schema "$REPO_ROOT/schemas/ecommerce_fact_layer_report.schema.json" \
+  --json "$tmp/ecommerce_fact_layer_report.json"
+python3 -c 'import json,sys; p=json.load(open(sys.argv[1])); s=p["summary"]; assert s["status"]=="ok", p; expected={"orders","order_items","order_attribution","order_payment","order_fulfillment","customer_service_interactions"}; assert expected.issubset(set(s["tables_present"])), p; assert not s["tables_missing"], p; assert s["table_count"] >= 6, p; assert s["total_index_count"] >= 12, p' "$tmp/ecommerce_fact_layer_report.json"
+python3 "$VALIDATOR" \
+  --schema "$REPO_ROOT/schemas/console_manifest.schema.json" \
+  --json "$REPO_ROOT/config/operator_console/console_manifest.json"
+python3 "$REPO_ROOT/scripts/render_operator_console_manifest.py" \
+  --output "$tmp/operator_console_manifest_report.json" > /dev/null
+python3 "$VALIDATOR" \
+  --schema "$REPO_ROOT/schemas/operator_console_manifest_report.schema.json" \
+  --json "$tmp/operator_console_manifest_report.json"
+python3 -c 'import json,sys; p=json.load(open(sys.argv[1])); s=p["summary"]; assert s["status"]=="ok", p; expected={"home","jobs","audit","catalog","permissions","recovery","observability","compliance"}; assert expected.issubset(set(s["sections_present"])), p; assert not s["sections_missing"], p; assert s["section_count"] >= 8, p; assert s["endpoints_total"] >= 8, p; assert s["static_index_references_manifest"] is True, p; assert {"commerce_ops_owner","compliance_auditor","recovery_service_operator"}.issubset(set(s["roles_referenced"])), p' "$tmp/operator_console_manifest_report.json"
 export SECCOMP_AUDIT_ARCHIVE_ANCHOR_KEY="contract-audit-anchor-key"
 python3 "$REPO_ROOT/scripts/archive_audit_bundle.py" \
   --audit-chain "$tmp/audit_chain.json" \

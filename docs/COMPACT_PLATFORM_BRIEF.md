@@ -50,15 +50,15 @@ SSE candidate export
    - registry/policy/permission managed write baseline
    - key registry / key version managed write + read baseline
 
-还没完成（2026-05-06 之后更新）：
+还没完成（2026-05-08 之后更新）：
 
 1. 真实 Keycloak / OpenFGA / Vault / cloud KMS 的长期运行环境和凭证托管（repo 内 adapter、compose、dry-run/live 工具已完成；默认不启动外部服务）
 2. authority source 的生产凭证轮换和 SRE 托管流程
-3. durable workflow / dashboard 壳
+3. durable workflow / 真实 SPA 壳：Track-E3 已落 `console_manifest/v1` 契约 + 静态占位页 + 渲染/校验脚本，并在 [OPERATOR_CONSOLE_PRODUCT_PLAN.md](/home/llvanion/Desktop/seccomp-privacy-platform/docs/OPERATOR_CONSOLE_PRODUCT_PLAN.md) §9–§12 补完了与生产就绪 I3 的边界划分（Track-E3 拥 surface，I3 拥 lifecycle）、submit/approve/reject 状态机、同身份自审禁令，以及 Phase-2 admin section（`admin_registry` / `admin_keys` / `admin_authority` / `admin_workflow` / `admin_retention` / `admin_external_anchor`）；完整 SPA 实现与 I3 endpoint 上线仍属 operator 环境工作
 4. SQL sidecar 更深的 Postgres 迁移与 importer repair
-5. caller 画像仍然主要停留在“平台操作者 / 查询发起者”层级，还没细化成买家、商家店员、客服、快递员这类更贴近日常电商业务的人群模型
-6. SQL sidecar 当前保存的是 control-plane metadata / audit / policy / permission，而不是完整电商业务事实表；像“买了什么商品”“在哪个平台成交”“从哪个投放入口点击进来”这类字段目前不作为 sidecar 的主存储目标
-7. 面向真实电商订单分析的一整套 SQL 事实层还没落地；当前没有正式的 `orders / order_items / order_attribution / order_payment / order_fulfillment / customer_service_interactions` 这类业务表基线
+5. caller 画像仍然主要停留在"平台操作者 / 查询发起者"层级，但 Track-E2 已经把买家、商家店员、客服、快递员、地推这五类业务身份作为 `business_identities` 注解层落基线；详见 [ECOMMERCE_ACCESS_MODEL.md](/home/llvanion/Desktop/seccomp-privacy-platform/docs/ECOMMERCE_ACCESS_MODEL.md) §业务身份扩展
+6. ~~SQL sidecar 当前保存的是 control-plane metadata / audit / policy / permission，而不是完整电商业务事实表~~ → Track-E1 已落 `orders / order_items / order_attribution / order_payment / order_fulfillment / customer_service_interactions` 六张事实表（`migrations/metadata/010_*.sql`，Postgres DDL 同步），当前限制是仍需要 operator 提供真实/脱敏数据导入；详见 [ECOMMERCE_FACT_LAYER_PLAN.md](/home/llvanion/Desktop/seccomp-privacy-platform/docs/ECOMMERCE_FACT_LAYER_PLAN.md)
+7. ~~面向真实电商订单分析的一整套 SQL 事实层还没落地~~ → Track-E1 fact-layer 基线已完成（同上）
 
 剩余估算以 [PLATFORM_LEVEL_REMAINING_ESTIMATE.md](/home/llvanion/Desktop/seccomp-privacy-platform/docs/PLATFORM_LEVEL_REMAINING_ESTIMATE.md) 为准。
 
@@ -126,9 +126,19 @@ SSE candidate export
 
 1. `check_json_contracts.sh`
 2. `check_ci_smoke.sh`
-3. query / read adapter / recovery / pipeline / PJC / audit bundle / platform health / derived views benchmark
+3. query / read adapter / recovery / bridge / pipeline / PJC / audit bundle / platform health / derived views benchmark
 4. record-recovery benchmark 支持 `--candidate-count`、`--mode http_recover_concurrent --concurrency <n>`、显式 `--mode http_recover_mtls` 和 `--mode g2b_acceptance`，可对候选规模、并发批次、mTLS recover 与 `max_rows_per_request` 安全阀测量；本地已跑通 G2-a 的 1k / 10k Unix-socket recover，以及 G2-b 的 1k candidates / 10 HTTP 并发 acceptance（15.818 req/s）
 5. `scripts/benchmark_sse_export.py` 输出 `sse_export_benchmark/v1`，可对 synthetic e-commerce encrypted record store 的 SSE export worker path 做规模测试；本地已跑通 100k / 1M candidates，`benchmark_smoke.py --target sse-export-scale --scale <n>` 可作为入口
+6. `scripts/benchmark_bridge.py` 输出 `bridge_benchmark/v1`，可对 Rust bridge `prepare-job` 的 JSONL 输入规模测试；本地 release binary 已跑通 100k/100k（0.366s）和 1M/1M（4.437s），`benchmark_smoke.py --target bridge-scale --scale <n>` 可作为入口；CPU top-hotspot 仍需 operator 环境跑 `cargo flamegraph` / `perf`
+7. `scripts/benchmark_dashboard_jobs.py` 输出 `dashboard_jobs_benchmark/v1`，可对 operator dashboard 并发 job start 和 `/v1/dashboard` 读取做压测；本地 5 并发 run 已跑通，dashboard p95 4.781ms，tracemalloc retained memory 47.681 KB/job
+8. `scripts/verify_audit_tamper_resistance.py` 输出 `audit_tamper_resistance/v1`，会在 `audit_chain.json` 与 `audit_chain.seal.json` 的 6 个候选位置做 single-byte bit flip，断言 `verify_audit_bundle` 都能检测出篡改并在每次变异后恢复原始字节；默认 contract smoke 把它接到主线 audit chain 上跑通；操作员复核单个 run 也可以直接调
+9. `scripts/check_http_malformed_input_gate.py` 输出 `http_malformed_input_gate/v1`，默认在 loopback 启 in-process record-recovery HTTP service 并跑 10 个攻击 scenario（缺 X-Request-Signature、过期/未来 timestamp、SQL-injection-pattern caller/tenant_id/job_id、坏 JSON、非 object payload、缺 required field、错 HTTP method、未知 path、超大 body），断言每个都被服务拒绝；本地 10/10 detected
+10. `scripts/benchmark_mtls_overhead.py` 输出 `recovery_mtls_benchmark/v1`，在 loopback 起 plaintext + mTLS 两套 in-process HTTP 服务（使用 mock 证书），用 `http.client` 直连分别在 fresh-connection / persistent-connection 两种连接模式下打 `/health`，记录 p50/p95、mTLS overhead p95 与 keep-alive savings；本地 5 iter × 4 transport-mode = 20 个请求全成功，mTLS fresh-connection overhead p95 ≈ 1.6ms（远低于 50ms 警戒值）
+11. `config/observability/` 提供完整的可观测栈静态产物：`docker-compose.observability.yml`（Tempo + Prometheus + Grafana 自动 provisioning、scrape 复用 J3-a `/metrics`）、`tempo.yaml`、`prometheus.yml`、`grafana-datasources.yaml`、以及两份 dashboard JSON（`pipeline-overview.json`、`recovery-service.json`）；`scripts/render_observability_topology.py` 输出 `observability_topology_report/v1` 校验各部件齐备；`scripts/export_otel_events.py --otlp-endpoint` 提供 OTLP/HTTP-JSON 推送适配
+12. `docs/COMPLIANCE_MAPPING.md` 现已覆盖 GDPR Article 5(1) 七条原则、Article 15-22 数据主体权利、已知限制（无自动 erasure 管线、audit-seal 保护字段范围、external audit anchor 默认 local-file、live authority adapter 是 operator 环境工作、PostgreSQL portability、crypto-shred 流程指引）以及 reviewer 8 步最小取证路径，可作为合规/法务复核的入口文档
+13. **Track-E1（电商事实层基线）**：`migrations/metadata/010_add_ecommerce_fact_tables.sql` 落基线 6 张事实表（`orders` / `order_items` / `order_attribution` / `order_payment` / `order_fulfillment` / `customer_service_interactions`），`migrations/postgres/001_init.sql` 已同步对齐；`scripts/render_ecommerce_fact_layer.py` 输出 `ecommerce_fact_layer_report/v1`；默认 contract smoke 渲染并断言 6 表全在 + indexes ≥ 12，详见 [ECOMMERCE_FACT_LAYER_PLAN.md](/home/llvanion/Desktop/seccomp-privacy-platform/docs/ECOMMERCE_FACT_LAYER_PLAN.md)
+14. **Track-E2（业务身份基线）**：`migrations/metadata/011_add_business_identities.sql` 落基线 `business_identities` 注解层（`identity_kind` ∈ `buyer` / `merchant_staff` / `customer_service_agent` / `courier` / `field_marketer`），不破坏已冻结的 `caller_permissions` schema、不引入新的 stage gate、PII-free，详见 [ECOMMERCE_ACCESS_MODEL.md](/home/llvanion/Desktop/seccomp-privacy-platform/docs/ECOMMERCE_ACCESS_MODEL.md) §业务身份扩展
+15. **Track-E3（operator console 产品基线）**：`config/operator_console/console_manifest.json` 落基线 `console_manifest/v1`（home / jobs / audit / catalog / permissions / recovery / observability / compliance 共 8 个 section、25 个 endpoint、5 个 platform_role），`config/operator_console/index.html` 静态占位页运行时 fetch manifest，`scripts/render_operator_console_manifest.py` 输出 `operator_console_manifest_report/v1`；默认 contract smoke 校验 manifest、断言 8 个 section + manifest 引用都在；详见 [OPERATOR_CONSOLE_PRODUCT_PLAN.md](/home/llvanion/Desktop/seccomp-privacy-platform/docs/OPERATOR_CONSOLE_PRODUCT_PLAN.md)
 
 ## 4. 当前不能做什么
 
@@ -244,6 +254,12 @@ SSE candidate export
 
 5. “平台基线已经做完，下一阶段先做什么？”
    [POST_BASELINE_ROADMAP.md](/home/llvanion/Desktop/seccomp-privacy-platform/docs/POST_BASELINE_ROADMAP.md)
+
+6. PJC + SSE 电商平台叙事补完（Track-E1 / Track-E2 / Track-E3）：
+   [ECOMMERCE_FACT_LAYER_PLAN.md](/home/llvanion/Desktop/seccomp-privacy-platform/docs/ECOMMERCE_FACT_LAYER_PLAN.md)
+   [ECOMMERCE_ACCESS_MODEL.md](/home/llvanion/Desktop/seccomp-privacy-platform/docs/ECOMMERCE_ACCESS_MODEL.md) §业务身份扩展
+   [OPERATOR_CONSOLE_PRODUCT_PLAN.md](/home/llvanion/Desktop/seccomp-privacy-platform/docs/OPERATOR_CONSOLE_PRODUCT_PLAN.md)
+   生产就绪 vs Track-E 范围对照：[PRODUCTION_READINESS_GUIDEBOOK.md](/home/llvanion/Desktop/seccomp-privacy-platform/docs/PRODUCTION_READINESS_GUIDEBOOK.md) §12
 
 ## 10. 建议
 

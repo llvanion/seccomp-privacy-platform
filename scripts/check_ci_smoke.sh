@@ -21,6 +21,8 @@ python3 -m py_compile \
   services/record_recovery/service.py \
   services/record_recovery/worker.py \
   scripts/archive_audit_bundle.py \
+  scripts/benchmark_bridge.py \
+  scripts/benchmark_dashboard_jobs.py \
   scripts/benchmark_smoke.py \
   scripts/benchmark_query_workflow.py \
   scripts/build_audit_chain.py \
@@ -70,6 +72,12 @@ python3 -m py_compile \
   scripts/validate_pipeline_policy.py \
   scripts/validate_tabular_contract.py \
   scripts/verify_audit_bundle.py \
+  scripts/verify_audit_tamper_resistance.py \
+  scripts/check_http_malformed_input_gate.py \
+  scripts/benchmark_mtls_overhead.py \
+  scripts/render_observability_topology.py \
+  scripts/render_ecommerce_fact_layer.py \
+  scripts/render_operator_console_manifest.py \
   scripts/write_pjc_audit.py \
   scripts/check_malformed_input_gate.py \
   scripts/check_pre_release_gate.py \

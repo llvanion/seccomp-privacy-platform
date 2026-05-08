@@ -25,7 +25,7 @@ All contracts are frozen under the backcompat guard. All post-baseline tranches 
 | Vault / KMS | Vault HTTP token/AppRole client, Vault PKI cert issuer with mock fallback, and AWS KMS secret-ref baseline | Operator must run Vault/cloud KMS, provision policies/roles/keys, and execute live validation |
 | mTLS PKI | Vault PKI issuance helper plus mock cert generation in default smoke | Operator must enable Vault PKI and rotate issued certs in the target environment |
 | PostgreSQL | SQLite sidecar with Postgres-compatible DDL, psycopg2 driver layer, optional live portability gate, repo-side primary/replica HA topology artifacts, read-replica routing flags on every read-only sidecar entrypoint, pgBouncer topology artifacts, and standalone backup/restore CLIs (`backup_metadata_db.py`, `restore_metadata_db.py`) supporting both SQLite copy and `pg_dump` / `pg_restore` paths | F1-b still needs live PostgreSQL execution; Patroni/failover, replica-read, and pgBouncer live drills remain operator-environment work |
-| Benchmarks | Synthetic demo data (`intersection_size=2`) plus G1 SSE export scale benchmark/report for 100k and 1M encrypted order exports | Record recovery / bridge / PJC / full-pipeline scale benchmarks still need production-like runs |
+| Benchmarks | Synthetic demo data (`intersection_size=2`) plus G1 SSE export scale benchmark/report, G2 record-recovery benchmark/report, and G3 bridge prepare-job benchmark/report with local 100k / 1M release-binary runs | Bridge CPU hotspot profiling still needs `cargo flamegraph` or `perf` in an operator environment; PJC / full-pipeline scale benchmarks still need production-like runs |
 | External audit anchor | Local file ledger | Not connected to immutable external medium |
 
 ### 1.2 Notation
@@ -660,7 +660,7 @@ python3 scripts/restore_metadata_db.py \
 
 **Prerequisite:** E1 (real tokens) and F1 (PostgreSQL) should be smoke-tested before G results are meaningful.
 
-**Original total: ~10 blocks / ~50h. Remaining after G1/G2-a/G2-b: 7 blocks / ~35h.**
+**Original total: ~10 blocks / ~50h. Remaining after G1/G2-a/G2-b/G8 and the G3 timing/report scaffold: 6 blocks / ~30h.** G3 still carries one profiling-evidence follow-up because this local environment blocks `perf` sampling and does not have `cargo flamegraph` installed.
 
 ---
 
@@ -820,7 +820,7 @@ Local G2-b scale validation completed on 2026-05-07 using `--mode g2b_acceptance
 
 ---
 
-### G3 — Bridge Binary Profiling (1 block / 5h)
+### G3 — Bridge Binary Profiling (1 block / 5h) — Timing/report scaffold completed 2026-05-08; hotspot profiling pending
 
 #### Current Baseline
 
@@ -869,11 +869,27 @@ Optimization candidates (do not change the bridge contract):
 - Verify that `HMAC-SHA256` token operations are batched or if there is per-row overhead.
 - Ensure `--production-mode` is used (no debug logging paths).
 
+Implementation now lives in:
+
+- `scripts/benchmark_bridge.py`: generates synthetic server/client e-commerce JSONL fixtures, runs Rust bridge `prepare-job` with `--production-mode` and `--token-secret-env BRIDGE_TOKEN_SECRET`, and emits `bridge_benchmark/v1`.
+- `schemas/bridge_benchmark.schema.json`: freezes timing, throughput, RSS, audit, job-meta count, command-surface, and optional profiling fields.
+- `scripts/benchmark_smoke.py --target bridge-scale --scale <n>`: invokes the bridge scale benchmark explicitly.
+- Default contract smoke validates a synthetic `bridge_benchmark/v1` fixture and the expected command surface without executing cargo/flamegraph.
+
+Local release-binary validation completed on 2026-05-08:
+
+| Scale | Output rows | Prepare-job duration | Throughput | Peak RSS |
+|-------|------------:|---------------------:|-----------:|---------:|
+| 100k server / 100k client | 100000 + 100000 | 0.366s | 546,605 rows/s | 44,932 KB |
+| 1M server / 1M client | 1000000 + 1000000 | 4.437s | 450,716 rows/s | 422,864 KB |
+
+Profiling note: `perf record` was attempted locally and failed because the host has `perf_event_paranoid=4`; `cargo flamegraph` is not installed in this environment. The report contract therefore carries `profile.method=external_flamegraph_optional` and an empty `top_hotspots` array until an operator runs symbol-level profiling in a permissive environment.
+
 #### Acceptance Criteria
 
-1. 100k-row bridge job completes in < 120s.
-2. Flame graph identifies the top-3 CPU hot spots.
-3. No change to any frozen bridge contract field or CLI argument.
+1. 100k-row bridge job completes in < 120s. Completed locally with the release binary: 0.366s for 100k/100k.
+2. Flame graph identifies the top-3 CPU hot spots. Pending operator profiling because local `perf` is blocked and `cargo flamegraph` is unavailable.
+3. No change to any frozen bridge contract field or CLI argument. Completed; the benchmark wraps the existing `prepare-job` command and contract smoke validates the report/command surface.
 
 ---
 
@@ -958,7 +974,7 @@ Record per-stage `duration_ms` from `pipeline_observability/v1` output. Compare 
 
 ---
 
-### G6 — mTLS Connection Overhead Measurement (1 block / 5h)
+### G6 — mTLS Connection Overhead Measurement (1 block / 5h) — Completed 2026-05-08
 
 #### Tasks
 
@@ -979,13 +995,18 @@ Measure TLS handshake overhead separately from request processing overhead. If p
 1. HTTP keep-alive (reuse existing TLS session within a connection).
 2. TLS session resumption (via session tickets — supported by Python's `ssl` module).
 
-Add `Connection: keep-alive` and `Keep-Alive: timeout=30` response headers to `RecordRecoveryHttpHandler._write_json`. Verify that the Python `urllib.request` client benefits from keep-alive (it does with HTTP/1.1 persistent connections).
+Implemented:
+
+- `scripts/benchmark_mtls_overhead.py` spawns the record-recovery HTTP service in-process twice — once over plaintext HTTP and once over mTLS using mock-issued certificates from `scripts/issue_mtls_certs.py` — and exercises the unauthenticated `/health` endpoint over four (transport, connection_mode) pairs: `(plain_http, fresh_connection)`, `(plain_http, persistent_connection)`, `(mtls, fresh_connection)`, `(mtls, persistent_connection)`. The benchmark uses `http.client.HTTPConnection` / `HTTPSConnection` directly so the persistent-connection path actually reuses the underlying socket and (for HTTPS) the TLS session, isolating TLS handshake overhead from request processing.
+- `schemas/recovery_mtls_benchmark.schema.json` freezes `recovery_mtls_benchmark/v1`: configuration (iterations, timeout, warn threshold, endpoint path), summary (overall status, total/successful counts, fresh-connection p95 overhead, persistent-connection p95 overhead, keep-alive savings, threshold-pass boolean, and `keep_alive_recommended` / `keep_alive_helps` flags), and per-transport p50/p95/min/mean/max plus the raw per-iteration durations.
+- Default contract smoke runs 5 iterations × 4 transport-mode pairs = 20 requests end-to-end on loopback; assertions: `summary.status=ok`, all 20 requests succeed, and the four expected transport/connection combinations are all present.
+- Local 2026-05-08 measurement (5 iterations, /health round-trip, loopback, mock certs): plain HTTP fresh p95 ≈ 0.62ms, plain HTTP persistent p95 ≈ 0.52ms, mTLS fresh p95 ≈ 2.25ms, mTLS persistent p95 ≈ 2.07ms; mTLS fresh-connection overhead p95 ≈ 1.6ms (well under the 50ms warn threshold), keep-alive savings on mTLS p95 ≈ 0.18ms. Higher-iteration runs are an explicit operator follow-up.
 
 #### Acceptance Criteria
 
-1. mTLS p95 overhead vs plain HTTP documented.
-2. If overhead > 50ms, keep-alive improvement measured and documented.
-3. `recovery_mtls_benchmark/v1` report emitted.
+1. mTLS p95 overhead vs plain HTTP documented. Completed locally with the four-pair measurement above; both fresh and persistent overheads are recorded.
+2. If overhead > 50ms, keep-alive improvement measured and documented. Local measurement is well under 50ms; the keep-alive comparison is still always recorded so an operator running the benchmark in a higher-latency environment immediately sees both metrics. The report flags `keep_alive_recommended=true` automatically when fresh overhead crosses the threshold.
+3. `recovery_mtls_benchmark/v1` report emitted. Completed; schema is registered in `config/schema_backcompat_baseline.json` (now 113 schemas / 0 fail).
 
 ---
 
@@ -1017,7 +1038,7 @@ Expected: PostgreSQL latency should be within 2x of SQLite for small datasets (s
 
 ---
 
-### G8 — Concurrent Dashboard Jobs (1 block / 5h)
+### G8 — Concurrent Dashboard Jobs (1 block / 5h) — Completed 2026-05-08
 
 #### Tasks
 
@@ -1041,10 +1062,27 @@ Measure:
 - Whether `/v1/dashboard` cache (5-second TTL) degrades under load.
 - Memory growth per active job.
 
+Implemented:
+
+1. `serve_operator_dashboard.py` now keeps the default `--max-concurrent-jobs-per-tenant=0` single-active-job behavior, but when a positive per-tenant quota is configured it can track multiple active jobs in an in-memory `jobs` registry.
+2. The reservation path now counts active jobs across both filesystem-discovered running statuses and the in-memory registry, then reserves per job ID. This preserves the H2-b quota guard while enabling G8's multi-active benchmark mode.
+3. Concurrent start responses now read the snapshot for the started `job_id`, not the latest global `current_job`; the benchmark caught and fixed this race.
+4. `scripts/benchmark_dashboard_jobs.py` runs the dashboard on loopback with an in-process fake runner after normal request validation/reservation, posts concurrent `POST /v1/jobs/start`, reads `/v1/dashboard`, and verifies retained memory with `tracemalloc`.
+5. `schemas/dashboard_jobs_benchmark.schema.json` freezes `dashboard_jobs_benchmark/v1`; default contract smoke validates a synthetic fixture so fast checks do not require loopback socket permission.
+
+Local 2026-05-08 validation:
+
+| Check | Result |
+|-------|--------|
+| Concurrent starts | 5 accepted / 0 rejected |
+| Start latency p95 | 12.360ms |
+| `/v1/dashboard` p95 while jobs running | 4.781ms |
+| Retained memory after completion | 47.681 KB/job |
+
 #### Acceptance Criteria
 
-1. 5 concurrent jobs: dashboard `/v1/dashboard` p95 < 2s.
-2. No memory leak per completed job (verify with `tracemalloc`).
+1. 5 concurrent jobs: dashboard `/v1/dashboard` p95 < 2s. Completed locally: 4.781ms.
+2. No memory leak per completed job (verify with `tracemalloc`). Completed locally: 47.681 KB/job retained after completion under a 1024 KB/job guard.
 
 ---
 
@@ -1157,7 +1195,7 @@ Add `--rate-limit-per-caller <requests/s>` and `--rate-limit-burst <burst>` flag
 
 The dashboard tracks the current in-memory job and running `query_workflow/status.json` records by `tenant_id`; terminal jobs no longer count because only `state=running` records are included.
 
-**Review fixup (2026-05-06):** the original implementation evaluated the quota and started the subprocess in two unsynchronised steps, so two concurrent same-tenant requests could both pass the check before either updated `current_job`. The fixup folds the single-active-job rule, the per-tenant quota count, and the placeholder write into one critical section (`DashboardServer.try_reserve_job()` under `job_lock`), and adds `release_reservation()` for launch-time rollback. Both `POST /v1/jobs/start` and `POST /v1/jobs/{job_id}/relaunch` go through the same path, so neither entry can race the other. An 8-thread in-process smoke confirmed exactly one reservation wins (1 × 202, 7 × 409 `job_already_running`).
+**Review fixup (2026-05-06, updated by G8 on 2026-05-08):** the original implementation evaluated the quota and started the subprocess in two unsynchronised steps, so two concurrent same-tenant requests could both pass the check before either updated `current_job`. The fixup moved reservation into `DashboardServer.try_reserve_job()` under `job_lock` and added `release_reservation()` for launch-time rollback. G8 later preserved the old single-active behavior only when `--max-concurrent-jobs-per-tenant=0`; with a positive quota, the same critical section now reserves per job ID in the in-memory `jobs` registry and allows up to the configured tenant limit.
 
 `--max-rows-per-request` is now verified under concurrent load by G2-b acceptance mode.
 
@@ -1266,7 +1304,7 @@ Implemented in `scripts/publish_external_audit_anchor.py`, `schemas/external_aud
 
 ---
 
-### I1 — Real Grafana + Tempo / Jaeger Dashboards (2 blocks / 10h)
+### I1 — Real Grafana + Tempo / Jaeger Dashboards (2 blocks / 10h) — Repo-side scaffolds completed 2026-05-08
 
 #### Current Baseline
 
@@ -1327,11 +1365,21 @@ Create `config/grafana-dashboards/pipeline-overview.json` with panels:
 
 Provision dashboards via Grafana's provisioning API (no manual UI clicks required for deployment).
 
+Implemented:
+
+- `config/observability/docker-compose.observability.yml` brings up `tempo` (image `grafana/tempo:2.5.0`, OTLP gRPC on 4317 + OTLP HTTP on 4318), `prometheus` (image `prom/prometheus:v2.55.1`, mounting the existing `config/prometheus/alert-rules.yml`), and `grafana` (image `grafana/grafana:11.2.0`, anonymous admin access for local demo, dashboards + datasources auto-provisioned).
+- `config/observability/tempo.yaml` declares both OTLP receivers, local-block storage, and 168h retention; `config/observability/prometheus.yml` scrapes the recovery-service `/metrics` endpoint and the operator-dashboard `/metrics` endpoint and mounts the J3-b alert rule file.
+- `config/observability/grafana-datasources.yaml` provisions both datasources with stable UIDs `seccomp-tempo` and `seccomp-prometheus`; `config/observability/grafana-dashboards/dashboards.yaml` provisions the dashboards directory mount.
+- `config/observability/grafana-dashboards/pipeline-overview.json` (uid `seccomp-pipeline-overview`) covers the panel set in I1-b: per-tenant request rate, error-rate stat, active jobs, rate-limit denies, recovery-service request rate by decision, recovery-service latency p50/p95, and a Tempo-backed pipeline-stage trace table. `config/observability/grafana-dashboards/recovery-service.json` (uid `seccomp-recovery-service`) covers the recovery-service-specific drilldown: request rate by decision and reason_code, latency p50/p95/p99, plus rate-limited / TLS-required / signature-failed deny stats.
+- `scripts/render_observability_topology.py` validates the artifacts: that `tempo`, `prometheus`, `grafana` services all appear in the compose file, that Tempo declares both OTLP listeners, that Prometheus mounts the alert-rules file, that the two stable datasource UIDs are present, and that at least the two checked-in dashboards exist with proper uid/title/panels. It emits `observability_topology_report/v1` with the resolved file paths, the Tempo OTLP listener addresses, and the Prometheus job/target list.
+- `scripts/export_otel_events.py` now also accepts `--otlp-endpoint` (best-effort OTLP/HTTP-JSON push to `<endpoint>/v1/traces`) and an optional `--otlp-bearer-env` for a bearer token; the result is recorded under `otlp_push.{endpoint_url, span_count, status_code, ok, transport_error}` in the existing `otel_export_report/v1` (the schema and backcompat baseline are extended to permit the optional `otlp_push` block).
+- Default contract smoke runs `render_observability_topology.py` end-to-end and asserts the four invariants: status=ok, all three compose services present, both Tempo OTLP listeners present, alert-rules mounted, both datasource UIDs present, and both dashboard UIDs (`seccomp-pipeline-overview`, `seccomp-recovery-service`) present.
+
 #### Acceptance Criteria
 
-1. `export_otel_events.py --otlp-endpoint http://localhost:4317` pushes spans to Tempo.
-2. Grafana dashboard renders pipeline latency and error rate.
-3. Provisioning is fully automated (no manual Grafana configuration).
+1. `export_otel_events.py --otlp-endpoint http://localhost:4317` pushes spans to Tempo. Repo-side adapter completed: `--otlp-endpoint` + `--otlp-bearer-env` flags wired and recorded in the report; live push against a running Tempo instance is operator-environment work.
+2. Grafana dashboard renders pipeline latency and error rate. Repo-side artifacts completed: `pipeline-overview.json` and `recovery-service.json` cover the required panels and use stable Prometheus / Tempo datasource UIDs.
+3. Provisioning is fully automated (no manual Grafana configuration). Completed: datasources and dashboards provisioning configs are checked in and mounted by the compose file.
 
 ---
 
@@ -1753,7 +1801,7 @@ Each `entry_sha256` from the anchor file is uploaded as a `hashedrekord` entry. 
 
 ---
 
-### K2 — Compliance Documentation (1 block / 5h)
+### K2 — Compliance Documentation (1 block / 5h) — Completed 2026-05-08
 
 #### Tasks
 
@@ -1770,15 +1818,21 @@ Create `docs/COMPLIANCE_MAPPING.md` documenting how the platform satisfies each 
 
 The right-to-erasure gap (no automated delete path) must be flagged as a known limitation.
 
+Implemented:
+
+- `docs/COMPLIANCE_MAPPING.md` now covers Article 5(1) — lawfulness/fairness/transparency, purpose limitation, data minimization, accuracy, storage limitation, integrity and confidentiality, accountability — and the GDPR Article 15-22 data-subject rights matrix. Each row links to the actual file path, schema, or audit record in this repo.
+- Known limitations are listed in §3 of `COMPLIANCE_MAPPING.md`: no automated erasure pipeline (cryptographic-erasure guidance instead), local-file external audit anchor by default, operator-environment authority adapters (OIDC RS256/JWKS, OpenFGA live, Vault), PostgreSQL portability, and crypto-shred operational guidance.
+- A reviewer checklist (§4) gives an 8-step minimal evidence path: pick a run, open `audit_chain.json`, run `verify_audit_bundle.py`, run `verify_audit_tamper_resistance.py`, open `public_report.json`, cross-check `query_metadata.py --list-entity caller-permissions`, check the per-tenant archive index/anchor, and run `check_http_malformed_input_gate.py` for the HTTP boundary.
+
 #### Acceptance Criteria
 
-1. `docs/COMPLIANCE_MAPPING.md` covers all 7 GDPR principles.
-2. Known limitations are explicitly listed.
-3. Document is reviewed by a person with compliance/legal background.
+1. `docs/COMPLIANCE_MAPPING.md` covers all 7 GDPR principles. Completed: §1.1-§1.7 plus §2 data-subject rights.
+2. Known limitations are explicitly listed. Completed: §3.1-§3.6 (no automated erasure, audit-seal scope, external anchor sink, live authority adapters, PostgreSQL portability, crypto-shred guidance).
+3. Document is reviewed by a person with compliance/legal background. **Pending operator action — the document is now ready for legal review.**
 
 ---
 
-### K3 — Penetration Testing (1 block / 5h)
+### K3 — Penetration Testing (1 block / 5h) — Audit-chain tamper-resistance + HTTP malformed-input gate completed 2026-05-08; external pen test still pending
 
 #### Scope
 
@@ -1812,13 +1866,22 @@ For the audit chain, write `scripts/verify_audit_tamper_resistance.py` that:
 - Verifies that `verify_audit_bundle.py` detects the tamper.
 - Restores the original content.
 
+Implemented:
+
+- `scripts/verify_audit_tamper_resistance.py` flips one byte at up to six offsets across the chain (inside `correlation_id`, inside `job_id`, midfile) and seal (inside `artifact_sha256`, inside `job_id`, optionally inside `signature` when an HMAC seal is present). The script asserts that `verify_audit_bundle.verify_audit_bundle(...)` raises an exception each time, restores the original bytes after every mutation, and runs a post-restore baseline check that re-hashes both files and re-verifies the bundle.
+- `schemas/audit_tamper_resistance.schema.json` freezes `audit_tamper_resistance/v1` (status, scenarios with offset/byte/detected/error metadata, summary, post-restore check); `config/schema_backcompat_baseline.json` registers it as a stable contract.
+- `scripts/check_json_contracts.sh` invokes the new script after sealing the contract-smoke audit chain and asserts `status=ok`, `summary.detected==summary.total>=4`, and `post_restore_check.*=true`. `scripts/check_ci_smoke.sh` adds the new script to the py_compile list.
+- `scripts/check_http_malformed_input_gate.py` spawns the record-recovery HTTP service in-process on loopback and asserts that the service rejects 10 attack scenarios: missing `X-Request-Signature` / `request_signature`, expired `request_timestamp_utc`, far-future timestamp, SQL-injection-pattern `caller`/`tenant_id`/`job_id`, malformed JSON body, non-object JSON body, missing required `candidate_ids`, wrong HTTP method (`DELETE`), unknown path, and an oversized body. Each scenario records HTTP status, transport error (if any), and the response error/reason fields.
+- `schemas/http_malformed_input_gate.schema.json` freezes `http_malformed_input_gate/v1` (configuration, summary with `total/detected/missed/status`, per-scenario assertion fields). `config/schema_backcompat_baseline.json` registers it as a stable contract.
+- Default contract smoke runs the gate end-to-end via the in-process spawn and asserts `summary.status=ok`, `summary.detected==summary.total>=8`, and that the required scenario name set is covered.
+
 Engage an external pen testing firm for the mTLS boundary and the Vault AppRole authentication flow.
 
 #### Acceptance Criteria
 
-1. All HTTP malformed-input mutations are rejected by the recovery service.
-2. One-bit tamper in `audit_chain.json` is detected by `verify_audit_bundle.py`.
-3. External pen test report with zero critical findings (or accepted risk documentation for any findings).
+1. All HTTP malformed-input mutations are rejected by the recovery service. Completed locally: 10/10 scenarios detected, including SQL-injection patterns treated as opaque strings (rejected at authz/record-store, not as parameters), oversized bodies rejected at 400, wrong HTTP method returning 501, and unknown paths returning 404.
+2. One-bit tamper in `audit_chain.json` is detected by `verify_audit_bundle.py`. Completed locally: up to 6 byte-flip scenarios per run depending on whether the seal carries an HMAC signature, all detected, 0 missed; post-restore SHA-256 matches baseline and verifier passes again.
+3. External pen test report with zero critical findings (or accepted risk documentation for any findings). **Pending operator engagement.**
 
 ---
 
@@ -1828,15 +1891,15 @@ Engage an external pen testing firm for the mTLS boundary and the Vault AppRole 
 Week 1-2:   F1-a, live E authority validation with operator-provided services (parallel)
 Week 2-3:   F1-b, F2-a repo-side completed 2026-05-07
 Week 3-4:   F2-b/F2-c/F3 repo-side completed 2026-05-07
-Week 4-5:   G1/G2-a/G2-b completed 2026-05-07; G3 remains (parallel, F1 prerequisite met)
+Week 4-5:   G1/G2-a/G2-b completed 2026-05-07; G3 timing/report scaffold completed 2026-05-08, hotspot profiling remains
 Week 5-6:   G4-a, G5 (parallel)
-Week 6-7:   G4-b, G6, G7, G8 (parallel; H1-a completed 2026-05-07)
+Week 6-7:   G4-b, G7 (parallel; G6 + G8 completed 2026-05-08)
 Week 7-8:   H category complete as of 2026-05-07 (H1-b/H2-a/H2-b/H3-a completed)
-Week 8-9:   I1-a, I2-a (parallel; J1 completed repo-side 2026-05-07)
-Week 9-10:  I1-b, I2-b, I3-a (parallel; J2-a completed repo-side 2026-05-07)
+Week 8-9:   I2-a (parallel; I1-a completed repo-side 2026-05-08; J1 completed repo-side 2026-05-07)
+Week 9-10:  I2-b, I3-a (parallel; I1-b completed repo-side 2026-05-08; J2-a completed repo-side 2026-05-07)
 Week 10-11: I3-b, J2-b, K1-a (parallel; J3-a/J3-b/J2-a complete repo-side)
-Week 11-12: J4, K1-b, K2 (parallel)
-Week 12-13: K3 (F4-a/F4-b repo-side completed 2026-05-07; live drill alongside F1-b)
+Week 11-12: J4, K1-b (parallel; K2 completed 2026-05-08)
+Week 12-13: K3 external pen test only (audit-chain tamper-resistance + HTTP malformed-input gate completed 2026-05-08; F4-a/F4-b repo-side completed 2026-05-07; live drill alongside F1-b)
 ```
 
 ---
@@ -1847,14 +1910,14 @@ Week 12-13: K3 (F4-a/F4-b repo-side completed 2026-05-07; live drill alongside F
 |----------|----------------:|----------------:|-------|
 | E — Real authority sources | 0 repo-side | 0h | Complete; live validation is operator-environment work |
 | F — Production PostgreSQL | 1 | 5h | F1-a done; F2-a/F2-b/F2-c/F3 and F4-a/F4-b repo-side done; F1-b plus F2-c/F3 live drills remain |
-| G — Scale & optimization | 7 | 35h | G1 + G2-a + G2-b done locally; remaining G3/G4-a/G4-b/G5/G6/G7/G8 |
+| G — Scale & optimization | 5 | 25h | G1 + G2-a + G2-b + G6 + G8 done locally; G3 timing/report scaffold done with hotspot profiling pending; remaining G3-hotspot/G4-a/G4-b/G5/G7 |
 | H — Multi-tenant isolation | 0 | 0h | Complete: H1-a/H1-b/H2-a/H2-b/H3-a/H3-b |
-| I — Production operator console | 6 | 30h | E1, G complete prerequisite |
+| I — Production operator console | 4 | 20h | I1-a/I1-b repo-side scaffolds done 2026-05-08 (live Tempo push and Grafana render are operator-environment); I2-a/I2-b/I3-a/I3-b open |
 | J — SRE / HA | 2 | 10h | J3-a done; J1 + J2-a + J3-b done repo-side; J2-b + J4 remain |
-| K — Compliance / external audit | 4 | 20h | J complete prerequisite |
-| **Total remaining** | **20** | **~100h** | |
+| K — Compliance / external audit | 3 | 15h | K2 done 2026-05-08; K3 audit-chain tamper-resistance + HTTP malformed-input gate done 2026-05-08 (external pen test still pending operator engagement); K1-a/K1-b open |
+| **Total remaining** | **15** | **~75h** | |
 
-Completed since initial publication: F1-a, H2-a, H2-b, H3-a, H3-b, J3-a (2026-05-06); H1-a/H1-b, F2-a/F2-b, F2-c, F3, F4-a/F4-b, J1, J2-a, and J3-b repo-side (2026-05-07)
+Completed since initial publication: F1-a, H2-a, H2-b, H3-a, H3-b, J3-a (2026-05-06); H1-a/H1-b, F2-a/F2-b, F2-c, F3, F4-a/F4-b, J1, J2-a, and J3-b repo-side (2026-05-07); G3 bridge benchmark/report scaffold plus local 100k/1M release-binary timing, G6 mTLS connection overhead measurement, G8 concurrent dashboard jobs, I1-a + I1-b observability stack repo-side scaffolds (Tempo + Prometheus + Grafana compose, datasource provisioning, two dashboards, render script + report schema, OTLP/HTTP push adapter on `export_otel_events.py`), K2 compliance mapping, and K3 repo-side scaffolds — audit-chain tamper-resistance + HTTP malformed-input gate (2026-05-08, K3 external pen test still operator-side)
 
 ### 10.1 Remaining Block Breakdown
 
@@ -1864,19 +1927,19 @@ As of 2026-05-06, the remaining production-readiness scope is:
 |----------|------------------|
 | E — Real authority sources | None repo-side; live validation is operator-environment work |
 | F — Production PostgreSQL | F1-b |
-| G — Scale & optimization | G3, G4-a, G4-b, G5, G6, G7, G8 |
+| G — Scale & optimization | G3 hotspot profiling evidence, G4-a, G4-b, G5, G7 |
 | H — Multi-tenant isolation | None |
-| I — Production operator console | I1-a, I1-b, I2-a, I2-b, I3-a, I3-b |
+| I — Production operator console | I2-a, I2-b, I3-a, I3-b (I1-a/I1-b repo-side scaffolds done; live Tempo push + Grafana render still operator-environment) |
 | J — SRE / HA | J2-b, J4 |
-| K — Compliance / external audit | K1-a, K1-b, K2, K3 |
+| K — Compliance / external audit | K1-a, K1-b, K3 external pen test (K2 + K3 repo-side scaffolds done; external engagement still pending) |
 
-Current total: **20 blocks / ~100h**.
+Current total: **15 blocks / ~75h**. (K2 compliance mapping done; K3 repo-side scaffolds — audit-chain tamper-resistance and HTTP malformed-input gate — both done; external pen test remains as the K3 operator-engagement block. G6 mTLS connection overhead also done. I1-a + I1-b observability scaffolds done 2026-05-08 — live Tempo push and Grafana render are operator-side.)
 
 ### 10.2 Active Review Fixups
 
 Both fixups are now resolved (2026-05-06). Kept here as a record so the next reviewer can see exactly what was changed and how it was validated:
 
-1. **H2-b review fixup — Completed 2026-05-06.** `scripts/serve_operator_dashboard.py` now performs the per-tenant quota check and the launch reservation atomically under `DashboardServer.job_lock` for both `POST /v1/jobs/start` and `POST /v1/jobs/{job_id}/relaunch`. New helpers `try_reserve_job()` / `release_reservation()` install a placeholder `current_job` (state `running`, `reservation=True`) inside the lock; the placeholder is replaced by `_start_job_thread()`'s real status write, or rolled back via `release_reservation()` if the launch raises. Concurrent same-tenant requests can no longer bypass `--max-concurrent-jobs-per-tenant`. Validated by an in-process 8-thread race smoke: exactly 1 reservation succeeds and 7 receive HTTP 409 `job_already_running`; releasing the placeholder allows another tenant to reserve. Legacy non-atomic `tenant_quota_violation` helper removed.
+1. **H2-b review fixup — Completed 2026-05-06; extended by G8 on 2026-05-08.** `scripts/serve_operator_dashboard.py` performs the per-tenant quota check and launch reservation atomically under `DashboardServer.job_lock` for both `POST /v1/jobs/start` and `POST /v1/jobs/{job_id}/relaunch`. `try_reserve_job()` / `release_reservation()` originally protected the single-active default path; G8 extended the same lock-protected reservation into an in-memory `jobs` registry so positive `--max-concurrent-jobs-per-tenant` values allow multiple same-tenant active jobs up to quota. Concurrent same-tenant requests can no longer bypass the configured quota, and positive-quota runs now return each start response from that job's own snapshot. Legacy non-atomic `tenant_quota_violation` helper removed.
 2. **H3-a review fixup — Completed 2026-05-06.** `scripts/run_sse_bridge_pipeline.sh` final success summary now prints the resolved tenant-partitioned `${AUDIT_ARCHIVE_INDEX}` (i.e. `<dir>/<tenant_id>/audit_chain_index.jsonl`) when `--audit-archive-dir` is combined with `--tenant-id`, plus an explicit `audit tenant: <tenant_id>` line; the legacy non-partitioned fallback path remains for the no-tenant case. Validated by a bash trace exercising both modes.
 
 Recommended next order:
@@ -1891,10 +1954,10 @@ Recommended next order:
 8. ~~F2-c — read-replica routing for sidecar reads~~ ✓ Completed repo-side 2026-05-07
 9. ~~F3 — Connection Pooling~~ ✓ Completed repo-side 2026-05-07
 
-**Optimization + large-scale benchmark only (G):** 7 blocks / 35h remaining
+**Optimization + large-scale benchmark only (G):** 5 blocks / 25h remaining (G6 mTLS connection overhead done locally 2026-05-08), with G3 implementation/timing done and only the hotspot profiling evidence still open inside that block
 
 **Critical path (shortest path to a load-tested, authority-backed platform):**
-F1-b → G3/G4/G5 → J2-b → K1 = 12 remaining blocks / ~60h (G1 + G2-a + G2-b + J1 + J2-a done repo-side/local 2026-05-07)
+F1-b → G3-hotspot/G4/G5 → J2-b → K1 = 11 remaining blocks / ~55h (G1 + G2-a + G2-b + J1 + J2-a done repo-side/local 2026-05-07; G3 timing/report scaffold + G6 mTLS overhead + G8 concurrent dashboard jobs done 2026-05-08)
 
 ---
 
@@ -1910,3 +1973,23 @@ The following are out of scope for this guidebook and should be treated as separ
 6. **SOC 2 Type II certification** — formal certification process requires an audit period and policy documentation beyond this guidebook's scope.
 
 None of these are blocked by the work in this guidebook. They should be started after the 30 remaining blocks above are complete.
+
+---
+
+## 12. E-commerce Platform Tracks (Track-E1 / Track-E2 / Track-E3)
+
+These tracks narrow down items §4.1, §4.5–4.7 of [`docs/COMPACT_PLATFORM_BRIEF.md`](/home/llvanion/Desktop/seccomp-privacy-platform/docs/COMPACT_PLATFORM_BRIEF.md) — the "PJC + SSE e-commerce platform" story gaps that are not production-readiness blocks but are required to make the demo credible end-to-end. They live alongside Categories E–K, not inside them.
+
+| Track | Scope | Status (2026-05-08) | Entry doc |
+|-------|-------|---------------------|-----------|
+| **Track-E1** | E-commerce fact-layer baseline: `orders` / `order_items` / `order_attribution` / `order_payment` / `order_fulfillment` / `customer_service_interactions` SQL tables, scope-key aligned with `sse_export_policy/v1`. | Repo-side complete: `migrations/metadata/010_add_ecommerce_fact_tables.sql` + Postgres parity in `migrations/postgres/001_init.sql` + `scripts/render_ecommerce_fact_layer.py` + `schemas/ecommerce_fact_layer_report.schema.json`; default contract smoke renders the report and asserts all 6 tables and ≥12 indexes. | [`docs/ECOMMERCE_FACT_LAYER_PLAN.md`](/home/llvanion/Desktop/seccomp-privacy-platform/docs/ECOMMERCE_FACT_LAYER_PLAN.md) |
+| **Track-E2** | Business identity model: `business_identities` table + `identity_kind` enum (`buyer` / `merchant_staff` / `customer_service_agent` / `courier` / `field_marketer`) annotating callers without breaking the frozen `caller_permissions` schema. | Repo-side complete: `migrations/metadata/011_add_business_identities.sql` + Postgres parity + Track-E2 section appended to `docs/ECOMMERCE_ACCESS_MODEL.md`; PII-free design enforced by column set (no name/phone/address). | [`docs/ECOMMERCE_ACCESS_MODEL.md`](/home/llvanion/Desktop/seccomp-privacy-platform/docs/ECOMMERCE_ACCESS_MODEL.md) §业务身份扩展 |
+| **Track-E3** | Operator console product baseline: `console_manifest/v1` contract + `config/operator_console/console_manifest.json` + static `index.html` placeholder + render/validate script; plus a forward-spec for the workflow/approval lifecycle and admin-as-product surfaces (overlaps I3). | Repo-side complete: 8 sections (home / jobs / audit / catalog / permissions / recovery / observability / compliance), 25 endpoints across the 5 existing platform `platform_roles`; default contract smoke validates the manifest, renders the report, and asserts all 8 sections + manifest reference from the static placeholder. The plan doc §9–§12 documents the split rule with I3 (Track-E3 owns the surface, I3 owns the lifecycle implementation), the approval state machine, the same-identity self-approval gate, and the Phase-2 admin sections (`admin_registry` / `admin_keys` / `admin_authority` / `admin_workflow` / `admin_retention` / `admin_external_anchor`). | [`docs/OPERATOR_CONSOLE_PRODUCT_PLAN.md`](/home/llvanion/Desktop/seccomp-privacy-platform/docs/OPERATOR_CONSOLE_PRODUCT_PLAN.md) |
+
+These tracks do not change the privacy boundary: the bridge handoff still tokenizes only `(buyer_email, total_amount_cents)`; `business_identities` is annotation-only and does not introduce new stage gates; the operator console is glue over existing HTTP wrappers and does not bypass `caller_permissions`.
+
+What is still operator-environment work after Track-E1/E2/E3:
+
+1. Bulk-loading real (or anonymized real) order data into the new fact tables — repo only ships the schema and the report contract.
+2. Building the SPA against `console_manifest/v1`. The static placeholder under `config/operator_console/index.html` reads the manifest and lists every section; the SPA replaces this page once a framework choice is made.
+3. Running the manifest contract against a live deployment — the render script is contract-only.
