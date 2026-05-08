@@ -24,6 +24,8 @@ Phase-1 implementation status (`2026-05-05`):
 
 That means this spec is now half design target, half implementation reference: the live transport and UI state machine exist, while the richer field-by-field setup form can still evolve later.
 
+> **Scope note (2026-05-08, Track-E3).** This document owns the PJC X-UI control shell layout: the UI state machine, four operator blocks, and the in-shell HTML structure. The broader operator-console-as-product surface — the section/endpoint inventory across the whole platform, the role-gate matrix, the workflow/approval lifecycle, and the admin surfaces — lives in [`docs/OPERATOR_CONSOLE_PRODUCT_PLAN.md`](/home/llvanion/Desktop/seccomp-privacy-platform/docs/OPERATOR_CONSOLE_PRODUCT_PLAN.md). The two documents do not overlap: this one freezes the *shell*, Track-E3 freezes the *manifest*. When Track-E3 evolves the section list, this spec only needs to react if the X-UI shell itself changes.
+
 ## 1. Problem: Overlap in the Current Layout
 
 The current dashboard has seven panels that all read the **same completed run**.

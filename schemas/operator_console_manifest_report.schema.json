@@ -1,0 +1,48 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "operator_console_manifest_report/v1",
+  "title": "Operator console manifest report (Track-E3)",
+  "type": "object",
+  "required": [
+    "schema",
+    "generated_at_utc",
+    "manifest_path",
+    "static_index_path",
+    "manifest",
+    "summary"
+  ],
+  "properties": {
+    "schema": {"const": "operator_console_manifest_report/v1"},
+    "generated_at_utc": {"type": "string", "minLength": 1},
+    "manifest_path": {"type": "string", "minLength": 1},
+    "static_index_path": {"type": "string", "minLength": 1},
+    "manifest": {"type": "object"},
+    "summary": {
+      "type": "object",
+      "required": [
+        "status",
+        "section_count",
+        "expected_sections",
+        "sections_present",
+        "sections_missing",
+        "endpoints_total",
+        "roles_referenced",
+        "static_index_links_count"
+      ],
+      "properties": {
+        "status": {"type": "string", "enum": ["ok", "fail"]},
+        "section_count": {"type": "integer", "minimum": 0},
+        "expected_sections": {"type": "array", "items": {"type": "string"}},
+        "sections_present": {"type": "array", "items": {"type": "string"}},
+        "sections_missing": {"type": "array", "items": {"type": "string"}},
+        "endpoints_total": {"type": "integer", "minimum": 0},
+        "roles_referenced": {"type": "array", "items": {"type": "string"}},
+        "static_index_links_count": {"type": "integer", "minimum": 0},
+        "static_index_references_manifest": {"type": "boolean"},
+        "feature_flags": {"type": "array", "items": {"type": "string"}}
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false
+}

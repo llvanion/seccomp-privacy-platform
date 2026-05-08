@@ -1,0 +1,148 @@
+{
+  "schema": "console_manifest/v1",
+  "generated_at_utc": "2026-05-08T00:00:00Z",
+  "title": "Seccomp Privacy Platform — Operator Console",
+  "feature_flags": [
+    "mtls",
+    "rate_limit",
+    "multi_tenant_quota",
+    "external_anchor"
+  ],
+  "sections": [
+    {
+      "section": "home",
+      "title": "Home / Health",
+      "description": "Per-tenant platform-health snapshot and recovery-service alert stripe.",
+      "endpoints": [
+        {"method": "GET", "path": "/v1/platform-health", "service": "serve_platform_health_api", "role": "any_authenticated"},
+        {"method": "GET", "path": "/metrics", "service": "record_recovery_http_service", "role": "any_authenticated"}
+      ],
+      "feature_flags": ["rate_limit"],
+      "roles_allowed": [
+        "commerce_ops_owner",
+        "campaign_analyst",
+        "fraud_analyst",
+        "compliance_auditor",
+        "recovery_service_operator"
+      ]
+    },
+    {
+      "section": "jobs",
+      "title": "Jobs",
+      "description": "Submit privacy queries, monitor running jobs, drill into the per-job audit chain.",
+      "endpoints": [
+        {"method": "POST", "path": "/v1/query-workflow", "service": "serve_query_workflow_api", "role": "query_submitter"},
+        {"method": "POST", "path": "/v1/jobs/start", "service": "serve_operator_dashboard", "role": "query_submitter"},
+        {"method": "GET", "path": "/v1/dashboard", "service": "serve_operator_dashboard", "role": "any_authenticated"},
+        {"method": "GET", "path": "/v1/jobs/{job_id}", "service": "serve_operator_dashboard", "role": "any_authenticated"},
+        {"method": "POST", "path": "/v1/jobs/{job_id}/relaunch", "service": "serve_operator_dashboard", "role": "query_submitter"},
+        {"method": "GET", "path": "/v1/audit-chain", "service": "serve_audit_query_api", "role": "any_authenticated"}
+      ],
+      "feature_flags": ["multi_tenant_quota"],
+      "roles_allowed": [
+        "commerce_ops_owner",
+        "campaign_analyst",
+        "fraud_analyst",
+        "compliance_auditor"
+      ]
+    },
+    {
+      "section": "audit",
+      "title": "Audit & Public Reports",
+      "description": "Browse public reports, verify sealed audit bundles, run tamper-resistance spot checks.",
+      "endpoints": [
+        {"method": "GET", "path": "/v1/public-report", "service": "serve_audit_query_api", "role": "any_authenticated"},
+        {"method": "GET", "path": "/v1/audit-chain", "service": "serve_audit_query_api", "role": "any_authenticated"},
+        {"method": "GET", "path": "/v1/observability", "service": "serve_audit_query_api", "role": "any_authenticated"},
+        {"method": "GET", "path": "/v1/catalog-lineage", "service": "serve_audit_query_api", "role": "any_authenticated"}
+      ],
+      "feature_flags": ["external_anchor"],
+      "roles_allowed": [
+        "commerce_ops_owner",
+        "campaign_analyst",
+        "fraud_analyst",
+        "compliance_auditor"
+      ]
+    },
+    {
+      "section": "catalog",
+      "title": "Catalog & Lineage",
+      "description": "Browse catalog_lineage/v1 per job and the dataset / service / business-identity registry.",
+      "endpoints": [
+        {"method": "GET", "path": "/v1/catalog-lineage", "service": "serve_audit_query_api", "role": "any_authenticated"},
+        {"method": "GET", "path": "/v1/jobs", "service": "serve_metadata_api", "role": "any_authenticated"},
+        {"method": "GET", "path": "/v1/policies", "service": "serve_metadata_api", "role": "any_authenticated"},
+        {"method": "GET", "path": "/v1/services", "service": "serve_metadata_api", "role": "any_authenticated"},
+        {"method": "GET", "path": "/v1/business-identities", "service": "serve_metadata_api", "role": "any_authenticated"}
+      ],
+      "roles_allowed": [
+        "commerce_ops_owner",
+        "campaign_analyst",
+        "fraud_analyst",
+        "compliance_auditor"
+      ]
+    },
+    {
+      "section": "permissions",
+      "title": "Permissions",
+      "description": "View caller_permissions, policy_bindings, business identities; trigger apply-registry proposals.",
+      "endpoints": [
+        {"method": "GET", "path": "/v1/caller-permissions", "service": "serve_metadata_api", "role": "compliance_auditor"},
+        {"method": "GET", "path": "/v1/policy-bindings", "service": "serve_metadata_api", "role": "compliance_auditor"},
+        {"method": "GET", "path": "/v1/business-identities", "service": "serve_metadata_api", "role": "compliance_auditor"}
+      ],
+      "roles_allowed": [
+        "commerce_ops_owner",
+        "compliance_auditor"
+      ]
+    },
+    {
+      "section": "recovery",
+      "title": "Recovery Service",
+      "description": "Recovery-service health, lifecycle, mTLS state, and rate-limit metrics.",
+      "endpoints": [
+        {"method": "GET", "path": "/health", "service": "record_recovery_http_service", "role": "recovery_service_operator"},
+        {"method": "GET", "path": "/metrics", "service": "record_recovery_http_service", "role": "recovery_service_operator"}
+      ],
+      "feature_flags": ["mtls", "rate_limit"],
+      "roles_allowed": [
+        "commerce_ops_owner",
+        "recovery_service_operator"
+      ]
+    },
+    {
+      "section": "observability",
+      "title": "Observability",
+      "description": "Pipeline-stage trace browser via Grafana / Tempo (linked, not embedded).",
+      "endpoints": [
+        {"method": "GET", "path": "config/observability/grafana-dashboards/pipeline-overview.json", "service": "grafana_provisioned", "role": "any_authenticated"},
+        {"method": "GET", "path": "config/observability/grafana-dashboards/recovery-service.json", "service": "grafana_provisioned", "role": "any_authenticated"}
+      ],
+      "external_links": [
+        {"label": "Grafana pipeline overview", "href": "/grafana/d/seccomp-pipeline-overview"},
+        {"label": "Grafana recovery service", "href": "/grafana/d/seccomp-recovery-service"}
+      ],
+      "roles_allowed": [
+        "commerce_ops_owner",
+        "campaign_analyst",
+        "fraud_analyst",
+        "compliance_auditor",
+        "recovery_service_operator"
+      ]
+    },
+    {
+      "section": "compliance",
+      "title": "Compliance",
+      "description": "GDPR mapping, retention plan, archive index, external anchor publish.",
+      "endpoints": [
+        {"method": "GET", "path": "docs/COMPLIANCE_MAPPING.md", "service": "static_doc", "role": "compliance_auditor"}
+      ],
+      "external_links": [
+        {"label": "Compliance mapping", "href": "/docs/COMPLIANCE_MAPPING.md"}
+      ],
+      "roles_allowed": [
+        "compliance_auditor"
+      ]
+    }
+  ]
+}

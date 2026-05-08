@@ -1,0 +1,94 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>Seccomp Privacy Platform — Operator Console (Track-E3 placeholder)</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <style>
+    body { font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; margin: 2rem; max-width: 960px; color: #222; }
+    h1 { font-size: 1.4rem; }
+    h2 { font-size: 1.1rem; margin-top: 2rem; }
+    section { border: 1px solid #ddd; padding: 1rem 1.25rem; border-radius: 6px; margin-bottom: 1rem; background: #fafafa; }
+    code { background: #f0f0f0; padding: 0.05rem 0.3rem; border-radius: 3px; font-size: 0.9em; }
+    .role-list { color: #555; font-size: 0.9rem; }
+    .endpoint { margin: 0.15rem 0; }
+    .method { display: inline-block; min-width: 3.5rem; font-weight: 600; color: #406; }
+    .feature { display: inline-block; padding: 0.05rem 0.4rem; margin-right: 0.25rem; border-radius: 3px; font-size: 0.75rem; background: #eef; color: #336; }
+    .placeholder-banner { background: #fff7e0; border: 1px solid #f1c40f; padding: 0.5rem 0.75rem; border-radius: 4px; margin-bottom: 1.5rem; font-size: 0.9rem; }
+    .error { color: #b00020; }
+  </style>
+</head>
+<body>
+  <h1 id="title">Seccomp Privacy Platform — Operator Console (placeholder)</h1>
+  <div class="placeholder-banner">
+    This is the Track-E3 baseline. It reads <code>console_manifest.json</code> at runtime
+    and lists the sections + backing HTTP endpoints. The real SPA replaces this page; the
+    manifest contract stays stable.
+  </div>
+  <p id="meta" class="role-list"></p>
+  <main id="sections">
+    <p>Loading <code>console_manifest.json</code>...</p>
+  </main>
+  <script>
+    (async () => {
+      const target = document.getElementById('sections');
+      try {
+        const resp = await fetch('console_manifest.json', { cache: 'no-cache' });
+        if (!resp.ok) {
+          throw new Error('HTTP ' + resp.status + ' ' + resp.statusText);
+        }
+        const manifest = await resp.json();
+        document.getElementById('title').textContent = manifest.title || 'Operator Console';
+        const meta = document.getElementById('meta');
+        const flags = (manifest.feature_flags || []).map(f => '<span class="feature">' + f + '</span>').join(' ');
+        meta.innerHTML = 'Manifest schema: <code>' + (manifest.schema || '?') + '</code> · feature flags: ' + (flags || 'none');
+        target.innerHTML = '';
+        for (const section of (manifest.sections || [])) {
+          const node = document.createElement('section');
+          const heading = document.createElement('h2');
+          heading.textContent = section.title + '  ·  /' + section.section;
+          node.appendChild(heading);
+          if (section.description) {
+            const desc = document.createElement('p');
+            desc.textContent = section.description;
+            node.appendChild(desc);
+          }
+          const roles = document.createElement('p');
+          roles.className = 'role-list';
+          roles.textContent = 'Roles: ' + (section.roles_allowed || []).join(', ');
+          node.appendChild(roles);
+          if (section.feature_flags && section.feature_flags.length) {
+            const flagBox = document.createElement('p');
+            flagBox.innerHTML = (section.feature_flags || [])
+              .map(f => '<span class="feature">' + f + '</span>').join(' ');
+            node.appendChild(flagBox);
+          }
+          for (const endpoint of (section.endpoints || [])) {
+            const line = document.createElement('div');
+            line.className = 'endpoint';
+            line.innerHTML = '<span class="method">' + endpoint.method + '</span><code>' + endpoint.path + '</code>'
+              + (endpoint.service ? '  ←  ' + endpoint.service : '')
+              + (endpoint.role ? '  · role: <em>' + endpoint.role + '</em>' : '');
+            node.appendChild(line);
+          }
+          if (section.external_links && section.external_links.length) {
+            const ul = document.createElement('ul');
+            for (const link of section.external_links) {
+              const li = document.createElement('li');
+              const a = document.createElement('a');
+              a.href = link.href;
+              a.textContent = link.label;
+              li.appendChild(a);
+              ul.appendChild(li);
+            }
+            node.appendChild(ul);
+          }
+          target.appendChild(node);
+        }
+      } catch (err) {
+        target.innerHTML = '<p class="error">Failed to load manifest: ' + err.message + '</p>';
+      }
+    })();
+  </script>
+</body>
+</html>

@@ -1,0 +1,78 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "console_manifest/v1",
+  "title": "Operator console manifest (Track-E3)",
+  "type": "object",
+  "required": [
+    "schema",
+    "generated_at_utc",
+    "title",
+    "sections"
+  ],
+  "properties": {
+    "schema": {"const": "console_manifest/v1"},
+    "generated_at_utc": {"type": "string", "minLength": 1},
+    "title": {"type": "string", "minLength": 1},
+    "feature_flags": {
+      "type": "array",
+      "items": {"type": "string", "minLength": 1}
+    },
+    "sections": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": [
+          "section",
+          "title",
+          "endpoints",
+          "roles_allowed"
+        ],
+        "properties": {
+          "section": {"type": "string", "minLength": 1},
+          "title": {"type": "string", "minLength": 1},
+          "description": {"type": "string"},
+          "endpoints": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": ["method", "path"],
+              "properties": {
+                "method": {
+                  "type": "string",
+                  "enum": ["GET", "POST", "PUT", "PATCH", "DELETE"]
+                },
+                "path": {"type": "string", "minLength": 1},
+                "service": {"type": "string"},
+                "role": {"type": "string"}
+              },
+              "additionalProperties": false
+            }
+          },
+          "feature_flags": {
+            "type": "array",
+            "items": {"type": "string", "minLength": 1}
+          },
+          "roles_allowed": {
+            "type": "array",
+            "items": {"type": "string", "minLength": 1}
+          },
+          "external_links": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": ["label", "href"],
+              "properties": {
+                "label": {"type": "string", "minLength": 1},
+                "href": {"type": "string", "minLength": 1}
+              },
+              "additionalProperties": false
+            }
+          }
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  "additionalProperties": false
+}
