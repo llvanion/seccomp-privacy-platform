@@ -1,0 +1,92 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "observability_topology_report/v1",
+  "title": "Observability topology report (Grafana + Tempo + Prometheus)",
+  "type": "object",
+  "required": [
+    "schema",
+    "generated_at_utc",
+    "topology_root",
+    "compose_file",
+    "tempo_config",
+    "prometheus_config",
+    "grafana_datasources",
+    "grafana_dashboards_config",
+    "grafana_dashboards",
+    "summary"
+  ],
+  "properties": {
+    "schema": {"const": "observability_topology_report/v1"},
+    "generated_at_utc": {"type": "string", "minLength": 1},
+    "topology_root": {"type": "string", "minLength": 1},
+    "compose_file": {"type": "string", "minLength": 1},
+    "tempo_config": {"type": "string", "minLength": 1},
+    "prometheus_config": {"type": "string", "minLength": 1},
+    "grafana_datasources": {"type": "string", "minLength": 1},
+    "grafana_dashboards_config": {"type": "string", "minLength": 1},
+    "grafana_dashboards": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["uid", "title", "path", "panel_count"],
+        "properties": {
+          "uid": {"type": "string", "minLength": 1},
+          "title": {"type": "string", "minLength": 1},
+          "path": {"type": "string", "minLength": 1},
+          "panel_count": {"type": "integer", "minimum": 1},
+          "tags": {"type": "array", "items": {"type": "string"}}
+        },
+        "additionalProperties": false
+      }
+    },
+    "tempo_otlp_endpoints": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["protocol", "address"],
+        "properties": {
+          "protocol": {"type": "string", "enum": ["grpc", "http"]},
+          "address": {"type": "string", "minLength": 1}
+        },
+        "additionalProperties": false
+      }
+    },
+    "prometheus_targets": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["job_name", "metrics_path", "targets"],
+        "properties": {
+          "job_name": {"type": "string", "minLength": 1},
+          "metrics_path": {"type": "string", "minLength": 1},
+          "targets": {"type": "array", "items": {"type": "string"}}
+        },
+        "additionalProperties": false
+      }
+    },
+    "summary": {
+      "type": "object",
+      "required": [
+        "status",
+        "compose_services_present",
+        "tempo_grpc_listener_present",
+        "tempo_http_listener_present",
+        "prometheus_alert_rules_mounted",
+        "datasources_present",
+        "dashboard_count"
+      ],
+      "properties": {
+        "status": {"type": "string", "enum": ["ok", "fail"]},
+        "compose_services_present": {"type": "array", "items": {"type": "string"}},
+        "tempo_grpc_listener_present": {"type": "boolean"},
+        "tempo_http_listener_present": {"type": "boolean"},
+        "prometheus_alert_rules_mounted": {"type": "boolean"},
+        "datasources_present": {"type": "array", "items": {"type": "string"}},
+        "dashboard_count": {"type": "integer", "minimum": 0}
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false
+}

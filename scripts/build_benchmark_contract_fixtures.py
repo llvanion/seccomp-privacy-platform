@@ -10,9 +10,12 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 PIPELINE_BENCHMARK_SCHEMA = "pipeline_benchmark/v1"
 LIVE_SSE_BENCHMARK_SCHEMA = "live_sse_benchmark/v1"
 PJC_BENCHMARK_SCHEMA = "pjc_benchmark/v1"
+BRIDGE_BENCHMARK_SCHEMA = "bridge_benchmark/v1"
+DASHBOARD_JOBS_BENCHMARK_SCHEMA = "dashboard_jobs_benchmark/v1"
 EXPECTED_PIPELINE_MODES = ("file_handoff", "file_handoff_retained", "fifo_handoff")
 EXPECTED_LIVE_MODES = ("file_handoff", "file_handoff_retained", "fifo_handoff")
 EXPECTED_PJC_MODES = ("checked_in_sse_demo_job",)
+EXPECTED_BRIDGE_MODES = ("prepare_job_jsonl",)
 
 
 def load_module(path: Path, name: str) -> Any:
@@ -109,6 +112,41 @@ def validate_pjc_surface(pjc_module: Any) -> None:
                 f"PJC benchmark fixture path mismatch: expected {(expected_server, expected_client)}, "
                 f"got {(server_csv, client_csv)}"
             )
+
+
+def validate_bridge_surface(bridge_module: Any) -> None:
+    if tuple(bridge_module.MODES) != EXPECTED_BRIDGE_MODES:
+        raise SystemExit(
+            f"bridge benchmark mode set mismatch: expected {EXPECTED_BRIDGE_MODES}, got {tuple(bridge_module.MODES)}"
+        )
+    command = bridge_module.build_prepare_job_command(
+        bridge_cmd=["cargo", "run", "--quiet", "--"],
+        server_jsonl=Path("/tmp/seccomp_bridge_benchmark_example/server.jsonl"),
+        client_jsonl=Path("/tmp/seccomp_bridge_benchmark_example/client.jsonl"),
+        out_dir=Path("/tmp/seccomp_bridge_benchmark_example/out"),
+        audit_log=Path("/tmp/seccomp_bridge_benchmark_example/bridge_audit.jsonl"),
+        job_id="contract_bridge_prepare_job",
+        token_scope="contract_bridge_prepare_job",
+    )
+    expected_flags = {
+        "prepare-job",
+        "--server-input-format",
+        "jsonl",
+        "--client-input-format",
+        "jsonl",
+        "--server-normalizer",
+        "email",
+        "--client-normalizer",
+        "email",
+        "--client-value-mode",
+        "raw-int",
+        "--token-secret-env",
+        bridge_module.TOKEN_SECRET_ENV,
+        "--audit-log",
+        "--production-mode",
+    }
+    if not expected_flags.issubset(set(command)):
+        raise SystemExit(f"bridge benchmark command surface mismatch: {command}")
 
 
 def build_pipeline_fixture(pipeline_module: Any) -> dict[str, Any]:
@@ -264,6 +302,148 @@ def build_pjc_fixture(pjc_module: Any) -> dict[str, Any]:
     }
 
 
+def build_bridge_fixture(bridge_module: Any) -> dict[str, Any]:
+    command = bridge_module.build_prepare_job_command(
+        bridge_cmd=["cargo", "run", "--quiet", "--"],
+        server_jsonl=Path("/tmp/seccomp_bridge_benchmark_example/server.jsonl"),
+        client_jsonl=Path("/tmp/seccomp_bridge_benchmark_example/client.jsonl"),
+        out_dir=Path("/tmp/seccomp_bridge_benchmark_example/out"),
+        audit_log=Path("/tmp/seccomp_bridge_benchmark_example/bridge_audit.jsonl"),
+        job_id="fixture_bridge_prepare_job",
+        token_scope="fixture_bridge_prepare_job",
+    )
+    return {
+        "schema": BRIDGE_BENCHMARK_SCHEMA,
+        "generated_at_utc": "2026-05-08T00:00:00Z",
+        "repo_root": str(REPO_ROOT),
+        "bridge_cwd": str(REPO_ROOT / "bridge"),
+        "fixture_profile": bridge_module.FIXTURE_PROFILE,
+        "scale": {
+            "server_rows": 5,
+            "client_rows": 5,
+        },
+        "setup": {
+            "server_generation_ms": 1.0,
+            "client_generation_ms": 1.0,
+            "server_jsonl": "/tmp/seccomp_bridge_benchmark_example/server.jsonl",
+            "client_jsonl": "/tmp/seccomp_bridge_benchmark_example/client.jsonl",
+        },
+        "profile": {
+            "method": "external_flamegraph_optional",
+            "top_hotspots": [],
+            "notes": "Contract fixture; run the benchmark script for measured timing and RSS.",
+        },
+        "iterations": 1,
+        "modes": [
+            {
+                "mode": mode,
+                "command": command,
+                "input_fixture": {
+                    "server_jsonl": "/tmp/seccomp_bridge_benchmark_example/server.jsonl",
+                    "client_jsonl": "/tmp/seccomp_bridge_benchmark_example/client.jsonl",
+                },
+                "summary": {
+                    **build_summary(),
+                    "throughput_rows_per_sec": {
+                        "mean": 1000.0,
+                        "p50": 1000.0,
+                    },
+                },
+                "results": [
+                    {
+                        "duration_ms": 1.0,
+                        "exit_code": 0,
+                        "timed_out": False,
+                        "stderr_tail": "",
+                        "stdout_tail": "",
+                        "server_input_rows": 5,
+                        "client_input_rows": 5,
+                        "server_unique_join_tokens": 5,
+                        "client_unique_join_tokens": 5,
+                        "server_output_rows": 5,
+                        "client_output_rows": 5,
+                        "audit_decision": "allow",
+                        "audit_duration_ms": 1,
+                        "production_mode": True,
+                        "token_secret_source_kind": "env",
+                        "throughput_rows_per_sec": 1000.0,
+                        "peak_rss_kb": 1,
+                        "job_meta_file": "/tmp/seccomp_bridge_benchmark_example/out/job_meta.json",
+                        "audit_log": "/tmp/seccomp_bridge_benchmark_example/bridge_audit.jsonl",
+                    }
+                ],
+            }
+            for mode in bridge_module.MODES
+        ],
+    }
+
+
+def build_dashboard_jobs_fixture() -> dict[str, Any]:
+    results = [
+        {
+            "duration_ms": 10.0 + index,
+            "status_code": 202,
+            "job_id": f"dashboard_benchmark_job_{index}",
+            "state": "running",
+        }
+        for index in range(5)
+    ]
+    dashboard_results = [
+        {
+            "duration_ms": 8.0 + index,
+            "status_code": 200,
+            "overall_status": "warn",
+            "job_control_state": "running",
+        }
+        for index in range(5)
+    ]
+    return {
+        "schema": DASHBOARD_JOBS_BENCHMARK_SCHEMA,
+        "generated_at_utc": "2026-05-08T00:00:00Z",
+        "repo_root": str(REPO_ROOT),
+        "mode": "inprocess_http_fake_runner",
+        "configuration": {
+            "concurrency": 5,
+            "dashboard_reads": 5,
+            "job_runtime_sec": 0.2,
+            "dashboard_p95_threshold_ms": 2000.0,
+            "max_memory_growth_kb_per_job": 1024.0,
+        },
+        "summary": {
+            "status": "ok",
+            "accepted_jobs": 5,
+            "rejected_jobs": 0,
+            "dashboard_ok_reads": 5,
+            "dashboard_p95_ms": 12.0,
+            "dashboard_p95_passed": True,
+            "memory_growth_current_kb": 128.0,
+            "memory_growth_peak_kb": 256.0,
+            "memory_growth_per_job_kb": 25.6,
+            "memory_leak_check_passed": True,
+        },
+        "start_requests": {
+            "duration_ms": {
+                "min": 10.0,
+                "mean": 12.0,
+                "p50": 12.0,
+                "p95": 13.8,
+                "max": 14.0,
+            },
+            "results": results,
+        },
+        "dashboard_reads": {
+            "duration_ms": {
+                "min": 8.0,
+                "mean": 10.0,
+                "p50": 10.0,
+                "p95": 11.8,
+                "max": 12.0,
+            },
+            "results": dashboard_results,
+        },
+    }
+
+
 def write_json(path: Path, payload: dict[str, Any]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
@@ -274,6 +454,8 @@ def build_parser() -> argparse.ArgumentParser:
     ap.add_argument("--pipeline-out", required=True)
     ap.add_argument("--live-out", required=True)
     ap.add_argument("--pjc-out", required=True)
+    ap.add_argument("--bridge-out", required=True)
+    ap.add_argument("--dashboard-jobs-out", required=True)
     return ap
 
 
@@ -282,14 +464,18 @@ def main() -> int:
     pipeline_module = load_module(REPO_ROOT / "scripts" / "benchmark_pipeline.py", "benchmark_pipeline_contract")
     live_module = load_module(REPO_ROOT / "scripts" / "benchmark_live_sse_demo.py", "benchmark_live_sse_contract")
     pjc_module = load_module(REPO_ROOT / "scripts" / "benchmark_pjc.py", "benchmark_pjc_contract")
+    bridge_module = load_module(REPO_ROOT / "scripts" / "benchmark_bridge.py", "benchmark_bridge_contract")
 
     validate_pipeline_surface(pipeline_module)
     validate_live_surface(live_module)
     validate_pjc_surface(pjc_module)
+    validate_bridge_surface(bridge_module)
 
     write_json(Path(args.pipeline_out), build_pipeline_fixture(pipeline_module))
     write_json(Path(args.live_out), build_live_fixture(live_module))
     write_json(Path(args.pjc_out), build_pjc_fixture(pjc_module))
+    write_json(Path(args.bridge_out), build_bridge_fixture(bridge_module))
+    write_json(Path(args.dashboard_jobs_out), build_dashboard_jobs_fixture())
     return 0
 
 

@@ -1,0 +1,276 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "dashboard_jobs_benchmark/v1",
+  "title": "Benchmark report for concurrent operator dashboard jobs",
+  "type": "object",
+  "required": [
+    "schema",
+    "generated_at_utc",
+    "repo_root",
+    "mode",
+    "configuration",
+    "summary",
+    "start_requests",
+    "dashboard_reads"
+  ],
+  "properties": {
+    "schema": {
+      "const": "dashboard_jobs_benchmark/v1"
+    },
+    "generated_at_utc": {
+      "type": "string",
+      "minLength": 1
+    },
+    "repo_root": {
+      "type": "string",
+      "minLength": 1
+    },
+    "mode": {
+      "type": "string",
+      "enum": [
+        "inprocess_http_fake_runner"
+      ]
+    },
+    "configuration": {
+      "type": "object",
+      "required": [
+        "concurrency",
+        "dashboard_reads",
+        "job_runtime_sec",
+        "dashboard_p95_threshold_ms",
+        "max_memory_growth_kb_per_job"
+      ],
+      "properties": {
+        "concurrency": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "dashboard_reads": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "job_runtime_sec": {
+          "type": "number",
+          "minimum": 0
+        },
+        "dashboard_p95_threshold_ms": {
+          "type": "number",
+          "minimum": 0
+        },
+        "max_memory_growth_kb_per_job": {
+          "type": "number",
+          "minimum": 0
+        }
+      },
+      "additionalProperties": false
+    },
+    "summary": {
+      "type": "object",
+      "required": [
+        "status",
+        "accepted_jobs",
+        "rejected_jobs",
+        "dashboard_ok_reads",
+        "dashboard_p95_ms",
+        "dashboard_p95_passed",
+        "memory_growth_current_kb",
+        "memory_growth_peak_kb",
+        "memory_growth_per_job_kb",
+        "memory_leak_check_passed"
+      ],
+      "properties": {
+        "status": {
+          "type": "string",
+          "enum": [
+            "ok",
+            "fail"
+          ]
+        },
+        "accepted_jobs": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "rejected_jobs": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "dashboard_ok_reads": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "dashboard_p95_ms": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "dashboard_p95_passed": {
+          "type": "boolean"
+        },
+        "memory_growth_current_kb": {
+          "type": "number",
+          "minimum": 0
+        },
+        "memory_growth_peak_kb": {
+          "type": "number",
+          "minimum": 0
+        },
+        "memory_growth_per_job_kb": {
+          "type": "number",
+          "minimum": 0
+        },
+        "memory_leak_check_passed": {
+          "type": "boolean"
+        }
+      },
+      "additionalProperties": false
+    },
+    "start_requests": {
+      "$ref": "#/$defs/request_group"
+    },
+    "dashboard_reads": {
+      "$ref": "#/$defs/dashboard_group"
+    }
+  },
+  "additionalProperties": false,
+  "$defs": {
+    "duration_summary": {
+      "type": "object",
+      "required": [
+        "min",
+        "mean",
+        "p50",
+        "p95",
+        "max"
+      ],
+      "properties": {
+        "min": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "mean": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "p50": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "p95": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "max": {
+          "type": [
+            "number",
+            "null"
+          ]
+        }
+      },
+      "additionalProperties": false
+    },
+    "request_group": {
+      "type": "object",
+      "required": [
+        "duration_ms",
+        "results"
+      ],
+      "properties": {
+        "duration_ms": {
+          "$ref": "#/$defs/duration_summary"
+        },
+        "results": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "duration_ms",
+              "status_code",
+              "job_id",
+              "state"
+            ],
+            "properties": {
+              "duration_ms": {
+                "type": "number",
+                "minimum": 0
+              },
+              "status_code": {
+                "type": "integer"
+              },
+              "job_id": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "state": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            },
+            "additionalProperties": false
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "dashboard_group": {
+      "type": "object",
+      "required": [
+        "duration_ms",
+        "results"
+      ],
+      "properties": {
+        "duration_ms": {
+          "$ref": "#/$defs/duration_summary"
+        },
+        "results": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "duration_ms",
+              "status_code",
+              "overall_status",
+              "job_control_state"
+            ],
+            "properties": {
+              "duration_ms": {
+                "type": "number",
+                "minimum": 0
+              },
+              "status_code": {
+                "type": "integer"
+              },
+              "overall_status": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "job_control_state": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            },
+            "additionalProperties": false
+          }
+        }
+      },
+      "additionalProperties": false
+    }
+  }
+}

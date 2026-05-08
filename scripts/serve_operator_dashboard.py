@@ -1602,10 +1602,16 @@ class DashboardServer(ThreadingHTTPServer):
         self.max_concurrent_jobs_per_tenant = max(0, int(max_concurrent_jobs_per_tenant))
         self.job_lock = threading.Lock()
         self.current_job: dict[str, Any] | None = _seed_job_from_out_base(out_base)
+        self.jobs: dict[str, dict[str, Any]] = {}
+        if self.current_job is not None and self.current_job.get("job_id"):
+            self.jobs[str(self.current_job["job_id"])] = dict(self.current_job)
         super().__init__(server_address, handler_cls)
 
-    def get_job(self) -> dict[str, Any] | None:
+    def get_job(self, job_id: str | None = None) -> dict[str, Any] | None:
         with self.job_lock:
+            if job_id:
+                job = self.jobs.get(str(job_id))
+                return dict(job) if job is not None else None
             if self.current_job is None:
                 return None
             return dict(self.current_job)
@@ -1613,6 +1619,8 @@ class DashboardServer(ThreadingHTTPServer):
     def set_job(self, job: dict[str, Any] | None) -> None:
         with self.job_lock:
             self.current_job = dict(job) if job is not None else None
+            if job is not None and job.get("job_id"):
+                self.jobs[str(job["job_id"])] = dict(job)
         invalidate_dashboard_cache()
 
     def _filesystem_active_keys_for_tenant(self, tenant_id: str) -> set[str]:
@@ -1638,6 +1646,12 @@ class DashboardServer(ThreadingHTTPServer):
                 current_tenant = str(current.get("tenant_id") or UNSPECIFIED_TENANT_ID)
                 if current_tenant == target:
                     active_keys.add(str(current.get("out_base") or current.get("job_id") or "__current__"))
+            for job in self.jobs.values():
+                if job.get("state") != "running":
+                    continue
+                job_tenant = str(job.get("tenant_id") or UNSPECIFIED_TENANT_ID)
+                if job_tenant == target:
+                    active_keys.add(str(job.get("out_base") or job.get("job_id") or "__job__"))
         return len(active_keys)
 
     def try_reserve_job(
@@ -1648,7 +1662,7 @@ class DashboardServer(ThreadingHTTPServer):
         out_base: Path | None,
         request_source: str | None,
     ) -> dict[str, Any] | None:
-        """Atomically check single-active-job + per-tenant quota and reserve a slot.
+        """Atomically check dashboard concurrency limits and reserve a job slot.
 
         Returns None on success (placeholder installed under job_lock); on failure returns
         ``{"status": int, "body": {...}}`` describing the HTTP error to send back.
@@ -1659,7 +1673,7 @@ class DashboardServer(ThreadingHTTPServer):
             fs_active_keys = self._filesystem_active_keys_for_tenant(target_tenant)
         with self.job_lock:
             current = self.current_job
-            if current is not None and current.get("state") == "running":
+            if self.max_concurrent_jobs_per_tenant <= 0 and current is not None and current.get("state") == "running":
                 return {
                     "status": 409,
                     "body": {
@@ -1667,7 +1681,21 @@ class DashboardServer(ThreadingHTTPServer):
                         "job_id": current.get("job_id"),
                     },
                 }
+            if job_id and job_id in self.jobs and self.jobs[job_id].get("state") == "running":
+                return {
+                    "status": 409,
+                    "body": {
+                        "error": "job_already_running",
+                        "job_id": job_id,
+                    },
+                }
             if self.max_concurrent_jobs_per_tenant > 0:
+                for job in self.jobs.values():
+                    if job.get("state") != "running":
+                        continue
+                    job_tenant = str(job.get("tenant_id") or UNSPECIFIED_TENANT_ID)
+                    if job_tenant == target_tenant:
+                        fs_active_keys.add(str(job.get("out_base") or job.get("job_id") or "__job__"))
                 if len(fs_active_keys) >= self.max_concurrent_jobs_per_tenant:
                     return {
                         "status": 429,
@@ -1684,7 +1712,7 @@ class DashboardServer(ThreadingHTTPServer):
                         },
                     }
             now = _utc_now()
-            self.current_job = {
+            placeholder = {
                 "job_id": job_id,
                 "tenant_id": target_tenant,
                 "state": "running",
@@ -1697,15 +1725,22 @@ class DashboardServer(ThreadingHTTPServer):
                 "request_source": request_source,
                 "reservation": True,
             }
+            self.current_job = placeholder
+            if job_id:
+                self.jobs[job_id] = dict(placeholder)
         invalidate_dashboard_cache()
         return None
 
-    def release_reservation(self) -> None:
+    def release_reservation(self, job_id: str | None = None) -> None:
         """Drop the placeholder installed by try_reserve_job after a launch failure."""
         with self.job_lock:
             current = self.current_job
-            if current is not None and current.get("reservation"):
+            if current is not None and current.get("reservation") and (
+                job_id is None or str(current.get("job_id") or "") == str(job_id)
+            ):
                 self.current_job = None
+            if job_id and job_id in self.jobs and self.jobs[job_id].get("reservation"):
+                self.jobs.pop(job_id, None)
         invalidate_dashboard_cache()
 
     def recent_runs(
@@ -1789,7 +1824,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
         return _job_snapshot(job)
 
     def _job_snapshot_or_404(self, job_id: str) -> dict[str, Any] | None:
-        job = self.server.get_job()
+        job = self.server.get_job(job_id)
         if job is None or str(job.get("job_id") or "") != job_id:
             return None
         return _job_snapshot(job)
@@ -1878,7 +1913,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
             return
         if path.startswith("/v1/jobs/") and path.endswith("/relaunch"):
             job_id = unquote(path[len("/v1/jobs/") : -len("/relaunch")]).strip("/")
-            current = self.server.get_job()
+            current = self.server.get_job(job_id)
             if current is None or str(current.get("job_id") or "") != job_id:
                 self._send_json(404, {"error": "not_found", "job_id": job_id})
                 return
@@ -1940,9 +1975,10 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 try:
                     _start_job_thread(self.server, payload=payload, request_source=request_source, request_dir=request_dir)
                 except BaseException:
-                    self.server.release_reservation()
+                    self.server.release_reservation(preview_job_id)
                     raise
-                snapshot = self._current_job_snapshot() or {}
+                snapshot_job = self.server.get_job(preview_job_id) if preview_job_id else self.server.get_job()
+                snapshot = _job_snapshot(snapshot_job) if snapshot_job is not None else {}
                 self._send_json(202, {
                     "job_id": snapshot.get("job_id"),
                     "state": snapshot.get("state"),
@@ -1985,9 +2021,10 @@ class DashboardHandler(BaseHTTPRequestHandler):
             try:
                 _start_job_thread(self.server, payload=payload, request_source=request_source, request_dir=request_dir)
             except BaseException:
-                self.server.release_reservation()
+                self.server.release_reservation(preview_job_id)
                 raise
-            snapshot = self._current_job_snapshot() or {}
+            snapshot_job = self.server.get_job(preview_job_id) if preview_job_id else self.server.get_job()
+            snapshot = _job_snapshot(snapshot_job) if snapshot_job is not None else {}
             self._send_json(202, {
                 "job_id": snapshot.get("job_id"),
                 "state": snapshot.get("state"),

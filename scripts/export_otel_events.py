@@ -23,6 +23,7 @@ Usage:
 import argparse
 import hashlib
 import json
+import os
 import time
 from datetime import datetime, timezone
 from pathlib import Path
@@ -186,11 +187,76 @@ def _build_stage_span(
     }
 
 
+def _push_otlp_http(
+    *,
+    endpoint_url: str,
+    spans: list[dict[str, Any]],
+    timeout_sec: float,
+    bearer_token: str | None,
+) -> dict[str, Any]:
+    """Best-effort OTLP/HTTP-JSON push of pre-built spans.
+
+    Wraps the spans in the OTLP ExportTraceServiceRequest JSON shape and POSTs
+    to ``<endpoint_url>/v1/traces``. Resource and instrumentation-scope blocks
+    are kept minimal so the receiver can still index by trace id without
+    bringing in the full ``opentelemetry-exporter-otlp`` dependency. Returns a
+    push-result summary (status_code or transport_error)."""
+    import urllib.error
+    import urllib.request
+
+    base = endpoint_url.rstrip("/")
+    target_url = base if base.endswith("/v1/traces") else f"{base}/v1/traces"
+    payload = {
+        "resourceSpans": [
+            {
+                "resource": {
+                    "attributes": [
+                        {"key": "service.name", "value": {"stringValue": "seccomp-privacy-pipeline"}},
+                    ]
+                },
+                "scopeSpans": [
+                    {
+                        "scope": {"name": "seccomp-privacy-platform.observability"},
+                        "spans": spans,
+                    }
+                ],
+            }
+        ]
+    }
+    headers = {"Content-Type": "application/json"}
+    if bearer_token:
+        headers["Authorization"] = f"Bearer {bearer_token}"
+    body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
+    request = urllib.request.Request(target_url, data=body, method="POST", headers=headers)
+    started_at = time.perf_counter() if "time" in globals() else None
+    status_code = 0
+    transport_error: str | None = None
+    try:
+        with urllib.request.urlopen(request, timeout=timeout_sec) as response:
+            response.read()
+            status_code = int(response.status)
+    except urllib.error.HTTPError as exc:
+        status_code = int(exc.code)
+        transport_error = f"HTTPError: {exc}"
+    except Exception as exc:
+        transport_error = f"{type(exc).__name__}: {exc}"
+    return {
+        "endpoint_url": target_url,
+        "span_count": len(spans),
+        "status_code": status_code,
+        "ok": transport_error is None and 200 <= status_code < 300,
+        "transport_error": transport_error,
+    }
+
+
 def export_spans(
     *,
     observability_path: str,
     spans_out: str,
     report_out: str,
+    otlp_endpoint: str = "",
+    otlp_bearer_env: str = "",
+    otlp_timeout_sec: float = 5.0,
 ) -> dict[str, Any]:
     obs_path = Path(observability_path)
     obs = json.loads(obs_path.read_text(encoding="utf-8"))
@@ -245,6 +311,16 @@ def export_spans(
         "duration_ms_total": total_ms,
     }
 
+    if otlp_endpoint:
+        bearer_token = os.environ.get(otlp_bearer_env, "").strip() if otlp_bearer_env else ""
+        push_result = _push_otlp_http(
+            endpoint_url=otlp_endpoint,
+            spans=all_spans,
+            timeout_sec=otlp_timeout_sec,
+            bearer_token=bearer_token or None,
+        )
+        report["otlp_push"] = push_result
+
     if report_out:
         report_path = Path(report_out)
         report_path.parent.mkdir(parents=True, exist_ok=True)
@@ -261,6 +337,9 @@ def build_parser() -> argparse.ArgumentParser:
     ap.add_argument("--spans-out", required=True, help="Path to write OTel spans JSONL")
     ap.add_argument("--report-out", default="", help="Path to write otel_export_report/v1 JSON")
     ap.add_argument("--out-base", default="", help="Infer --observability and --spans-out from this run directory")
+    ap.add_argument("--otlp-endpoint", default="", help="If set, also POST the spans as OTLP/HTTP-JSON to <endpoint>/v1/traces (best-effort; transport errors are recorded in the report).")
+    ap.add_argument("--otlp-bearer-env", default="", help="Optional env var holding a bearer token to attach as Authorization: Bearer <token>.")
+    ap.add_argument("--otlp-timeout-sec", type=float, default=5.0, help="Timeout for the OTLP/HTTP push.")
     return ap
 
 
@@ -287,6 +366,9 @@ def main() -> int:
         observability_path=observability,
         spans_out=spans_out,
         report_out=args.report_out,
+        otlp_endpoint=args.otlp_endpoint,
+        otlp_bearer_env=args.otlp_bearer_env,
+        otlp_timeout_sec=args.otlp_timeout_sec,
     )
     print(json.dumps(report, ensure_ascii=False, indent=2))
     return 0

@@ -1212,6 +1212,18 @@ The benchmark reuses a synthetic completed-run bundle plus imported SQLite metad
 
 The same smoke run now also asserts the expected component set per mode, while allowing the documented CLI-only fallback when loopback HTTP startup is unavailable in restricted environments.
 
+Benchmark concurrent operator dashboard job starts:
+
+```bash
+python3 scripts/benchmark_dashboard_jobs.py \
+  --concurrency 5 \
+  --dashboard-reads 10 \
+  --job-runtime-sec 0.5 \
+  --output tmp/dashboard_jobs_benchmark.json
+```
+
+This emits `dashboard_jobs_benchmark/v1`. The benchmark starts the dashboard on loopback and replaces the heavy pipeline runner with an in-process fake runner after normal request validation and reservation, so it exercises the HTTP `POST /v1/jobs/start` path, positive per-tenant quota mode, `/v1/dashboard` reads, and `tracemalloc` retained-memory checks without launching multiple full privacy pipelines. It is an explicit local/operator benchmark because restricted environments may block loopback socket creation; default contract smoke validates a synthetic fixture instead.
+
 Benchmark the derived observability and catalog exporters:
 
 ```bash
@@ -1514,6 +1526,10 @@ Use this tree when a check or service reports an unexpected failure.
    - If chain is corrupted: restore from `<archive-dir>/audit_chains/` using `verify_audit_bundle.py --restore-dir <dir>`.
 2. **`signature_verified: false`** → the HMAC seal key does not match; confirm the `--hmac-key-env` value is identical to what was used at seal time.
 3. **`anchor_log_verified: false`** → the anchor chain was tampered; review `audit_chain_anchor.jsonl` for gaps and compare with archived copies.
+4. **Spot-check tamper resistance for a specific run** → `python3 scripts/verify_audit_tamper_resistance.py --audit-chain <chain> --audit-seal <seal> --job-id <id> --hmac-key-env <env> --output tmp/audit_tamper_resistance.json`. The report should show `status=ok`, `summary.detected==summary.total>=4`, and `post_restore_check.{audit_chain_sha256_matches_baseline,audit_seal_sha256_matches_baseline,verifier_passes_after_restore}=true`. The script restores the original bytes after every mutation; a non-zero exit means either tamper was missed (verifier issue) or the bundle was not restored (filesystem issue).
+5. **HTTP malformed-input gate spot-check** → `python3 scripts/check_http_malformed_input_gate.py --output tmp/http_malformed_input_gate.json`. Default mode spawns the record-recovery HTTP service in-process on loopback and runs 10 malformed-request scenarios; report should show `summary.status=ok` and `summary.detected==summary.total>=8`. Operators can target an existing service with `--endpoint https://...` and pass `--auth-token` if the service requires bearer auth.
+6. **mTLS connection-overhead spot-check** → `python3 scripts/benchmark_mtls_overhead.py --iterations 50 --output tmp/recovery_mtls_benchmark.json`. Spawns plaintext + mTLS record-recovery HTTP services on loopback and probes `/health` in both fresh- and persistent-connection modes. Report fields to watch: `summary.fresh_connection_mtls_overhead_p95_ms` (target < 50ms; auto-flagged), `summary.keep_alive_savings_mtls_p95_ms` (positive when keep-alive helps), and the four `(transport, connection_mode)` p50/p95 entries.
+7. **Bring up observability stack** → `cd config/observability && docker compose -f docker-compose.observability.yml up -d`. Tempo serves OTLP gRPC on 4317 and OTLP HTTP on 4318; Prometheus is on 9090 (mounting the J3-b `alert-rules.yml`); Grafana is on 3000 with anonymous admin access enabled for the local demo. Datasources (`seccomp-tempo`, `seccomp-prometheus`) and dashboards (`seccomp-pipeline-overview`, `seccomp-recovery-service`) auto-provision. Push spans with `python3 scripts/export_otel_events.py --observability <pipeline_observability.json> --spans-out tmp/spans.jsonl --otlp-endpoint http://localhost:4318` (the JSONL output and the `otlp_push` block in `otel_export_report/v1` are kept side-by-side). Verify the stack with `python3 scripts/render_observability_topology.py --output tmp/observability_topology_report.json` (must report `summary.status=ok`).
 
 ### Record Recovery Service Failure
 

@@ -1,0 +1,415 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "bridge_benchmark/v1",
+  "title": "Benchmark report for the Rust bridge prepare-job path",
+  "type": "object",
+  "required": [
+    "schema",
+    "generated_at_utc",
+    "repo_root",
+    "bridge_cwd",
+    "fixture_profile",
+    "scale",
+    "setup",
+    "profile",
+    "iterations",
+    "modes"
+  ],
+  "properties": {
+    "schema": {
+      "const": "bridge_benchmark/v1"
+    },
+    "generated_at_utc": {
+      "type": "string",
+      "minLength": 1
+    },
+    "repo_root": {
+      "type": "string",
+      "minLength": 1
+    },
+    "bridge_cwd": {
+      "type": "string",
+      "minLength": 1
+    },
+    "fixture_profile": {
+      "type": "string",
+      "minLength": 1
+    },
+    "scale": {
+      "type": "object",
+      "required": [
+        "server_rows",
+        "client_rows"
+      ],
+      "properties": {
+        "server_rows": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "client_rows": {
+          "type": "integer",
+          "minimum": 1
+        }
+      },
+      "additionalProperties": false
+    },
+    "setup": {
+      "type": "object",
+      "required": [
+        "server_generation_ms",
+        "client_generation_ms",
+        "server_jsonl",
+        "client_jsonl"
+      ],
+      "properties": {
+        "server_generation_ms": {
+          "type": "number",
+          "minimum": 0
+        },
+        "client_generation_ms": {
+          "type": "number",
+          "minimum": 0
+        },
+        "server_jsonl": {
+          "type": "string",
+          "minLength": 1
+        },
+        "client_jsonl": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "additionalProperties": false
+    },
+    "profile": {
+      "type": "object",
+      "required": [
+        "method",
+        "top_hotspots",
+        "notes"
+      ],
+      "properties": {
+        "method": {
+          "type": "string",
+          "minLength": 1
+        },
+        "top_hotspots": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "rank",
+              "symbol",
+              "percent"
+            ],
+            "properties": {
+              "rank": {
+                "type": "integer",
+                "minimum": 1
+              },
+              "symbol": {
+                "type": "string",
+                "minLength": 1
+              },
+              "percent": {
+                "type": [
+                  "number",
+                  "null"
+                ],
+                "minimum": 0
+              }
+            },
+            "additionalProperties": false
+          }
+        },
+        "notes": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false
+    },
+    "iterations": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "modes": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "mode",
+          "command",
+          "input_fixture",
+          "summary",
+          "results"
+        ],
+        "properties": {
+          "mode": {
+            "type": "string",
+            "enum": [
+              "prepare_job_jsonl"
+            ]
+          },
+          "command": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "input_fixture": {
+            "type": "object",
+            "required": [
+              "server_jsonl",
+              "client_jsonl"
+            ],
+            "properties": {
+              "server_jsonl": {
+                "type": "string",
+                "minLength": 1
+              },
+              "client_jsonl": {
+                "type": "string",
+                "minLength": 1
+              }
+            },
+            "additionalProperties": false
+          },
+          "summary": {
+            "type": "object",
+            "required": [
+              "iterations",
+              "successful_iterations",
+              "failed_iterations",
+              "duration_ms",
+              "throughput_rows_per_sec"
+            ],
+            "properties": {
+              "iterations": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "successful_iterations": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "failed_iterations": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "duration_ms": {
+                "$ref": "#/$defs/numeric_summary"
+              },
+              "throughput_rows_per_sec": {
+                "type": "object",
+                "required": [
+                  "mean",
+                  "p50"
+                ],
+                "properties": {
+                  "mean": {
+                    "type": [
+                      "number",
+                      "null"
+                    ]
+                  },
+                  "p50": {
+                    "type": [
+                      "number",
+                      "null"
+                    ]
+                  }
+                },
+                "additionalProperties": false
+              }
+            },
+            "additionalProperties": false
+          },
+          "results": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": [
+                "duration_ms",
+                "exit_code",
+                "timed_out",
+                "stderr_tail",
+                "stdout_tail",
+                "server_input_rows",
+                "client_input_rows",
+                "server_unique_join_tokens",
+                "client_unique_join_tokens",
+                "server_output_rows",
+                "client_output_rows",
+                "audit_decision",
+                "audit_duration_ms",
+                "production_mode",
+                "token_secret_source_kind",
+                "throughput_rows_per_sec",
+                "peak_rss_kb",
+                "job_meta_file",
+                "audit_log"
+              ],
+              "properties": {
+                "duration_ms": {
+                  "type": "number",
+                  "minimum": 0
+                },
+                "exit_code": {
+                  "type": "integer"
+                },
+                "timed_out": {
+                  "type": "boolean"
+                },
+                "stderr_tail": {
+                  "type": "string"
+                },
+                "stdout_tail": {
+                  "type": "string"
+                },
+                "server_input_rows": {
+                  "type": [
+                    "integer",
+                    "null"
+                  ],
+                  "minimum": 0
+                },
+                "client_input_rows": {
+                  "type": [
+                    "integer",
+                    "null"
+                  ],
+                  "minimum": 0
+                },
+                "server_unique_join_tokens": {
+                  "type": [
+                    "integer",
+                    "null"
+                  ],
+                  "minimum": 0
+                },
+                "client_unique_join_tokens": {
+                  "type": [
+                    "integer",
+                    "null"
+                  ],
+                  "minimum": 0
+                },
+                "server_output_rows": {
+                  "type": [
+                    "integer",
+                    "null"
+                  ],
+                  "minimum": 0
+                },
+                "client_output_rows": {
+                  "type": [
+                    "integer",
+                    "null"
+                  ],
+                  "minimum": 0
+                },
+                "audit_decision": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "audit_duration_ms": {
+                  "type": [
+                    "integer",
+                    "null"
+                  ],
+                  "minimum": 0
+                },
+                "production_mode": {
+                  "type": [
+                    "boolean",
+                    "null"
+                  ]
+                },
+                "token_secret_source_kind": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "throughput_rows_per_sec": {
+                  "type": [
+                    "number",
+                    "null"
+                  ],
+                  "minimum": 0
+                },
+                "peak_rss_kb": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "job_meta_file": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "audit_log": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                }
+              },
+              "additionalProperties": false
+            }
+          }
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  "additionalProperties": false,
+  "$defs": {
+    "numeric_summary": {
+      "type": "object",
+      "required": [
+        "min",
+        "mean",
+        "p50",
+        "p95",
+        "max"
+      ],
+      "properties": {
+        "min": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "mean": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "p50": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "p95": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "max": {
+          "type": [
+            "number",
+            "null"
+          ]
+        }
+      },
+      "additionalProperties": false
+    }
+  }
+}

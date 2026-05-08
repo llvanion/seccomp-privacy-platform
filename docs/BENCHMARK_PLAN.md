@@ -8,7 +8,7 @@ The goal is not to invent a new benchmark harness inside the main pipeline. The 
 
 ## Current Coverage
 
-The repository now has eleven lightweight benchmark paths:
+The repository now has fourteen lightweight benchmark paths:
 
 1. [scripts/benchmark_smoke.py](/home/llvanion/Desktop/seccomp-privacy-platform/scripts/benchmark_smoke.py)
 2. [scripts/check_schema_backcompat.py](/home/llvanion/Desktop/seccomp-privacy-platform/scripts/check_schema_backcompat.py) via `benchmark_smoke.py --target schema-backcompat`
@@ -21,6 +21,9 @@ The repository now has eleven lightweight benchmark paths:
 9. [scripts/benchmark_audit_bundle.py](/home/llvanion/Desktop/seccomp-privacy-platform/scripts/benchmark_audit_bundle.py)
 10. [scripts/benchmark_platform_health.py](/home/llvanion/Desktop/seccomp-privacy-platform/scripts/benchmark_platform_health.py)
 11. [scripts/benchmark_derived_views.py](/home/llvanion/Desktop/seccomp-privacy-platform/scripts/benchmark_derived_views.py)
+12. [scripts/benchmark_bridge.py](/home/llvanion/Desktop/seccomp-privacy-platform/scripts/benchmark_bridge.py)
+13. [scripts/benchmark_dashboard_jobs.py](/home/llvanion/Desktop/seccomp-privacy-platform/scripts/benchmark_dashboard_jobs.py)
+14. [scripts/benchmark_mtls_overhead.py](/home/llvanion/Desktop/seccomp-privacy-platform/scripts/benchmark_mtls_overhead.py)
 
 ## Query Workflow Benchmark
 
@@ -171,6 +174,119 @@ Local 2026-05-07 scale runs:
 
 1. 100k records / 100k candidates: 100000 output rows, 2.885s export duration, 34,661 rows/s, peak RSS 84,760 KB.
 2. 1M records / 1M candidates: 1000000 output rows, 27.184s export duration, 36,786 rows/s, peak RSS 609,584 KB.
+
+## Bridge Prepare-Job Scale Benchmark
+
+Current supported report schema:
+
+```text
+bridge_benchmark/v1
+```
+
+This benchmark measures the Rust bridge `prepare-job` path over deterministic synthetic e-commerce JSONL inputs:
+
+1. `scripts/benchmark_bridge.py` generates server/client JSONL fixtures with `email` join keys and `amount` values.
+2. It runs `bridge prepare-job` in `--production-mode` with `--token-secret-env BRIDGE_TOKEN_SECRET`.
+3. It validates the bridge audit decision, job metadata counts, tokenized `server.csv` / `client.csv` row counts, throughput, and peak RSS.
+4. `scripts/benchmark_smoke.py --target bridge-scale --scale <n>` invokes the same path for explicit local scale runs.
+
+Example:
+
+```bash
+python3 scripts/benchmark_bridge.py \
+  --server-rows 100000 \
+  --client-rows 100000 \
+  --iterations 1 \
+  --output tmp/bridge_benchmark_100k.json
+```
+
+Default contract smoke does not execute the Rust benchmark; it validates a synthetic `bridge_benchmark/v1` fixture and the expected command surface so the report contract remains stable without forcing cargo/flamegraph into fast checks.
+
+Local 2026-05-08 scale runs:
+
+1. 100k server rows / 100k client rows: 100000 server output rows, 100000 client output rows, 5.589s prepare-job duration, 35,783 rows/s, peak RSS 46,388 KB.
+2. 1M server rows / 1M client rows: 1000000 server output rows, 1000000 client output rows, 57.555s prepare-job duration, 34,750 rows/s, peak RSS 424,432 KB.
+
+CPU hotspot attribution remains an explicit operator profiling step:
+
+```bash
+cd bridge
+cargo flamegraph -- prepare-job ...
+```
+
+The benchmark report preserves timing, throughput, RSS, audit, and metadata fields; flamegraph/perf symbol review should be attached alongside the JSON report when doing optimization work.
+
+## Concurrent Dashboard Jobs Benchmark
+
+Current supported report schema:
+
+```text
+dashboard_jobs_benchmark/v1
+```
+
+This benchmark measures the operator dashboard's concurrent job-start path without launching five heavyweight privacy pipelines:
+
+1. `scripts/benchmark_dashboard_jobs.py` starts `serve_operator_dashboard.py` in-process on loopback.
+2. It monkeypatches the dashboard job runner with a short fake runner after the normal `query_workflow_request/v1` validation and reservation path, so the HTTP endpoint, per-tenant quota path, job registry, and dashboard reads are still exercised.
+3. It posts concurrent `POST /v1/jobs/start` requests with unique `job_id` / `out_base` values under the same tenant.
+4. It measures start latency, `/v1/dashboard` latency, and post-completion retained memory through `tracemalloc`.
+
+Example:
+
+```bash
+python3 scripts/benchmark_dashboard_jobs.py \
+  --concurrency 5 \
+  --dashboard-reads 10 \
+  --job-runtime-sec 0.5 \
+  --output tmp/dashboard_jobs_benchmark.json
+```
+
+`serve_operator_dashboard.py` now preserves the old default single-active-job behavior when `--max-concurrent-jobs-per-tenant=0`; when a positive quota is configured, it allows up to that many same-tenant active jobs and returns each start response from that job's own snapshot rather than the latest global `current_job`.
+
+Default contract smoke validates a synthetic `dashboard_jobs_benchmark/v1` fixture. The real benchmark needs loopback socket permission, so it remains an explicit local/operator benchmark path.
+
+Local 2026-05-08 G8 run:
+
+1. 5 concurrent same-tenant starts: 5 accepted, 0 rejected; start p95 12.360ms.
+2. 10 `/v1/dashboard` reads while jobs were running: p95 4.781ms, below the 2s target.
+3. `tracemalloc` retained memory after completion: 47.681 KB/job, below the 1024 KB/job leak threshold.
+
+## mTLS Connection Overhead Benchmark
+
+Current supported report schema:
+
+```text
+recovery_mtls_benchmark/v1
+```
+
+This benchmark isolates TLS handshake and connection overhead from request processing for the record-recovery HTTP boundary:
+
+1. `scripts/benchmark_mtls_overhead.py` spawns the record-recovery HTTP service in-process twice on loopback — once over plaintext HTTP, once over mTLS using mock-issued certs from `scripts/issue_mtls_certs.py`.
+2. It exercises the unauthenticated `/health` endpoint (so the measurement does not need a real record store, an authz policy, or a bearer token).
+3. Each transport is exercised in two connection modes — `fresh_connection` (new TCP + TLS handshake per request, using `http.client.HTTPSConnection` with a fresh constructor each time) and `persistent_connection` (one connection reused for all iterations, exercising HTTP keep-alive and TLS session reuse).
+4. The report records p50/p95/min/mean/max latency for each (transport, connection_mode) pair, computes mTLS overhead p95 against the plaintext baseline for both modes, and computes the keep-alive savings on mTLS p95.
+5. The summary auto-flags `keep_alive_recommended=true` when mTLS fresh-connection overhead p95 crosses `--mtls-overhead-warn-ms` (default 50ms).
+
+Example:
+
+```bash
+python3 scripts/benchmark_mtls_overhead.py \
+  --iterations 50 \
+  --output tmp/recovery_mtls_benchmark.json
+```
+
+Default contract smoke runs 5 iterations × 4 transport-mode combinations = 20 requests end-to-end on loopback. Asserts: `summary.status=ok`, all 20 requests succeed, and the four expected (transport, connection_mode) combinations are all present in the report.
+
+Local 2026-05-08 measurement (5 iterations, /health, loopback, mock certs):
+
+| Transport | Connection mode | p50 | p95 |
+|-----------|-----------------|-----|-----|
+| plain_http | fresh_connection | 0.531ms | 0.623ms |
+| plain_http | persistent_connection | 0.468ms | 0.522ms |
+| mtls | fresh_connection | 2.204ms | 2.246ms |
+| mtls | persistent_connection | 2.036ms | 2.071ms |
+
+Derived metrics: mTLS fresh-connection overhead p95 ≈ 1.6ms (well under the 50ms threshold), keep-alive savings on mTLS p95 ≈ 0.18ms. The benchmark stores the raw per-iteration durations so an operator can re-derive these metrics without re-running.
 
 ## Record Recovery Benchmark
 

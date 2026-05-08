@@ -185,6 +185,78 @@ def validate_sse_export(payload: dict[str, Any]) -> None:
         raise SystemExit(f"SSE export benchmark result mismatch: {payload}")
 
 
+def validate_bridge(payload: dict[str, Any]) -> None:
+    if payload.get("schema") != "bridge_benchmark/v1":
+        raise SystemExit(f"bridge benchmark schema mismatch: {payload}")
+    scale = payload.get("scale") or {}
+    if scale.get("server_rows") != 5 or scale.get("client_rows") != 5:
+        raise SystemExit(f"bridge benchmark scale mismatch: {payload}")
+    profile = payload.get("profile") or {}
+    if profile.get("method") != "external_flamegraph_optional" or not isinstance(profile.get("top_hotspots"), list):
+        raise SystemExit(f"bridge benchmark profile metadata mismatch: {payload}")
+    entries = payload.get("modes") or []
+    actual_modes = {entry.get("mode") for entry in entries}
+    if actual_modes != {"prepare_job_jsonl"}:
+        raise SystemExit(f"bridge benchmark modes mismatch: {payload}")
+    for entry in entries:
+        expect_single_success(entry, label=f"bridge benchmark mode {entry.get('mode')}")
+        command = entry.get("command") or []
+        if (
+            "prepare-job" not in command
+            or "--server-input-format" not in command
+            or "jsonl" not in command
+            or "--client-value-mode" not in command
+            or "raw-int" not in command
+            or "--production-mode" not in command
+        ):
+            raise SystemExit(f"bridge benchmark command surface mismatch: {entry}")
+        result = entry["results"][0]
+        if (
+            result.get("server_input_rows") != 5
+            or result.get("client_input_rows") != 5
+            or result.get("server_unique_join_tokens") != 5
+            or result.get("client_unique_join_tokens") != 5
+            or result.get("server_output_rows") != 5
+            or result.get("client_output_rows") != 5
+            or result.get("audit_decision") != "allow"
+            or result.get("production_mode") is not True
+            or result.get("token_secret_source_kind") != "env"
+            or not isinstance(result.get("throughput_rows_per_sec"), (int, float))
+            or not isinstance(result.get("peak_rss_kb"), int)
+        ):
+            raise SystemExit(f"bridge benchmark result mismatch: {entry}")
+
+
+def validate_dashboard_jobs(payload: dict[str, Any]) -> None:
+    if payload.get("schema") != "dashboard_jobs_benchmark/v1":
+        raise SystemExit(f"dashboard jobs benchmark schema mismatch: {payload}")
+    config = payload.get("configuration") or {}
+    summary = payload.get("summary") or {}
+    concurrency = config.get("concurrency")
+    dashboard_reads = config.get("dashboard_reads")
+    if concurrency != 5 or not isinstance(dashboard_reads, int) or dashboard_reads < 5:
+        raise SystemExit(f"dashboard jobs benchmark config mismatch: {payload}")
+    if (
+        summary.get("status") != "ok"
+        or summary.get("accepted_jobs") != concurrency
+        or summary.get("rejected_jobs") != 0
+        or summary.get("dashboard_ok_reads") != dashboard_reads
+        or summary.get("dashboard_p95_passed") is not True
+        or summary.get("memory_leak_check_passed") is not True
+        or not isinstance(summary.get("dashboard_p95_ms"), (int, float))
+        or summary.get("dashboard_p95_ms") >= 2000
+    ):
+        raise SystemExit(f"dashboard jobs benchmark summary mismatch: {payload}")
+    start_results = (payload.get("start_requests") or {}).get("results") or []
+    dashboard_results = (payload.get("dashboard_reads") or {}).get("results") or []
+    if len(start_results) != concurrency or len(dashboard_results) != dashboard_reads:
+        raise SystemExit(f"dashboard jobs benchmark result count mismatch: {payload}")
+    if any(item.get("status_code") != 202 or item.get("state") != "running" for item in start_results):
+        raise SystemExit(f"dashboard jobs benchmark start result mismatch: {payload}")
+    if any(item.get("status_code") != 200 for item in dashboard_results):
+        raise SystemExit(f"dashboard jobs benchmark dashboard read mismatch: {payload}")
+
+
 def validate_audit_bundle(payload: dict[str, Any]) -> None:
     expected_audit_bundle_modes = {
         "archive_cli",
@@ -398,6 +470,8 @@ def build_parser() -> argparse.ArgumentParser:
     ap.add_argument("--query-workflow", required=True)
     ap.add_argument("--read-adapter", required=True)
     ap.add_argument("--sse-export", required=True)
+    ap.add_argument("--bridge", required=True)
+    ap.add_argument("--dashboard-jobs", required=True)
     ap.add_argument("--record-recovery", required=True)
     ap.add_argument("--pipeline", required=True)
     ap.add_argument("--live-sse", required=True)
@@ -412,6 +486,8 @@ def main() -> int:
     validate_query_workflow(load(args.query_workflow))
     validate_read_adapter(load(args.read_adapter))
     validate_sse_export(load(args.sse_export))
+    validate_bridge(load(args.bridge))
+    validate_dashboard_jobs(load(args.dashboard_jobs))
     validate_record_recovery(load(args.record_recovery))
     validate_pipeline(load(args.pipeline))
     validate_live_sse(load(args.live_sse))

@@ -1,0 +1,166 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "audit_tamper_resistance/v1",
+  "title": "Audit chain tamper-resistance verification report",
+  "type": "object",
+  "required": [
+    "schema",
+    "generated_at_utc",
+    "status",
+    "audit_chain_path",
+    "audit_seal_path",
+    "scenarios",
+    "summary"
+  ],
+  "properties": {
+    "schema": {
+      "const": "audit_tamper_resistance/v1"
+    },
+    "generated_at_utc": {
+      "type": "string",
+      "minLength": 1
+    },
+    "status": {
+      "type": "string",
+      "enum": ["ok", "fail"]
+    },
+    "reason": {
+      "type": ["string", "null"],
+      "minLength": 0
+    },
+    "audit_chain_path": {
+      "type": "string",
+      "minLength": 1
+    },
+    "audit_seal_path": {
+      "type": "string",
+      "minLength": 1
+    },
+    "job_id": {
+      "type": ["string", "null"]
+    },
+    "hmac_key_env": {
+      "type": ["string", "null"]
+    },
+    "baseline_audit_chain_sha256": {
+      "type": "string",
+      "minLength": 64,
+      "maxLength": 64
+    },
+    "baseline_audit_seal_sha256": {
+      "type": "string",
+      "minLength": 64,
+      "maxLength": 64
+    },
+    "baseline_signature_verified": {
+      "type": ["boolean", "null"]
+    },
+    "baseline_error_class": {
+      "type": ["string", "null"]
+    },
+    "baseline_error_message": {
+      "type": ["string", "null"]
+    },
+    "scenarios": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "name",
+          "target",
+          "path",
+          "offset",
+          "detected"
+        ],
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1
+          },
+          "target": {
+            "type": "string",
+            "enum": ["audit_chain", "audit_seal"]
+          },
+          "path": {
+            "type": "string",
+            "minLength": 1
+          },
+          "offset_hint": {
+            "type": ["string", "null"]
+          },
+          "offset": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "original_byte": {
+            "type": ["integer", "null"],
+            "minimum": 0,
+            "maximum": 255
+          },
+          "mutated_byte": {
+            "type": ["integer", "null"],
+            "minimum": 0,
+            "maximum": 255
+          },
+          "detected": {
+            "type": "boolean"
+          },
+          "verifier_raised": {
+            "type": "boolean"
+          },
+          "error_class": {
+            "type": ["string", "null"]
+          },
+          "error_message": {
+            "type": ["string", "null"]
+          },
+          "signature_verified_after_tamper": {
+            "type": ["boolean", "null"]
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    "summary": {
+      "type": "object",
+      "required": ["total", "detected", "missed"],
+      "properties": {
+        "total": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "detected": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "missed": {
+          "type": "integer",
+          "minimum": 0
+        }
+      },
+      "additionalProperties": false
+    },
+    "post_restore_check": {
+      "type": ["object", "null"],
+      "properties": {
+        "audit_chain_sha256_matches_baseline": {
+          "type": "boolean"
+        },
+        "audit_seal_sha256_matches_baseline": {
+          "type": "boolean"
+        },
+        "verifier_passes_after_restore": {
+          "type": "boolean"
+        },
+        "verifier_error_class": {
+          "type": ["string", "null"]
+        },
+        "verifier_error_message": {
+          "type": ["string", "null"]
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false
+}

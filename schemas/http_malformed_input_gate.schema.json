@@ -1,0 +1,93 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "http_malformed_input_gate/v1",
+  "title": "HTTP malformed-input gate report for the record-recovery boundary",
+  "type": "object",
+  "required": [
+    "schema",
+    "generated_at_utc",
+    "endpoint",
+    "spawned_in_process",
+    "configuration",
+    "summary",
+    "scenarios"
+  ],
+  "properties": {
+    "schema": {
+      "const": "http_malformed_input_gate/v1"
+    },
+    "generated_at_utc": {
+      "type": "string",
+      "minLength": 1
+    },
+    "endpoint": {
+      "type": "string",
+      "minLength": 1
+    },
+    "spawned_in_process": {
+      "type": "boolean"
+    },
+    "auth_token_provided": {
+      "type": "boolean"
+    },
+    "configuration": {
+      "type": "object",
+      "required": ["timeout_sec", "body_size_bytes", "max_rows_per_request"],
+      "properties": {
+        "timeout_sec": {"type": "number", "minimum": 0.1},
+        "body_size_bytes": {"type": "integer", "minimum": 1},
+        "max_rows_per_request": {"type": "integer", "minimum": 0}
+      },
+      "additionalProperties": false
+    },
+    "summary": {
+      "type": "object",
+      "required": ["total", "detected", "missed", "status"],
+      "properties": {
+        "total": {"type": "integer", "minimum": 0},
+        "detected": {"type": "integer", "minimum": 0},
+        "missed": {"type": "integer", "minimum": 0},
+        "status": {"type": "string", "enum": ["ok", "fail"]}
+      },
+      "additionalProperties": false
+    },
+    "scenarios": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["scenario", "description", "result", "assertion"],
+        "properties": {
+          "scenario": {"type": "string", "minLength": 1},
+          "description": {"type": "string", "minLength": 1},
+          "body_size_bytes": {"type": "integer", "minimum": 0},
+          "result": {
+            "type": "object",
+            "required": ["duration_ms", "status_code"],
+            "properties": {
+              "duration_ms": {"type": "number", "minimum": 0},
+              "status_code": {"type": "integer", "minimum": 0},
+              "response": {"type": "object"},
+              "transport_error": {"type": ["string", "null"]}
+            },
+            "additionalProperties": true
+          },
+          "assertion": {
+            "type": "object",
+            "required": ["detected"],
+            "properties": {
+              "detected": {"type": "boolean"},
+              "status_code": {"type": ["integer", "null"]},
+              "transport_error": {"type": ["string", "null"]},
+              "response_error": {"type": ["string", "null"]},
+              "response_reason": {"type": ["string", "null"]}
+            },
+            "additionalProperties": false
+          }
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  "additionalProperties": false
+}

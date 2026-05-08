@@ -18,6 +18,8 @@ TARGETS = {
     "contracts": ["bash", "scripts/check_json_contracts.sh"],
     "ci-smoke": ["bash", "scripts/check_ci_smoke.sh"],
     "sse-export-scale": ["python3", "scripts/benchmark_sse_export.py"],
+    "bridge-scale": ["python3", "scripts/benchmark_bridge.py"],
+    "dashboard-jobs": ["python3", "scripts/benchmark_dashboard_jobs.py"],
 }
 
 
@@ -45,6 +47,10 @@ def command_for_target(target: str, *, scale: int) -> list[str]:
         raise ValueError(f"unsupported benchmark target: {target}") from e
     if target == "sse-export-scale":
         command.extend(["--record-count", str(scale), "--candidate-count", str(scale), "--iterations", "1"])
+    elif target == "bridge-scale":
+        command.extend(["--server-rows", str(scale), "--client-rows", str(scale), "--iterations", "1"])
+    elif target == "dashboard-jobs":
+        command.extend(["--concurrency", str(scale)])
     return command
 
 
@@ -119,7 +125,7 @@ def main() -> int:
         "generated_at_utc": utc_now_iso(),
         "repo_root": str(REPO_ROOT),
         "target": args.target,
-        "scale": args.scale if args.target == "sse-export-scale" else None,
+        "scale": args.scale if args.target in {"sse-export-scale", "bridge-scale", "dashboard-jobs"} else None,
         "command": command,
         "summary": summarize(results),
         "results": results,

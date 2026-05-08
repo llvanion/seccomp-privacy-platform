@@ -1,0 +1,152 @@
+{
+  "uid": "seccomp-pipeline-overview",
+  "title": "seccomp-privacy-platform — Pipeline Overview",
+  "schemaVersion": 39,
+  "version": 1,
+  "tags": ["seccomp", "privacy", "pipeline"],
+  "timezone": "browser",
+  "editable": true,
+  "graphTooltip": 1,
+  "refresh": "30s",
+  "time": {"from": "now-1h", "to": "now"},
+  "timepicker": {"refresh_intervals": ["10s", "30s", "1m", "5m"]},
+  "templating": {
+    "list": [
+      {
+        "name": "tenant_id",
+        "label": "Tenant",
+        "type": "query",
+        "datasource": {"type": "prometheus", "uid": "seccomp-prometheus"},
+        "query": "label_values(record_recovery_request_total, tenant_id)",
+        "refresh": 1,
+        "includeAll": true,
+        "multi": false
+      }
+    ]
+  },
+  "panels": [
+    {
+      "id": 1,
+      "type": "stat",
+      "title": "Recovery service requests (last 5m)",
+      "gridPos": {"h": 5, "w": 6, "x": 0, "y": 0},
+      "datasource": {"type": "prometheus", "uid": "seccomp-prometheus"},
+      "targets": [
+        {
+          "expr": "sum(increase(record_recovery_request_total{tenant_id=~\"$tenant_id\"}[5m]))",
+          "legendFormat": "requests"
+        }
+      ],
+      "options": {
+        "reduceOptions": {"calcs": ["lastNotNull"]},
+        "colorMode": "value",
+        "graphMode": "area"
+      }
+    },
+    {
+      "id": 2,
+      "type": "stat",
+      "title": "Recovery service error rate (last 5m)",
+      "gridPos": {"h": 5, "w": 6, "x": 6, "y": 0},
+      "datasource": {"type": "prometheus", "uid": "seccomp-prometheus"},
+      "targets": [
+        {
+          "expr": "sum(rate(record_recovery_request_total{decision=\"deny\",tenant_id=~\"$tenant_id\"}[5m])) / clamp_min(sum(rate(record_recovery_request_total{tenant_id=~\"$tenant_id\"}[5m])), 1)",
+          "legendFormat": "error_rate"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {"color": "green", "value": null},
+              {"color": "yellow", "value": 0.05},
+              {"color": "red", "value": 0.1}
+            ]
+          }
+        }
+      }
+    },
+    {
+      "id": 3,
+      "type": "stat",
+      "title": "Active jobs",
+      "gridPos": {"h": 5, "w": 6, "x": 12, "y": 0},
+      "datasource": {"type": "prometheus", "uid": "seccomp-prometheus"},
+      "targets": [
+        {
+          "expr": "sum(operator_dashboard_active_jobs)",
+          "legendFormat": "active"
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "type": "stat",
+      "title": "Rate-limit denies (last 5m)",
+      "gridPos": {"h": 5, "w": 6, "x": 18, "y": 0},
+      "datasource": {"type": "prometheus", "uid": "seccomp-prometheus"},
+      "targets": [
+        {
+          "expr": "sum(increase(record_recovery_request_total{reason_code=\"rate_limited\",tenant_id=~\"$tenant_id\"}[5m]))",
+          "legendFormat": "rate_limited"
+        }
+      ]
+    },
+    {
+      "id": 10,
+      "type": "timeseries",
+      "title": "Recovery service request rate (per minute)",
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 5},
+      "datasource": {"type": "prometheus", "uid": "seccomp-prometheus"},
+      "targets": [
+        {
+          "expr": "sum by (decision) (rate(record_recovery_request_total{tenant_id=~\"$tenant_id\"}[1m]) * 60)",
+          "legendFormat": "{{decision}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {"unit": "reqpm", "min": 0}
+      }
+    },
+    {
+      "id": 11,
+      "type": "timeseries",
+      "title": "Recovery service latency (p50/p95)",
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 5},
+      "datasource": {"type": "prometheus", "uid": "seccomp-prometheus"},
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.50, sum by (le) (rate(record_recovery_request_duration_seconds_bucket{tenant_id=~\"$tenant_id\"}[5m])))",
+          "legendFormat": "p50"
+        },
+        {
+          "expr": "histogram_quantile(0.95, sum by (le) (rate(record_recovery_request_duration_seconds_bucket{tenant_id=~\"$tenant_id\"}[5m])))",
+          "legendFormat": "p95"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {"unit": "s", "min": 0}
+      }
+    },
+    {
+      "id": 20,
+      "type": "table",
+      "title": "Pipeline stage durations (Tempo)",
+      "gridPos": {"h": 10, "w": 24, "x": 0, "y": 13},
+      "datasource": {"type": "tempo", "uid": "seccomp-tempo"},
+      "targets": [
+        {
+          "queryType": "traceqlSearch",
+          "limit": 50,
+          "filters": [
+            {"id": "service-name", "operator": "=", "scope": "resource", "tag": "service.name", "value": ["seccomp-privacy-pipeline"], "valueType": "string"}
+          ],
+          "tableType": "traces"
+        }
+      ]
+    }
+  ]
+}

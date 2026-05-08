@@ -1,0 +1,94 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "recovery_mtls_benchmark/v1",
+  "title": "Record-recovery mTLS connection-overhead benchmark report",
+  "type": "object",
+  "required": [
+    "schema",
+    "generated_at_utc",
+    "configuration",
+    "summary",
+    "transports"
+  ],
+  "properties": {
+    "schema": {"const": "recovery_mtls_benchmark/v1"},
+    "generated_at_utc": {"type": "string", "minLength": 1},
+    "configuration": {
+      "type": "object",
+      "required": ["iterations", "timeout_sec", "mtls_overhead_warn_ms", "endpoint_path"],
+      "properties": {
+        "iterations": {"type": "integer", "minimum": 1},
+        "timeout_sec": {"type": "number", "minimum": 0.1},
+        "mtls_overhead_warn_ms": {"type": "number", "minimum": 0.0},
+        "endpoint_path": {"type": "string", "minLength": 1}
+      },
+      "additionalProperties": false
+    },
+    "summary": {
+      "type": "object",
+      "required": [
+        "status",
+        "total_requests",
+        "successful_requests",
+        "fresh_connection_mtls_overhead_p95_ms",
+        "persistent_connection_mtls_overhead_p95_ms",
+        "keep_alive_savings_mtls_p95_ms",
+        "fresh_overhead_under_warn_threshold",
+        "keep_alive_recommended",
+        "keep_alive_helps"
+      ],
+      "properties": {
+        "status": {"type": "string", "enum": ["ok", "fail"]},
+        "total_requests": {"type": "integer", "minimum": 0},
+        "successful_requests": {"type": "integer", "minimum": 0},
+        "fresh_connection_mtls_overhead_p95_ms": {"type": ["number", "null"]},
+        "persistent_connection_mtls_overhead_p95_ms": {"type": ["number", "null"]},
+        "keep_alive_savings_mtls_p95_ms": {"type": ["number", "null"]},
+        "fresh_overhead_under_warn_threshold": {"type": "boolean"},
+        "keep_alive_recommended": {"type": "boolean"},
+        "keep_alive_helps": {"type": "boolean"}
+      },
+      "additionalProperties": false
+    },
+    "transports": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["transport", "connection_mode", "duration_ms", "results"],
+        "properties": {
+          "transport": {"type": "string", "enum": ["plain_http", "mtls"]},
+          "connection_mode": {"type": "string", "enum": ["fresh_connection", "persistent_connection"]},
+          "duration_ms": {
+            "type": "object",
+            "required": ["min", "mean", "p50", "p95", "max"],
+            "properties": {
+              "min": {"type": ["number", "null"]},
+              "mean": {"type": ["number", "null"]},
+              "p50": {"type": ["number", "null"]},
+              "p95": {"type": ["number", "null"]},
+              "max": {"type": ["number", "null"]}
+            },
+            "additionalProperties": false
+          },
+          "results": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": ["iteration", "status_code", "duration_ms"],
+              "properties": {
+                "iteration": {"type": "integer", "minimum": 0},
+                "status_code": {"type": "integer", "minimum": 0},
+                "duration_ms": {"type": ["number", "null"]},
+                "transport_error": {"type": ["string", "null"]}
+              },
+              "additionalProperties": false
+            }
+          }
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  "additionalProperties": false
+}

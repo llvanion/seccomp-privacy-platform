@@ -1,0 +1,101 @@
+{
+  "uid": "seccomp-recovery-service",
+  "title": "seccomp-privacy-platform — Recovery Service",
+  "schemaVersion": 39,
+  "version": 1,
+  "tags": ["seccomp", "privacy", "recovery-service"],
+  "timezone": "browser",
+  "editable": true,
+  "graphTooltip": 1,
+  "refresh": "30s",
+  "time": {"from": "now-6h", "to": "now"},
+  "panels": [
+    {
+      "id": 1,
+      "type": "timeseries",
+      "title": "Request rate by decision",
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 0},
+      "datasource": {"type": "prometheus", "uid": "seccomp-prometheus"},
+      "targets": [
+        {
+          "expr": "sum by (decision) (rate(record_recovery_request_total[5m]))",
+          "legendFormat": "{{decision}}"
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "type": "timeseries",
+      "title": "Request rate by reason_code",
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 0},
+      "datasource": {"type": "prometheus", "uid": "seccomp-prometheus"},
+      "targets": [
+        {
+          "expr": "sum by (reason_code) (rate(record_recovery_request_total[5m]))",
+          "legendFormat": "{{reason_code}}"
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "type": "timeseries",
+      "title": "Request latency p50 / p95 / p99 (seconds)",
+      "gridPos": {"h": 8, "w": 24, "x": 0, "y": 8},
+      "datasource": {"type": "prometheus", "uid": "seccomp-prometheus"},
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.50, sum by (le) (rate(record_recovery_request_duration_seconds_bucket[5m])))",
+          "legendFormat": "p50"
+        },
+        {
+          "expr": "histogram_quantile(0.95, sum by (le) (rate(record_recovery_request_duration_seconds_bucket[5m])))",
+          "legendFormat": "p95"
+        },
+        {
+          "expr": "histogram_quantile(0.99, sum by (le) (rate(record_recovery_request_duration_seconds_bucket[5m])))",
+          "legendFormat": "p99"
+        }
+      ],
+      "fieldConfig": {"defaults": {"unit": "s"}}
+    },
+    {
+      "id": 4,
+      "type": "stat",
+      "title": "Rate-limited denies (last 1h)",
+      "gridPos": {"h": 5, "w": 8, "x": 0, "y": 16},
+      "datasource": {"type": "prometheus", "uid": "seccomp-prometheus"},
+      "targets": [
+        {
+          "expr": "sum(increase(record_recovery_request_total{reason_code=\"rate_limited\"}[1h]))",
+          "legendFormat": "rate_limited"
+        }
+      ]
+    },
+    {
+      "id": 5,
+      "type": "stat",
+      "title": "TLS-required denies (last 1h)",
+      "gridPos": {"h": 5, "w": 8, "x": 8, "y": 16},
+      "datasource": {"type": "prometheus", "uid": "seccomp-prometheus"},
+      "targets": [
+        {
+          "expr": "sum(increase(record_recovery_request_total{decision=\"deny\",reason_code=~\"tls_.+\"}[1h]))",
+          "legendFormat": "tls_denies"
+        }
+      ]
+    },
+    {
+      "id": 6,
+      "type": "stat",
+      "title": "Signature-failed denies (last 1h)",
+      "gridPos": {"h": 5, "w": 8, "x": 16, "y": 16},
+      "datasource": {"type": "prometheus", "uid": "seccomp-prometheus"},
+      "targets": [
+        {
+          "expr": "sum(increase(record_recovery_request_total{reason_code=~\"request_signature_.+\"}[1h]))",
+          "legendFormat": "signature_denies"
+        }
+      ]
+    }
+  ]
+}
