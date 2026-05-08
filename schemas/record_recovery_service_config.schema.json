@@ -135,6 +135,10 @@
         "null"
       ]
     },
+    "max_rows_per_request": {
+      "type": "integer",
+      "minimum": 0
+    },
     "http_listener": {
       "type": "object",
       "required": [

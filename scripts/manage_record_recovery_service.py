@@ -89,6 +89,10 @@ def resolve_runtime(args: argparse.Namespace) -> dict:
     pid_file = merged_record_recovery_service_value(getattr(args, "pid_file", ""), config.get("pid_file", ""))
     ready_file = merged_record_recovery_service_value(getattr(args, "ready_file", ""), config.get("ready_file", ""))
     log_file = merged_record_recovery_service_value(getattr(args, "log_file", ""), config.get("log_file", ""))
+    max_rows_per_request = merged_record_recovery_service_value(
+        getattr(args, "max_rows_per_request", 0),
+        config.get("max_rows_per_request", 0),
+    )
     tls_config = config.get("tls") if isinstance(config.get("tls"), dict) else {}
     config_path = optional_path(getattr(args, "config", ""))
     if transport == "http" and endpoint_url and (not bind_host or port in (None, "")):
@@ -120,6 +124,7 @@ def resolve_runtime(args: argparse.Namespace) -> dict:
         "ready_file": ready_file,
         "log_file": log_file,
         "tls": tls_config,
+        "max_rows_per_request": int(max_rows_per_request or 0),
     }
 
 
@@ -216,6 +221,7 @@ def build_service_command(runtime: dict) -> list[str]:
     pid_file = runtime["pid_file"]
     ready_file = runtime["ready_file"]
     tls = runtime.get("tls") or {}
+    max_rows_per_request = int(runtime.get("max_rows_per_request") or 0)
 
     if transport == "http":
         if not bind_host or port in (None, ""):
@@ -286,6 +292,8 @@ def build_service_command(runtime: dict) -> list[str]:
         cmd.extend(["--pid-file", normalize_path(pid_file)])
     if ready_file:
         cmd.extend(["--ready-file", normalize_path(ready_file)])
+    if max_rows_per_request > 0:
+        cmd.extend(["--max-rows-per-request", str(max_rows_per_request)])
     return cmd
 
 
@@ -673,6 +681,7 @@ def main() -> int:
     start.add_argument("--pid-file", default="")
     start.add_argument("--ready-file", default="")
     start.add_argument("--log-file", default="")
+    start.add_argument("--max-rows-per-request", type=int, default=None)
     start.add_argument("--timeout-sec", type=float, default=10.0)
 
     status = sub.add_parser("status")
@@ -719,6 +728,7 @@ def main() -> int:
     render.add_argument("--pid-file", default="")
     render.add_argument("--ready-file", default="")
     render.add_argument("--log-file", default="")
+    render.add_argument("--max-rows-per-request", type=int, default=None)
     render.add_argument("--unit-name", default="")
     render.add_argument("--description", default="")
     render.add_argument("--service-user", default="record-recovery")

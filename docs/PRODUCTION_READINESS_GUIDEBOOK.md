@@ -24,8 +24,8 @@ All contracts are frozen under the backcompat guard. All post-baseline tranches 
 | OpenFGA | SQLite fallback, OpenFGA HTTP backend, committed authorization model, model setup helper, and optional live governance check | Operator must run OpenFGA, create/select a store, upload the model, and provide live store env vars |
 | Vault / KMS | Vault HTTP token/AppRole client, Vault PKI cert issuer with mock fallback, and AWS KMS secret-ref baseline | Operator must run Vault/cloud KMS, provision policies/roles/keys, and execute live validation |
 | mTLS PKI | Vault PKI issuance helper plus mock cert generation in default smoke | Operator must enable Vault PKI and rotate issued certs in the target environment |
-| PostgreSQL | SQLite sidecar with Postgres-compatible DDL, psycopg2 driver layer, optional live portability gate, repo-side primary/replica HA topology artifacts, read-replica routing flags on every read-only sidecar entrypoint, and standalone backup/restore CLIs (`backup_metadata_db.py`, `restore_metadata_db.py`) supporting both SQLite copy and `pg_dump` / `pg_restore` paths | F1-b still needs live PostgreSQL execution; Patroni/failover live drill and pgBouncer pool remain |
-| Benchmarks | Synthetic demo data (`intersection_size=2`) | Never tested at e-commerce scale |
+| PostgreSQL | SQLite sidecar with Postgres-compatible DDL, psycopg2 driver layer, optional live portability gate, repo-side primary/replica HA topology artifacts, read-replica routing flags on every read-only sidecar entrypoint, pgBouncer topology artifacts, and standalone backup/restore CLIs (`backup_metadata_db.py`, `restore_metadata_db.py`) supporting both SQLite copy and `pg_dump` / `pg_restore` paths | F1-b still needs live PostgreSQL execution; Patroni/failover, replica-read, and pgBouncer live drills remain operator-environment work |
+| Benchmarks | Synthetic demo data (`intersection_size=2`) plus G1 SSE export scale benchmark/report for 100k and 1M encrypted order exports | Record recovery / bridge / PJC / full-pipeline scale benchmarks still need production-like runs |
 | External audit anchor | Local file ledger | Not connected to immutable external medium |
 
 ### 1.2 Notation
@@ -518,7 +518,7 @@ Live-execution work still needed against an operator-provided primary+replica is
 
 ---
 
-### F3 — Connection Pooling (1 block / 5h)
+### F3 — Connection Pooling (1 block / 5h) — Completed repo-side 2026-05-07
 
 #### Tasks
 
@@ -542,6 +542,16 @@ auth_file = /etc/pgbouncer/userlist.txt
 Update all scripts to use `--db-dsn postgresql://user:pass@pgbouncer:6432/seccomp_metadata`.
 
 For write operations that use transactions longer than a single statement (e.g., `apply-registry`), use session-mode pooling or connect directly to the primary.
+
+Repo-side implementation now lives in:
+
+- `scripts/render_pgbouncer_topology.py`: renders a pgBouncer topology directory and emits `pgbouncer_topology_report/v1`.
+- `schemas/pgbouncer_topology_report.schema.json`: freezes the topology render report contract.
+- `config/pgbouncer/pgbouncer.ini`, `userlist.txt.example`, `docker-compose.pgbouncer.yml`, and `pgbouncer_commands.sh`: checked-in operator examples for transaction pooling, pool stats inspection, read-benchmark routing through `postgresql://...@pgbouncer:6432/seccomp_metadata`, and direct-primary writes for long transactions.
+
+Default contract smoke now renders the pgBouncer topology, validates the report schema, and asserts the database mapping, `listen_port=6432`, `pool_mode=transaction`, client/default pool sizes, auth file, `SHOW POOLS` / `SHOW STATS`, read benchmark DSN, and direct-primary write DSN.
+
+Live-execution work still needed against an operator-provided PostgreSQL + pgBouncer environment is to replace the placeholder `userlist.txt.example` hashes, run `SHOW POOLS` / `SHOW STATS` under load, and compare `benchmark_read_adapters.py --db-dsn postgresql://...@pgbouncer:6432/seccomp_metadata` latency against the direct-primary baseline.
 
 #### Acceptance Criteria
 
@@ -650,11 +660,11 @@ python3 scripts/restore_metadata_db.py \
 
 **Prerequisite:** E1 (real tokens) and F1 (PostgreSQL) should be smoke-tested before G results are meaningful.
 
-**Total: ~10 blocks / ~50h**
+**Original total: ~10 blocks / ~50h. Remaining after G1/G2-a/G2-b: 7 blocks / ~35h.**
 
 ---
 
-### G1 — SSE Export Throughput at Scale (1 block / 5h)
+### G1 — SSE Export Throughput at Scale (1 block / 5h) — Completed 2026-05-07
 
 #### Current Baseline
 
@@ -708,6 +718,22 @@ Add a new benchmark target to `benchmark_smoke.py`:
 python3 scripts/benchmark_smoke.py --target sse-export-scale --scale 100000
 ```
 
+Implementation now lives in:
+
+- `scripts/generate_benchmark_dataset.py`: deterministic `orders-jsonl` generator for synthetic e-commerce records with `order_id`, `record_id`, `email`, `customer_id`, `merchant_id`, `amount`, `amount_cents`, `status`, `campaign`, and `created_at`.
+- `scripts/benchmark_sse_export.py`: generates a synthetic order JSONL, builds an encrypted record store, exports bridge-ready rows through the existing `export_bridge_records` encrypted-store worker path, and emits `sse_export_benchmark/v1` with setup time, export duration, throughput, output rows, audit decision, recovery boundary, and peak RSS.
+- `schemas/sse_export_benchmark.schema.json`: freezes the G1 benchmark report contract.
+- `scripts/benchmark_smoke.py --target sse-export-scale --scale <n>`: invokes the G1 benchmark as a smoke target.
+
+Default contract smoke runs a small `record_count=5 / candidate_count=3` G1 fixture, validates the report schema, and asserts output-row, candidate-count, audit, throughput, and RSS fields.
+
+Local scale validation completed on 2026-05-07:
+
+| Scale | Output rows | Export duration | Throughput | Peak RSS |
+|-------|------------:|----------------:|-----------:|---------:|
+| 100k records / 100k candidates | 100000 | 2.885s | 34,661 rows/s | 84,760 KB |
+| 1M records / 1M candidates | 1000000 | 27.184s | 36,786 rows/s | 609,584 KB (~595 MB) |
+
 #### Acceptance Criteria
 
 1. SSE export of 100k records completes in < 60s.
@@ -724,7 +750,7 @@ python3 scripts/benchmark_smoke.py --target sse-export-scale --scale 100000
 
 #### Tasks
 
-**G2-a — Large candidate set benchmark (1 block)**
+**G2-a — Large candidate set benchmark (1 block) — Completed 2026-05-07**
 
 Extend `benchmark_record_recovery.py` with `--candidate-count` flag:
 
@@ -751,18 +777,40 @@ def generate_record_store(candidate_count: int, path: Path) -> None:
     ...
 ```
 
-**G2-b — Concurrent request benchmark (1 block)**
+Implementation/validation:
+
+- `scripts/benchmark_record_recovery.py --candidate-count <n>` now sizes the synthetic encrypted record store proportionally and verifies recovered row count equals the requested candidate count.
+- `record_recovery_benchmark/v1` result rows now include optional `service_pid` and `service_rss_kb` so local runs can capture recovery-service RSS while the service is still running.
+- Default contract smoke still uses the lightweight 2-candidate mode set, while larger G2-a runs remain explicit.
+
+Local G2-a scale validation completed on 2026-05-07 using `--mode unix_socket_recover_direct`:
+
+| Candidate count | Iterations | Success | p50 | p95 | Service RSS |
+|----------------:|-----------:|--------:|----:|----:|------------:|
+| 1,000 | 10 | 10/10 | 187.210ms | 221.626ms | 30,932 KB |
+| 10,000 | 5 | 5/5 | 414.680ms | 474.532ms | 33,200 KB |
+
+**G2-b — Concurrent request benchmark (1 block) — Completed 2026-05-07**
 
 Test `ThreadingHTTPServer` under concurrent load:
 
 Current implemented scaffold: `benchmark_record_recovery.py --candidate-count <n>` can generate larger synthetic stores for the existing sequential Unix-socket and HTTP modes, and `--mode http_recover_concurrent --concurrency <n>` can issue concurrent HTTP recover requests against the `ThreadingHTTPServer` path.
 
-Remaining G2-b work is to run the concurrent benchmark at production-like sizes and measure:
-- Throughput degradation vs sequential baseline.
-- Whether `--max-rows-per-request` provides a meaningful safety valve under concurrency.
-- mTLS handshake overhead (compare plain HTTP vs HTTPS with `--tls-cert-file`).
+Implementation/validation:
 
-If TLS handshake dominates: enable HTTP/1.1 keep-alive in `RecordRecoveryHttpServer` (`server.socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)` + `allow_reuse_address = True` is already set; also add `Connection: keep-alive` response header).
+- `benchmark_record_recovery.py --mode g2b_acceptance` now runs sequential plain HTTP, concurrent plain HTTP, mTLS recover, and a `http_recover_concurrent_limited` safety-valve mode in one report.
+- `record_recovery_benchmark/v1` now includes optional `g2b_summary` with sequential p95, concurrent throughput, mTLS p95 overhead, safety-valve status, and acceptance booleans.
+- `record_recovery_service_config/v1` now preserves `max_rows_per_request` through config resolution and the manual manager / launcher path, so the service-level cap is testable from config-driven service startup.
+- The encrypted record-store hot path now caches derived AEAD keys per store fingerprint and serializes same-store recovery work to avoid Python-thread contention under concurrent HTTP requests; decrypted rows are not cached.
+
+Local G2-b scale validation completed on 2026-05-07 using `--mode g2b_acceptance --candidate-count 1000 --concurrency 10 --iterations 3`:
+
+| Check | Result |
+|-------|--------|
+| Sequential plain HTTP p95 | 226.842ms |
+| 10-way plain HTTP throughput | 15.818 req/s |
+| mTLS p95 overhead vs plain HTTP | -23.519ms |
+| Safety valve | 10/10 concurrent over-cap requests rejected with `max_rows_per_request=100` |
 
 #### Acceptance Criteria
 
@@ -1111,7 +1159,7 @@ The dashboard tracks the current in-memory job and running `query_workflow/statu
 
 **Review fixup (2026-05-06):** the original implementation evaluated the quota and started the subprocess in two unsynchronised steps, so two concurrent same-tenant requests could both pass the check before either updated `current_job`. The fixup folds the single-active-job rule, the per-tenant quota count, and the placeholder write into one critical section (`DashboardServer.try_reserve_job()` under `job_lock`), and adds `release_reservation()` for launch-time rollback. Both `POST /v1/jobs/start` and `POST /v1/jobs/{job_id}/relaunch` go through the same path, so neither entry can race the other. An 8-thread in-process smoke confirmed exactly one reservation wins (1 × 202, 7 × 409 `job_already_running`).
 
-`--max-rows-per-request` is already implemented in the recovery service HTTP handler; verify it is enforced even under concurrent load (G2-b).
+`--max-rows-per-request` is now verified under concurrent load by G2-b acceptance mode.
 
 Implemented in `scripts/serve_operator_dashboard.py`:
 
@@ -1779,9 +1827,9 @@ Engage an external pen testing firm for the mTLS boundary and the Vault AppRole 
 ```
 Week 1-2:   F1-a, live E authority validation with operator-provided services (parallel)
 Week 2-3:   F1-b, F2-a repo-side completed 2026-05-07
-Week 3-4:   F2-b/F2-c repo-side completed 2026-05-07; F3 remains
-Week 4-5:   G1, G2-a, G3 (parallel, F1 prerequisite met)
-Week 5-6:   G2-b, G4-a, G5 (parallel)
+Week 3-4:   F2-b/F2-c/F3 repo-side completed 2026-05-07
+Week 4-5:   G1/G2-a/G2-b completed 2026-05-07; G3 remains (parallel, F1 prerequisite met)
+Week 5-6:   G4-a, G5 (parallel)
 Week 6-7:   G4-b, G6, G7, G8 (parallel; H1-a completed 2026-05-07)
 Week 7-8:   H category complete as of 2026-05-07 (H1-b/H2-a/H2-b/H3-a completed)
 Week 8-9:   I1-a, I2-a (parallel; J1 completed repo-side 2026-05-07)
@@ -1798,15 +1846,15 @@ Week 12-13: K3 (F4-a/F4-b repo-side completed 2026-05-07; live drill alongside F
 | Category | Blocks remaining | ~Hours remaining | Notes |
 |----------|----------------:|----------------:|-------|
 | E — Real authority sources | 0 repo-side | 0h | Complete; live validation is operator-environment work |
-| F — Production PostgreSQL | 2 | 10h | F1-a done; F2-a/F2-b/F2-c, F4-a/F4-b repo-side done; F1-b + F2-c live drill + F3 remain |
-| G — Scale & optimization | 10 | 50h | E1 + F1 smoke-tested prerequisite |
+| F — Production PostgreSQL | 1 | 5h | F1-a done; F2-a/F2-b/F2-c/F3 and F4-a/F4-b repo-side done; F1-b plus F2-c/F3 live drills remain |
+| G — Scale & optimization | 7 | 35h | G1 + G2-a + G2-b done locally; remaining G3/G4-a/G4-b/G5/G6/G7/G8 |
 | H — Multi-tenant isolation | 0 | 0h | Complete: H1-a/H1-b/H2-a/H2-b/H3-a/H3-b |
 | I — Production operator console | 6 | 30h | E1, G complete prerequisite |
 | J — SRE / HA | 2 | 10h | J3-a done; J1 + J2-a + J3-b done repo-side; J2-b + J4 remain |
 | K — Compliance / external audit | 4 | 20h | J complete prerequisite |
-| **Total remaining** | **24** | **~120h** | |
+| **Total remaining** | **20** | **~100h** | |
 
-Completed since initial publication: F1-a, H2-a, H2-b, H3-a, H3-b, J3-a (2026-05-06); H1-a/H1-b, F2-a/F2-b, F2-c, F4-a/F4-b, J1, J2-a, and J3-b repo-side (2026-05-07)
+Completed since initial publication: F1-a, H2-a, H2-b, H3-a, H3-b, J3-a (2026-05-06); H1-a/H1-b, F2-a/F2-b, F2-c, F3, F4-a/F4-b, J1, J2-a, and J3-b repo-side (2026-05-07)
 
 ### 10.1 Remaining Block Breakdown
 
@@ -1815,14 +1863,14 @@ As of 2026-05-06, the remaining production-readiness scope is:
 | Category | Remaining blocks |
 |----------|------------------|
 | E — Real authority sources | None repo-side; live validation is operator-environment work |
-| F — Production PostgreSQL | F1-b, F3 |
-| G — Scale & optimization | G1, G2-a, G2-b, G3, G4-a, G4-b, G5, G6, G7, G8 |
+| F — Production PostgreSQL | F1-b |
+| G — Scale & optimization | G3, G4-a, G4-b, G5, G6, G7, G8 |
 | H — Multi-tenant isolation | None |
 | I — Production operator console | I1-a, I1-b, I2-a, I2-b, I3-a, I3-b |
 | J — SRE / HA | J2-b, J4 |
 | K — Compliance / external audit | K1-a, K1-b, K2, K3 |
 
-Current total: **24 blocks / ~120h**.
+Current total: **20 blocks / ~100h**.
 
 ### 10.2 Active Review Fixups
 
@@ -1841,11 +1889,12 @@ Recommended next order:
 6. F1-b — real PostgreSQL portability gate
 7. ~~F2-b — Patroni automated failover~~ ✓ Completed repo-side 2026-05-07
 8. ~~F2-c — read-replica routing for sidecar reads~~ ✓ Completed repo-side 2026-05-07
+9. ~~F3 — Connection Pooling~~ ✓ Completed repo-side 2026-05-07
 
-**Optimization + large-scale benchmark only (G):** 10 blocks / 50h
+**Optimization + large-scale benchmark only (G):** 7 blocks / 35h remaining
 
 **Critical path (shortest path to a load-tested, authority-backed platform):**
-F1-b → G1–G5 → J2-b → K1 = 15 remaining blocks / ~75h (J1 + J2-a done repo-side 2026-05-07)
+F1-b → G3/G4/G5 → J2-b → K1 = 12 remaining blocks / ~60h (G1 + G2-a + G2-b + J1 + J2-a done repo-side/local 2026-05-07)
 
 ---
 

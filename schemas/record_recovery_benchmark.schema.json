@@ -76,10 +76,11 @@
               "unix_socket_health_direct",
               "unix_socket_recover_direct",
               "http_health_cli",
-              "http_health_direct",
-              "http_recover_direct",
-              "http_recover_concurrent",
-              "http_recover_mtls"
+	              "http_health_direct",
+	              "http_recover_direct",
+	              "http_recover_concurrent",
+	              "http_recover_concurrent_limited",
+	              "http_recover_mtls"
             ]
           },
           "transport": {
@@ -223,9 +224,38 @@
                   "type": "integer",
                   "minimum": 0
                 },
-                "throughput_rps": {
+	                "throughput_rps": {
+	                  "type": [
+	                    "number",
+	                    "null"
+	                  ],
+	                  "minimum": 0
+	                },
+	                "accepted_requests": {
+	                  "type": "integer",
+	                  "minimum": 0
+	                },
+	                "rejected_requests": {
+	                  "type": "integer",
+	                  "minimum": 0
+	                },
+	                "safety_valve_max_rows": {
+	                  "type": "integer",
+	                  "minimum": 1
+	                },
+	                "safety_valve_enforced": {
+	                  "type": "boolean"
+	                },
+                "service_pid": {
                   "type": [
-                    "number",
+                    "integer",
+                    "null"
+                  ],
+                  "minimum": 1
+                },
+                "service_rss_kb": {
+                  "type": [
+                    "integer",
                     "null"
                   ],
                   "minimum": 0
@@ -241,6 +271,111 @@
         },
         "additionalProperties": false
       }
+    },
+    "g2b_summary": {
+      "type": "object",
+      "required": [
+        "candidate_count",
+        "concurrency",
+        "sequential_http_p95_ms",
+        "concurrent_http_p95_ms",
+        "concurrent_http_throughput_rps",
+        "concurrency_efficiency_ratio",
+        "mtls_p95_ms",
+        "mtls_p95_overhead_ms",
+        "safety_valve_max_rows",
+        "safety_valve_enforced",
+        "acceptance"
+      ],
+      "properties": {
+        "candidate_count": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "concurrency": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "sequential_http_p95_ms": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "concurrent_http_p95_ms": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "concurrent_http_throughput_rps": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "concurrency_efficiency_ratio": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "mtls_p95_ms": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "mtls_p95_overhead_ms": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "safety_valve_max_rows": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 1
+        },
+        "safety_valve_enforced": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "acceptance": {
+          "type": "object",
+          "required": [
+            "single_threaded_p95_under_500ms",
+            "concurrent_throughput_over_5_rps",
+            "mtls_overhead_under_20ms",
+            "safety_valve_enforced"
+          ],
+          "properties": {
+            "single_threaded_p95_under_500ms": {
+              "type": "boolean"
+            },
+            "concurrent_throughput_over_5_rps": {
+              "type": "boolean"
+            },
+            "mtls_overhead_under_20ms": {
+              "type": "boolean"
+            },
+            "safety_valve_enforced": {
+              "type": [
+                "boolean",
+                "null"
+              ]
+            }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
     }
   },
   "additionalProperties": false

@@ -4,6 +4,7 @@ import hashlib
 import hmac
 import json
 import os
+import threading
 from pathlib import Path
 from typing import Iterable
 
@@ -20,6 +21,9 @@ KDF_ITERATIONS_MINIMUM = 600000
 SALT_SIZE = 16
 NONCE_SIZE = 12              # 96-bit random nonce; collision probability < 2^-32 for stores < 2^32 records
 KEY_SIZE = 32
+_DERIVED_KEY_CACHE_MAX = 16
+_derived_key_cache: dict[tuple[str, int, int, str, int, str], bytes] = {}
+_derived_key_cache_lock = threading.Lock()
 
 
 def build_record_store(
@@ -112,10 +116,11 @@ def iter_candidate_rows(
             raise ValueError("encrypted record store is empty")
         header = json.loads(header_line)
         _validate_header(header)
-        key = _derive_key(
-            passphrase,
-            _b64d(header["kdf_salt_b64"]),
-            int(header["kdf_iterations"]),
+        key = _cached_derive_key(
+            passphrase=passphrase,
+            salt=_b64d(header["kdf_salt_b64"]),
+            iterations=int(header["kdf_iterations"]),
+            store_path=store_path,
         )
         aead = AESGCM(key)
         candidate_tags = {_record_id_tag(key, candidate_id) for candidate_id in candidate_ids}
@@ -156,6 +161,29 @@ def _derive_key(passphrase: bytes, salt: bytes, iterations: int) -> bytes:
         iterations=iterations,
     )
     return kdf.derive(passphrase)
+
+
+def _cached_derive_key(*, passphrase: bytes, salt: bytes, iterations: int, store_path: Path) -> bytes:
+    stat = store_path.stat()
+    cache_key = (
+        str(store_path.resolve()),
+        stat.st_mtime_ns,
+        stat.st_size,
+        hashlib.sha256(salt).hexdigest(),
+        iterations,
+        hashlib.sha256(passphrase).hexdigest(),
+    )
+    # Long-running recovery services may handle many requests for the same encrypted
+    # store. Cache only the derived AEAD key, never decrypted rows.
+    with _derived_key_cache_lock:
+        cached = _derived_key_cache.get(cache_key)
+        if cached is not None:
+            return cached
+        derived = _derive_key(passphrase, salt, iterations)
+        if len(_derived_key_cache) >= _DERIVED_KEY_CACHE_MAX:
+            _derived_key_cache.pop(next(iter(_derived_key_cache)))
+        _derived_key_cache[cache_key] = derived
+        return derived
 
 
 def _validate_header(header: dict) -> None:

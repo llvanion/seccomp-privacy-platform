@@ -1,0 +1,213 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "sse_export_benchmark/v1",
+  "title": "SSE export scale benchmark report",
+  "type": "object",
+  "required": [
+    "schema",
+    "generated_at_utc",
+    "repo_root",
+    "fixture_profile",
+    "scale",
+    "setup",
+    "mode",
+    "iterations",
+    "summary",
+    "results"
+  ],
+  "properties": {
+    "schema": {
+      "const": "sse_export_benchmark/v1"
+    },
+    "generated_at_utc": {
+      "type": "string",
+      "minLength": 1
+    },
+    "repo_root": {
+      "type": "string",
+      "minLength": 1
+    },
+    "fixture_profile": {
+      "type": "string",
+      "minLength": 1
+    },
+    "scale": {
+      "type": "object",
+      "required": ["record_count", "candidate_count", "store_record_count"],
+      "properties": {
+        "record_count": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "candidate_count": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "store_record_count": {
+          "type": "integer",
+          "minimum": 1
+        }
+      },
+      "additionalProperties": false
+    },
+    "setup": {
+      "type": "object",
+      "required": ["generation_ms", "store_build_ms", "source_path", "store_path"],
+      "properties": {
+        "generation_ms": {
+          "type": "number",
+          "minimum": 0
+        },
+        "store_build_ms": {
+          "type": "number",
+          "minimum": 0
+        },
+        "source_path": {
+          "type": "string",
+          "minLength": 1
+        },
+        "store_path": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "additionalProperties": false
+    },
+    "mode": {
+      "type": "string",
+      "enum": ["encrypted_record_store_worker"]
+    },
+    "iterations": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "summary": {
+      "type": "object",
+      "required": [
+        "iterations",
+        "successful_iterations",
+        "failed_iterations",
+        "duration_ms",
+        "throughput_records_per_sec"
+      ],
+      "properties": {
+        "iterations": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "successful_iterations": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "failed_iterations": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "duration_ms": {
+          "type": "object",
+          "required": ["min", "mean", "p50", "p95", "max"],
+          "properties": {
+            "min": {
+              "type": ["number", "null"]
+            },
+            "mean": {
+              "type": ["number", "null"]
+            },
+            "p50": {
+              "type": ["number", "null"]
+            },
+            "p95": {
+              "type": ["number", "null"]
+            },
+            "max": {
+              "type": ["number", "null"]
+            }
+          },
+          "additionalProperties": false
+        },
+        "throughput_records_per_sec": {
+          "type": "object",
+          "required": ["mean", "p50"],
+          "properties": {
+            "mean": {
+              "type": ["number", "null"]
+            },
+            "p50": {
+              "type": ["number", "null"]
+            }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    },
+    "results": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "duration_ms",
+          "exit_code",
+          "timed_out",
+          "stderr_tail",
+          "input_rows",
+          "output_rows",
+          "candidate_count",
+          "audit_decision",
+          "audit_duration_ms",
+          "record_recovery_boundary",
+          "throughput_records_per_sec",
+          "peak_rss_kb"
+        ],
+        "properties": {
+          "duration_ms": {
+            "type": "number",
+            "minimum": 0
+          },
+          "exit_code": {
+            "type": "integer"
+          },
+          "timed_out": {
+            "type": "boolean"
+          },
+          "stderr_tail": {
+            "type": "string"
+          },
+          "input_rows": {
+            "type": ["integer", "null"],
+            "minimum": 0
+          },
+          "output_rows": {
+            "type": ["integer", "null"],
+            "minimum": 0
+          },
+          "candidate_count": {
+            "type": ["integer", "null"],
+            "minimum": 0
+          },
+          "audit_decision": {
+            "type": ["string", "null"]
+          },
+          "audit_duration_ms": {
+            "type": ["number", "integer", "null"],
+            "minimum": 0
+          },
+          "record_recovery_boundary": {
+            "type": ["string", "null"],
+            "enum": ["worker_subprocess", "service_socket", "service_http", null]
+          },
+          "throughput_records_per_sec": {
+            "type": ["number", "null"],
+            "minimum": 0
+          },
+          "peak_rss_kb": {
+            "type": "integer",
+            "minimum": 0
+          }
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  "additionalProperties": false
+}

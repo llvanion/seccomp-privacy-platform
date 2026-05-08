@@ -920,6 +920,34 @@
       ]
     },
     {
+      "path": "schemas/sse_export_benchmark.schema.json",
+      "schema_id": "sse_export_benchmark/v1",
+      "required": [
+        "schema",
+        "generated_at_utc",
+        "repo_root",
+        "fixture_profile",
+        "scale",
+        "setup",
+        "mode",
+        "iterations",
+        "summary",
+        "results"
+      ],
+      "stable_properties": [
+        "fixture_profile",
+        "generated_at_utc",
+        "iterations",
+        "mode",
+        "repo_root",
+        "results",
+        "scale",
+        "schema",
+        "setup",
+        "summary"
+      ]
+    },
+    {
       "path": "schemas/record_recovery_benchmark.schema.json",
       "schema_id": "record_recovery_benchmark/v1",
       "required": [
@@ -936,6 +964,7 @@
       "stable_properties": [
         "candidate_count",
         "fixture_profile",
+        "g2b_summary",
         "generated_at_utc",
         "iterations",
         "modes",
@@ -1307,6 +1336,7 @@
         "endpoint_url",
         "http_listener",
         "lifecycle",
+        "max_rows_per_request",
         "schema",
         "service_id",
         "socket_mode",
@@ -2828,6 +2858,56 @@
         "schema",
         "scope",
         "status"
+      ]
+    },
+    {
+      "path": "schemas/pgbouncer_topology_report.schema.json",
+      "schema_id": "pgbouncer_topology_report/v1",
+      "required": [
+        "schema",
+        "generated_at_utc",
+        "status",
+        "out_dir",
+        "pgbouncer_service",
+        "pgbouncer_host",
+        "pgbouncer_port",
+        "primary_service",
+        "primary_host",
+        "primary_port",
+        "database_name",
+        "upstream_dbname",
+        "pool_mode",
+        "max_client_conn",
+        "default_pool_size",
+        "auth_type",
+        "app_dsn",
+        "direct_primary_dsn",
+        "artifacts",
+        "checks",
+        "docker_compose_config"
+      ],
+      "stable_properties": [
+        "app_dsn",
+        "artifacts",
+        "auth_type",
+        "checks",
+        "database_name",
+        "default_pool_size",
+        "direct_primary_dsn",
+        "docker_compose_config",
+        "generated_at_utc",
+        "max_client_conn",
+        "out_dir",
+        "pgbouncer_host",
+        "pgbouncer_port",
+        "pgbouncer_service",
+        "pool_mode",
+        "primary_host",
+        "primary_port",
+        "primary_service",
+        "schema",
+        "status",
+        "upstream_dbname"
       ]
     }
   ]

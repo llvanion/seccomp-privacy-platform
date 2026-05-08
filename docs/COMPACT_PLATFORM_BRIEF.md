@@ -99,6 +99,7 @@ SSE candidate export
 20. `scripts/render_k8s_network_policies.py` 可按租户生成 Kubernetes `NetworkPolicy`：只允许同租户 `sse-bridge-pipeline` pod 访问同租户 `recovery-service` pod；示例在 `config/k8s/netpol-recovery-service-demo-tenant.yaml`，报告 contract 为 `k8s_network_policy_report/v1`
 21. `scripts/render_postgres_ha_topology.py` 可生成 PostgreSQL 16 primary/replica HA 目录：`config/postgres-ha/docker-compose.primary-replica.yml` 是 checked-in 示例，包含 `pg_basebackup -Xs -R` replica bootstrap、health-gated `depends_on`、复制 role init、`.env.example` 和 `verify_replication.sql`；报告 contract 为 `postgres_ha_topology_report/v1`
 22. `scripts/render_patroni_failover_topology.py` 可生成 F2-b Patroni automated failover 拓扑：`config/patroni-ha/` 是 checked-in 示例，包含 etcd DCS、`patroni-primary.yml`、`patroni-replica.yml`、REST API 端口、`use_pg_rewind`、replication slots、SCRAM `pg_hba` 和 `patronictl list/switchover/failover` 命令；报告 contract 为 `patroni_failover_topology_report/v1`
+23. `scripts/render_pgbouncer_topology.py` 可生成 F3 pgBouncer connection-pooling 拓扑：`config/pgbouncer/` 是 checked-in 示例，包含 `pgbouncer.ini`、`userlist.txt.example`、`docker-compose.pgbouncer.yml` 和 `pgbouncer_commands.sh`；报告 contract 为 `pgbouncer_topology_report/v1`，默认 contract smoke 断言 `:6432` transaction pooling、pool sizing、`SHOW POOLS` / `SHOW STATS`、读 benchmark pooled DSN 和长写事务 direct-primary DSN
 
 当前这一层更像”谁能发起或审核隐私查询”的平台权限模型，而不是完整电商业务人员身份模型。
 
@@ -126,7 +127,8 @@ SSE candidate export
 1. `check_json_contracts.sh`
 2. `check_ci_smoke.sh`
 3. query / read adapter / recovery / pipeline / PJC / audit bundle / platform health / derived views benchmark
-4. record-recovery benchmark 支持 `--candidate-count`、`--mode http_recover_concurrent --concurrency <n>` 和显式 `--mode http_recover_mtls`，可对 HTTP recovery service 做候选规模、并发批次和 mTLS recover 测量
+4. record-recovery benchmark 支持 `--candidate-count`、`--mode http_recover_concurrent --concurrency <n>`、显式 `--mode http_recover_mtls` 和 `--mode g2b_acceptance`，可对候选规模、并发批次、mTLS recover 与 `max_rows_per_request` 安全阀测量；本地已跑通 G2-a 的 1k / 10k Unix-socket recover，以及 G2-b 的 1k candidates / 10 HTTP 并发 acceptance（15.818 req/s）
+5. `scripts/benchmark_sse_export.py` 输出 `sse_export_benchmark/v1`，可对 synthetic e-commerce encrypted record store 的 SSE export worker path 做规模测试；本地已跑通 100k / 1M candidates，`benchmark_smoke.py --target sse-export-scale --scale <n>` 可作为入口
 
 ## 4. 当前不能做什么
 

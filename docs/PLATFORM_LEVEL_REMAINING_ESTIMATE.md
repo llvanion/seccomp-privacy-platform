@@ -118,16 +118,16 @@
 
 这个快照按 [PRODUCTION_READINESS_GUIDEBOOK.md](/home/llvanion/Desktop/seccomp-privacy-platform/docs/PRODUCTION_READINESS_GUIDEBOOK.md) 的生产就绪口径统计，不改变上方“平台基线已完成”的结论。
 
-当前剩余：**30 blocks / 约 150h**。
+当前剩余：**20 blocks / 约 100h**。
 
 | 类别 | 剩余 block 数 | 具体 block |
 | --- | ---: | --- |
 | E — Real authority sources | 0 repo-side | repo-side 已完成；live validation 是 operator 环境工作 |
-| F — Production PostgreSQL | 5 | F1-b；F2-c；F3；F4-a；F4-b |
-| G — Scale & optimization | 10 | G1；G2-a；G2-b；G3；G4-a；G4-b；G5；G6；G7；G8 |
+| F — Production PostgreSQL | 1 | F1-b（F2-c/F3 live drill 属于 operator 环境验证） |
+| G — Scale & optimization | 7 | G3；G4-a；G4-b；G5；G6；G7；G8 |
 | H — Multi-tenant isolation | 0 | H 类已完成（H1-a / H1-b / H2-a / H2-b / H3-a / H3-b） |
 | I — Production operator console | 6 | I1-a；I1-b；I2-a；I2-b；I3-a；I3-b |
-| J — SRE / HA | 5 | J1；J2-a；J2-b；J3-b；J4 |
+| J — SRE / HA | 2 | J2-b；J4 |
 | K — Compliance / external audit | 4 | K1-a；K1-b；K2；K3 |
 
 ### 当前 review 返工项
@@ -148,13 +148,25 @@
 5. ~~H1-b：Kubernetes NetworkPolicy~~ ✓ 已完成（2026-05-07）
 6. ~~F2-a：PostgreSQL primary/replica HA topology~~ ✓ repo-side 已完成（2026-05-07）
 7. ~~F2-b：Patroni automated failover~~ ✓ repo-side 已完成（2026-05-07）
-8. F2-c：read-replica routing for sidecar reads
+8. ~~F2-c：read-replica routing for sidecar reads~~ ✓ repo-side 已完成（2026-05-07）
+9. ~~F3：Connection Pooling / pgBouncer topology~~ ✓ repo-side 已完成（2026-05-07）
+10. ~~G1：SSE Export Throughput at Scale~~ ✓ 本地 100k / 1M benchmark 已完成（2026-05-07）
+11. ~~G2-a：Record Recovery Large Candidate Set Benchmark~~ ✓ 本地 1k / 10k benchmark 已完成（2026-05-07）
+12. ~~G2-b：Record Recovery Concurrent Request Benchmark~~ ✓ 本地 1k / 10 并发 benchmark 已完成（2026-05-07）
 
 2026-05-07 进展：F1-b 的 repo-side live gate 已加强。`POSTGRES_DSN` 分支现在会通过 `check_metadata_schema_portability.py --smoke-out-base --smoke-job-id` 在 PostgreSQL 上完成 migration + import_run_metadata + query_metadata job detail 三段检查，并输出 `postgres_live_import_query_smoke`；真实 PostgreSQL 16 环境执行仍未在本地完成，因此剩余 block 数暂不下调。
 
 2026-05-07 进展：F2-a repo-side 已完成。新增 `scripts/render_postgres_ha_topology.py`、`postgres_ha_topology_report/v1`、`config/postgres-ha/docker-compose.primary-replica.yml`、`primary-init/01-create-replicator.sh`、`.env.example` 与 `verify_replication.sql`；contract smoke 会渲染 HA 目录、校验 report schema，并断言 PostgreSQL 16 primary/replica、`wal_level=replica`、`pg_basebackup -Xs -R`、health-gated `depends_on`、复制 role init 和 `pg_stat_replication` LSN 查询。
 
 2026-05-07 进展：F2-b repo-side 已完成。新增 `scripts/render_patroni_failover_topology.py`、`patroni_failover_topology_report/v1`、`config/patroni-ha/docker-compose.patroni.yml`、`patroni-primary.yml`、`patroni-replica.yml` 与 `patroni_failover_commands.sh`；contract smoke 会渲染 Patroni/etcd 拓扑、校验 report schema，并断言 `etcd3` DCS、`ttl/loop_wait/retry_timeout`、`maximum_lag_on_failover`、`use_pg_rewind`、replication slots、SCRAM `pg_hba`、REST API 端口和 `patronictl list/switchover/failover` 命令。
+
+2026-05-07 进展：F3 repo-side 已完成。新增 `scripts/render_pgbouncer_topology.py`、`pgbouncer_topology_report/v1`、`config/pgbouncer/pgbouncer.ini`、`userlist.txt.example`、`docker-compose.pgbouncer.yml` 与 `pgbouncer_commands.sh`；contract smoke 会渲染 pgBouncer 拓扑、校验 report schema，并断言 `seccomp_metadata` 到 `pg-primary:5432` 的映射、`listen_port=6432`、`pool_mode=transaction`、pool sizing、auth file、`SHOW POOLS` / `SHOW STATS`、读 benchmark 使用 pooled DSN，以及长写事务保留 direct-primary DSN。真实 pool utilization 与 direct baseline 20% 延迟对比留给 operator 环境。
+
+2026-05-07 进展：G1 已完成本地 benchmark 验收。新增 `scripts/generate_benchmark_dataset.py`、`scripts/benchmark_sse_export.py` 与 `sse_export_benchmark/v1`；`benchmark_smoke.py --target sse-export-scale --scale <n>` 可直接触发 SSE export scale benchmark。默认 contract smoke 使用 5 records / 3 candidates 的轻量 fixture 验证 contract；本地实际跑通 100k records / 100k candidates（2.885s，约 34,661 rows/s，RSS 84,760 KB）和 1M records / 1M candidates（27.184s，约 36,786 rows/s，RSS 609,584 KB），满足 G1 的 100k < 60s 与 1M < 2GB 验收。
+
+2026-05-07 进展：G2-a 已完成本地 benchmark 验收。`record_recovery_benchmark/v1` 结果行新增可选 `service_pid` / `service_rss_kb`，用于记录恢复服务进程 RSS；本地 `unix_socket_recover_direct` 跑通 1k candidates × 10 iterations（p50 187.210ms，p95 221.626ms，RSS 30,932 KB）和 10k candidates × 5 iterations（p50 414.680ms，p95 474.532ms，RSS 33,200 KB），满足 G2-a 的 1k p95 < 500ms 验收并补齐 10k 测量。
+
+2026-05-07 进展：G2-b 已完成本地 benchmark 验收。`benchmark_record_recovery.py --mode g2b_acceptance` 会在一个报告中覆盖 plain HTTP sequential、plain HTTP concurrent、mTLS recover 和 `http_recover_concurrent_limited` 安全阀路径；`record_recovery_benchmark/v1` 新增可选 `g2b_summary`。本地 `candidate_count=1000 / concurrency=10 / iterations=3` 跑通：sequential HTTP p95 226.842ms、10 并发吞吐 15.818 req/s、mTLS p95 overhead -23.519ms、`max_rows_per_request=100` 下 10/10 并发超限请求被拒绝。为达成该指标，record-store 热路径新增派生 AEAD key 缓存，并对同一 store 的恢复工作做服务端串行化，避免 Python 线程争用；不缓存解密行。
 
 ## 5. 平台基线之后已完成 block 记录（2026-05-05）
 
@@ -196,7 +208,7 @@
 | 完成时间 | Production Block | 入口 | 验证 |
 | --- | --- | --- | --- |
 | 2026-05-06 | F1-a：psycopg2 PostgreSQL driver layer | `scripts/metadata_db.py`（`connect_db(dsn=…)`、`is_postgres`、`placeholder`、`adapt_sql`、`row_to_dict`、`connect_db_with_retry`），`scripts/init_metadata_db.py --db-dsn`，`scripts/import_run_metadata.py --db-dsn`，`scripts/query_metadata.py --db-dsn`，`scripts/manage_metadata_db.py --db-dsn`，`scripts/serve_metadata_api.py --db-dsn`，query/audit/platform-health API `--metadata-db-dsn` identity paths，`scripts/benchmark_read_adapters.py --db-dsn` | `python3 -m py_compile` ✓；SQLite 默认路径不受影响；`check_ci_smoke.sh` ✓；真实 PostgreSQL live gate 仍归 F1-b |
-| 2026-05-06 | G2-b 第一版：record-recovery HTTP concurrent benchmark scaffold | `scripts/benchmark_record_recovery.py --mode http_recover_concurrent --concurrency <n>`，`schemas/record_recovery_benchmark.schema.json`，`scripts/check_benchmark_smoke_reports.py` | 最小 HTTP 并发 smoke ✓（2 concurrent requests / 4 total output rows）；schema/backcompat ✓；真实 1k candidates × 10 concurrency 阈值验证仍归 G2-b live benchmark |
+| 2026-05-06 | G2-b 第一版：record-recovery HTTP concurrent benchmark scaffold | `scripts/benchmark_record_recovery.py --mode http_recover_concurrent --concurrency <n>`，`schemas/record_recovery_benchmark.schema.json`，`scripts/check_benchmark_smoke_reports.py` | 最小 HTTP 并发 smoke ✓（2 concurrent requests / 4 total output rows）；schema/backcompat ✓；真实 1k candidates × 10 concurrency 阈值验证已在 2026-05-07 G2-b 完成 |
 | 2026-05-06 | G6 第一版：record-recovery mTLS benchmark scaffold | `scripts/benchmark_record_recovery.py --mode http_recover_mtls`，mock-issued recovery-service mTLS certs，`record_recovery_benchmark/v1` transport `https_mtls` | 最小 mTLS recover smoke ✓（output_rows=2）；默认 benchmark mode 不强制跑 TLS |
 | 2026-05-06 | H2-a：per-caller token bucket rate limiter | `services/record_recovery/http_service.py`（`TokenBucket`、`RecordRecoveryHttpServer.check_rate_limit`、`do_POST` rate-limit gate → HTTP 429 `rate_limited`），CLI flags `--rate-limit-per-caller` / `--rate-limit-burst` | `python3 -m py_compile` ✓；`check_ci_smoke.sh` ✓ |
 | 2026-05-06 | H2-b：per-tenant dashboard job quota | `scripts/serve_operator_dashboard.py --max-concurrent-jobs-per-tenant <n>`；`POST /v1/jobs/start` 与 `POST /v1/jobs/{job_id}/relaunch` 在启动 subprocess 前按 `tenant_id` 检查当前 in-memory job + `history_root` running status；超限返回 HTTP 429 `tenant_job_quota_exceeded` | `python3 -m py_compile` ✓；loopback quota smoke 返回 429 ✓；`bash -n scripts/check_ci_smoke.sh` ✓ |

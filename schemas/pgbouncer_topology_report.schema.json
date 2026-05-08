@@ -1,0 +1,145 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "pgbouncer_topology_report/v1",
+  "title": "pgBouncer topology render report",
+  "type": "object",
+  "required": [
+    "schema",
+    "generated_at_utc",
+    "status",
+    "out_dir",
+    "pgbouncer_service",
+    "pgbouncer_host",
+    "pgbouncer_port",
+    "primary_service",
+    "primary_host",
+    "primary_port",
+    "database_name",
+    "upstream_dbname",
+    "pool_mode",
+    "max_client_conn",
+    "default_pool_size",
+    "auth_type",
+    "app_dsn",
+    "direct_primary_dsn",
+    "artifacts",
+    "checks",
+    "docker_compose_config"
+  ],
+  "properties": {
+    "schema": {
+      "const": "pgbouncer_topology_report/v1"
+    },
+    "generated_at_utc": {
+      "type": "string",
+      "minLength": 1
+    },
+    "status": {
+      "type": "string",
+      "enum": ["ok", "fail"]
+    },
+    "out_dir": {
+      "type": "string",
+      "minLength": 1
+    },
+    "pgbouncer_service": {
+      "type": "string",
+      "minLength": 1
+    },
+    "pgbouncer_host": {
+      "type": "string",
+      "minLength": 1
+    },
+    "pgbouncer_port": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "primary_service": {
+      "type": "string",
+      "minLength": 1
+    },
+    "primary_host": {
+      "type": "string",
+      "minLength": 1
+    },
+    "primary_port": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "database_name": {
+      "type": "string",
+      "minLength": 1
+    },
+    "upstream_dbname": {
+      "type": "string",
+      "minLength": 1
+    },
+    "pool_mode": {
+      "type": "string",
+      "enum": ["transaction", "session", "statement"]
+    },
+    "max_client_conn": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "default_pool_size": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "auth_type": {
+      "type": "string",
+      "enum": ["md5", "scram-sha-256"]
+    },
+    "app_dsn": {
+      "type": "string",
+      "minLength": 1
+    },
+    "direct_primary_dsn": {
+      "type": "string",
+      "minLength": 1
+    },
+    "artifacts": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["kind", "path"],
+        "properties": {
+          "kind": {
+            "type": "string",
+            "enum": ["pgbouncer_ini", "userlist_example", "compose", "commands"]
+          },
+          "path": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    "checks": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["name", "status", "detail"],
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1
+          },
+          "status": {
+            "type": "string",
+            "enum": ["ok", "fail"]
+          },
+          "detail": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    "docker_compose_config": {
+      "type": "object"
+    }
+  },
+  "additionalProperties": false
+}

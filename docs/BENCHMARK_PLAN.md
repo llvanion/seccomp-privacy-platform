@@ -134,6 +134,44 @@ Why it uses a synthetic fixture:
 6. metadata jobs-list modes also preserve the top-level `mainline_contract_summary_counts` rollup, so the same synthetic fixture still aggregates to `job_count=1`, `handoff_cleanup.server.removed=1`, `handoff_cleanup.client.cleaned=1`, `service_audit_consistency.server.not_applicable=1`, `service_audit_consistency.client.ok=1`, and `error_count_total=0`
 7. metadata entity modes now also pin a synthetic multi-role policy fixture rather than the repo-wide demo policy, and they assert that `permission_summary` still exposes the caller-scoped role matrix fields for `platform_role_counts`, `access_profiles`, and the expected `query_submitter` / `privacy_operator` coverage for `auto_demo`
 
+## SSE Export Scale Benchmark
+
+Current supported report schema:
+
+```text
+sse_export_benchmark/v1
+```
+
+This benchmark measures the encrypted-record-store SSE export path over deterministic synthetic e-commerce order records:
+
+1. `scripts/generate_benchmark_dataset.py orders-jsonl` writes synthetic order JSONL with stable `record_id`, `email`, `amount`, `campaign`, and order metadata fields.
+2. `scripts/benchmark_sse_export.py` builds an encrypted record store from that JSONL.
+3. The benchmark exports bridge-ready rows through the existing `export_bridge_records` worker-subprocess boundary.
+4. The report records setup time, export duration, output rows, throughput, audit decision, recovery boundary, and peak RSS.
+
+Example:
+
+```bash
+python3 scripts/benchmark_sse_export.py \
+  --record-count 100000 \
+  --candidate-count 100000 \
+  --iterations 1 \
+  --output tmp/sse_export_benchmark_100k.json
+```
+
+`scripts/benchmark_smoke.py` also exposes the same path:
+
+```bash
+python3 scripts/benchmark_smoke.py --target sse-export-scale --scale 100000
+```
+
+Default contract smoke keeps this lightweight by running `record_count=5 / candidate_count=3`, validating `sse_export_benchmark/v1`, and semantically asserting output rows, candidate count, audit decision, `worker_subprocess` recovery boundary, throughput, and RSS fields.
+
+Local 2026-05-07 scale runs:
+
+1. 100k records / 100k candidates: 100000 output rows, 2.885s export duration, 34,661 rows/s, peak RSS 84,760 KB.
+2. 1M records / 1M candidates: 1000000 output rows, 27.184s export duration, 36,786 rows/s, peak RSS 609,584 KB.
+
 ## Record Recovery Benchmark
 
 Current supported report schema:
@@ -167,7 +205,15 @@ Why it uses a synthetic fixture:
 4. `--candidate-count` sizes the synthetic encrypted record store and verifies that recover calls return the same number of rows as requested
 5. `--mode http_recover_concurrent --concurrency <n>` issues concurrent HTTP recover requests against the standalone service and reports per-batch throughput
 6. `--mode http_recover_mtls` starts the HTTP recovery service with mock-issued mTLS certificates and verifies a client-authenticated recover request
-7. default contract smoke now also asserts the full Unix-socket/HTTP mode set, that the default synthetic recover calls still return `output_rows=2`, and that the default concurrent HTTP batch returns two successful requests; mTLS remains an explicit benchmark mode
+7. `--mode g2b_acceptance` runs sequential plain HTTP, concurrent plain HTTP, mTLS recover, and `http_recover_concurrent_limited` safety-valve coverage in one report
+8. result rows now include optional `service_pid` and `service_rss_kb` so larger explicit runs can capture server-side RSS while the recovery service is still running
+9. default contract smoke now also asserts the full Unix-socket/HTTP mode set, that the default synthetic recover calls still return `output_rows=2`, and that the default concurrent HTTP batch returns two successful requests; mTLS and G2-b acceptance remain explicit benchmark modes
+
+Local 2026-05-07 large-candidate runs:
+
+1. 1k candidates / 10 Unix-socket recover iterations: p50 187.210ms, p95 221.626ms, 10/10 success, service RSS 30,932 KB.
+2. 10k candidates / 5 Unix-socket recover iterations: p50 414.680ms, p95 474.532ms, 5/5 success, service RSS 33,200 KB.
+3. G2-b acceptance at 1k candidates / 10 HTTP concurrent requests / 3 iterations: sequential plain HTTP p95 226.842ms, concurrent throughput 15.818 req/s, mTLS p95 overhead -23.519ms, and `max_rows_per_request=100` rejected 10/10 concurrent over-cap requests.
 
 ## Full Pipeline Benchmark
 

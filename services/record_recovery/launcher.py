@@ -112,7 +112,13 @@ def _resolved_runtime(args: argparse.Namespace) -> dict:
         "pid_file": pid_file,
         "ready_file": ready_file,
         "tls": tls_config,
-        "max_rows_per_request": int(getattr(args, "max_rows_per_request", 0) or 0),
+        "max_rows_per_request": int(
+            merged_record_recovery_service_value(
+                getattr(args, "max_rows_per_request", 0),
+                config.get("max_rows_per_request", 0),
+            )
+            or 0
+        ),
     }
 
 
@@ -237,7 +243,7 @@ def build_parser() -> argparse.ArgumentParser:
     serve.add_argument("--tls-key-file", default="")
     serve.add_argument("--tls-ca-cert", default="")
     serve.add_argument("--tls-require-client-cert", action="store_true")
-    serve.add_argument("--max-rows-per-request", type=int, default=0,
+    serve.add_argument("--max-rows-per-request", type=int, default=None,
                        help="Hard cap on rows returned per recovery request (0 = unlimited)")
 
     return ap

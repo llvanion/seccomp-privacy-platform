@@ -1,0 +1,17 @@
+name: seccomp-pgbouncer
+services:
+  pgbouncer:
+    image: edoburu/pgbouncer:1.24.0-p0
+    restart: unless-stopped
+    ports:
+      - "6432:6432"
+    volumes:
+      - ./pgbouncer.ini:/etc/pgbouncer/pgbouncer.ini:ro
+      - ./userlist.txt.example:/etc/pgbouncer/userlist.txt:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -p 6432 -U pgbouncer_admin -d pgbouncer"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    depends_on:
+      - pg-primary

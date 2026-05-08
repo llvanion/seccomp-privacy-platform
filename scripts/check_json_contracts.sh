@@ -51,6 +51,7 @@ SCHEMAS=(
   "$REPO_ROOT/schemas/schema_backcompat_check.schema.json"
   "$REPO_ROOT/schemas/query_workflow_benchmark.schema.json"
   "$REPO_ROOT/schemas/read_adapter_benchmark.schema.json"
+  "$REPO_ROOT/schemas/sse_export_benchmark.schema.json"
   "$REPO_ROOT/schemas/record_recovery_benchmark.schema.json"
   "$REPO_ROOT/schemas/pipeline_benchmark.schema.json"
   "$REPO_ROOT/schemas/pjc_benchmark.schema.json"
@@ -118,6 +119,7 @@ SCHEMAS=(
   "$REPO_ROOT/schemas/k8s_network_policy_report.schema.json"
   "$REPO_ROOT/schemas/postgres_ha_topology_report.schema.json"
   "$REPO_ROOT/schemas/patroni_failover_topology_report.schema.json"
+  "$REPO_ROOT/schemas/pgbouncer_topology_report.schema.json"
 )
 
 for schema in "${SCHEMAS[@]}"; do
@@ -275,6 +277,15 @@ python3 "$REPO_ROOT/scripts/benchmark_read_adapters.py" \
 python3 "$VALIDATOR" \
   --schema "$REPO_ROOT/schemas/read_adapter_benchmark.schema.json" \
   --json "$tmp/read_adapter_benchmark.json"
+python3 "$REPO_ROOT/scripts/benchmark_sse_export.py" \
+  --record-count 5 \
+  --candidate-count 3 \
+  --iterations 1 \
+  --output "$tmp/sse_export_benchmark.json" \
+  > /dev/null
+python3 "$VALIDATOR" \
+  --schema "$REPO_ROOT/schemas/sse_export_benchmark.schema.json" \
+  --json "$tmp/sse_export_benchmark.json"
 python3 "$REPO_ROOT/scripts/benchmark_record_recovery.py" \
   --iterations 1 \
   --output "$tmp/record_recovery_benchmark.json" \
@@ -319,6 +330,7 @@ python3 "$VALIDATOR" \
 python3 "$REPO_ROOT/scripts/check_benchmark_smoke_reports.py" \
   --query-workflow "$tmp/query_workflow_benchmark.json" \
   --read-adapter "$tmp/read_adapter_benchmark.json" \
+  --sse-export "$tmp/sse_export_benchmark.json" \
   --record-recovery "$tmp/record_recovery_benchmark.json" \
   --pipeline "$tmp/pipeline_benchmark_contract_fixture.json" \
   --live-sse "$tmp/live_sse_benchmark_contract_fixture.json" \
@@ -2534,6 +2546,33 @@ assert "\"8008:8008\"" in compose and "\"8009:8008\"" in compose, compose
 assert "patronictl -c \"$PATRONI_CONFIG\" list" in commands, commands
 assert "switchover --master pg-primary --candidate pg-replica --force" in commands, commands
 assert "failover --candidate pg-replica --force" in commands, commands' "$tmp/patroni_failover_topology_report.json"
+python3 "$REPO_ROOT/scripts/render_pgbouncer_topology.py" \
+  --out-dir "$tmp/pgbouncer" \
+  --output "$tmp/pgbouncer_topology_report.json" \
+  --assert-ok \
+  > /dev/null
+python3 "$VALIDATOR" \
+  --schema "$REPO_ROOT/schemas/pgbouncer_topology_report.schema.json" \
+  --json "$tmp/pgbouncer_topology_report.json"
+python3 -c 'import json, pathlib, sys; p=json.load(open(sys.argv[1], "r", encoding="utf-8")); assert p["status"] == "ok", p; assert p["pgbouncer_service"] == "pgbouncer", p; assert p["pgbouncer_port"] == 6432, p; assert p["primary_service"] == "pg-primary", p; assert p["database_name"] == "seccomp_metadata", p; assert p["pool_mode"] == "transaction", p
+artifacts={a["kind"]: pathlib.Path(a["path"]) for a in p["artifacts"]}
+assert set(artifacts) == {"pgbouncer_ini", "userlist_example", "compose", "commands"}, p
+ini=artifacts["pgbouncer_ini"].read_text(encoding="utf-8")
+userlist=artifacts["userlist_example"].read_text(encoding="utf-8")
+compose=artifacts["compose"].read_text(encoding="utf-8")
+commands=artifacts["commands"].read_text(encoding="utf-8")
+assert "[databases]" in ini and "seccomp_metadata = host=pg-primary port=5432 dbname=postgres" in ini, ini
+assert "listen_port = 6432" in ini and "pool_mode = transaction" in ini, ini
+assert "max_client_conn = 200" in ini and "default_pool_size = 20" in ini, ini
+assert "auth_file = /etc/pgbouncer/userlist.txt" in ini and "ignore_startup_parameters = extra_float_digits" in ini, ini
+assert "\"seccomp\"" in userlist and "\"pgbouncer_admin\"" in userlist, userlist
+assert "edoburu/pgbouncer:1.24.0-p0" in compose and "\"6432:6432\"" in compose, compose
+assert "pg_isready" in compose and "depends_on:" in compose and "- pg-primary" in compose, compose
+assert "SHOW POOLS;" in commands and "SHOW STATS;" in commands, commands
+assert "DIRECT_PRIMARY_DSN" in commands and "manage_metadata_db.py --db-dsn" in commands, commands
+assert "benchmark_read_adapters.py --db-dsn \"$APP_DSN\"" in commands, commands
+assert p["app_dsn"].startswith("postgresql://seccomp:CHANGE_ME@pgbouncer:6432/"), p
+assert p["direct_primary_dsn"].startswith("postgresql://seccomp:CHANGE_ME@pg-primary:5432/"), p' "$tmp/pgbouncer_topology_report.json"
 test "$(python3 "$RUNTIME_SERVICE_HELPERS" read-json-field --json-file "$tmp/platform_metadata_caller_permissions_page.json" --field pagination.limit)" = "2"
 test "$(python3 "$RUNTIME_SERVICE_HELPERS" read-json-field --json-file "$tmp/platform_metadata_caller_permissions_page.json" --field pagination.offset)" = "2"
 test "$(python3 "$RUNTIME_SERVICE_HELPERS" read-json-field --json-file "$tmp/platform_metadata_caller_permissions_page.json" --field pagination.returned_count)" = "2"

@@ -7,6 +7,7 @@ import os
 import signal
 import socketserver
 import stat
+import threading
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -44,6 +45,20 @@ from services.record_recovery.common import (  # noqa: E402
     select_bridge_rows,
     write_selected_rows,
 )
+
+
+_record_store_locks: dict[str, threading.Lock] = {}
+_record_store_locks_guard = threading.Lock()
+
+
+def _record_store_lock(record_store_path: Path) -> threading.Lock:
+    lock_key = str(record_store_path.resolve())
+    with _record_store_locks_guard:
+        lock = _record_store_locks.get(lock_key)
+        if lock is None:
+            lock = threading.Lock()
+            _record_store_locks[lock_key] = lock
+        return lock
 
 
 def _path_within_roots(path: Path, roots: list[Path]) -> bool:
@@ -360,31 +375,32 @@ def handle_record_recovery_service_payload(
         else:
             effective_max_rows = min(effective_max_rows, service_state.max_rows_per_request)
 
-    rows = iter_candidate_rows(
-        store_path=record_store_path,
-        key_env=record_store_key_env,
-        candidate_ids=candidate_ids,
-    )
-    input_rows, selected_rows = select_bridge_rows(
-        rows=rows,
-        role=role,
-        join_key_field=join_key_field,
-        value_field=value_field,
-        filters=filters,
-    )
-    enforce_row_limits(
-        output_rows=len(selected_rows),
-        min_rows=effective_min_rows,
-        max_rows=effective_max_rows,
-    )
-    output_sha256 = write_selected_rows(
-        rows=selected_rows,
-        out_path=out_path,
-        out_format=out_format,
-        role=role,
-        join_key_field=join_key_field,
-        value_field=value_field,
-    )
+    with _record_store_lock(record_store_path):
+        rows = iter_candidate_rows(
+            store_path=record_store_path,
+            key_env=record_store_key_env,
+            candidate_ids=candidate_ids,
+        )
+        input_rows, selected_rows = select_bridge_rows(
+            rows=rows,
+            role=role,
+            join_key_field=join_key_field,
+            value_field=value_field,
+            filters=filters,
+        )
+        enforce_row_limits(
+            output_rows=len(selected_rows),
+            min_rows=effective_min_rows,
+            max_rows=effective_max_rows,
+        )
+        output_sha256 = write_selected_rows(
+            rows=selected_rows,
+            out_path=out_path,
+            out_format=out_format,
+            role=role,
+            join_key_field=join_key_field,
+            value_field=value_field,
+        )
     return build_result(
         input_rows=input_rows,
         output_rows=len(selected_rows),

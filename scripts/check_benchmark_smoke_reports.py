@@ -156,6 +156,35 @@ def validate_record_recovery(payload: dict[str, Any]) -> None:
                 raise SystemExit(f"record recovery concurrent result mismatch: {entry}")
 
 
+def validate_sse_export(payload: dict[str, Any]) -> None:
+    if payload.get("schema") != "sse_export_benchmark/v1":
+        raise SystemExit(f"SSE export benchmark schema mismatch: {payload}")
+    scale = payload.get("scale") or {}
+    if scale.get("record_count") != 5 or scale.get("candidate_count") != 3 or scale.get("store_record_count") != 5:
+        raise SystemExit(f"SSE export benchmark scale mismatch: {payload}")
+    if payload.get("mode") != "encrypted_record_store_worker":
+        raise SystemExit(f"SSE export benchmark mode mismatch: {payload}")
+    summary = payload.get("summary") or {}
+    if summary.get("iterations") != 1 or summary.get("successful_iterations") != 1 or summary.get("failed_iterations") != 0:
+        raise SystemExit(f"SSE export benchmark summary mismatch: {payload}")
+    results = payload.get("results") or []
+    if len(results) != 1:
+        raise SystemExit(f"SSE export benchmark expected one result: {payload}")
+    result = results[0]
+    if (
+        result.get("exit_code") != 0
+        or result.get("timed_out") is not False
+        or result.get("input_rows") != 3
+        or result.get("output_rows") != 3
+        or result.get("candidate_count") != 3
+        or result.get("audit_decision") != "allow"
+        or result.get("record_recovery_boundary") != "worker_subprocess"
+        or not isinstance(result.get("throughput_records_per_sec"), (int, float))
+        or not isinstance(result.get("peak_rss_kb"), int)
+    ):
+        raise SystemExit(f"SSE export benchmark result mismatch: {payload}")
+
+
 def validate_audit_bundle(payload: dict[str, Any]) -> None:
     expected_audit_bundle_modes = {
         "archive_cli",
@@ -368,6 +397,7 @@ def build_parser() -> argparse.ArgumentParser:
     ap = argparse.ArgumentParser(description="Validate benchmark smoke reports against expected mode and result invariants.")
     ap.add_argument("--query-workflow", required=True)
     ap.add_argument("--read-adapter", required=True)
+    ap.add_argument("--sse-export", required=True)
     ap.add_argument("--record-recovery", required=True)
     ap.add_argument("--pipeline", required=True)
     ap.add_argument("--live-sse", required=True)
@@ -381,6 +411,7 @@ def main() -> int:
     args = build_parser().parse_args()
     validate_query_workflow(load(args.query_workflow))
     validate_read_adapter(load(args.read_adapter))
+    validate_sse_export(load(args.sse_export))
     validate_record_recovery(load(args.record_recovery))
     validate_pipeline(load(args.pipeline))
     validate_live_sse(load(args.live_sse))

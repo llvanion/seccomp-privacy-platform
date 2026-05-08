@@ -17,6 +17,7 @@ TARGETS = {
     "schema-backcompat": ["python3", "scripts/check_schema_backcompat.py"],
     "contracts": ["bash", "scripts/check_json_contracts.sh"],
     "ci-smoke": ["bash", "scripts/check_ci_smoke.sh"],
+    "sse-export-scale": ["python3", "scripts/benchmark_sse_export.py"],
 }
 
 
@@ -37,11 +38,14 @@ def percentile(values: list[float], pct: float) -> float | None:
     return ordered[lower] * (1 - weight) + ordered[upper] * weight
 
 
-def command_for_target(target: str) -> list[str]:
+def command_for_target(target: str, *, scale: int) -> list[str]:
     try:
-        return TARGETS[target]
+        command = list(TARGETS[target])
     except KeyError as e:
         raise ValueError(f"unsupported benchmark target: {target}") from e
+    if target == "sse-export-scale":
+        command.extend(["--record-count", str(scale), "--candidate-count", str(scale), "--iterations", "1"])
+    return command
 
 
 def run_once(command: list[str], *, timeout_sec: float) -> dict[str, Any]:
@@ -91,6 +95,7 @@ def summarize(results: list[dict[str, Any]]) -> dict[str, Any]:
 def build_parser() -> argparse.ArgumentParser:
     ap = argparse.ArgumentParser(description="Benchmark existing smoke-check entrypoints and emit JSON results.")
     ap.add_argument("--target", choices=sorted(TARGETS), default="hygiene")
+    ap.add_argument("--scale", type=int, default=1000, help="Record scale for scale-aware targets")
     ap.add_argument("--iterations", type=int, default=3)
     ap.add_argument("--timeout-sec", type=float, default=120.0)
     ap.add_argument("--output", default="")
@@ -104,14 +109,17 @@ def main() -> int:
         raise SystemExit("[ERROR] --iterations must be positive")
     if args.timeout_sec <= 0:
         raise SystemExit("[ERROR] --timeout-sec must be positive")
+    if args.scale <= 0:
+        raise SystemExit("[ERROR] --scale must be positive")
 
-    command = command_for_target(args.target)
+    command = command_for_target(args.target, scale=args.scale)
     results = [run_once(command, timeout_sec=args.timeout_sec) for _ in range(args.iterations)]
     report = {
         "schema": "smoke_benchmark/v1",
         "generated_at_utc": utc_now_iso(),
         "repo_root": str(REPO_ROOT),
         "target": args.target,
+        "scale": args.scale if args.target == "sse-export-scale" else None,
         "command": command,
         "summary": summarize(results),
         "results": results,
