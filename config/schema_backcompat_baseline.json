@@ -2985,6 +2985,26 @@
       ]
     },
     {
+      "path": "schemas/chaos_test_report.schema.json",
+      "schema_id": "chaos_test_report/v1",
+      "required": [
+        "schema",
+        "generated_at_utc",
+        "duration_ms",
+        "selected_scenarios",
+        "scenarios",
+        "summary"
+      ],
+      "stable_properties": [
+        "duration_ms",
+        "generated_at_utc",
+        "scenarios",
+        "schema",
+        "selected_scenarios",
+        "summary"
+      ]
+    },
+    {
       "path": "schemas/http_malformed_input_gate.schema.json",
       "schema_id": "http_malformed_input_gate/v1",
       "required": [
@@ -3105,6 +3125,75 @@
         "schema",
         "static_index_path",
         "summary"
+      ]
+    },
+    {
+      "path": "schemas/operator_request_submission.schema.json",
+      "schema_id": "operator_request_submission/v1",
+      "required": [
+        "schema",
+        "submission_id",
+        "submitted_at_utc",
+        "updated_at_utc",
+        "status",
+        "workflow",
+        "query_type",
+        "job_id",
+        "caller",
+        "tenant_id",
+        "request_digest",
+        "request_source",
+        "approval_required",
+        "request_summary",
+        "authenticated_identity",
+        "transitions"
+      ],
+      "stable_properties": [
+        "approved_at_utc",
+        "approved_by",
+        "approval_required",
+        "authenticated_identity",
+        "caller",
+        "dataset_id",
+        "job_id",
+        "job_control",
+        "query_type",
+        "rejected_at_utc",
+        "rejected_by",
+        "rejection_reason",
+        "request",
+        "request_digest",
+        "request_source",
+        "request_summary",
+        "schema",
+        "service_id",
+        "status",
+        "submission_id",
+        "submitted_at_utc",
+        "tenant_id",
+        "transitions",
+        "updated_at_utc",
+        "workflow"
+      ]
+    },
+    {
+      "path": "schemas/operator_request_submission_list.schema.json",
+      "schema_id": "operator_request_submission_list/v1",
+      "required": [
+        "schema",
+        "status",
+        "returned_count",
+        "limit",
+        "submissions"
+      ],
+      "stable_properties": [
+        "filter_status",
+        "limit",
+        "returned_count",
+        "schema",
+        "status",
+        "submissions",
+        "tenant_id"
       ]
     },
     {

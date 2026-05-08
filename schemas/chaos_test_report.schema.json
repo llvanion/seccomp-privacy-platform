@@ -1,0 +1,136 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "chaos_test_report/v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "generated_at_utc",
+    "duration_ms",
+    "selected_scenarios",
+    "scenarios",
+    "summary"
+  ],
+  "properties": {
+    "schema": {
+      "const": "chaos_test_report/v1"
+    },
+    "generated_at_utc": {
+      "type": "string"
+    },
+    "duration_ms": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "selected_scenarios": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "scenarios": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "name",
+          "status",
+          "injection_method",
+          "audit_chain_uncorrupted",
+          "expected_failure_pattern_matched"
+        ],
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "ok",
+              "fail",
+              "skipped"
+            ]
+          },
+          "injection_method": {
+            "type": "string"
+          },
+          "observed_failure_mode": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "observed_error_class": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "error_text": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "audit_chain_uncorrupted": {
+            "type": "boolean"
+          },
+          "expected_failure_pattern_matched": {
+            "type": "boolean"
+          },
+          "details": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      }
+    },
+    "summary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "status",
+        "total",
+        "ok",
+        "failed",
+        "skipped",
+        "audit_chain_corruptions",
+        "expected_pattern_matched"
+      ],
+      "properties": {
+        "status": {
+          "enum": [
+            "ok",
+            "fail"
+          ]
+        },
+        "total": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "ok": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "failed": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "skipped": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "audit_chain_corruptions": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "expected_pattern_matched": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    }
+  }
+}

@@ -114,11 +114,11 @@
 
 1. [POST_BASELINE_ROADMAP.md](/home/llvanion/Desktop/seccomp-privacy-platform/docs/POST_BASELINE_ROADMAP.md)
 
-## 4.1 生产就绪剩余 block 快照（2026-05-06）
+## 4.1 生产就绪剩余 block 快照（2026-05-08 更新 / J4 收口）
 
 这个快照按 [PRODUCTION_READINESS_GUIDEBOOK.md](/home/llvanion/Desktop/seccomp-privacy-platform/docs/PRODUCTION_READINESS_GUIDEBOOK.md) 的生产就绪口径统计，不改变上方“平台基线已完成”的结论。
 
-当前剩余：**13 blocks / 约 65h**。
+当前剩余：**8 blocks / 约 40h**。
 
 | 类别 | 剩余 block 数 | 具体 block |
 | --- | ---: | --- |
@@ -126,9 +126,9 @@
 | F — Production PostgreSQL | 1 | F1-b（F2-c/F3 live drill 属于 operator 环境验证） |
 | G — Scale & optimization | 5 | G3 hotspot profiling evidence；G4-a；G4-b；G5；G7（G3 timing/report scaffold 已完成，G6 与 G8 均已完成 2026-05-08） |
 | H — Multi-tenant isolation | 0 | H 类已完成（H1-a / H1-b / H2-a / H2-b / H3-a / H3-b） |
-| I — Production operator console | 2 | I3-a；I3-b（I1-a / I1-b / I2-a / I2-b 均已完成 2026-05-08；live Tempo push 与 Grafana 渲染仍是 operator 环境工作） |
-| J — SRE / HA | 2 | J2-b；J4 |
-| K — Compliance / external audit | 3 | K1-a；K1-b；K3 external pen test（K2 与 K3 repo-side scaffolds — audit-chain tamper-resistance + HTTP malformed-input gate — 均已完成 2026-05-08；剩余 external pen test 仍属 operator-side 工作，比照 F1-b 仍按 1 个 block 计入） |
+| I — Production operator console | 0 | I1-a / I1-b / I2-a / I2-b / I3-a / I3-b 均已完成 repo-side 2026-05-08；live Tempo push、Grafana 渲染与完整 SPA 仍是 operator/product 工作 |
+| J — SRE / HA | 1 | J2-b（J4 chaos drill 已完成 repo-side 2026-05-08：3 个 in-process 场景 + 2 个 operator-skipped 占位） |
+| K — Compliance / external audit | 1 | K3 external pen test（K1-a S3 Object Lock + K1-b Sigstore Rekor + K2 + K3 repo-side scaffolds — audit-chain tamper-resistance + HTTP malformed-input gate — 均已完成 2026-05-08；剩余 K1-a live AWS execute 与 K1-b live Rekor submission 仍属 operator-side 工作，K1 整体已不再计入；external pen test 仍按 1 个 block 计入） |
 
 ### 当前 review 返工项
 
@@ -160,6 +160,8 @@
 17. ~~G6：mTLS Connection Overhead Measurement~~ ✓ 本地 4×5 transport-mode 测量已完成（2026-05-08，loopback /health 上 mTLS fresh p95 ≈ 1.6ms，远低于 50ms 警戒值）
 18. ~~I1-a：Grafana + Tempo + Prometheus 部署拓扑~~ ✓ repo-side compose / Tempo / Prometheus / Grafana datasource provisioning + `export_otel_events.py --otlp-endpoint` HTTP/JSON 推送适配 已完成（2026-05-08）；live push / live render 仍属 operator 环境工作
 19. ~~I1-b：Grafana 仪表盘 provision~~ ✓ `pipeline-overview.json` 与 `recovery-service.json` 两个 dashboard、`dashboards.yaml` provider、render/validate 脚本与 `observability_topology_report/v1` schema 已完成（2026-05-08）
+20. ~~I3-a：Request submission form~~ ✓ `serve_operator_dashboard.py POST /v1/request/submit`、`workflow_submissions` metadata sidecar 表、`operator_request_submission/v1` schema、console manifest `requests` section 与 contract smoke 已完成（2026-05-08）
+21. ~~I3-b：approval / reject / pending request list workflow~~ ✓ `serve_operator_dashboard.py` approve/reject/list/detail endpoints、same-identity self-approval 403、approval-starts-job、`operator_request_submission_list/v1` 与 contract smoke 已完成（2026-05-08）
 
 2026-05-07 进展：F1-b 的 repo-side live gate 已加强。`POSTGRES_DSN` 分支现在会通过 `check_metadata_schema_portability.py --smoke-out-base --smoke-job-id` 在 PostgreSQL 上完成 migration + import_run_metadata + query_metadata job detail 三段检查，并输出 `postgres_live_import_query_smoke`；真实 PostgreSQL 16 环境执行仍未在本地完成，因此剩余 block 数暂不下调。
 
@@ -195,13 +197,73 @@
 - 验收对照 [`docs/PRODUCTION_READINESS_GUIDEBOOK.md`](/home/llvanion/Desktop/seccomp-privacy-platform/docs/PRODUCTION_READINESS_GUIDEBOOK.md) §6.I2 的三条 acceptance 全部通过。
 - backcompat baseline 同步从 117 → 118 schemas，0 fail。CI smoke + JSON contract smoke 全绿；replay 仍 `intersection_size=2 / intersection_sum=425`（file mode + FIFO mode）。
 
-剩余 block 从 15 → 13（~75h → ~65h）；I 类从 4 → 2，下一步建议优先 I3-a（请求 submission form）以接续 Track-E3 §10 的 forward-spec。
+剩余 block 从 15 → 13（~75h → ~65h）；I 类从 4 → 2。随后 I3-a 与 I3-b 均已在 2026-05-08 完成，当前 I 类 repo-side 剩余为 0。
+
+2026-05-08 进展：I3-a request submission form 已完成 repo-side。
+
+- `serve_operator_dashboard.py` 新增 `POST /v1/request/submit`，接受 inline `query_workflow_request/v1` 或 `{request: ...}` body，支持 `X-Request-Base-Dir` 路径解析，按现有 `api_identity_resolution/v1` bearer-token 路径绑定 caller/tenant/dataset/service scope。
+- 新增 `migrations/metadata/012_add_workflow_submissions.sql` 和 Postgres DDL parity：`workflow_submissions` 存储 `pending_approval` 请求，`control_plane_mutations` 记录 `submit_request`。
+- 新增 `schemas/operator_request_submission.schema.json`（`operator_request_submission/v1`）与 backcompat baseline entry；contract smoke 运行 `scripts/check_operator_request_submission_smoke.py`，验证 HTTP 202、schema、DB row 和 mutation row。
+- `config/operator_console/console_manifest.json` 新增 `requests` section 和 `approval_workflow` feature flag；`render_operator_console_manifest.py` 与 contract smoke 现在断言 9 个 section。
+
+剩余 block 从 13 → 12（~65h → ~60h）；I 类从 2 → 1。随后 I3-b 已完成，当前 I 类 repo-side 剩余为 0。
+
+2026-05-08 进展：I3-b approval / reject / pending request list workflow 已完成 repo-side。
+
+- `serve_operator_dashboard.py` 新增 `GET /v1/requests`、`GET /v1/requests/{submission_id}`、`POST /v1/request/{submission_id}/approve`、`POST /v1/request/{submission_id}/reject`；审批要求 `privacy_operator` 或 `platform_admin`，拒绝要求 `privacy_operator` / `platform_admin` / `compliance_auditor`，同一 resolved caller submit→approve 返回 HTTP 403 `same_identity_self_approval`。
+- `workflow_submissions` 新增 approval/rejection 字段并同步 Postgres DDL；每次 approve/reject 都写 `control_plane_mutations`，审批提交前先预留 dashboard job slot，提交后复用现有 job launch path 启动 approved request。
+- 新增 `schemas/operator_request_submission_list.schema.json`；`operator_request_submission/v1` 扩展 approval/rejection/detail/job_control 字段；`scripts/check_operator_request_submission_smoke.py` 现在覆盖 submit、list、detail、same-identity deny、approve-starts-job、reject-with-reason 和 mutation rows。
+- `scripts/check_json_contracts.sh` 校验 pending/list/detail/approve/reject 五个 I3 样本；`config/operator_console/console_manifest.json` 的 requests section 纳入 submit/list/detail/approve/reject endpoints。
+
+剩余 block 从 12 → 11（~60h → ~55h）；I 类从 1 → 0。下一步建议回到 F1-b、G3 hotspot/G4/G5、J2-b、K1 或 K3 external pen test。
+
+2026-05-08 进展：K1-a S3 Object Lock (WORM) 外部审计 anchor sink 已完成 repo-side。
+
+- `scripts/publish_external_audit_anchor.py` 新增 `--sink-kind file_ledger|s3_worm`（默认 `file_ledger`，旧路径不变）、`--object-lock-mode COMPLIANCE|GOVERNANCE`（默认 `COMPLIANCE`）、`--retain-days <int>`（默认 `3650`，10 年 retain-until 视野）、`--execute`（默认不上传，仅在显式 `--execute` 时调用 boto3）。
+- `--external-ledger` 在 `--sink-kind=s3_worm` 时接受 `s3://bucket/key.jsonl`，H3-b 引入的租户路径校验扩展到 S3 key path segments：`--tenant-id contract-tenant` 指向 `s3://bucket/audit/other-tenant/ledger.jsonl` 时在调用 boto3 之前就被拒绝。
+- s3_worm sink 复用与 file_ledger 相同的 `render_ledger_lines()`（两路径生成的 `external_audit_anchor_ledger/v1` 字节完全一致），先 `get_object`（捕获 `NoSuchKey`）读已有 ledger 内容、追加新 anchor 行，然后 `put_object` 时同时设置 `ObjectLockMode=<mode>` 和 `ObjectLockRetainUntilDate=<retain_until_utc>`；不带 `--execute` 时 sink 停留在 `s3_object_lock.status=planned` 并写 `executed=false`，默认 contract smoke 与 operator dry-run 不需要 AWS 凭证。
+- `external_audit_anchor_report/v1` 新增可选 `external_sink.s3_object_lock`（`bucket` / `key` / `object_lock_mode` / `retain_until_utc` / `retain_days` / `executed` / `status` ∈ `planned|uploaded|skipped|error` / `details` / `etag` / `version_id` / `previous_object_etag`）；`external_sink.kind` enum 扩展为 `["file_ledger", "s3_worm"]`；`additionalProperties: false` 仍保持，`stable_properties` baseline 无需调整（新字段都是 optional）。
+- `scripts/check_json_contracts.sh` 新增 K1-a 两条断言：(a) planned-mode `s3://seccomp-audit-archive/audit/contract-tenant/ledger.jsonl` 跑通、schema 通过、`kind=s3_worm`、`bucket/key`、`object_lock_mode=COMPLIANCE`、`retain_days=3650`、`retain_until_utc.endswith("Z")`、`executed=false`、`status=planned`、`summary.published_count=0`、`records[*].published=false`；(b) cross-tenant S3 key 在 `--tenant-id contract-tenant` 指向 `…/other-tenant/…` 时 exit 非 0。`scripts/check_ci_smoke.sh` 已经把脚本列入 py_compile，无需额外接入。
+- 验证：`bash scripts/check_json_contracts.sh` ✓（120 schemas / 0 fail）；`scripts/check_schema_backcompat.py` ✓；本地多模式手工 smoke 跑通 planned / file_ledger 兼容 / dry-run + s3_worm（status=skipped）/ cross-tenant reject 五条路径。Live AWS Object Lock execute 仍属 operator 环境，比照 F1-b。
+
+剩余 block 从 11 → 10（~55h → ~50h）；K 类从 3 → 2。下一步建议回到 F1-b、G3 hotspot/G4/G5、J2-b、K1-b（Sigstore/Rekor）或 K3 external pen test。
+
+2026-05-08 进展：K1-b Sigstore Rekor 透明日志外部审计 anchor sink 已完成 repo-side。
+
+- `scripts/publish_external_audit_anchor.py` 新增 `--sink-kind rekor`（与 `file_ledger` / `s3_worm` 共用 `--external-ledger` 与 `--execute` framework）、`--rekor-signing-key-env <env>`（PEM 编码的 ECDSA P-256 / `secp256r1` 私钥 env）、`--rekor-timeout-sec`（HTTP 超时，默认 10s）。
+- Rekor URL 解析仅接受 `http://` / `https://`（其他 scheme 在签名/HTTP 之前直接拒绝）。Tenant 校验沿用 `verify_anchor_records` 的 record-level enforcement，不要求把 tenant 段写到 Rekor URL（透明日志 URL 是公共端点）。
+- 不带 `--execute` 时 sink 停留在 `status=planned`、`executed=false`、`submitted_count=0`、`entries=[]`，默认 contract smoke 与 operator dry-run 不需要网络也不需要密钥。
+- 带 `--execute` 时：对每条 anchor record 计算 canonical bytes `b"entry_sha256:<hex>\n"`，用 operator 提供的 ECDSA-P256 私钥做 ECDSA-SHA256 签名，从私钥派生对应 SubjectPublicKeyInfo PEM，按 `hashedrekord/0.0.1` 规格 POST 到 `<rekor>/api/v1/log/entries`；解析回包的 first entry 的 uuid + `logIndex` + `integratedTime`，每条 record 只在 2xx 响应时把 `published` 标 `true`。
+- `external_audit_anchor_report/v1` 新增可选 `external_sink.rekor_transparency_log`（`endpoint_url` / `endpoint_path` / `kind_version` / `signature_algorithm` / `executed` / `status` ∈ `planned|uploaded|partial|skipped|error` / `details` / `submitted_count` / `uploaded_count` / `entries[]`，每条 entry 包含 `entry_sha256`/`payload_sha256`/`uuid`/`log_index`/`integrated_time`/`status`/`details`）；`external_sink.kind` enum 扩展为 `["file_ledger", "s3_worm", "rekor"]`，与 K1-a 的 `s3_object_lock` 互为兄弟字段。
+- top-level `summary.status` 仅在 rekor 块 `status=error` 时降为 `fail`；`partial`（部分上传）不降级，便于 operator 重试。
+- `scripts/check_json_contracts.sh` 新增 K1-b 两条断言：(a) planned-mode `https://rekor.sigstore.dev` smoke 跑通、schema 通过、`kind=rekor`、`endpoint_url`、`endpoint_path=/api/v1/log/entries`、`kind_version=hashedrekord/0.0.1`、`signature_algorithm=ecdsa-p256-sha256`、`executed=false`、`status=planned`、`submitted_count=0`、`uploaded_count=0`、`entries=[]`、`summary.published_count=0`、`records[*].published=false`；(b) 非 `http(s)` Rekor URL（`ftp://...`）必须 exit 非 0。`scripts/check_ci_smoke.sh` 已经把脚本列入 py_compile，无需额外接入。
+- 本地端到端验证：用 `cryptography` 现场生成 ECDSA-P256 keypair、起 in-process loopback HTTP receiver 用同一公钥重算 canonical bytes 并 server-side 验签；2 条 anchor records → 2 次 POST → 2 次 201 → `submitted_count=2`、`uploaded_count=2`、`status=uploaded`、`summary.published_count=2`、所有 `records[*].published=true`。证明 `--execute` live path 正确，无需依赖公网 Rekor。
+- 验证：`bash scripts/check_json_contracts.sh` ✓（120 schemas / 0 fail）；`scripts/check_schema_backcompat.py` ✓；`bash scripts/check_ci_smoke.sh` ✓（仍 `intersection_size=2 / intersection_sum=425`）。Live Rekor submission 仍属 operator 环境（需要长期 ECDSA 密钥托管 + 公网 Rekor 接入）。
+
+剩余 block 从 10 → 9（~50h → ~45h）；K 类从 2 → 1。下一步建议回到 F1-b、G3 hotspot/G4/G5、J2-b、J4 chaos 或 K3 external pen test。
+
+2026-05-08 进展：J4 chaos and failure-injection 工具链已完成 repo-side。
+
+- 新增 `scripts/run_chaos_test.py` 与 `schemas/chaos_test_report.schema.json`（`chaos_test_report/v1`），覆盖 5 个场景；其中 3 个在 default contract smoke 内 in-process 跑通：
+  - `recovery_service_sigkill`：spawn in-process record-recovery HTTP service，先用 `/metrics` 探活（无需 auth），用 `server.shutdown()` + `server_close()` 模拟 SIGKILL 让 listener 撤掉，再发一次 `/metrics`，断言客户端拿到 connection refused / connection reset / 其他干净 transport-level 错误。
+  - `mtls_cert_expired`：用 `cryptography` 现场生成 `not_valid_before` 10 天前 / `not_valid_after` 1 天前的 RSA 自签证书，启 in-process TLS listener，client 用 `ssl.create_default_context()` 把同一证书当作 trust anchor 加载（即排除 unknown-CA 干扰），断言握手前抛 `ssl.SSLCertVerificationError`（或 SSLError）。注意 `_ExpiredCertHTTPSServer` 的内部 Event 字段必须避开 `_stop` 名字以免与 `threading.Thread._stop` 冲突。
+  - `audit_archive_unwritable`：用 `seal_audit_artifact.py --input/--out/--job-id` 合成真实的 `audit_chain.json` + `audit_chain.seal.json`，对 archive dir `chmod 0`，subprocess 调 `archive_audit_bundle.py`，断言非 0 退出 + dir 内容前后一致 + 源 chain SHA-256 不变。
+- 另外 2 个属于 operator-environment 场景，恒定输出 `status=skipped`、`injection_method=operator_environment_only`：
+  - `postgres_primary_killed`：依赖 Patroni cluster；live drill 与 J2-b 走同一 OPS_RUNBOOK 章节。
+  - `audit_log_path_full`：依赖 quota-bounded 文件系统；in-process 模拟会污染 host。
+- `summary.status` 在任意 in-process 场景失败或检测到 audit chain 损坏时降为 `fail`；skipped 不影响 ok 状态。
+- `scripts/check_json_contracts.sh` 用 `--scenarios all --assert-ok` 跑全套，校验 schema、`summary.status=ok`、`total=5`、`ok=3`、`skipped=2`、`audit_chain_corruptions=0`、`expected_pattern_matched=3`，并断言 3 个 in-process 场景的 observed_failure_mode 落在受控集合内（`connection_refused/connection_error/transport_error/url_error`、`certificate_expired/certificate_verify_failed/ssl_error`、`archive_dir_unwritable`）。
+- `scripts/check_ci_smoke.sh` 把 `scripts/run_chaos_test.py` 加入 py_compile；`config/schema_backcompat_baseline.json` 注册 `chaos_test_report/v1` 为 stable schema。
+- 验证：`bash scripts/check_json_contracts.sh` ✓（121 schemas / 0 fail）；`scripts/check_schema_backcompat.py` ✓；`bash scripts/check_ci_smoke.sh` ✓（仍 `intersection_size=2 / intersection_sum=425`）。
+- live `postgres_primary_killed` 与 `audit_log_path_full` 的实际复演归 operator 环境，沿用 OPS_RUNBOOK §J4 chaos drills 章节。
+
+剩余 block 从 9 → 8（~45h → ~40h）；J 类从 2 → 1。下一步建议聚焦 F1-b、G3 hotspot/G4/G5、J2-b 或 K3 external pen test。
 
 2026-05-08 进展：Track-E1 / Track-E2 / Track-E3 e-commerce 平台叙事三块同步完成 repo-side。
 
 - **Track-E1（fact-layer baseline）**：`docs/ECOMMERCE_FACT_LAYER_PLAN.md` 已落基线，`migrations/metadata/010_add_ecommerce_fact_tables.sql` 新增六张事实表（`orders` / `order_items` / `order_attribution` / `order_payment` / `order_fulfillment` / `customer_service_interactions`），`migrations/postgres/001_init.sql` 同步对齐，新增 `scripts/render_ecommerce_fact_layer.py` 与 `schemas/ecommerce_fact_layer_report.schema.json`。默认 contract smoke 渲染并校验 `ecommerce_fact_layer_report/v1`，断言六表全在、indexes 总数 ≥ 12。
 - **Track-E2（业务身份基线）**：`docs/ECOMMERCE_ACCESS_MODEL.md` 新增 Track-E2 章节，`migrations/metadata/011_add_business_identities.sql` 新增 `business_identities` 表（`identity_kind` 受控集合 `buyer` / `merchant_staff` / `customer_service_agent` / `courier` / `field_marketer`）；表结构刻意 PII-free，不引入新的 stage gate，不破坏已冻结的 `caller_permissions` schema；Postgres DDL 同步对齐。
-- **Track-E3（operator console 基线）**：`docs/OPERATOR_CONSOLE_PRODUCT_PLAN.md` 落基线；新增 `config/operator_console/console_manifest.json`（`console_manifest/v1`，8 个 section、25 个 endpoint、5 个 platform_role）和 `config/operator_console/index.html` 静态占位页（运行时 fetch manifest），`schemas/console_manifest.schema.json`、`schemas/operator_console_manifest_report.schema.json`，`scripts/render_operator_console_manifest.py`。默认 contract smoke 校验 manifest、渲染 `operator_console_manifest_report/v1`、断言 8 个 section 全在、`static_index_references_manifest=true`、`commerce_ops_owner` / `compliance_auditor` / `recovery_service_operator` 三类 role 都在。
+- **Track-E3（operator console 基线）**：`docs/OPERATOR_CONSOLE_PRODUCT_PLAN.md` 落基线；`config/operator_console/console_manifest.json`（`console_manifest/v1`，I3-b 后为 9 个 section、31 个 endpoint、7 个 platform_role）和 `config/operator_console/index.html` 静态占位页（运行时 fetch manifest），`schemas/console_manifest.schema.json`、`schemas/operator_console_manifest_report.schema.json`，`scripts/render_operator_console_manifest.py`。默认 contract smoke 校验 manifest、渲染 `operator_console_manifest_report/v1`、断言 9 个 section 全在、`static_index_references_manifest=true`、`commerce_ops_owner` / `compliance_auditor` / `recovery_service_operator` 三类 role 都在。
 
 backcompat baseline 同步从 114 → 117 schemas，0 fail。CI smoke + JSON contract smoke 全绿；replay 仍 `intersection_size=2 / intersection_sum=425`。Track-E 三块属于"PJC + SSE e-commerce 平台叙事"补完，不计入 §4.1 的生产就绪 block 表，详细对照见 [`docs/PRODUCTION_READINESS_GUIDEBOOK.md`](/home/llvanion/Desktop/seccomp-privacy-platform/docs/PRODUCTION_READINESS_GUIDEBOOK.md) §12 Track-E 表。
 

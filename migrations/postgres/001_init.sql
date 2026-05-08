@@ -540,3 +540,37 @@ CREATE TABLE IF NOT EXISTS business_identities (
 CREATE INDEX IF NOT EXISTS idx_business_identities_tenant_kind ON business_identities (tenant_id, identity_kind);
 CREATE INDEX IF NOT EXISTS idx_business_identities_caller ON business_identities (caller_id);
 CREATE INDEX IF NOT EXISTS idx_business_identities_subject ON business_identities (tenant_id, subject_external_id);
+
+-- I3 self-service request submission and approval baseline.
+CREATE TABLE IF NOT EXISTS workflow_submissions (
+    id SERIAL PRIMARY KEY,
+    submission_id TEXT NOT NULL UNIQUE,
+    status TEXT NOT NULL,
+    submitted_at_utc TIMESTAMPTZ NOT NULL,
+    updated_at_utc TIMESTAMPTZ NOT NULL,
+    workflow TEXT NOT NULL,
+    query_type TEXT,
+    job_id TEXT,
+    caller TEXT,
+    tenant_id TEXT,
+    dataset_id TEXT,
+    service_id TEXT,
+    request_digest TEXT NOT NULL,
+    request_source TEXT NOT NULL,
+    request_json JSONB NOT NULL,
+    request_summary_json JSONB NOT NULL,
+    submitted_by_identity_json JSONB,
+    approved_by TEXT,
+    approved_at_utc TIMESTAMPTZ,
+    rejected_by TEXT,
+    rejected_at_utc TIMESTAMPTZ,
+    rejection_reason TEXT,
+    transition_history_json JSONB NOT NULL,
+    metadata_json JSONB
+);
+
+CREATE INDEX IF NOT EXISTS idx_workflow_submissions_submission_id ON workflow_submissions (submission_id);
+CREATE INDEX IF NOT EXISTS idx_workflow_submissions_status ON workflow_submissions (status);
+CREATE INDEX IF NOT EXISTS idx_workflow_submissions_tenant_status ON workflow_submissions (tenant_id, status);
+CREATE INDEX IF NOT EXISTS idx_workflow_submissions_caller ON workflow_submissions (caller);
+CREATE INDEX IF NOT EXISTS idx_workflow_submissions_job_id ON workflow_submissions (job_id);

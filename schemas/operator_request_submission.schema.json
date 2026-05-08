@@ -1,0 +1,141 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "operator_request_submission/v1",
+  "title": "Pending operator-console request submission",
+  "type": "object",
+  "required": [
+    "schema",
+    "submission_id",
+    "submitted_at_utc",
+    "updated_at_utc",
+    "status",
+    "workflow",
+    "query_type",
+    "job_id",
+    "caller",
+    "tenant_id",
+    "request_digest",
+    "request_source",
+    "approval_required",
+    "request_summary",
+    "authenticated_identity",
+    "transitions"
+  ],
+  "properties": {
+    "schema": {
+      "const": "operator_request_submission/v1"
+    },
+    "submission_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "submitted_at_utc": {
+      "type": "string",
+      "minLength": 1
+    },
+    "updated_at_utc": {
+      "type": "string",
+      "minLength": 1
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "pending_approval",
+        "approved",
+        "rejected",
+        "running",
+        "completed",
+        "failed"
+      ]
+    },
+    "workflow": {
+      "type": "string",
+      "const": "sse_bridge_pipeline"
+    },
+    "query_type": {
+      "type": ["string", "null"]
+    },
+    "job_id": {
+      "type": ["string", "null"]
+    },
+    "caller": {
+      "type": ["string", "null"]
+    },
+    "tenant_id": {
+      "type": ["string", "null"]
+    },
+    "dataset_id": {
+      "type": ["string", "null"]
+    },
+    "service_id": {
+      "type": ["string", "null"]
+    },
+    "approved_by": {
+      "type": ["string", "null"]
+    },
+    "approved_at_utc": {
+      "type": ["string", "null"]
+    },
+    "rejected_by": {
+      "type": ["string", "null"]
+    },
+    "rejected_at_utc": {
+      "type": ["string", "null"]
+    },
+    "rejection_reason": {
+      "type": ["string", "null"]
+    },
+    "request_digest": {
+      "type": "string",
+      "minLength": 1
+    },
+    "request_source": {
+      "type": "string",
+      "minLength": 1
+    },
+    "approval_required": {
+      "type": "boolean"
+    },
+    "request_summary": {
+      "type": "object"
+    },
+    "authenticated_identity": {
+      "type": ["object", "null"]
+    },
+    "transitions": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["state", "event", "at_utc"],
+        "properties": {
+          "state": {
+            "type": "string",
+            "minLength": 1
+          },
+          "event": {
+            "type": "string",
+            "minLength": 1
+          },
+          "actor": {
+            "type": ["string", "null"]
+          },
+          "at_utc": {
+            "type": "string",
+            "minLength": 1
+          },
+          "reason": {
+            "type": ["string", "null"]
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    "request": {
+      "type": "object"
+    },
+    "job_control": {
+      "type": ["object", "null"]
+    }
+  },
+  "additionalProperties": false
+}

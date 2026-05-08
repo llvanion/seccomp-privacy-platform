@@ -2,9 +2,9 @@
 """Validate the operator console manifest baseline (Track-E3).
 
 Reads ``config/operator_console/console_manifest.json``, validates its shape
-against ``schemas/console_manifest.schema.json``, asserts the eight expected
-sections (home / jobs / audit / catalog / permissions / recovery / observability
-/ compliance) are present, asserts the static placeholder
+against ``schemas/console_manifest.schema.json``, asserts the expected
+sections (home / jobs / requests / audit / catalog / permissions / recovery /
+observability / compliance) are present, asserts the static placeholder
 ``config/operator_console/index.html`` references the manifest at runtime, and
 emits ``operator_console_manifest_report/v1``.
 
@@ -28,6 +28,7 @@ DEFAULT_MANIFEST_SCHEMA = REPO_ROOT / "schemas" / "console_manifest.schema.json"
 EXPECTED_SECTIONS = [
     "home",
     "jobs",
+    "requests",
     "audit",
     "catalog",
     "permissions",

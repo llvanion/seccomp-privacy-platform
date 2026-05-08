@@ -40,6 +40,11 @@ EXPECTED_INDEXES = (
     "idx_retention_reconcile_scope",
     "idx_retention_reconcile_job",
     "idx_retention_reconcile_action",
+    "idx_workflow_submissions_submission_id",
+    "idx_workflow_submissions_status",
+    "idx_workflow_submissions_tenant_status",
+    "idx_workflow_submissions_caller",
+    "idx_workflow_submissions_job_id",
 )
 
 

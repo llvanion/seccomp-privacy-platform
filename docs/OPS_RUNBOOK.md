@@ -1582,6 +1582,27 @@ Use this tree when a check or service reports an unexpected failure.
 4. **`unsigned anchor line`** (with `--require-signature`) → an anchor entry was written without an HMAC key; either remove the unsigned entry or re-archive with a key set.
 5. **External ledger file not writable** → the `--external-ledger` path or its parent directory does not exist or is read-only; create the directory or fix permissions before publishing.
 
+### J4 Chaos Drill
+
+`scripts/run_chaos_test.py` drives the chaos and failure-injection drill defined in `docs/PRODUCTION_READINESS_GUIDEBOOK.md` §J4. It emits `chaos_test_report/v1`. Default contract smoke runs `--scenarios all --assert-ok`; the report should always carry `summary.status=ok`, `summary.audit_chain_corruptions=0`, three `ok` scenarios, and two `skipped` operator-only scenarios.
+
+```bash
+python3 scripts/run_chaos_test.py \
+  --scenarios all \
+  --output tmp/chaos_test_report.json \
+  --assert-ok
+```
+
+Per-scenario triage:
+
+1. **`recovery_service_sigkill` flips to `fail`** → either the in-process recovery service did not become healthy before injection (look at `details=service did not become healthy before injection`; the auth path probably regressed and `/metrics` is no longer unauthenticated), or the post-shutdown probe unexpectedly succeeded (the listener was not torn down — investigate `RecordRecoveryHttpServer.shutdown()`/`server_close()` ordering). Recovery: rerun the drill once; if the failure persists, file a regression and quarantine the affected `services/record_recovery/http_service.py` change.
+2. **`mtls_cert_expired` flips to `fail`** → the operator host either lacks `cryptography` (`pip install cryptography`) or the client TLS context now silently accepts expired certs (a `ssl` library regression). The expected failure mode is `certificate_expired` / `certificate_verify_failed` / `ssl_error`; anything else means the script took a non-TLS error path and should be triaged before further smokes.
+3. **`audit_archive_unwritable` flips to `fail`** → either `seal_audit_artifact.py` arguments changed (the synthesizer uses `--input/--out/--job-id`; if those names move you'll see `could not synthesize audit chain/seal`), or the `chmod 000` injection no longer blocks writes (the underlying filesystem may be a tmpfs run as root with permissive mounts). Recovery: rerun the drill on a non-root host.
+4. **`postgres_primary_killed` is recorded as `skipped`** → expected. The live drill is operator-environment work and shares the same Patroni step-by-step with J2-b; once a Patroni cluster is available, run `patronictl -c config/patroni-ha/patroni-primary.yml switchover --force` and verify `scripts/check_platform_health.py` reports `ok` within 30 s.
+5. **`audit_log_path_full` is recorded as `skipped`** → expected. The live drill requires a quota-bounded loopback filesystem (e.g. an `xfs_quota`-managed mount or a dedicated `tmpfs` with `size=`); see operator notes. Once a small loopback mount is available, point `record_recovery_service_config.audit_log` at it, fill the FS, and submit a single `/recover` to verify the service surfaces `audit_write_failed` without corrupting in-memory state.
+
+After any chaos drill (passing or failing), re-run `bash scripts/check_ci_smoke.sh` to confirm the pipeline replay still produces `intersection_size=2 / intersection_sum=425`. The chaos drill never modifies pipeline contract files, but a misbehaving scenario could leak a temporary work dir; clean up `/tmp/seccomp_chaos_*` directories with `rm -rf /tmp/seccomp_chaos_*` if `--work-dir` was pinned.
+
 ### Platform Health Reports Error
 
 ```bash

@@ -1,0 +1,43 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "operator_request_submission_list/v1",
+  "title": "Operator request submission list response",
+  "type": "object",
+  "required": [
+    "schema",
+    "status",
+    "returned_count",
+    "limit",
+    "submissions"
+  ],
+  "properties": {
+    "schema": {
+      "const": "operator_request_submission_list/v1"
+    },
+    "status": {
+      "type": "string",
+      "enum": ["ok"]
+    },
+    "tenant_id": {
+      "type": ["string", "null"]
+    },
+    "filter_status": {
+      "type": ["string", "null"]
+    },
+    "returned_count": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "limit": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "submissions": {
+      "type": "array",
+      "items": {
+        "type": "object"
+      }
+    }
+  },
+  "additionalProperties": false
+}

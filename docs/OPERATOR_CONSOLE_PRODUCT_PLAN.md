@@ -18,6 +18,7 @@ This document defines the scope so an engineer (or a downstream product team) ca
 |---------|---------|---------------------|-----------|
 | **Home / Health** | Per-tenant platform-health snapshot, alert stripe. | `serve_platform_health_api.py` `GET /v1/platform-health`; `services/record_recovery/http_service.py` `GET /metrics` | All authenticated operators |
 | **Jobs** | Submit a privacy query (cross_party_match), monitor running jobs, drill into a finished job's audit chain. | `serve_query_workflow_api.py` `POST /v1/query-workflow`; `serve_operator_dashboard.py` `POST /v1/jobs/start`, `GET /v1/dashboard`, `GET /v1/jobs/{job_id}`; `serve_audit_query_api.py` `GET /v1/audit-chain` | `query_submitter` to submit; everyone else read-only |
+| **Requests** | Submit tenant-facing privacy query requests into the pending approval queue, review pending submissions, approve or reject. | `serve_operator_dashboard.py` `POST /v1/request/submit`, `GET /v1/requests`, `GET /v1/requests/{submission_id}`, `POST /v1/request/{submission_id}/approve`, `POST /v1/request/{submission_id}/reject` | `query_submitter` to submit; `privacy_operator` / `platform_admin` to approve; `privacy_operator` / `platform_admin` / `compliance_auditor` to reject |
 | **Audit & Public Reports** | Browse public reports; verify a sealed audit bundle; spot-check tamper resistance. | `serve_audit_query_api.py` `GET /v1/public-report`, `GET /v1/audit-chain`, `GET /v1/observability`, `GET /v1/catalog-lineage`; CLI `verify_audit_bundle.py`, `verify_audit_tamper_resistance.py` | `compliance_auditor` for full-detail; others see redacted |
 | **Catalog & Lineage** | Browse `catalog_lineage/v1` per job; explore the dataset/service registry. | `serve_audit_query_api.py` `GET /v1/catalog-lineage`; `serve_metadata_api.py` `GET /v1/jobs`, `GET /v1/policies`, `GET /v1/services`, `GET /v1/business-identities` | All authenticated operators |
 | **Permissions** | View `caller_permissions`, `policy_bindings`, business identities; trigger `apply-registry` proposals. | `serve_metadata_api.py` `GET /v1/caller-permissions`, `GET /v1/policy-bindings`, `GET /v1/business-identities`; `manage_metadata_db.py` `apply-registry` | `commerce_ops_owner` and `compliance_auditor` |
@@ -31,7 +32,7 @@ The console manifest (`config/operator_console/console_manifest.json`) freezes t
 
 `console_manifest/v1` (frozen schema: [`schemas/console_manifest.schema.json`](/home/llvanion/Desktop/seccomp-privacy-platform/schemas/console_manifest.schema.json)) maps each console section to:
 
-- `section`: stable section id (`home`, `jobs`, `audit`, `catalog`, `permissions`, `recovery`, `observability`, `compliance`).
+- `section`: stable section id (`home`, `jobs`, `requests`, `audit`, `catalog`, `permissions`, `recovery`, `observability`, `compliance`).
 - `title`: display title.
 - `endpoints`: list of `{method, path, role}` triples.
 - `feature_flags`: list of capability strings the SPA branches on (`mtls`, `rate_limit`, `multi_tenant_quota`, `external_anchor`).
@@ -46,10 +47,12 @@ The console reads `api_identity_resolution/v1` for the current bearer token to d
 
 | platform_role | Sections shown |
 |---------------|----------------|
-| `commerce_ops_owner` | Home, Jobs, Audit (read), Catalog, Permissions, Recovery (read), Observability |
-| `campaign_analyst` | Home, Jobs (no release), Audit (read), Catalog |
-| `fraud_analyst` | Home, Jobs (no release), Audit (read), Catalog |
-| `compliance_auditor` | Home, Audit (full), Catalog, Permissions, Compliance |
+| `commerce_ops_owner` | Home, Jobs, Requests, Audit (read), Catalog, Permissions, Recovery (read), Observability |
+| `campaign_analyst` | Home, Jobs (no release), Requests, Audit (read), Catalog |
+| `fraud_analyst` | Home, Jobs (no release), Requests, Audit (read), Catalog |
+| `privacy_operator` | Home, Jobs (approve-only workflow actions), Requests (review / approve / reject), Audit (read), Catalog, Observability |
+| `platform_admin` | Home, Jobs, Requests (review / approve / reject), Audit (full), Catalog, Permissions, Recovery, Observability, Compliance |
+| `compliance_auditor` | Home, Requests (review / reject), Audit (full), Catalog, Permissions, Compliance |
 | `recovery_service_operator` | Home, Recovery, Observability |
 
 `can_release` is enforced by the existing pipeline gate; the console mirrors it by hiding the "release" button on jobs the caller cannot release.
@@ -114,16 +117,16 @@ The production-readiness backlog item §4.4 ("No mature operator dashboard / wor
 | Concern | Track-E3 (this doc) | I3 (production-readiness) |
 |---------|---------------------|---------------------------|
 | Section + endpoint inventory across the whole console | **Owns** — `console_manifest/v1` is the source of truth. | Reads the manifest; does not redefine it. |
-| Information architecture (8 baseline sections) | **Owns** — section list is frozen here. | Adds the *contents* of the `requests` workflow inside the existing `jobs` / `permissions` sections. |
+| Information architecture (9 baseline sections) | **Owns** — section list is frozen here. | Adds the *contents* of the `requests` workflow inside the existing `jobs` / `permissions` sections. |
 | Submit / approve / reject lifecycle (durable workflow) | Documents the lifecycle here for completeness; implementation is I3. | **Owns** — endpoints, role gates, durable receipts. |
 | Identity → role gate enforcement | Documents the matrix here; the manifest's `roles_allowed` is contractually stable. | **Owns** — runtime enforcement against `api_identity_resolution/v1`. |
 | Existing operator dashboard (Tranche B `PJC X-UI`) | Documents the dashboard's place in the manifest's `jobs` section. | Not in scope — the X-UI shell stays under [`docs/CONTROL_PANEL_SPEC.md`](/home/llvanion/Desktop/seccomp-privacy-platform/docs/CONTROL_PANEL_SPEC.md). |
 
 The split rule: **Track-E3 freezes the surface; I3 fills the surface in.** A change to the section/endpoint inventory must update the manifest (Track-E3); a change to the approval workflow inside the existing `jobs` / `permissions` sections is an I3 change and does not need a Track-E3 doc revision.
 
-## 10. Approval / Workflow Lifecycle (forward-spec for I3)
+## 10. Approval / Workflow Lifecycle (I3 repo-side implementation)
 
-This section is a forward-spec only — it lives here so the I3 implementation has a concrete state machine to target without re-deriving it. The lifecycle uses `query_workflow_submission/v1` as the durable receipt and reuses the existing operator-dashboard polling pattern.
+This section is now repo-side implemented as of 2026-05-08. I3-a (`POST /v1/request/submit`) persists pending requests; I3-b adds list/detail/approve/reject and starts the existing dashboard job path after approval. The lifecycle uses `operator_request_submission/v1` for each request record, `operator_request_submission_list/v1` for the review queue, and reuses the existing dashboard/query workflow sidecars once an approved request launches.
 
 ### 10.1 States
 
@@ -139,19 +142,21 @@ completed | failed | rejected ──[immutable: write-once]──► ARCHIVED
 | State | Source of truth | Visible to |
 |-------|-----------------|-----------|
 | `pending_approval` | `metadata_db.workflow_submissions` row + `control_plane_mutations` audit | submitter (own row), approvers in same tenant, `compliance_auditor` |
-| `approved` | `control_plane_mutations.action='approve_request'` + `submit_query_workflow.py --execute` invocation | submitter, approvers, auditor |
+| `approved` | `workflow_submissions.approved_by/approved_at_utc` + `control_plane_mutations.operation='approve_request'` + dashboard job launch | submitter, approvers, auditor |
 | `running` / `completed` / `failed` | existing `jobs/{job_id}` lifecycle in the operator dashboard | same as `jobs` section role gates |
-| `rejected` | `control_plane_mutations.action='reject_request'` with `reason` text | submitter, approvers, auditor |
+| `rejected` | `workflow_submissions.rejection_reason` + `control_plane_mutations.operation='reject_request'` with `reason` text | submitter, approvers, auditor |
 
-### 10.2 Endpoints (planned, not yet wired)
+### 10.2 Endpoints
 
 | Method | Path | Service | Role |
 |--------|------|---------|------|
-| `POST` | `/v1/request/submit` | `serve_operator_dashboard` | `query_submitter` |
-| `POST` | `/v1/request/{submission_id}/approve` | `serve_operator_dashboard` | `privacy_operator` (NOT `query_submitter`; see §10.3) |
-| `POST` | `/v1/request/{submission_id}/reject` | `serve_operator_dashboard` | `privacy_operator` or `compliance_auditor` |
-| `GET` | `/v1/requests?tenant_id=&status=` | `serve_operator_dashboard` | `commerce_ops_owner`, `compliance_auditor`, `privacy_operator` |
-| `GET` | `/v1/requests/{submission_id}` | `serve_operator_dashboard` | submitter (own row), reviewers in same tenant |
+| `POST` | `/v1/request/submit` | `serve_operator_dashboard` | `query_submitter` — **implemented 2026-05-08** |
+| `POST` | `/v1/request/{submission_id}/approve` | `serve_operator_dashboard` | `privacy_operator` or `platform_admin` (NOT same resolved caller as submitter; see §10.3) — **implemented 2026-05-08** |
+| `POST` | `/v1/request/{submission_id}/reject` | `serve_operator_dashboard` | `privacy_operator`, `platform_admin`, or `compliance_auditor` — **implemented 2026-05-08** |
+| `GET` | `/v1/requests?tenant_id=&status=` | `serve_operator_dashboard` | submitter own rows; `commerce_ops_owner`, `compliance_auditor`, `privacy_operator`, `platform_admin` per tenant/scope — **implemented 2026-05-08** |
+| `GET` | `/v1/requests/{submission_id}` | `serve_operator_dashboard` | submitter (own row), reviewers in same tenant, platform admins, auditors — **implemented 2026-05-08** |
+
+Submitted requests are persisted in `metadata_db.workflow_submissions`, write a matching `control_plane_mutations` row with `operation='submit_request'`, and return `operator_request_submission/v1`. The submit path validates the normalized request against `query_workflow_request/v1` and redacts `token_secret` in `request_summary`. Approval/rejection transitions append state history, write mutation rows, and expose the latest state through detail/list responses. The approval path reserves a dashboard job slot before the approval commit and starts the job after commit, so a launch quota conflict does not leave a request falsely approved.
 
 ### 10.3 Separation of Duties
 
@@ -159,19 +164,19 @@ Same-identity submit→approve must be rejected at the HTTP boundary with `403 s
 
 ### 10.4 Audit Integration
 
-Every state transition must:
+Every state transition now:
 
-1. Write a `control_plane_mutations` row through `manage_metadata_db.py` with `entity_type='workflow_submission'` and the action verb (`submit_request`, `approve_request`, `reject_request`).
+1. Writes a `control_plane_mutations` row with `entity_type='workflow_submission'` and the action verb (`submit_request`, `approve_request`, `reject_request`).
 2. Reuse the existing `audit_chain/v1` record once the approved job runs — no separate "approval audit" stream is introduced.
 3. Surface the most recent transition in `GET /v1/requests/{submission_id}` so the SPA can render a state-history timeline without reading the metadata DB directly.
 
 ### 10.5 Console Manifest Hook (Phase-2)
 
-When I3 lands, `console_manifest/v1` will gain an optional `requests` section. The schema (`schemas/console_manifest.schema.json`) already permits arbitrary additional sections; the contract smoke `expected={...}` set in [`scripts/check_json_contracts.sh`](/home/llvanion/Desktop/seccomp-privacy-platform/scripts/check_json_contracts.sh) accepts extras via `issubset`, so adding `requests` is a *non-breaking* change. At that point this doc and the smoke `expected` set should be updated together.
+I3-a added the `requests` section to `console_manifest/v1` and the `approval_workflow` feature flag. I3-b expanded that section with submit/list/detail/approve/reject endpoints. The schema (`schemas/console_manifest.schema.json`) already permits arbitrary additional sections, and the contract smoke expected-section set now includes `requests`, so the manifest and smoke are aligned.
 
 ## 11. Admin Surfaces (Admin-as-Product)
 
-This section narrows item §4 of the platform brief: **"admin UI as a product"**. It distinguishes operator-day-to-day work (already covered by the 8 baseline sections) from rarer, governance-grade administrative work that needs a separate surface.
+This section narrows item §4 of the platform brief: **"admin UI as a product"**. It distinguishes operator-day-to-day work (already covered by the 9 baseline sections) from rarer, governance-grade administrative work that needs a separate surface.
 
 ### 11.1 Admin Sections (Phase-2 manifest extensions)
 

@@ -109,6 +109,8 @@ SCHEMAS=(
   "$REPO_ROOT/schemas/query_workflow_api_response.schema.json"
   "$REPO_ROOT/schemas/query_workflow_status_api_response.schema.json"
   "$REPO_ROOT/schemas/query_workflow_api_error.schema.json"
+  "$REPO_ROOT/schemas/operator_request_submission.schema.json"
+  "$REPO_ROOT/schemas/operator_request_submission_list.schema.json"
   "$REPO_ROOT/schemas/observability_dashboard.schema.json"
   "$REPO_ROOT/schemas/observability_alert_report.schema.json"
   "$REPO_ROOT/schemas/query_workflow_status_list.schema.json"
@@ -1030,7 +1032,26 @@ python3 "$REPO_ROOT/scripts/render_operator_console_manifest.py" \
 python3 "$VALIDATOR" \
   --schema "$REPO_ROOT/schemas/operator_console_manifest_report.schema.json" \
   --json "$tmp/operator_console_manifest_report.json"
-python3 -c 'import json,sys; p=json.load(open(sys.argv[1])); s=p["summary"]; assert s["status"]=="ok", p; expected={"home","jobs","audit","catalog","permissions","recovery","observability","compliance"}; assert expected.issubset(set(s["sections_present"])), p; assert not s["sections_missing"], p; assert s["section_count"] >= 8, p; assert s["endpoints_total"] >= 8, p; assert s["static_index_references_manifest"] is True, p; assert {"commerce_ops_owner","compliance_auditor","recovery_service_operator"}.issubset(set(s["roles_referenced"])), p' "$tmp/operator_console_manifest_report.json"
+python3 -c 'import json,sys; p=json.load(open(sys.argv[1])); s=p["summary"]; assert s["status"]=="ok", p; expected={"home","jobs","requests","audit","catalog","permissions","recovery","observability","compliance"}; assert expected.issubset(set(s["sections_present"])), p; assert not s["sections_missing"], p; assert s["section_count"] >= 9, p; assert s["endpoints_total"] >= 9, p; assert s["static_index_references_manifest"] is True, p; assert {"commerce_ops_owner","compliance_auditor","recovery_service_operator"}.issubset(set(s["roles_referenced"])), p' "$tmp/operator_console_manifest_report.json"
+python3 "$REPO_ROOT/scripts/check_operator_request_submission_smoke.py" \
+  --output "$tmp/operator_request_submission.json" > /dev/null
+python3 "$VALIDATOR" \
+  --schema "$REPO_ROOT/schemas/operator_request_submission.schema.json" \
+  --json "$tmp/operator_request_submission.json"
+python3 -c 'import json,sys; p=json.load(open(sys.argv[1])); assert p["status"]=="pending_approval", p; assert p["submission_id"].startswith("req_"), p; assert p["request_summary"]["token_secret"]=="<redacted>", p; assert p["caller"]=="auto_demo" and p["tenant_id"]=="demo_tenant", p' "$tmp/operator_request_submission.json"
+python3 "$VALIDATOR" \
+  --schema "$REPO_ROOT/schemas/operator_request_submission_list.schema.json" \
+  --json "$tmp/operator_request_submission_list.json"
+python3 "$VALIDATOR" \
+  --schema "$REPO_ROOT/schemas/operator_request_submission.schema.json" \
+  --json "$tmp/operator_request_submission_detail.json"
+python3 "$VALIDATOR" \
+  --schema "$REPO_ROOT/schemas/operator_request_submission.schema.json" \
+  --json "$tmp/operator_request_submission_approve.json"
+python3 "$VALIDATOR" \
+  --schema "$REPO_ROOT/schemas/operator_request_submission.schema.json" \
+  --json "$tmp/operator_request_submission_reject.json"
+python3 -c 'import json,sys; l=json.load(open(sys.argv[1])); d=json.load(open(sys.argv[2])); a=json.load(open(sys.argv[3])); r=json.load(open(sys.argv[4])); assert l["schema"]=="operator_request_submission_list/v1" and l["returned_count"]>=1, l; assert isinstance(d.get("request"), dict), d; assert a["status"]=="approved" and a["approved_by"]=="privacy_operator_demo", a; assert isinstance(a.get("job_control"), dict) and a["job_control"]["state"]=="running", a; assert r["status"]=="rejected" and r["rejection_reason"]=="smoke rejection", r' "$tmp/operator_request_submission_list.json" "$tmp/operator_request_submission_detail.json" "$tmp/operator_request_submission_approve.json" "$tmp/operator_request_submission_reject.json"
 export SECCOMP_AUDIT_ARCHIVE_ANCHOR_KEY="contract-audit-anchor-key"
 python3 "$REPO_ROOT/scripts/archive_audit_bundle.py" \
   --audit-chain "$tmp/audit_chain.json" \
@@ -1087,6 +1108,146 @@ if [[ -e "$tmp/external_audit/other-tenant/ledger.jsonl" ]]; then
   echo "[ERROR] mismatched-tenant ledger should not have been created" >&2
   exit 1
 fi
+# K1-a: S3 Object Lock (WORM) sink — planned-mode smoke (no AWS credentials required)
+python3 "$REPO_ROOT/scripts/publish_external_audit_anchor.py" \
+  --anchor-file "$tmp/audit_archive/contract-tenant/audit_chain_anchor.jsonl" \
+  --external-ledger "s3://seccomp-audit-archive/audit/contract-tenant/ledger.jsonl" \
+  --tenant-id contract-tenant \
+  --sink-kind s3_worm \
+  --object-lock-mode COMPLIANCE \
+  --retain-days 3650 \
+  --anchor-key-env SECCOMP_AUDIT_ARCHIVE_ANCHOR_KEY \
+  --require-signature \
+  --output "$tmp/external_audit_anchor_report_s3_worm_planned.json" \
+  --assert-ok \
+  > /dev/null
+python3 "$VALIDATOR" --schema "$REPO_ROOT/schemas/external_audit_anchor_report.schema.json" --json "$tmp/external_audit_anchor_report_s3_worm_planned.json"
+python3 -c '
+import json, sys
+payload = json.load(open(sys.argv[1], "r", encoding="utf-8"))
+assert payload["mode"] == "publish", payload
+sink = payload["external_sink"]
+assert sink["kind"] == "s3_worm", sink
+assert sink["path"] == "s3://seccomp-audit-archive/audit/contract-tenant/ledger.jsonl", sink
+assert sink["tenant_id"] == "contract-tenant", sink
+lock = sink["s3_object_lock"]
+assert lock["bucket"] == "seccomp-audit-archive", lock
+assert lock["key"] == "audit/contract-tenant/ledger.jsonl", lock
+assert lock["object_lock_mode"] == "COMPLIANCE", lock
+assert lock["retain_days"] == 3650, lock
+assert isinstance(lock["retain_until_utc"], str) and lock["retain_until_utc"].endswith("Z"), lock
+assert lock["executed"] is False, lock
+assert lock["status"] == "planned", lock
+summary = payload["summary"]
+assert summary["status"] == "ok", summary
+assert summary["published_count"] == 0, summary
+assert summary["anchor_record_count"] >= 1, summary
+assert summary["verified_chain"] is True, summary
+assert summary["tenant_id"] == "contract-tenant", summary
+assert all(record["published"] is False for record in payload["records"]), payload["records"]
+' "$tmp/external_audit_anchor_report_s3_worm_planned.json"
+# K1-a: cross-tenant S3 key must be rejected before any boto3 import
+if python3 "$REPO_ROOT/scripts/publish_external_audit_anchor.py" \
+  --anchor-file "$tmp/audit_archive/contract-tenant/audit_chain_anchor.jsonl" \
+  --external-ledger "s3://seccomp-audit-archive/audit/other-tenant/ledger.jsonl" \
+  --tenant-id contract-tenant \
+  --sink-kind s3_worm \
+  --anchor-key-env SECCOMP_AUDIT_ARCHIVE_ANCHOR_KEY \
+  --require-signature \
+  > "$tmp/external_audit_anchor_s3_mismatch.stdout" 2> "$tmp/external_audit_anchor_s3_mismatch.stderr"; then
+  echo "[ERROR] publish_external_audit_anchor accepted cross-tenant s3_worm key" >&2
+  exit 1
+fi
+# K1-b: Sigstore Rekor transparency-log sink — planned-mode smoke (no key, no network)
+python3 "$REPO_ROOT/scripts/publish_external_audit_anchor.py" \
+  --anchor-file "$tmp/audit_archive/contract-tenant/audit_chain_anchor.jsonl" \
+  --external-ledger "https://rekor.sigstore.dev" \
+  --tenant-id contract-tenant \
+  --sink-kind rekor \
+  --anchor-key-env SECCOMP_AUDIT_ARCHIVE_ANCHOR_KEY \
+  --require-signature \
+  --output "$tmp/external_audit_anchor_report_rekor_planned.json" \
+  --assert-ok \
+  > /dev/null
+python3 "$VALIDATOR" --schema "$REPO_ROOT/schemas/external_audit_anchor_report.schema.json" --json "$tmp/external_audit_anchor_report_rekor_planned.json"
+python3 -c '
+import json, sys
+payload = json.load(open(sys.argv[1], "r", encoding="utf-8"))
+assert payload["mode"] == "publish", payload
+sink = payload["external_sink"]
+assert sink["kind"] == "rekor", sink
+assert sink["path"] == "https://rekor.sigstore.dev", sink
+assert sink["tenant_id"] == "contract-tenant", sink
+rekor = sink["rekor_transparency_log"]
+assert rekor["endpoint_url"] == "https://rekor.sigstore.dev", rekor
+assert rekor["endpoint_path"] == "/api/v1/log/entries", rekor
+assert rekor["kind_version"] == "hashedrekord/0.0.1", rekor
+assert rekor["signature_algorithm"] == "ecdsa-p256-sha256", rekor
+assert rekor["executed"] is False, rekor
+assert rekor["status"] == "planned", rekor
+assert rekor["submitted_count"] == 0, rekor
+assert rekor["uploaded_count"] == 0, rekor
+assert rekor["entries"] == [], rekor
+summary = payload["summary"]
+assert summary["status"] == "ok", summary
+assert summary["published_count"] == 0, summary
+assert summary["anchor_record_count"] >= 1, summary
+assert summary["verified_chain"] is True, summary
+assert summary["tenant_id"] == "contract-tenant", summary
+assert all(record["published"] is False for record in payload["records"]), payload["records"]
+' "$tmp/external_audit_anchor_report_rekor_planned.json"
+# K1-b: non-http(s) sink URL must be rejected
+if python3 "$REPO_ROOT/scripts/publish_external_audit_anchor.py" \
+  --anchor-file "$tmp/audit_archive/contract-tenant/audit_chain_anchor.jsonl" \
+  --external-ledger "ftp://rekor.invalid" \
+  --tenant-id contract-tenant \
+  --sink-kind rekor \
+  --anchor-key-env SECCOMP_AUDIT_ARCHIVE_ANCHOR_KEY \
+  --require-signature \
+  > "$tmp/external_audit_anchor_rekor_bad_scheme.stdout" 2> "$tmp/external_audit_anchor_rekor_bad_scheme.stderr"; then
+  echo "[ERROR] publish_external_audit_anchor accepted non-http rekor URL" >&2
+  exit 1
+fi
+# J4: chaos and failure-injection drill — repo-side scenarios
+python3 "$REPO_ROOT/scripts/run_chaos_test.py" \
+  --scenarios all \
+  --output "$tmp/chaos_test_report.json" \
+  --assert-ok \
+  > /dev/null
+python3 "$VALIDATOR" --schema "$REPO_ROOT/schemas/chaos_test_report.schema.json" --json "$tmp/chaos_test_report.json"
+python3 -c '
+import json, sys
+payload = json.load(open(sys.argv[1], "r", encoding="utf-8"))
+summary = payload["summary"]
+assert summary["status"] == "ok", summary
+assert summary["total"] == 5, summary
+assert summary["ok"] == 3, summary
+assert summary["failed"] == 0, summary
+assert summary["skipped"] == 2, summary
+assert summary["audit_chain_corruptions"] == 0, summary
+assert summary["expected_pattern_matched"] == 3, summary
+by_name = {scenario["name"]: scenario for scenario in payload["scenarios"]}
+required_repo_side = ("recovery_service_sigkill", "mtls_cert_expired", "audit_archive_unwritable")
+for name in required_repo_side:
+    assert name in by_name, name
+    sc = by_name[name]
+    assert sc["status"] == "ok", sc
+    assert sc["audit_chain_uncorrupted"] is True, sc
+    assert sc["expected_failure_pattern_matched"] is True, sc
+    assert sc["observed_failure_mode"], sc
+operator_only = ("postgres_primary_killed", "audit_log_path_full")
+for name in operator_only:
+    assert name in by_name, name
+    sc = by_name[name]
+    assert sc["status"] == "skipped", sc
+    assert sc["injection_method"] == "operator_environment_only", sc
+sigkill = by_name["recovery_service_sigkill"]
+assert sigkill["observed_failure_mode"] in {"connection_refused", "connection_error", "transport_error", "url_error"}, sigkill
+mtls = by_name["mtls_cert_expired"]
+assert mtls["observed_failure_mode"] in {"certificate_expired", "certificate_verify_failed", "ssl_error"}, mtls
+archive = by_name["audit_archive_unwritable"]
+assert archive["observed_failure_mode"] == "archive_dir_unwritable", archive
+' "$tmp/chaos_test_report.json"
 python3 "$REPO_ROOT/scripts/verify_audit_bundle.py" \
   --audit-chain "$tmp/audit_chain.json" \
   --audit-seal "$tmp/audit_chain.seal.json" \

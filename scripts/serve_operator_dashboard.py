@@ -8,6 +8,7 @@ import subprocess
 import sys
 import threading
 import time
+import uuid
 from datetime import datetime, timezone
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -18,10 +19,12 @@ from urllib.parse import parse_qs, unquote, urlparse
 REPO_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO_ROOT / "scripts"))
 
+from api_identity import bind_query_request_to_identity, identity_has_any_role, resolve_request_identity
 from archive_audit_bundle import summarize_mainline_contract
 from build_observability_dashboard import build_dashboard
 from check_observability_alerts import build_alert_report
 from list_query_workflow_status import scan_status_files
+from metadata_db import apply_migrations, connect_db, table_exists
 from submit_query_workflow import (
     STATUS_SCHEMA as QUERY_WORKFLOW_STATUS_SCHEMA,
     append_jsonl,
@@ -33,12 +36,19 @@ from submit_query_workflow import (
     normalize_request_paths,
     query_workflow_sidecar_paths,
     render_manifest,
+    summarize_request,
     validate_request,
     write_json,
 )
+from validate_json_contract import ValidationError, load_json as load_schema_json, validate_value
 
 CACHE_TTL = 5.0
 UNSPECIFIED_TENANT_ID = "__unspecified__"
+REQUEST_SUBMISSION_SCHEMA = "operator_request_submission/v1"
+REQUEST_SCHEMA_PATH = REPO_ROOT / "schemas" / "query_workflow_request.schema.json"
+APPROVER_ROLES = ("privacy_operator", "platform_admin")
+REQUEST_REVIEW_ROLES = ("privacy_operator", "platform_admin", "compliance_auditor", "commerce_ops_owner")
+REQUEST_REJECT_ROLES = ("privacy_operator", "platform_admin", "compliance_auditor")
 
 # ---------------------------------------------------------------------------
 # HTML dashboard (single-file, no external deps)
@@ -1433,6 +1443,479 @@ def _normalized_tenant_id(payload: dict[str, Any]) -> str:
     return tenant_id or UNSPECIFIED_TENANT_ID
 
 
+def _request_base_dir_from_header(value: str) -> Path:
+    if not value:
+        return REPO_ROOT
+    request_dir = Path(value).expanduser()
+    if not request_dir.is_absolute():
+        raise ValueError("X-Request-Base-Dir must be an absolute path")
+    return request_dir.resolve()
+
+
+def _extract_submission_request(body: dict[str, Any]) -> dict[str, Any]:
+    request_obj = body.get("request")
+    if request_obj is None:
+        request_obj = body
+    if not isinstance(request_obj, dict):
+        raise ValueError("request must be a JSON object")
+    return dict(request_obj)
+
+
+def _validate_request_schema(payload: dict[str, Any]) -> None:
+    schema = load_schema_json(str(REQUEST_SCHEMA_PATH))
+    try:
+        validate_value(payload, schema)
+    except ValidationError as exc:
+        raise ValueError(str(exc)) from exc
+
+
+def _insert_workflow_submission(
+    *,
+    db_path: str,
+    db_dsn: str,
+    submission: dict[str, Any],
+    request_payload: dict[str, Any],
+    identity: dict[str, Any] | None,
+) -> None:
+    if not db_path and not db_dsn:
+        raise RuntimeError("request submission requires --metadata-db-path or --metadata-db-dsn")
+    with connect_db(db_path, dsn=db_dsn) as conn:
+        apply_migrations(conn)
+        if not table_exists(conn, "workflow_submissions"):
+            raise RuntimeError("metadata DB is missing workflow_submissions table")
+        conn.execute(
+            """
+            INSERT INTO workflow_submissions(
+              submission_id, status, submitted_at_utc, updated_at_utc,
+              workflow, query_type, job_id, caller, tenant_id, dataset_id,
+              service_id, request_digest, request_source, request_json,
+              request_summary_json, submitted_by_identity_json, transition_history_json
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                submission["submission_id"],
+                submission["status"],
+                submission["submitted_at_utc"],
+                submission["submitted_at_utc"],
+                submission["workflow"],
+                submission.get("query_type"),
+                submission.get("job_id"),
+                submission.get("caller"),
+                submission.get("tenant_id"),
+                submission.get("dataset_id"),
+                submission.get("service_id"),
+                submission.get("request_digest"),
+                submission.get("request_source"),
+                json.dumps(request_payload, ensure_ascii=False, sort_keys=True),
+                json.dumps(submission.get("request_summary") or {}, ensure_ascii=False, sort_keys=True),
+                json.dumps(identity, ensure_ascii=False, sort_keys=True) if identity is not None else None,
+                json.dumps(submission.get("transitions") or [], ensure_ascii=False, sort_keys=True),
+            ),
+        )
+        if table_exists(conn, "control_plane_mutations"):
+            conn.execute(
+                """
+                INSERT INTO control_plane_mutations(
+                  mutation_id, operation, entity_type, entity_id, actor, source,
+                  old_state_json, new_state_json, status, applied_at_utc, notes
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    str(uuid.uuid4()),
+                    "submit_request",
+                    "workflow_submission",
+                    submission["submission_id"],
+                    submission.get("caller"),
+                    "serve_operator_dashboard:/v1/request/submit",
+                    None,
+                    json.dumps(submission, ensure_ascii=False, sort_keys=True),
+                    "applied",
+                    submission["submitted_at_utc"],
+                    "I3-a self-service request submission",
+                ),
+            )
+        conn.commit()
+
+
+def _json_field(value: Any, default: Any) -> Any:
+    if value in (None, ""):
+        return default
+    if isinstance(value, (dict, list)):
+        return value
+    if isinstance(value, str):
+        try:
+            return json.loads(value)
+        except json.JSONDecodeError:
+            return default
+    return default
+
+
+def _submission_from_row(row: Any, *, include_request: bool = False) -> dict[str, Any]:
+    request_summary = _json_field(row["request_summary_json"], {})
+    transitions = _json_field(row["transition_history_json"], [])
+    identity = _json_field(row["submitted_by_identity_json"], None)
+    payload = {
+        "schema": REQUEST_SUBMISSION_SCHEMA,
+        "submission_id": row["submission_id"],
+        "submitted_at_utc": row["submitted_at_utc"],
+        "updated_at_utc": row["updated_at_utc"],
+        "status": row["status"],
+        "workflow": row["workflow"],
+        "query_type": row["query_type"],
+        "job_id": row["job_id"],
+        "caller": row["caller"],
+        "tenant_id": row["tenant_id"],
+        "dataset_id": row["dataset_id"],
+        "service_id": row["service_id"],
+        "approved_by": row["approved_by"],
+        "approved_at_utc": row["approved_at_utc"],
+        "rejected_by": row["rejected_by"],
+        "rejected_at_utc": row["rejected_at_utc"],
+        "rejection_reason": row["rejection_reason"],
+        "request_digest": row["request_digest"],
+        "request_source": row["request_source"],
+        "approval_required": True,
+        "request_summary": request_summary if isinstance(request_summary, dict) else {},
+        "authenticated_identity": identity if isinstance(identity, dict) else None,
+        "transitions": transitions if isinstance(transitions, list) else [],
+    }
+    if include_request:
+        request_payload = _json_field(row["request_json"], {})
+        if isinstance(request_payload, dict):
+            payload["request"] = request_payload
+    return payload
+
+
+def _connect_submission_db(server: "DashboardServer"):
+    if not server.metadata_db_path and not server.metadata_db_dsn:
+        raise RuntimeError("request workflow requires --metadata-db-path or --metadata-db-dsn")
+    conn = connect_db(server.metadata_db_path, dsn=server.metadata_db_dsn)
+    apply_migrations(conn)
+    if not table_exists(conn, "workflow_submissions"):
+        conn.close()
+        raise RuntimeError("metadata DB is missing workflow_submissions table")
+    return conn
+
+
+def _load_submission(conn: Any, submission_id: str) -> dict[str, Any]:
+    row = conn.execute(
+        """
+        SELECT submission_id, status, submitted_at_utc, updated_at_utc,
+               workflow, query_type, job_id, caller, tenant_id, dataset_id,
+               service_id, request_digest, request_source, request_json,
+               request_summary_json, submitted_by_identity_json,
+               approved_by, approved_at_utc, rejected_by, rejected_at_utc,
+               rejection_reason, transition_history_json
+        FROM workflow_submissions
+        WHERE submission_id = ?
+        """,
+        (submission_id,),
+    ).fetchone()
+    if row is None:
+        raise FileNotFoundError(f"request submission not found: {submission_id}")
+    return _submission_from_row(row, include_request=True)
+
+
+def _actor(identity: dict[str, Any] | None) -> str | None:
+    if identity is None:
+        return None
+    caller = identity.get("caller")
+    return str(caller) if caller not in (None, "") else None
+
+
+def _require_resolved_identity(identity: dict[str, Any] | None) -> dict[str, Any]:
+    if identity is None:
+        raise PermissionError("request workflow action requires resolved identity")
+    return identity
+
+
+def _assert_request_view_allowed(identity: dict[str, Any] | None, submission: dict[str, Any]) -> None:
+    if identity is None:
+        return
+    if identity_has_any_role(identity, "platform_admin", "compliance_auditor"):
+        return
+    if str(submission.get("caller") or "") == str(identity.get("caller") or ""):
+        return
+    if identity_has_any_role(identity, "privacy_operator", "commerce_ops_owner"):
+        identity_tenant = str(identity.get("tenant_id") or "")
+        if identity_tenant and identity_tenant == str(submission.get("tenant_id") or ""):
+            return
+    raise PermissionError("request submission access denied")
+
+
+def _append_transition(transitions: list[Any], *, state: str, event: str, actor: str | None, at_utc: str, reason: str | None = None) -> list[dict[str, Any]]:
+    normalized: list[dict[str, Any]] = [item for item in transitions if isinstance(item, dict)]
+    transition = {
+        "state": state,
+        "event": event,
+        "actor": actor,
+        "at_utc": at_utc,
+    }
+    if reason:
+        transition["reason"] = reason
+    normalized.append(transition)
+    return normalized
+
+
+def _log_workflow_mutation(
+    conn: Any,
+    *,
+    operation: str,
+    submission_id: str,
+    actor: str | None,
+    old_state: dict[str, Any] | None,
+    new_state: dict[str, Any],
+    at_utc: str,
+    notes: str | None = None,
+) -> None:
+    if not table_exists(conn, "control_plane_mutations"):
+        return
+    conn.execute(
+        """
+        INSERT INTO control_plane_mutations(
+          mutation_id, operation, entity_type, entity_id, actor, source,
+          old_state_json, new_state_json, status, applied_at_utc, notes
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        (
+            str(uuid.uuid4()),
+            operation,
+            "workflow_submission",
+            submission_id,
+            actor,
+            f"serve_operator_dashboard:/v1/request/{submission_id}/{operation.removesuffix('_request')}",
+            json.dumps(old_state, ensure_ascii=False, sort_keys=True) if old_state is not None else None,
+            json.dumps(new_state, ensure_ascii=False, sort_keys=True),
+            "applied",
+            at_utc,
+            notes,
+        ),
+    )
+
+
+def _list_submissions(
+    server: "DashboardServer",
+    *,
+    identity: dict[str, Any] | None,
+    tenant_id: str,
+    status: str,
+    limit: int,
+) -> dict[str, Any]:
+    with _connect_submission_db(server) as conn:
+        clauses: list[str] = []
+        params: list[Any] = []
+        if status:
+            clauses.append("status = ?")
+            params.append(status)
+        if tenant_id:
+            clauses.append("tenant_id = ?")
+            params.append(tenant_id)
+        elif identity is not None and not identity_has_any_role(identity, "platform_admin", "compliance_auditor"):
+            identity_tenant = str(identity.get("tenant_id") or "")
+            if identity_tenant:
+                clauses.append("tenant_id = ?")
+                params.append(identity_tenant)
+        if identity is not None and not identity_has_any_role(identity, *REQUEST_REVIEW_ROLES):
+            clauses.append("caller = ?")
+            params.append(str(identity.get("caller") or ""))
+        where_sql = f"WHERE {' AND '.join(clauses)}" if clauses else ""
+        rows = conn.execute(
+            f"""
+            SELECT submission_id, status, submitted_at_utc, updated_at_utc,
+                   workflow, query_type, job_id, caller, tenant_id, dataset_id,
+                   service_id, request_digest, request_source, request_json,
+                   request_summary_json, submitted_by_identity_json,
+                   approved_by, approved_at_utc, rejected_by, rejected_at_utc,
+                   rejection_reason, transition_history_json
+            FROM workflow_submissions
+            {where_sql}
+            ORDER BY submitted_at_utc DESC
+            LIMIT ?
+            """,
+            tuple(params + [limit]),
+        ).fetchall()
+        submissions = []
+        for row in rows:
+            item = _submission_from_row(row)
+            try:
+                _assert_request_view_allowed(identity, item)
+            except PermissionError:
+                continue
+            submissions.append(item)
+        return {
+            "schema": "operator_request_submission_list/v1",
+            "status": "ok",
+            "tenant_id": tenant_id or None,
+            "filter_status": status or None,
+            "returned_count": len(submissions),
+            "limit": limit,
+            "submissions": submissions,
+        }
+
+
+def _transition_submission(
+    server: "DashboardServer",
+    *,
+    submission_id: str,
+    action: str,
+    identity: dict[str, Any] | None,
+    reason: str = "",
+) -> tuple[dict[str, Any], dict[str, Any] | None]:
+    resolved_identity = _require_resolved_identity(identity)
+    actor = _actor(resolved_identity)
+    if action == "reject":
+        if not identity_has_any_role(resolved_identity, *REQUEST_REJECT_ROLES):
+            raise PermissionError("request rejection requires privacy_operator, platform_admin, or compliance_auditor role")
+        if not reason.strip():
+            raise ValueError("rejection reason is required")
+    elif action != "approve":
+        raise ValueError(f"unsupported request transition: {action}")
+
+    normalized_to_start: dict[str, Any] | None = None
+    reserved_job_id: str | None = None
+    reservation_acquired = False
+    with _connect_submission_db(server) as conn:
+        old_submission = _load_submission(conn, submission_id)
+        _assert_request_view_allowed(resolved_identity, old_submission)
+        if old_submission.get("status") != "pending_approval":
+            raise RuntimeError(f"request submission is not pending_approval: {old_submission.get('status')}")
+        if action == "approve" and actor and actor == str(old_submission.get("caller") or ""):
+            raise PermissionError("same_identity_self_approval")
+        if action == "approve":
+            if not identity_has_any_role(resolved_identity, *APPROVER_ROLES):
+                raise PermissionError("request approval requires privacy_operator or platform_admin role")
+            request_payload = old_submission.get("request")
+            if not isinstance(request_payload, dict):
+                raise RuntimeError("approved request is missing request payload")
+            normalized_to_start = normalize_request_paths(request_payload, request_dir=REPO_ROOT)
+            validate_request(normalized_to_start)
+            reserved_job_id = str(normalized_to_start.get("job_id") or "") or None
+            preview_out_base = Path(str(normalized_to_start["out_base"])).resolve()
+            reservation_error = server.try_reserve_job(
+                tenant_id=_normalized_tenant_id(normalized_to_start),
+                job_id=reserved_job_id,
+                out_base=preview_out_base,
+                request_source=f"operator_request:{submission_id}",
+            )
+            if reservation_error is not None:
+                raise RuntimeError(json.dumps(reservation_error["body"], ensure_ascii=False, sort_keys=True))
+            reservation_acquired = True
+        at_utc = _utc_now()
+        new_status = "approved" if action == "approve" else "rejected"
+        transitions = _append_transition(
+            old_submission.get("transitions") if isinstance(old_submission.get("transitions"), list) else [],
+            state=new_status,
+            event=f"{action}_request",
+            actor=actor,
+            at_utc=at_utc,
+            reason=reason.strip() if action == "reject" else None,
+        )
+        if action == "approve":
+            conn.execute(
+                """
+                UPDATE workflow_submissions
+                SET status = ?, updated_at_utc = ?, approved_by = ?, approved_at_utc = ?,
+                    transition_history_json = ?
+                WHERE submission_id = ?
+                """,
+                (
+                    new_status,
+                    at_utc,
+                    actor,
+                    at_utc,
+                    json.dumps(transitions, ensure_ascii=False, sort_keys=True),
+                    submission_id,
+                ),
+            )
+        else:
+            conn.execute(
+                """
+                UPDATE workflow_submissions
+                SET status = ?, updated_at_utc = ?, rejected_by = ?, rejected_at_utc = ?,
+                    rejection_reason = ?, transition_history_json = ?
+                WHERE submission_id = ?
+                """,
+                (
+                    new_status,
+                    at_utc,
+                    actor,
+                    at_utc,
+                    reason.strip(),
+                    json.dumps(transitions, ensure_ascii=False, sort_keys=True),
+                    submission_id,
+                ),
+            )
+        updated = _load_submission(conn, submission_id)
+        _log_workflow_mutation(
+            conn,
+            operation=f"{action}_request",
+            submission_id=submission_id,
+            actor=actor,
+            old_state=old_submission,
+            new_state=updated,
+            at_utc=at_utc,
+            notes=reason.strip() if action == "reject" else "I3-b approval workflow",
+        )
+        try:
+            conn.commit()
+        except BaseException:
+            if reservation_acquired:
+                server.release_reservation(reserved_job_id)
+            raise
+
+    job_snapshot = None
+    if action == "approve" and normalized_to_start is not None:
+        try:
+            _start_job_thread(
+                server,
+                payload=normalized_to_start,
+                request_source=f"operator_request:{submission_id}",
+                request_dir=REPO_ROOT,
+            )
+        except BaseException:
+            if reservation_acquired:
+                server.release_reservation(reserved_job_id)
+            raise
+        snapshot_job = server.get_job(reserved_job_id) if reserved_job_id else server.get_job()
+        job_snapshot = _job_snapshot(snapshot_job) if snapshot_job is not None else None
+    return updated, job_snapshot
+
+
+def _build_request_submission(
+    *,
+    payload: dict[str, Any],
+    request_source: str,
+    identity: dict[str, Any] | None,
+) -> dict[str, Any]:
+    submitted_at = _utc_now()
+    transition = {
+        "state": "pending_approval",
+        "event": "submit_request",
+        "actor": payload.get("caller"),
+        "at_utc": submitted_at,
+    }
+    return {
+        "schema": REQUEST_SUBMISSION_SCHEMA,
+        "submission_id": f"req_{uuid.uuid4().hex}",
+        "submitted_at_utc": submitted_at,
+        "updated_at_utc": submitted_at,
+        "status": "pending_approval",
+        "workflow": "sse_bridge_pipeline",
+        "query_type": payload.get("query_type"),
+        "job_id": payload.get("job_id"),
+        "caller": payload.get("caller"),
+        "tenant_id": payload.get("tenant_id"),
+        "dataset_id": payload.get("dataset_id"),
+        "service_id": payload.get("record_recovery_service_id") or payload.get("service_id"),
+        "request_digest": json_sha256(payload),
+        "request_source": request_source,
+        "approval_required": True,
+        "request_summary": summarize_request(payload),
+        "authenticated_identity": identity,
+        "transitions": [transition],
+    }
+
+
 def _load_relaunch_request(
     body: dict[str, Any],
     *,
@@ -1593,6 +2076,11 @@ class DashboardServer(ThreadingHTTPServer):
         pid_file: str,
         ready_file: str,
         max_concurrent_jobs_per_tenant: int,
+        auth_token: str = "",
+        metadata_db_path: str = "",
+        metadata_db_dsn: str = "",
+        metadata_db_read_dsn: str = "",
+        identity_token_config: str = "",
     ) -> None:
         self.out_base = out_base
         self.history_root = history_root
@@ -1600,6 +2088,11 @@ class DashboardServer(ThreadingHTTPServer):
         self.pid_file = pid_file
         self.ready_file = ready_file
         self.max_concurrent_jobs_per_tenant = max(0, int(max_concurrent_jobs_per_tenant))
+        self.auth_token = auth_token
+        self.metadata_db_path = str(Path(metadata_db_path).resolve()) if metadata_db_path else ""
+        self.metadata_db_dsn = metadata_db_dsn
+        self.metadata_db_read_dsn = metadata_db_read_dsn
+        self.identity_token_config = str(Path(identity_token_config).resolve()) if identity_token_config else ""
         self.job_lock = threading.Lock()
         self.current_job: dict[str, Any] | None = _seed_job_from_out_base(out_base)
         self.jobs: dict[str, dict[str, Any]] = {}
@@ -1817,6 +2310,17 @@ class DashboardHandler(BaseHTTPRequestHandler):
             raise ValueError("request body must be a JSON object")
         return payload
 
+    def _require_auth(self) -> dict[str, Any] | None:
+        return resolve_request_identity(
+            auth_header=self.headers.get("Authorization", ""),
+            expected_bearer_token=self.server.auth_token,
+            db_path=self.server.metadata_db_path,
+            db_dsn=self.server.metadata_db_dsn,
+            db_read_dsn=self.server.metadata_db_read_dsn,
+            identity_token_config=self.server.identity_token_config,
+            auth_failure_label="operator dashboard",
+        )
+
     def _current_job_snapshot(self) -> dict[str, Any] | None:
         job = self.server.get_job()
         if job is None:
@@ -1837,7 +2341,15 @@ class DashboardHandler(BaseHTTPRequestHandler):
             body = _DASHBOARD_HTML.encode("utf-8")
             self._send(200, "text/html; charset=utf-8", body)
         elif path == "/healthz":
-            self._send_json(200, {"status": "ok", "schema": "operator_dashboard_health/v1"})
+            self._send_json(
+                200,
+                {
+                    "status": "ok",
+                    "schema": "operator_dashboard_health/v1",
+                    "request_submission_enabled": bool(self.server.metadata_db_path or self.server.metadata_db_dsn),
+                    "auth_required": bool(self.server.auth_token or self.server.identity_token_config),
+                },
+            )
         elif path == "/v1/dashboard":
             data = get_dashboard_data(
                 self.server.out_base,
@@ -1859,6 +2371,42 @@ class DashboardHandler(BaseHTTPRequestHandler):
                     self._send_json(400, {"error": "invalid_limit", "message": f"invalid limit: {limit_raw}"})
                     return
             self._send_json(200, self.server.recent_runs(filter_state=state, filter_job_id=job_id, limit=limit))
+        elif path == "/v1/requests":
+            try:
+                identity = self._require_auth()
+                limit_raw = query.get("limit", ["50"])[0]
+                try:
+                    limit = min(200, max(1, int(limit_raw)))
+                except ValueError:
+                    raise ValueError(f"invalid limit: {limit_raw}")
+                payload = _list_submissions(
+                    self.server,
+                    identity=identity,
+                    tenant_id=query.get("tenant_id", [""])[0],
+                    status=query.get("status", [""])[0],
+                    limit=limit,
+                )
+                self._send_json(200, payload)
+            except PermissionError as exc:
+                self._send_json(403, {"error": "authz_rejected", "message": str(exc)})
+            except ValueError as exc:
+                self._send_json(400, {"error": "invalid_request", "message": str(exc)})
+            except RuntimeError as exc:
+                self._send_json(503, {"error": "metadata_sidecar_unavailable", "message": str(exc)})
+        elif path.startswith("/v1/requests/"):
+            submission_id = unquote(path[len("/v1/requests/") :]).strip("/")
+            try:
+                identity = self._require_auth()
+                with _connect_submission_db(self.server) as conn:
+                    submission = _load_submission(conn, submission_id)
+                _assert_request_view_allowed(identity, submission)
+                self._send_json(200, submission)
+            except FileNotFoundError as exc:
+                self._send_json(404, {"error": "not_found", "message": str(exc), "submission_id": submission_id})
+            except PermissionError as exc:
+                self._send_json(403, {"error": "authz_rejected", "message": str(exc), "submission_id": submission_id})
+            except RuntimeError as exc:
+                self._send_json(503, {"error": "metadata_sidecar_unavailable", "message": str(exc)})
         elif path.startswith("/v1/jobs/") and path.endswith("/result"):
             job_id = unquote(path[len("/v1/jobs/") : -len("/result")]).strip("/")
             snapshot = self._job_snapshot_or_404(job_id)
@@ -1910,6 +2458,83 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 self._send_json(409, {"error": "run_switch_blocked", "message": str(exc)})
             except ValueError as exc:
                 self._send_json(400, {"error": "invalid_request", "message": str(exc)})
+            return
+        if path == "/v1/request/submit":
+            try:
+                if not self.server.metadata_db_path and not self.server.metadata_db_dsn:
+                    self._send_json(
+                        503,
+                        {
+                            "error": "metadata_sidecar_required",
+                            "message": "request submission requires --metadata-db-path or --metadata-db-dsn",
+                        },
+                    )
+                    return
+                identity = self._require_auth()
+                body = self._read_json_body()
+                payload = _extract_submission_request(body)
+                if identity is not None:
+                    payload = bind_query_request_to_identity(identity, payload, execute=False)
+                request_dir = _request_base_dir_from_header(self.headers.get("X-Request-Base-Dir", "").strip())
+                normalized = normalize_request_paths(payload, request_dir=request_dir)
+                _validate_request_schema(normalized)
+                validate_request(normalized)
+                submission = _build_request_submission(
+                    payload=normalized,
+                    request_source="operator_dashboard:http_request_body",
+                    identity=identity,
+                )
+                _insert_workflow_submission(
+                    db_path=self.server.metadata_db_path,
+                    db_dsn=self.server.metadata_db_dsn,
+                    submission=submission,
+                    request_payload=normalized,
+                    identity=identity,
+                )
+                self._send_json(202, submission)
+            except PermissionError as exc:
+                self._send_json(403, {"error": "authz_rejected", "message": str(exc)})
+            except ValueError as exc:
+                self._send_json(400, {"error": "validation_rejected", "message": str(exc)})
+            except SystemExit as exc:
+                self._send_json(400, {"error": "validation_rejected", "message": str(exc)})
+            except RuntimeError as exc:
+                self._send_json(503, {"error": "metadata_sidecar_unavailable", "message": str(exc)})
+            return
+        if path.startswith("/v1/request/") and (path.endswith("/approve") or path.endswith("/reject")):
+            action = "approve" if path.endswith("/approve") else "reject"
+            suffix = f"/{action}"
+            submission_id = unquote(path[len("/v1/request/") : -len(suffix)]).strip("/")
+            try:
+                identity = self._require_auth()
+                body = self._read_json_body()
+                reason = str(body.get("reason") or body.get("rejection_reason") or "").strip()
+                submission, job_snapshot = _transition_submission(
+                    self.server,
+                    submission_id=submission_id,
+                    action=action,
+                    identity=identity,
+                    reason=reason,
+                )
+                status = 202 if action == "approve" else 200
+                self._send_json(
+                    status,
+                    {
+                        "schema": REQUEST_SUBMISSION_SCHEMA,
+                        **{key: value for key, value in submission.items() if key != "request"},
+                        "job_control": job_snapshot,
+                    },
+                )
+            except FileNotFoundError as exc:
+                self._send_json(404, {"error": "not_found", "message": str(exc), "submission_id": submission_id})
+            except PermissionError as exc:
+                status = 403
+                error = "same_identity_self_approval" if str(exc) == "same_identity_self_approval" else "authz_rejected"
+                self._send_json(status, {"error": error, "message": str(exc), "submission_id": submission_id})
+            except ValueError as exc:
+                self._send_json(400, {"error": "invalid_request", "message": str(exc), "submission_id": submission_id})
+            except RuntimeError as exc:
+                self._send_json(409, {"error": "request_transition_failed", "message": str(exc), "submission_id": submission_id})
             return
         if path.startswith("/v1/jobs/") and path.endswith("/relaunch"):
             job_id = unquote(path[len("/v1/jobs/") : -len("/relaunch")]).strip("/")
@@ -2051,6 +2676,15 @@ def write_file(path: str, content: str) -> None:
     p.write_text(content, encoding="utf-8")
 
 
+def read_auth_token(env_name: str) -> str:
+    if not env_name:
+        return ""
+    value = os.environ.get(env_name, "")
+    if not value:
+        raise SystemExit(f"[ERROR] environment variable {env_name} is not set")
+    return value
+
+
 def remove_file(path: str) -> None:
     if not path:
         return
@@ -2075,11 +2709,23 @@ def build_parser() -> argparse.ArgumentParser:
         default=0,
         help="Reject job starts with HTTP 429 when this many running jobs already exist for the tenant (0 disables)",
     )
+    ap.add_argument("--auth-token-env", default="", help="Optional bearer-token env var for request submission endpoints")
+    ap.add_argument("--metadata-db-path", default="", help="Metadata DB path for I3 request submission records")
+    ap.add_argument("--metadata-db-dsn", default="", help="Metadata PostgreSQL DSN for I3 request submission records")
+    ap.add_argument(
+        "--metadata-db-dsn-read-replica",
+        default="",
+        help="Optional PostgreSQL replica DSN for identity-resolution SELECTs",
+    )
+    ap.add_argument("--identity-token-config", default="", help="Optional bearer-token to caller-identity mapping config")
     return ap
 
 
 def main() -> int:
     args = build_parser().parse_args()
+    if args.identity_token_config and not args.metadata_db_path and not args.metadata_db_dsn:
+        raise SystemExit("[ERROR] --identity-token-config requires --metadata-db-path or --metadata-db-dsn")
+    auth_token = read_auth_token(args.auth_token_env)
     out_base = Path(args.out_base).expanduser().resolve()
     if not out_base.is_dir():
         raise SystemExit(f"[ERROR] --out-base does not exist: {out_base}")
@@ -2096,6 +2742,11 @@ def main() -> int:
         pid_file=args.pid_file,
         ready_file=args.ready_file,
         max_concurrent_jobs_per_tenant=args.max_concurrent_jobs_per_tenant,
+        auth_token=auth_token,
+        metadata_db_path=args.metadata_db_path,
+        metadata_db_dsn=args.metadata_db_dsn,
+        metadata_db_read_dsn=args.metadata_db_dsn_read_replica,
+        identity_token_config=args.identity_token_config,
     )
 
     def _shutdown(sig: int, frame: Any) -> None:
@@ -2115,6 +2766,8 @@ def main() -> int:
         "out_base": str(out_base),
         "history_root": str(history_root),
         "max_concurrent_jobs_per_tenant": max(0, int(args.max_concurrent_jobs_per_tenant)),
+        "request_submission_enabled": bool(args.metadata_db_path or args.metadata_db_dsn),
+        "identity_auth_required": bool(auth_token or args.identity_token_config),
         "pid": os.getpid(),
     }))
     sys.stdout.flush()

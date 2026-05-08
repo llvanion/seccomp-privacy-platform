@@ -38,7 +38,9 @@
       "properties": {
         "kind": {
           "enum": [
-            "file_ledger"
+            "file_ledger",
+            "s3_worm",
+            "rekor"
           ]
         },
         "path": {
@@ -49,6 +51,181 @@
             "string",
             "null"
           ]
+        },
+        "s3_object_lock": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "bucket",
+            "key",
+            "object_lock_mode",
+            "retain_until_utc",
+            "retain_days",
+            "executed",
+            "status"
+          ],
+          "properties": {
+            "bucket": {
+              "type": "string"
+            },
+            "key": {
+              "type": "string"
+            },
+            "object_lock_mode": {
+              "enum": [
+                "COMPLIANCE",
+                "GOVERNANCE"
+              ]
+            },
+            "retain_until_utc": {
+              "type": "string"
+            },
+            "retain_days": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "executed": {
+              "type": "boolean"
+            },
+            "status": {
+              "enum": [
+                "planned",
+                "uploaded",
+                "skipped",
+                "error"
+              ]
+            },
+            "details": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "etag": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "version_id": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "previous_object_etag": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          }
+        },
+        "rekor_transparency_log": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "endpoint_url",
+            "endpoint_path",
+            "kind_version",
+            "signature_algorithm",
+            "executed",
+            "status",
+            "entries",
+            "submitted_count",
+            "uploaded_count"
+          ],
+          "properties": {
+            "endpoint_url": {
+              "type": "string"
+            },
+            "endpoint_path": {
+              "type": "string"
+            },
+            "kind_version": {
+              "type": "string"
+            },
+            "signature_algorithm": {
+              "type": "string"
+            },
+            "executed": {
+              "type": "boolean"
+            },
+            "status": {
+              "enum": [
+                "planned",
+                "uploaded",
+                "partial",
+                "skipped",
+                "error"
+              ]
+            },
+            "details": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "submitted_count": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "uploaded_count": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "entries": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "entry_sha256",
+                  "payload_sha256",
+                  "status"
+                ],
+                "properties": {
+                  "entry_sha256": {
+                    "type": "string"
+                  },
+                  "payload_sha256": {
+                    "type": "string"
+                  },
+                  "uuid": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "log_index": {
+                    "type": [
+                      "integer",
+                      "null"
+                    ]
+                  },
+                  "integrated_time": {
+                    "type": [
+                      "integer",
+                      "null"
+                    ]
+                  },
+                  "status": {
+                    "enum": [
+                      "uploaded",
+                      "error",
+                      "skipped"
+                    ]
+                  },
+                  "details": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  }
+                }
+              }
+            }
+          }
         }
       }
     },

@@ -1430,49 +1430,76 @@ Honors SIGINT/SIGTERM for clean shutdown. `--max-iterations N` runs N iterations
 
 ---
 
-### I3 — Self-Service Data Request Portal (2 blocks / 10h)
+### I3 — Self-Service Data Request Portal (2 blocks / 10h) — Repo-side completed 2026-05-08
 
 #### Tasks
 
-**I3-a — Request submission form (1 block)**
+**I3-a — Request submission form (1 block) — Completed 2026-05-08**
 
 Extend the existing `serve_operator_dashboard.py` with a tenant-facing request form at `/v1/request/submit`:
 
 ```json
 POST /v1/request/submit
 {
+  "schema": "query_workflow_request/v1",
+  "query_type": "cross_party_match",
   "tenant_id": "demo_tenant",
   "dataset_id": "bridge_demo_dataset",
-  "purpose": "marketing_attribution",
-  "candidate_ids": ["C001", "C002", ...],
-  "join_key_field": "order_id",
-  "value_field": "amount_cents"
+  "caller": "auto_demo",
+  "job_id": "demo_request_001",
+  "server_source": "sse/examples/bridge_server_records.jsonl",
+  "client_source": "sse/examples/bridge_client_records.jsonl",
+  "server_join_key_field": "email",
+  "client_join_key_field": "email",
+  "client_value_field": "amount",
+  "token_scope": "demo_request_001",
+  "token_secret_env": "BRIDGE_TOKEN_SECRET",
+  "out_base": "tmp/demo_request_001",
+  "sse_export_policy_config": "sse/config/export_policy.example.json"
 }
 ```
 
-The endpoint:
+Implemented endpoint:
 1. Validates the request against `query_workflow_request/v1` schema.
-2. Checks the submitting identity (via identity proxy `X-Identity-*` headers) has `query_submitter` role.
-3. Creates a pending submission record in the metadata sidecar.
-4. Returns a `submission_id` for tracking.
-5. Does not execute immediately — requires an approver with `privacy_operator` role.
+2. Checks the submitting identity through the same bearer-token / `api_identity_resolution/v1` path used by the query-workflow API when `--identity-token-config` is configured, and binds caller / tenant / dataset / service scope through `bind_query_request_to_identity`.
+3. Creates a `pending_approval` row in metadata sidecar table `workflow_submissions`.
+4. Writes a `control_plane_mutations` row with `operation='submit_request'` and `entity_type='workflow_submission'`.
+5. Returns `operator_request_submission/v1` with a `submission_id` for tracking.
+6. Does not execute immediately; approval/execution is handled by I3-b.
 
-**I3-b — Approval workflow (1 block)**
+Repo-side artifacts:
 
-Add `POST /v1/request/<submission_id>/approve` and `POST /v1/request/<submission_id>/reject`:
+- `scripts/serve_operator_dashboard.py`: `POST /v1/request/submit`, `--metadata-db-path`, `--metadata-db-dsn`, `--identity-token-config`, and optional bearer-token auth.
+- `migrations/metadata/012_add_workflow_submissions.sql` and Postgres DDL parity in `migrations/postgres/001_init.sql`.
+- `schemas/operator_request_submission.schema.json` plus backcompat baseline registration.
+- `scripts/check_operator_request_submission_smoke.py`: loopback smoke that verifies HTTP 202, schema validity, `workflow_submissions` persistence, and `control_plane_mutations` audit.
+- `config/operator_console/console_manifest.json`: adds the `requests` section and `approval_workflow` feature flag.
 
-- `approve`: requires `X-Identity-Platform-Roles` to contain `privacy_operator` or `platform_admin`. Calls `submit_query_workflow.py --execute`. Records approval in `control_plane_mutations`.
-- `reject`: records rejection reason in `control_plane_mutations`. Notifies submitter (via webhook).
+**I3-b — Approval workflow (1 block) — Completed 2026-05-08**
 
-Add `GET /v1/requests?tenant_id=...&status=pending` to list pending requests for the operator review panel.
+Implemented `POST /v1/request/<submission_id>/approve` and `POST /v1/request/<submission_id>/reject`:
 
-Wire the existing dashboard HTML to render a "Pending Requests" card when the operator is authenticated as `privacy_operator`.
+- `approve`: requires resolved identity role `privacy_operator` or `platform_admin`, rejects same-identity submit→approve with HTTP 403 `same_identity_self_approval`, records `approved_by` / `approved_at_utc` and `control_plane_mutations.operation='approve_request'`, reserves a dashboard job slot before committing the approval, and launches the existing query workflow path after the approval commit.
+- `reject`: requires `privacy_operator`, `platform_admin`, or `compliance_auditor`, requires a non-empty reason, records `rejected_by` / `rejected_at_utc` / `rejection_reason`, and writes `control_plane_mutations.operation='reject_request'`.
+
+Implemented `GET /v1/requests?tenant_id=...&status=pending_approval` to list pending requests for the operator review panel backing API, plus `GET /v1/requests/<submission_id>` for detail views with the stored normalized request payload. Access is scoped to the submitter's own rows, same-tenant reviewer roles, platform admins, and compliance auditors.
+
+Repo-side artifacts:
+
+- `scripts/serve_operator_dashboard.py`: approval/reject/list/detail endpoints, role checks, same-identity self-approval guard, approval-before-launch reservation ordering, and `control_plane_mutations` transition audit.
+- `migrations/metadata/012_add_workflow_submissions.sql` and `migrations/postgres/001_init.sql`: approval/rejection columns for `workflow_submissions`.
+- `schemas/operator_request_submission.schema.json`: optional approval/rejection fields, detail `request`, transition `reason`, and approval response `job_control`.
+- `schemas/operator_request_submission_list.schema.json`: frozen `operator_request_submission_list/v1` list response.
+- `scripts/check_operator_request_submission_smoke.py`: end-to-end loopback smoke covering submit, list, detail, same-identity approve denial, approve-starts-job, reject-with-reason, and mutation rows.
+- `scripts/check_json_contracts.sh`: validates pending/list/detail/approve/reject I3 samples.
+- `config/operator_console/console_manifest.json`: request section now includes submit/list/detail/approve/reject endpoints.
 
 #### Acceptance Criteria
 
-1. A `query_submitter`-role user can submit a request; it appears in the operator panel as pending.
-2. A `privacy_operator`-role user can approve; the job executes and the result appears in the dashboard.
-3. An attempt by `query_submitter` to approve their own request is rejected with 403.
+1. I3-a complete: a `query_submitter`-role user can submit a request; it is persisted as `pending_approval` in `workflow_submissions` and returned as `operator_request_submission/v1`.
+2. I3-b complete: pending requests appear through `GET /v1/requests?...` for the operator review panel backing API and validate as `operator_request_submission_list/v1`.
+3. I3-b complete: a `privacy_operator`-role user can approve; the existing dashboard job launch path starts the approved request and the response includes `job_control.state='running'`.
+4. I3-b complete: an attempt by the submitting identity to approve its own request is rejected with HTTP 403 `same_identity_self_approval`.
 
 ---
 
@@ -1699,26 +1726,39 @@ Wire the alerts into Alertmanager once I2-a (`scripts/check_observability_alerts
 
 ---
 
-### J4 — Chaos and Failure Injection Testing (1 block / 5h)
+### J4 — Chaos and Failure Injection Testing (1 block / 5h) — Repo-side completed 2026-05-08
 
 #### Tasks
 
-Create `scripts/run_chaos_test.py` with injected failure scenarios:
+Implemented `scripts/run_chaos_test.py` plus `chaos_test_report/v1` schema. Three scenarios run repo-side in default contract smoke; two are emitted as `status=skipped` because they require operator-environment infrastructure (a live Patroni cluster, a quota-bounded filesystem):
 
-| Scenario | Injection method | Expected behavior |
-|----------|-----------------|-------------------|
-| Recovery service OOM | `os.kill(pid, SIGKILL)` | Client retries, audit log captures partial run |
-| mTLS cert expiry | Use a cert with 1-second TTL | Client receives `SSL: CERTIFICATE_VERIFY_FAILED`; logs error with `tls_error` reason code |
-| PostgreSQL primary killed | `docker stop pg-primary` | Patroni promotes replica; sidecar reconnects |
-| Audit archive write failure | `chmod 000` on archive dir | `archive_audit_bundle.py` fails with clear error; no partial writes |
-| Full disk on audit log path | `truncate -s <(df tmp --output=avail -B1 | tail -1)` dummy file | Recovery service logs `audit_write_failed` event |
+| Scenario | Injection method | Expected behavior | Implementation |
+|----------|-----------------|-------------------|----------------|
+| `recovery_service_sigkill` | In-process listener teardown (`server.shutdown()` + `server_close()`) — visible to the client as a SIGKILL-equivalent socket loss | URLError / connection refused / connection reset on the next probe; audit chain bytes unchanged | Spawns an in-process plaintext recovery service on loopback, probes `/metrics` (no auth required) for liveness, then drops the listener and re-probes |
+| `mtls_cert_expired` | Self-signed server cert with `not_valid_before` 10 days ago and `not_valid_after` 1 day ago | `ssl.SSLCertVerificationError` (or generic `SSLError` carrying `expired`) raised before any record is sent | `cryptography`-generated RSA cert + key, in-process TLS listener, client uses `ssl.create_default_context()` with the cert as the local CA so the failure is purely about expiry |
+| `audit_archive_unwritable` | `chmod 000` on the archive directory before invoking `archive_audit_bundle.py` | Non-zero exit, no partial files in archive dir, `audit_chain.json` SHA-256 unchanged | Synthesizes a real `audit_chain.json` + `audit_chain.seal.json` via `seal_audit_artifact.py`, snapshots the archive dir listing, blocks writes, runs the archiver as a subprocess, restores mode for cleanup |
+| `postgres_primary_killed` | Operator-environment only | Patroni promotes replica; sidecar reconnects | Recorded as `status=skipped`, `injection_method=operator_environment_only`; live drill belongs in OPS_RUNBOOK.md alongside J2-b |
+| `audit_log_path_full` | Operator-environment only | Recovery service logs `audit_write_failed` event | Recorded as `status=skipped`; requires a quota-bounded loopback filesystem to simulate cleanly |
 
-Each scenario must produce a verifiable error report and not corrupt any frozen contract file.
+Each scenario records: name, injection_method, observed_failure_mode (label), observed_error_class, error_text, audit_chain_uncorrupted (boolean, derived from a SHA-256 before/after check on the source `audit_chain.json` for the scenarios that touch it), expected_failure_pattern_matched, and free-form details. The top-level `summary.status` drops to `fail` if any repo-side scenario fails or any audit-chain corruption is detected.
+
+Default contract smoke runs `--scenarios all` (the 3 implementable scenarios plus 2 operator-skipped placeholders) against a temp work dir, validates the report against `chaos_test_report/v1`, and asserts `summary.status=ok`, `total=5`, `ok=3`, `skipped=2`, `audit_chain_corruptions=0`, plus per-scenario invariants on the failure-mode labels.
+
+```bash
+# Repo-side default (3 scenarios + 2 operator-skipped placeholders)
+python3 scripts/run_chaos_test.py \
+  --scenarios all \
+  --output tmp/chaos_test_report.json \
+  --assert-ok
+
+# Single-scenario operator drill
+python3 scripts/run_chaos_test.py --scenarios mtls_cert_expired --assert-ok
+```
 
 #### Acceptance Criteria
 
-1. All 5 scenarios produce a verifiable failure report without corrupting `audit_chain.json`.
-2. Recovery from each failure is documented in `OPS_RUNBOOK.md`.
+1. All 5 scenarios produce a verifiable failure report without corrupting `audit_chain.json`. Repo-side completed: 3 implementable scenarios pass with `audit_chain_corruptions=0` and the 2 operator-only scenarios are explicitly recorded as `status=skipped`. Live operator drills for `postgres_primary_killed` and `audit_log_path_full` follow the OPS_RUNBOOK.md chaos drill section.
+2. Recovery from each failure is documented in `OPS_RUNBOOK.md`. Completed: see the OPS_RUNBOOK.md "J4 Chaos Drill" section below.
 
 ---
 
@@ -1730,78 +1770,79 @@ Each scenario must produce a verifiable error report and not corrupt any frozen 
 
 ---
 
-### K1 — Real Immutable Audit Anchor (2 blocks / 10h)
+### K1 — Real Immutable Audit Anchor (2 blocks / 10h; K1-a + K1-b repo-side complete 2026-05-08)
 
 #### Current Baseline
 
-`scripts/publish_external_audit_anchor.py` writes `external_audit_anchor_ledger/v1` records to a local file. The ledger is locally append-only (no deletion API), but is not truly immutable.
+`scripts/publish_external_audit_anchor.py` writes `external_audit_anchor_ledger/v1` records to a local file by default. As of 2026-05-08 it also accepts `--sink-kind s3_worm`, which builds the same JSONL payload and uploads it to an S3 object protected by Object Lock in COMPLIANCE mode (or GOVERNANCE mode via `--object-lock-mode`). Default smoke runs the s3_worm path in `planned` status so no AWS credentials are required.
 
 #### Tasks
 
-**K1-a — S3 Object Lock (WORM) backend (1 block)**
+**K1-a — S3 Object Lock (WORM) backend (1 block) — Completed repo-side 2026-05-08**
 
-Add `external_sink.kind=s3_worm` to `publish_external_audit_anchor.py`:
+Implemented in `scripts/publish_external_audit_anchor.py`:
 
-```python
-def append_s3_worm_ledger(bucket: str, key: str, records: list[dict]) -> int:
-    import boto3
-    s3 = boto3.client("s3")
-    # Read existing ledger (if any)
-    try:
-        existing = s3.get_object(Bucket=bucket, Key=key)["Body"].read().decode()
-    except s3.exceptions.NoSuchKey:
-        existing = ""
-    new_content = existing + "".join(
-        json.dumps(r, ensure_ascii=False, sort_keys=True) + "\n" for r in records
-    )
-    # PUT with Object Lock COMPLIANCE mode
-    s3.put_object(
-        Bucket=bucket, Key=key, Body=new_content.encode(),
-        ObjectLockMode="COMPLIANCE",
-        ObjectLockRetainUntilDate=datetime.now(timezone.utc) + timedelta(days=3650),
-    )
-    return len(records)
-```
+1. New CLI flags: `--sink-kind file_ledger|s3_worm` (default `file_ledger`), `--object-lock-mode COMPLIANCE|GOVERNANCE` (default `COMPLIANCE`), `--retain-days <int>` (default `3650`, i.e. 10-year retain-until horizon), and `--execute` (must be set to actually call S3).
+2. `--external-ledger` accepts `s3://bucket/key.jsonl` URIs when `--sink-kind=s3_worm`. Tenant-scope enforcement (introduced in H3-b) now also validates that `<tenant_id>` is a path segment of the S3 key, so a `--tenant-id contract-tenant` invocation pointed at `s3://bucket/audit/other-tenant/ledger.jsonl` exits non-zero before any boto3 call.
+3. The s3_worm sink lazy-imports `boto3`, calls `get_object` (catching `NoSuchKey`) to read any prior ledger bytes, appends each verified anchor record as an `external_audit_anchor_ledger/v1` JSONL line (sharing `render_ledger_lines()` with the file path), and re-uploads with `ObjectLockMode=<mode>` and `ObjectLockRetainUntilDate=<retain_until_utc>`. Without `--execute` the script stays in `s3_object_lock.status=planned`, records `executed=false`, and computes the same retain-until horizon for diagnostics — default contract smoke and operator dry runs do not need AWS credentials.
+4. `external_audit_anchor_report/v1` now carries an optional `external_sink.s3_object_lock` block (`bucket`, `key`, `object_lock_mode`, `retain_until_utc`, `retain_days`, `executed`, `status` ∈ `planned|uploaded|skipped|error`, `details`, `etag`, `version_id`, `previous_object_etag`). The schema additionally extends `external_sink.kind` to `["file_ledger", "s3_worm"]`. `file_ledger` callers are byte-identical to the prior contract.
+5. `scripts/check_json_contracts.sh` adds two K1-a assertions: (a) a planned-mode run against `s3://seccomp-audit-archive/audit/contract-tenant/ledger.jsonl` succeeds, validates against the schema, and asserts `kind=s3_worm`, `bucket/key`, `object_lock_mode=COMPLIANCE`, `retain_days=3650`, `retain_until_utc.endswith("Z")`, `executed=false`, `status=planned`, `summary.published_count=0`, and `records[*].published=false`; (b) a cross-tenant S3 key with `--tenant-id contract-tenant` pointed at `…/other-tenant/…` exits non-zero. `scripts/check_ci_smoke.sh` already py_compiles `publish_external_audit_anchor.py`, so no extra wiring is required there.
 
-Update `schemas/external_audit_anchor_report.schema.json` to add `"s3_worm"` to `external_sink.kind` enum.
-
-Example usage:
+Live AWS execution remains an operator-environment block: enable Object Lock at bucket creation time, provide credentials, and run with `--execute`:
 
 ```bash
+# Operator drill (live AWS path; default smoke leaves this in planned mode)
 python3 scripts/publish_external_audit_anchor.py \
-  --anchor-file tmp/audit_archive/audit_chain_anchor.jsonl \
-  --external-ledger s3://seccomp-audit-archive/ledger.jsonl \
+  --anchor-file archive/<tenant>/audit_chain_anchor.jsonl \
+  --external-ledger s3://seccomp-audit-archive/audit/<tenant>/ledger.jsonl \
+  --tenant-id <tenant> \
   --sink-kind s3_worm \
+  --object-lock-mode COMPLIANCE \
+  --retain-days 3650 \
   --anchor-key-env SECCOMP_AUDIT_ARCHIVE_ANCHOR_KEY \
   --require-signature \
+  --execute \
   --assert-ok
 ```
 
-**K1-b — Sigstore / Rekor transparency log (1 block)**
+The bucket must be created with Object Lock enabled (`aws s3api create-bucket --object-lock-enabled-for-bucket`) and a default retention configured if you want every PUT to inherit it. The script always sets `ObjectLockMode` and `ObjectLockRetainUntilDate` per request, so per-bucket defaults are not required for correctness. The `etag` and `version_id` returned by `put_object` are written into the report's `s3_object_lock` block for downstream verification.
 
-For deployments that prefer a public, append-only transparency log over an S3 WORM bucket:
+**K1-b — Sigstore / Rekor transparency log (1 block) — Completed repo-side 2026-05-08**
+
+For deployments that prefer a public, append-only transparency log over an S3 WORM bucket. Implemented in `scripts/publish_external_audit_anchor.py`:
+
+1. `--sink-kind rekor` is now a third sink alongside `file_ledger` and `s3_worm`. The same `--external-ledger` argument carries the Rekor base URL (e.g. `https://rekor.sigstore.dev`); only `http://` and `https://` schemes are accepted, and the parser rejects any other scheme before any signing or HTTP work happens.
+2. New CLI flags: `--rekor-signing-key-env <env>` (env var holding a PEM-encoded ECDSA P-256 / `secp256r1` private key — required for `--execute`) and `--rekor-timeout-sec <seconds>` (HTTP timeout, default `10.0`).
+3. The shared `--execute` flag drives both `s3_worm` and `rekor`: without it, the rekor sink stays in `status=planned`, `executed=false`, `submitted_count=0`, `entries=[]`, so default contract smoke needs neither network access nor key material.
+4. With `--execute`, for each anchor record the script computes canonical bytes `b"entry_sha256:<hex>\n"`, signs them with ECDSA-SHA256 from the operator-supplied private key, derives the matching SubjectPublicKeyInfo PEM, and POSTs a `hashedrekord/0.0.1` entry to `<rekor>/api/v1/log/entries`. The response's first entry uuid + `logIndex` + `integratedTime` are recorded per-entry; per-record `published` is set to `true` only when the POST returns 2xx.
+5. `external_audit_anchor_report/v1` now carries an optional `external_sink.rekor_transparency_log` block with `endpoint_url`, `endpoint_path` (`"/api/v1/log/entries"`), `kind_version` (`"hashedrekord/0.0.1"`), `signature_algorithm` (`"ecdsa-p256-sha256"`), `executed`, `status` ∈ `planned|uploaded|partial|skipped|error`, `details`, `submitted_count`, `uploaded_count`, and per-record `entries[]` (with `entry_sha256`, `payload_sha256`, `uuid`, `log_index`, `integrated_time`, `status`, `details`). `external_sink.kind` enum extends to `["file_ledger", "s3_worm", "rekor"]`. The K1-a `s3_object_lock` block remains a sibling.
+6. Top-level `summary.status` is set to `fail` when the rekor block ends in `status=error` (e.g. `--execute` with no signing key env, network failure, or every POST returning non-2xx); `partial` keeps the top-level status at `ok` for diagnostics.
+7. `scripts/check_json_contracts.sh` adds two K1-b assertions: (a) a planned-mode run against `https://rekor.sigstore.dev` with `--tenant-id contract-tenant` succeeds, validates against the schema, and asserts `kind=rekor`, `endpoint_url`, `endpoint_path`, `kind_version`, `signature_algorithm`, `executed=false`, `status=planned`, `submitted_count=0`, `uploaded_count=0`, `entries=[]`, `summary.published_count=0`, and `records[*].published=false`; (b) a non-`http(s)` Rekor URL exits non-zero before any cryptographic work. `scripts/check_ci_smoke.sh` already py_compiles the script.
+8. Local end-to-end verification: a synthetic in-process HTTP receiver loaded with the public key derived from the same private key parses each `hashedrekord` body, recomputes the canonical bytes from the embedded `data.hash.value`, and re-verifies the ECDSA signature server-side. Two anchor records → 2 POSTs → 2 successful 201 responses → `submitted_count=2`, `uploaded_count=2`, `status=uploaded`, `summary.published_count=2`, all `records[*].published=true`. This proves the live `--execute` path works end-to-end without depending on the public Rekor instance.
 
 ```bash
-pip install sigstore
+# Operator drill (live path; default smoke leaves this in planned mode)
+export REKOR_SIGNING_KEY="$(cat secrets/rekor.ecdsa.pem)"
+python3 scripts/publish_external_audit_anchor.py \
+  --anchor-file archive/<tenant>/audit_chain_anchor.jsonl \
+  --external-ledger https://rekor.sigstore.dev \
+  --tenant-id <tenant> \
+  --sink-kind rekor \
+  --rekor-signing-key-env REKOR_SIGNING_KEY \
+  --rekor-timeout-sec 15 \
+  --anchor-key-env SECCOMP_AUDIT_ARCHIVE_ANCHOR_KEY \
+  --require-signature \
+  --execute \
+  --assert-ok
 ```
 
-Add `external_sink.kind=rekor` to `publish_external_audit_anchor.py`:
-
-```python
-def append_rekor_ledger(records: list[dict]) -> int:
-    from sigstore.sign import Signer, SigningContext
-    from sigstore.transparency import LogEntry
-    # Sign the anchor payload and upload to Rekor
-    ...
-```
-
-Each `entry_sha256` from the anchor file is uploaded as a `hashedrekord` entry. The Rekor `logIndex` and `uuid` are stored back in the report for verifiability.
+The Rekor `uuid` and `logIndex` returned per entry are written into the report's `rekor_transparency_log.entries[]` for downstream verifiability. Operators that prefer the official `sigstore` / `rekor-cli` toolchain can still use them to verify entries afterwards by digesting `b"entry_sha256:<hex>\n"` and querying `/api/v1/log/entries/<uuid>`.
 
 #### Acceptance Criteria
 
-1. `publish_external_audit_anchor.py --sink-kind s3_worm` successfully uploads to an S3 bucket with Object Lock enabled.
-2. Uploaded ledger object has `ObjectLockMode=COMPLIANCE` and a 10-year retain-until date.
-3. A subsequent dry-run reads the same S3 object and verifies chain integrity.
+1. `publish_external_audit_anchor.py --sink-kind s3_worm` successfully uploads to an S3 bucket with Object Lock enabled. Code path implemented; live upload runs only with `--execute` against an operator-provided AWS account.
+2. Uploaded ledger object has `ObjectLockMode=COMPLIANCE` and a 10-year retain-until date. Implemented: `--object-lock-mode` (default `COMPLIANCE`) and `--retain-days` (default `3650`) are applied to every `put_object` call, and the resolved retain-until is recorded in `external_sink.s3_object_lock.retain_until_utc`.
+3. A subsequent dry-run reads the same S3 object and verifies chain integrity. Pending operator engagement: chain verification on the script side already runs before the upload (`verify_anchor_records`); the post-upload S3 read-back path is intentionally left for the live drill alongside K1-b / external pen test. Default smoke covers the planned path and a cross-tenant S3 key reject path.
 
 ---
 
@@ -1900,9 +1941,9 @@ Week 5-6:   G4-a, G5 (parallel)
 Week 6-7:   G4-b, G7 (parallel; G6 + G8 completed 2026-05-08)
 Week 7-8:   H category complete as of 2026-05-07 (H1-b/H2-a/H2-b/H3-a completed)
 Week 8-9:   I2-a (parallel; I1-a completed repo-side 2026-05-08; J1 completed repo-side 2026-05-07)
-Week 9-10:  I2-b, I3-a (parallel; I1-b completed repo-side 2026-05-08; J2-a completed repo-side 2026-05-07)
-Week 10-11: I3-b, J2-b, K1-a (parallel; J3-a/J3-b/J2-a complete repo-side)
-Week 11-12: J4, K1-b (parallel; K2 completed 2026-05-08)
+Week 9-10:  I2-b and I3-a completed repo-side 2026-05-08; J2-a completed repo-side 2026-05-07
+Week 10-11: J2-b, K1-a (parallel; I3-b completed repo-side 2026-05-08; J3-a/J3-b/J2-a complete repo-side)
+Week 11-12: K1-a + K1-b + K2 + J4 completed 2026-05-08
 Week 12-13: K3 external pen test only (audit-chain tamper-resistance + HTTP malformed-input gate completed 2026-05-08; F4-a/F4-b repo-side completed 2026-05-07; live drill alongside F1-b)
 ```
 
@@ -1916,16 +1957,16 @@ Week 12-13: K3 external pen test only (audit-chain tamper-resistance + HTTP malf
 | F — Production PostgreSQL | 1 | 5h | F1-a done; F2-a/F2-b/F2-c/F3 and F4-a/F4-b repo-side done; F1-b plus F2-c/F3 live drills remain |
 | G — Scale & optimization | 5 | 25h | G1 + G2-a + G2-b + G6 + G8 done locally; G3 timing/report scaffold done with hotspot profiling pending; remaining G3-hotspot/G4-a/G4-b/G5/G7 |
 | H — Multi-tenant isolation | 0 | 0h | Complete: H1-a/H1-b/H2-a/H2-b/H3-a/H3-b |
-| I — Production operator console | 2 | 10h | I1-a/I1-b/I2-a/I2-b repo-side done 2026-05-08; I3-a/I3-b open |
-| J — SRE / HA | 2 | 10h | J3-a done; J1 + J2-a + J3-b done repo-side; J2-b + J4 remain |
-| K — Compliance / external audit | 3 | 15h | K2 done 2026-05-08; K3 audit-chain tamper-resistance + HTTP malformed-input gate done 2026-05-08 (external pen test still pending operator engagement); K1-a/K1-b open |
-| **Total remaining** | **13** | **~65h** | |
+| I — Production operator console | 0 | 0h | I1-a/I1-b/I2-a/I2-b/I3-a/I3-b repo-side done 2026-05-08; live Tempo push + Grafana render and full SPA remain operator/product work |
+| J — SRE / HA | 1 | 5h | J3-a done; J1 + J2-a + J3-b + J4 done repo-side; J2-b remains |
+| K — Compliance / external audit | 1 | 5h | K1-a + K1-b + K2 done 2026-05-08; K3 audit-chain tamper-resistance + HTTP malformed-input gate done 2026-05-08 (external pen test still pending operator engagement) |
+| **Total remaining** | **8** | **~40h** | |
 
-Completed since initial publication: F1-a, H2-a, H2-b, H3-a, H3-b, J3-a (2026-05-06); H1-a/H1-b, F2-a/F2-b, F2-c, F3, F4-a/F4-b, J1, J2-a, and J3-b repo-side (2026-05-07); G3 bridge benchmark/report scaffold plus local 100k/1M release-binary timing, G6 mTLS connection overhead measurement, G8 concurrent dashboard jobs, I1-a + I1-b observability stack repo-side scaffolds (Tempo + Prometheus + Grafana compose, datasource provisioning, two dashboards, render script + report schema, OTLP/HTTP push adapter on `export_otel_events.py`), K2 compliance mapping, and K3 repo-side scaffolds — audit-chain tamper-resistance + HTTP malformed-input gate (2026-05-08, K3 external pen test still operator-side)
+Completed since initial publication: F1-a, H2-a, H2-b, H3-a, H3-b, J3-a (2026-05-06); H1-a/H1-b, F2-a/F2-b, F2-c, F3, F4-a/F4-b, J1, J2-a, and J3-b repo-side (2026-05-07); G3 bridge benchmark/report scaffold plus local 100k/1M release-binary timing, G6 mTLS connection overhead measurement, G8 concurrent dashboard jobs, I1-a + I1-b observability stack repo-side scaffolds (Tempo + Prometheus + Grafana compose, datasource provisioning, two dashboards, render script + report schema, OTLP/HTTP push adapter on `export_otel_events.py`), I2-a/I2-b alerting integration, I3-a request-submission endpoint + metadata persistence baseline, I3-b approval/reject/list/detail workflow, J4 chaos and failure-injection drill (3 in-process scenarios + 2 operator-skipped placeholders), K1-a S3 Object Lock (WORM) sink, K1-b Sigstore Rekor transparency-log sink, K2 compliance mapping, and K3 repo-side scaffolds — audit-chain tamper-resistance + HTTP malformed-input gate (2026-05-08, K1-a live S3 upload + K1-b live Rekor submission + J4 PostgreSQL/full-disk operator drills + K3 external pen test still operator-side)
 
 ### 10.1 Remaining Block Breakdown
 
-As of 2026-05-06, the remaining production-readiness scope is:
+As of 2026-05-08, the remaining production-readiness scope is:
 
 | Category | Remaining blocks |
 |----------|------------------|
@@ -1933,11 +1974,11 @@ As of 2026-05-06, the remaining production-readiness scope is:
 | F — Production PostgreSQL | F1-b |
 | G — Scale & optimization | G3 hotspot profiling evidence, G4-a, G4-b, G5, G7 |
 | H — Multi-tenant isolation | None |
-| I — Production operator console | I3-a, I3-b (I1-a/I1-b/I2-a/I2-b repo-side done 2026-05-08; live Tempo push + Grafana render still operator-environment) |
-| J — SRE / HA | J2-b, J4 |
-| K — Compliance / external audit | K1-a, K1-b, K3 external pen test (K2 + K3 repo-side scaffolds done; external engagement still pending) |
+| I — Production operator console | None repo-side (I1-a/I1-b/I2-a/I2-b/I3-a/I3-b done 2026-05-08; live Tempo push + Grafana render and full SPA still operator/product work) |
+| J — SRE / HA | J2-b |
+| K — Compliance / external audit | K3 external pen test (K1-a + K1-b + K2 + K3 repo-side scaffolds done; external engagement still pending) |
 
-Current total: **13 blocks / ~65h**. (K2 compliance mapping done; K3 repo-side scaffolds — audit-chain tamper-resistance and HTTP malformed-input gate — both done; external pen test remains as the K3 operator-engagement block. G6 mTLS connection overhead also done. I1-a + I1-b observability scaffolds done 2026-05-08 — live Tempo push and Grafana render are operator-side. I2-a webhook adapter + I2-b alert daemon done 2026-05-08 — Slack and Alertmanager formats supported, transition tracking verified end-to-end by `check_alert_webhook_smoke.py`.)
+Current total: **8 blocks / ~40h**. (K1-a S3 Object Lock (WORM) sink + K1-b Sigstore Rekor sink both done repo-side 2026-05-08 — shared `--sink-kind` / `--execute` framework on `publish_external_audit_anchor.py`, lazy boto3/cryptography imports, planned/uploaded/partial/skipped/error transitions, cross-tenant S3 key reject + non-http rekor URL reject, and a server-side ECDSA-verification harness for the rekor execute path; live AWS upload and live Rekor submission remain operator-side. K2 compliance mapping done; K3 repo-side scaffolds — audit-chain tamper-resistance and HTTP malformed-input gate — both done; external pen test remains as the K3 operator-engagement block. G6 mTLS connection overhead also done. I1-a + I1-b observability scaffolds done 2026-05-08 — live Tempo push and Grafana render are operator-side. I2-a webhook adapter + I2-b alert daemon done 2026-05-08 — Slack and Alertmanager formats supported, transition tracking verified end-to-end by `check_alert_webhook_smoke.py`. I3-a request submission and I3-b approval/reject/list/detail workflow are now repo-side complete.)
 
 ### 10.2 Active Review Fixups
 
@@ -1961,7 +2002,7 @@ Recommended next order:
 **Optimization + large-scale benchmark only (G):** 5 blocks / 25h remaining (G6 mTLS connection overhead done locally 2026-05-08), with G3 implementation/timing done and only the hotspot profiling evidence still open inside that block
 
 **Critical path (shortest path to a load-tested, authority-backed platform):**
-F1-b → G3-hotspot/G4/G5 → J2-b → K1 = 11 remaining blocks / ~55h (G1 + G2-a + G2-b + J1 + J2-a done repo-side/local 2026-05-07; G3 timing/report scaffold + G6 mTLS overhead + G8 concurrent dashboard jobs done 2026-05-08)
+F1-b → G3-hotspot/G4/G5 → J2-b = 7 remaining blocks / ~35h on the critical path (8 blocks / ~40h total remaining, including K3 external pen test). G1 + G2-a + G2-b + J1 + J2-a done repo-side/local 2026-05-07; G3 timing/report scaffold + G6 mTLS overhead + G8 concurrent dashboard jobs + I3-b approval workflow + K1-a S3 Object Lock + K1-b Sigstore Rekor + J4 chaos drill done 2026-05-08.
 
 ---
 
@@ -1976,7 +2017,7 @@ The following are out of scope for this guidebook and should be treated as separ
 5. **HSM-backed key management** — using a Hardware Security Module instead of Vault for the bridge token secrets.
 6. **SOC 2 Type II certification** — formal certification process requires an audit period and policy documentation beyond this guidebook's scope.
 
-None of these are blocked by the work in this guidebook. They should be started after the 30 remaining blocks above are complete.
+None of these are blocked by the work in this guidebook. They should be started after the remaining production-readiness blocks above are complete.
 
 ---
 
@@ -1988,7 +2029,7 @@ These tracks narrow down items §4.1, §4.5–4.7 of [`docs/COMPACT_PLATFORM_BRI
 |-------|-------|---------------------|-----------|
 | **Track-E1** | E-commerce fact-layer baseline: `orders` / `order_items` / `order_attribution` / `order_payment` / `order_fulfillment` / `customer_service_interactions` SQL tables, scope-key aligned with `sse_export_policy/v1`. | Repo-side complete: `migrations/metadata/010_add_ecommerce_fact_tables.sql` + Postgres parity in `migrations/postgres/001_init.sql` + `scripts/render_ecommerce_fact_layer.py` + `schemas/ecommerce_fact_layer_report.schema.json`; default contract smoke renders the report and asserts all 6 tables and ≥12 indexes. | [`docs/ECOMMERCE_FACT_LAYER_PLAN.md`](/home/llvanion/Desktop/seccomp-privacy-platform/docs/ECOMMERCE_FACT_LAYER_PLAN.md) |
 | **Track-E2** | Business identity model: `business_identities` table + `identity_kind` enum (`buyer` / `merchant_staff` / `customer_service_agent` / `courier` / `field_marketer`) annotating callers without breaking the frozen `caller_permissions` schema. | Repo-side complete: `migrations/metadata/011_add_business_identities.sql` + Postgres parity + Track-E2 section appended to `docs/ECOMMERCE_ACCESS_MODEL.md`; PII-free design enforced by column set (no name/phone/address). | [`docs/ECOMMERCE_ACCESS_MODEL.md`](/home/llvanion/Desktop/seccomp-privacy-platform/docs/ECOMMERCE_ACCESS_MODEL.md) §业务身份扩展 |
-| **Track-E3** | Operator console product baseline: `console_manifest/v1` contract + `config/operator_console/console_manifest.json` + static `index.html` placeholder + render/validate script; plus a forward-spec for the workflow/approval lifecycle and admin-as-product surfaces (overlaps I3). | Repo-side complete: 8 sections (home / jobs / audit / catalog / permissions / recovery / observability / compliance), 25 endpoints across the 5 existing platform `platform_roles`; default contract smoke validates the manifest, renders the report, and asserts all 8 sections + manifest reference from the static placeholder. The plan doc §9–§12 documents the split rule with I3 (Track-E3 owns the surface, I3 owns the lifecycle implementation), the approval state machine, the same-identity self-approval gate, and the Phase-2 admin sections (`admin_registry` / `admin_keys` / `admin_authority` / `admin_workflow` / `admin_retention` / `admin_external_anchor`). | [`docs/OPERATOR_CONSOLE_PRODUCT_PLAN.md`](/home/llvanion/Desktop/seccomp-privacy-platform/docs/OPERATOR_CONSOLE_PRODUCT_PLAN.md) |
+| **Track-E3 / I3** | Operator console product baseline plus request-submission and approval workflow surface: `console_manifest/v1` contract + `config/operator_console/console_manifest.json` + static `index.html` placeholder + render/validate script; I3 adds submit/list/detail/approve/reject request workflow endpoints and contracts. | Repo-side complete: 9 sections (home / jobs / requests / audit / catalog / permissions / recovery / observability / compliance), `approval_workflow` feature flag, `POST /v1/request/submit`, `GET /v1/requests`, `GET /v1/requests/{submission_id}`, `POST /v1/request/{submission_id}/approve`, `POST /v1/request/{submission_id}/reject`, `workflow_submissions` metadata sidecar persistence, `operator_request_submission/v1`, `operator_request_submission_list/v1`, and contract smoke validation. The plan doc §9–§12 documents the split rule with I3, the approval state machine, the same-identity self-approval gate, and Phase-2 admin sections. | [`docs/OPERATOR_CONSOLE_PRODUCT_PLAN.md`](/home/llvanion/Desktop/seccomp-privacy-platform/docs/OPERATOR_CONSOLE_PRODUCT_PLAN.md) |
 
 These tracks do not change the privacy boundary: the bridge handoff still tokenizes only `(buyer_email, total_amount_cents)`; `business_identities` is annotation-only and does not introduce new stage gates; the operator console is glue over existing HTTP wrappers and does not bypass `caller_permissions`.
 

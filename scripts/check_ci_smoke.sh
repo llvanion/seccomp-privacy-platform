@@ -61,6 +61,8 @@ python3 -m py_compile \
   scripts/seal_audit_artifact.py \
   scripts/check_kms_reachability.py \
   scripts/check_openfga_authz.py \
+  scripts/check_operator_request_submission_smoke.py \
+  scripts/serve_operator_dashboard.py \
   scripts/serve_audit_query_api.py \
   scripts/serve_identity_proxy.py \
   scripts/serve_metadata_api.py \
@@ -79,6 +81,7 @@ python3 -m py_compile \
   scripts/render_ecommerce_fact_layer.py \
   scripts/render_operator_console_manifest.py \
   scripts/run_alert_check_daemon.py \
+  scripts/run_chaos_test.py \
   scripts/check_alert_webhook_smoke.py \
   scripts/write_pjc_audit.py \
   scripts/check_malformed_input_gate.py \

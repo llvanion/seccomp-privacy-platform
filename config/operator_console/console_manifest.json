@@ -6,7 +6,8 @@
     "mtls",
     "rate_limit",
     "multi_tenant_quota",
-    "external_anchor"
+    "external_anchor",
+    "approval_workflow"
   ],
   "sections": [
     {
@@ -32,6 +33,7 @@
       "description": "Submit privacy queries, monitor running jobs, drill into the per-job audit chain.",
       "endpoints": [
         {"method": "POST", "path": "/v1/query-workflow", "service": "serve_query_workflow_api", "role": "query_submitter"},
+        {"method": "POST", "path": "/v1/request/submit", "service": "serve_operator_dashboard", "role": "query_submitter"},
         {"method": "POST", "path": "/v1/jobs/start", "service": "serve_operator_dashboard", "role": "query_submitter"},
         {"method": "GET", "path": "/v1/dashboard", "service": "serve_operator_dashboard", "role": "any_authenticated"},
         {"method": "GET", "path": "/v1/jobs/{job_id}", "service": "serve_operator_dashboard", "role": "any_authenticated"},
@@ -43,6 +45,27 @@
         "commerce_ops_owner",
         "campaign_analyst",
         "fraud_analyst",
+        "compliance_auditor"
+      ]
+    },
+    {
+      "section": "requests",
+      "title": "Requests",
+      "description": "Submit tenant-facing privacy query requests into the pending approval queue and review approval decisions.",
+      "endpoints": [
+        {"method": "POST", "path": "/v1/request/submit", "service": "serve_operator_dashboard", "role": "query_submitter"},
+        {"method": "GET", "path": "/v1/requests", "service": "serve_operator_dashboard", "role": "request_reviewer"},
+        {"method": "GET", "path": "/v1/requests/{submission_id}", "service": "serve_operator_dashboard", "role": "request_reviewer"},
+        {"method": "POST", "path": "/v1/request/{submission_id}/approve", "service": "serve_operator_dashboard", "role": "privacy_operator"},
+        {"method": "POST", "path": "/v1/request/{submission_id}/reject", "service": "serve_operator_dashboard", "role": "privacy_operator"}
+      ],
+      "feature_flags": ["approval_workflow"],
+      "roles_allowed": [
+        "commerce_ops_owner",
+        "campaign_analyst",
+        "fraud_analyst",
+        "privacy_operator",
+        "platform_admin",
         "compliance_auditor"
       ]
     },
