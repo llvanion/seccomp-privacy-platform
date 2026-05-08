@@ -922,14 +922,22 @@ Benchmark across sizes: 1k, 10k, 100k, 1M items. Measure:
 
 ```bash
 python3 scripts/benchmark_pjc.py \
-  --mode checked_in_sse_demo_job \
-  --server-csv /tmp/pjc_server_100k.csv \
-  --client-csv /tmp/pjc_client_50k.csv \
-  --expected-intersection-size 10000 \
-  --expected-intersection-sum 51005000 \
+  --mode generated_scale_csv \
+  --server-items 100000 \
+  --client-items 50000 \
+  --overlap 0.2 \
   --iterations 3 \
   --output tmp/pjc_benchmark_100k.json
 ```
+
+Repo-side progress on 2026-05-08:
+
+- `scripts/benchmark_pjc.py` now has a `generated_scale_csv` mode that creates deterministic PJC CSV fixtures in-place for the requested `--server-items`, `--client-items`, and `--overlap` ratio, then derives the expected intersection size and sum from the generated overlap. The standard 100k/50k/0.2 shape derives `expected_intersection_size=10000` and `expected_intersection_sum=51005000`.
+- `pjc_benchmark/v1` now carries per-mode `scale` metadata and optional per-result `peak_rss_kb`, captured from `/usr/bin/time -v` when the real PJC runner executes.
+- `scripts/benchmark_smoke.py --target pjc-scale --scale <n>` is the explicit operator entrypoint for scale runs. Default contract smoke validates a synthetic `generated_scale_csv` report row and its semantic invariants without starting PJC.
+- `config/schema_backcompat_baseline.json` registers `pjc_benchmark/v1` as a stable schema.
+
+This completes the G4 report contract and generated scale runner. G4-a/G4-b remain open for measured 100k/1M PJC timings, memory ceiling, and connection-reuse evidence in an environment with the PJC binaries installed.
 
 **G4-b — Memory ceiling and connection reuse (1 block)**
 
@@ -941,7 +949,7 @@ Test whether PJC server can handle back-to-back queries without restart (connect
 
 1. 100k-item intersection completes in < 300s.
 2. Memory ceiling at 1M items documented.
-3. Benchmark report emitted as `pjc_benchmark/v1` with `scale` mode rows.
+3. Benchmark report emitted as `pjc_benchmark/v1` with `scale` mode rows. Repo-side contract/runner completed; live 100k/1M measurement still pending environment.
 
 ---
 
@@ -966,10 +974,30 @@ Remaining G5 work is to add a true scale/SLO mode that can generate or accept 10
 
 Record per-stage `duration_ms` from `pipeline_observability/v1` output. Compare against SLO targets. Fail if any stage exceeds 3x its p95 target.
 
+Repo-side progress on 2026-05-08:
+
+- `scripts/benchmark_pipeline_slo.py` now provides the G5 runner. It generates deterministic server/client JSONL fixtures for the standard 10k/10k/1k-overlap shape, derives `expected_intersection_size` and `expected_intersection_sum`, runs the existing file-handoff pipeline path when the normal SSE/PJC runtime environment is available, validates the completed run through the existing mainline contract check, and reads `pipeline_observability/v1` stage `duration_ms` values for SLO evaluation.
+- `schemas/pipeline_slo_benchmark.schema.json` freezes `pipeline_slo_benchmark/v1` with input scale, expected result, command/artifact paths, SLO targets, per-stage evaluation, total-pipeline evaluation, validation summary, and run diagnostics.
+- `scripts/benchmark_smoke.py --target pipeline-slo --scale <n>` is the explicit operator entrypoint. Default contract smoke validates a 10k fixture-only report and semantic invariants without running the heavy full pipeline.
+- `config/schema_backcompat_baseline.json` registers `pipeline_slo_benchmark/v1` as a stable schema.
+
+Example live run for a prepared SSE/PJC environment:
+
+```bash
+python3 scripts/benchmark_pipeline_slo.py \
+  --server-rows 10000 \
+  --client-rows 10000 \
+  --overlap-count 1000 \
+  --output tmp/pipeline_slo_benchmark.json \
+  --assert-ok
+```
+
+This repo-side work completes the report contract and runner. The G5 block remains open for final 10k live timing until it is executed in an environment with the SSE Python dependencies and PJC binaries installed.
+
 #### Acceptance Criteria
 
 1. Full pipeline with 10k-item inputs completes within SLO.
-2. `pipeline_slo_benchmark/v1` report emitted with per-stage latency breakdown.
+2. `pipeline_slo_benchmark/v1` report emitted with per-stage latency breakdown. Repo-side contract/runner completed; live 10k report still pending environment.
 3. OTel spans from `export_otel_events.py` match per-stage timings.
 
 ---

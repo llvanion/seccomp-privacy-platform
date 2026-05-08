@@ -19,7 +19,9 @@ TARGETS = {
     "ci-smoke": ["bash", "scripts/check_ci_smoke.sh"],
     "sse-export-scale": ["python3", "scripts/benchmark_sse_export.py"],
     "bridge-scale": ["python3", "scripts/benchmark_bridge.py"],
+    "pjc-scale": ["python3", "scripts/benchmark_pjc.py", "--mode", "generated_scale_csv"],
     "dashboard-jobs": ["python3", "scripts/benchmark_dashboard_jobs.py"],
+    "pipeline-slo": ["python3", "scripts/benchmark_pipeline_slo.py"],
 }
 
 
@@ -49,8 +51,12 @@ def command_for_target(target: str, *, scale: int) -> list[str]:
         command.extend(["--record-count", str(scale), "--candidate-count", str(scale), "--iterations", "1"])
     elif target == "bridge-scale":
         command.extend(["--server-rows", str(scale), "--client-rows", str(scale), "--iterations", "1"])
+    elif target == "pjc-scale":
+        command.extend(["--server-items", str(scale), "--client-items", str(scale), "--iterations", "1"])
     elif target == "dashboard-jobs":
         command.extend(["--concurrency", str(scale)])
+    elif target == "pipeline-slo":
+        command.extend(["--server-rows", str(scale), "--client-rows", str(scale), "--overlap-count", str(min(scale, 1000))])
     return command
 
 
@@ -125,7 +131,9 @@ def main() -> int:
         "generated_at_utc": utc_now_iso(),
         "repo_root": str(REPO_ROOT),
         "target": args.target,
-        "scale": args.scale if args.target in {"sse-export-scale", "bridge-scale", "dashboard-jobs"} else None,
+        "scale": args.scale
+        if args.target in {"sse-export-scale", "bridge-scale", "pjc-scale", "dashboard-jobs", "pipeline-slo"}
+        else None,
         "command": command,
         "summary": summarize(results),
         "results": results,

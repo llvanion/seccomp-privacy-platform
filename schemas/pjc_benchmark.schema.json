@@ -65,7 +65,8 @@
           "mode": {
             "type": "string",
             "enum": [
-              "checked_in_sse_demo_job"
+              "checked_in_sse_demo_job",
+              "generated_scale_csv"
             ]
           },
           "command": {
@@ -89,6 +90,59 @@
               "client_csv": {
                 "type": "string",
                 "minLength": 1
+              }
+            },
+            "additionalProperties": false
+          },
+          "scale": {
+            "type": "object",
+            "required": [
+              "source",
+              "server_items",
+              "client_items",
+              "overlap_count",
+              "overlap_ratio",
+              "expected_intersection_size",
+              "expected_intersection_sum"
+            ],
+            "properties": {
+              "source": {
+                "type": "string",
+                "enum": [
+                  "checked_in_fixture",
+                  "generated_csv"
+                ]
+              },
+              "server_items": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "client_items": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "overlap_count": {
+                "type": [
+                  "integer",
+                  "null"
+                ],
+                "minimum": 0
+              },
+              "overlap_ratio": {
+                "type": [
+                  "number",
+                  "null"
+                ],
+                "minimum": 0,
+                "maximum": 1
+              },
+              "expected_intersection_size": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "expected_intersection_sum": {
+                "type": "integer",
+                "minimum": 0
               }
             },
             "additionalProperties": false
@@ -208,6 +262,13 @@
                     "string",
                     "null"
                   ]
+                },
+                "peak_rss_kb": {
+                  "type": [
+                    "integer",
+                    "null"
+                  ],
+                  "minimum": 0
                 }
               },
               "additionalProperties": false

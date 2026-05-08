@@ -64,6 +64,7 @@ SCHEMAS=(
   "$REPO_ROOT/schemas/dashboard_jobs_benchmark.schema.json"
   "$REPO_ROOT/schemas/record_recovery_benchmark.schema.json"
   "$REPO_ROOT/schemas/pipeline_benchmark.schema.json"
+  "$REPO_ROOT/schemas/pipeline_slo_benchmark.schema.json"
   "$REPO_ROOT/schemas/pjc_benchmark.schema.json"
   "$REPO_ROOT/schemas/live_sse_benchmark.schema.json"
   "$REPO_ROOT/schemas/audit_bundle_benchmark.schema.json"
@@ -335,6 +336,16 @@ python3 "$REPO_ROOT/scripts/build_benchmark_contract_fixtures.py" \
 python3 "$VALIDATOR" \
   --schema "$REPO_ROOT/schemas/pipeline_benchmark.schema.json" \
   --json "$tmp/pipeline_benchmark_contract_fixture.json"
+python3 "$REPO_ROOT/scripts/benchmark_pipeline_slo.py" \
+  --fixture-only \
+  --server-rows 10000 \
+  --client-rows 10000 \
+  --overlap-count 1000 \
+  --output "$tmp/pipeline_slo_benchmark_contract_fixture.json" \
+  > /dev/null
+python3 "$VALIDATOR" \
+  --schema "$REPO_ROOT/schemas/pipeline_slo_benchmark.schema.json" \
+  --json "$tmp/pipeline_slo_benchmark_contract_fixture.json"
 python3 "$VALIDATOR" \
   --schema "$REPO_ROOT/schemas/live_sse_benchmark.schema.json" \
   --json "$tmp/live_sse_benchmark_contract_fixture.json"
@@ -352,9 +363,11 @@ python3 "$REPO_ROOT/scripts/check_benchmark_smoke_reports.py" \
   --read-adapter "$tmp/read_adapter_benchmark.json" \
   --sse-export "$tmp/sse_export_benchmark.json" \
   --bridge "$tmp/bridge_benchmark_contract_fixture.json" \
+  --pjc "$tmp/pjc_benchmark_contract_fixture.json" \
   --dashboard-jobs "$tmp/dashboard_jobs_benchmark_contract_fixture.json" \
   --record-recovery "$tmp/record_recovery_benchmark.json" \
   --pipeline "$tmp/pipeline_benchmark_contract_fixture.json" \
+  --pipeline-slo "$tmp/pipeline_slo_benchmark_contract_fixture.json" \
   --live-sse "$tmp/live_sse_benchmark_contract_fixture.json" \
   --audit-bundle "$tmp/audit_bundle_benchmark.json" \
   --platform-health "$tmp/platform_health_benchmark.json" \

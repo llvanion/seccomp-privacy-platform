@@ -259,6 +259,10 @@
 
 剩余 block 从 9 → 8（~45h → ~40h）；J 类从 2 → 1。下一步建议聚焦 F1-b、G3 hotspot/G4/G5、J2-b 或 K3 external pen test。
 
+2026-05-08 进展：G5 end-to-end pipeline latency SLO 的 repo-side runner/contract 已完成，但不下调剩余 block。新增 `scripts/benchmark_pipeline_slo.py` 与 `schemas/pipeline_slo_benchmark.schema.json`：脚本生成 deterministic 10k/10k/1k-overlap JSONL fixture，自动推导 `expected_intersection_size` / `expected_intersection_sum`，复用现有 `run_sse_bridge_pipeline.sh` file-handoff 路径，成功后读取 `pipeline_observability/v1` 的核心 stage `duration_ms`，按 G5 SLO 表输出 per-stage 与 total-pipeline 的 p50/p95/3×p95 判定；失败时保留 stdout/stderr tail 方便定位。`benchmark_smoke.py --target pipeline-slo --scale <n>` 已接入显式入口；默认 contract smoke 走 `--fixture-only` 校验 10k SLO report contract，不执行重型 pipeline；`config/schema_backcompat_baseline.json` 注册 `pipeline_slo_benchmark/v1` 为 stable schema。G5 的最终 10k live timing 仍需要在装好 SSE Python dependencies 与 PJC binaries 的标准 runtime 环境补跑，因此 G 类剩余仍按 5 blocks 统计。
+
+2026-05-08 进展：G4 PJC/APSI profiling 的 repo-side scale runner/contract 已完成，但不下调剩余 block。`scripts/benchmark_pjc.py --mode generated_scale_csv` 现在可按 `--server-items` / `--client-items` / `--overlap` 生成 deterministic PJC CSV fixture，自动推导 expected intersection metrics，并在 real run 时通过 `/usr/bin/time -v` 记录 `peak_rss_kb`；`pjc_benchmark/v1` 增加 per-mode `scale` 元数据，`benchmark_smoke.py --target pjc-scale --scale <n>` 已接入显式 operator 入口；默认 contract smoke 校验 synthetic generated-scale row。G4-a/G4-b 的 100k/1M 实测 timing、memory ceiling、connection reuse 仍需要在装好 PJC binaries 的标准 runtime 环境补跑，因此 G 类剩余仍按 5 blocks 统计。
+
 2026-05-08 进展：Track-E1 / Track-E2 / Track-E3 e-commerce 平台叙事三块同步完成 repo-side。
 
 - **Track-E1（fact-layer baseline）**：`docs/ECOMMERCE_FACT_LAYER_PLAN.md` 已落基线，`migrations/metadata/010_add_ecommerce_fact_tables.sql` 新增六张事实表（`orders` / `order_items` / `order_attribution` / `order_payment` / `order_fulfillment` / `customer_service_interactions`），`migrations/postgres/001_init.sql` 同步对齐，新增 `scripts/render_ecommerce_fact_layer.py` 与 `schemas/ecommerce_fact_layer_report.schema.json`。默认 contract smoke 渲染并校验 `ecommerce_fact_layer_report/v1`，断言六表全在、indexes 总数 ≥ 12。

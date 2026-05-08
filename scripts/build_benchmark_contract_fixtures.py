@@ -15,6 +15,7 @@ DASHBOARD_JOBS_BENCHMARK_SCHEMA = "dashboard_jobs_benchmark/v1"
 EXPECTED_PIPELINE_MODES = ("file_handoff", "file_handoff_retained", "fifo_handoff")
 EXPECTED_LIVE_MODES = ("file_handoff", "file_handoff_retained", "fifo_handoff")
 EXPECTED_PJC_MODES = ("checked_in_sse_demo_job",)
+EXPECTED_PJC_SCALE_MODES = ("generated_scale_csv",)
 EXPECTED_BRIDGE_MODES = ("prepare_job_jsonl",)
 
 
@@ -100,6 +101,10 @@ def validate_pjc_surface(pjc_module: Any) -> None:
         raise SystemExit(
             f"PJC benchmark mode set mismatch: expected {EXPECTED_PJC_MODES}, got {tuple(pjc_module.MODES)}"
         )
+    if tuple(pjc_module.SCALE_MODES) != EXPECTED_PJC_SCALE_MODES:
+        raise SystemExit(
+            f"PJC benchmark scale mode set mismatch: expected {EXPECTED_PJC_SCALE_MODES}, got {tuple(pjc_module.SCALE_MODES)}"
+        )
     for mode in pjc_module.MODES:
         command = ["bash", str(pjc_module.RUN_PJC_SH)]
         if command != ["bash", str(REPO_ROOT / "a-psi" / "moduleA_psi" / "scripts" / "run_pjc.sh")]:
@@ -112,6 +117,40 @@ def validate_pjc_surface(pjc_module: Any) -> None:
                 f"PJC benchmark fixture path mismatch: expected {(expected_server, expected_client)}, "
                 f"got {(server_csv, client_csv)}"
             )
+
+
+def pjc_fixture_entry(
+    *,
+    mode: str,
+    command: list[str],
+    server_csv: str,
+    client_csv: str,
+    scale: dict[str, Any],
+    result_file: str,
+) -> dict[str, Any]:
+    return {
+        "mode": mode,
+        "command": command,
+        "input_fixture": {
+            "server_csv": server_csv,
+            "client_csv": client_csv,
+        },
+        "scale": scale,
+        "summary": build_summary(),
+        "results": [
+            {
+                "duration_ms": 1.0,
+                "exit_code": 0,
+                "timed_out": False,
+                "stderr_tail": "",
+                "stdout_tail": "",
+                "intersection_size": scale["expected_intersection_size"],
+                "intersection_sum": scale["expected_intersection_sum"],
+                "result_file": result_file,
+                "peak_rss_kb": 1,
+            }
+        ],
+    }
 
 
 def validate_bridge_surface(bridge_module: Any) -> None:
@@ -265,6 +304,17 @@ def build_live_fixture(live_module: Any) -> dict[str, Any]:
 
 
 def build_pjc_fixture(pjc_module: Any) -> dict[str, Any]:
+    command = ["bash", str(pjc_module.RUN_PJC_SH)]
+    checked_server, checked_client = pjc_module.fixture_paths("checked_in_sse_demo_job")
+    generated_overlap = 0.2
+    generated_server_items = 100000
+    generated_client_items = 50000
+    generated_overlap_count = pjc_module.overlap_count_for_scale(
+        generated_server_items,
+        generated_client_items,
+        generated_overlap,
+    )
+    generated_sum = pjc_module.expected_sum_for_overlap(generated_overlap_count)
     return {
         "schema": PJC_BENCHMARK_SCHEMA,
         "generated_at_utc": "2026-04-29T00:00:00Z",
@@ -276,28 +326,38 @@ def build_pjc_fixture(pjc_module: Any) -> dict[str, Any]:
         },
         "iterations": 1,
         "modes": [
-            {
-                "mode": mode,
-                "command": ["bash", str(pjc_module.RUN_PJC_SH)],
-                "input_fixture": {
-                    "server_csv": str(pjc_module.fixture_paths(mode)[0]),
-                    "client_csv": str(pjc_module.fixture_paths(mode)[1]),
+            pjc_fixture_entry(
+                mode="checked_in_sse_demo_job",
+                command=command,
+                server_csv=str(checked_server),
+                client_csv=str(checked_client),
+                scale={
+                    "source": "checked_in_fixture",
+                    "server_items": 2,
+                    "client_items": 2,
+                    "overlap_count": pjc_module.EXPECTED_INTERSECTION_SIZE,
+                    "overlap_ratio": None,
+                    "expected_intersection_size": pjc_module.EXPECTED_INTERSECTION_SIZE,
+                    "expected_intersection_sum": pjc_module.EXPECTED_INTERSECTION_SUM,
                 },
-                "summary": build_summary(),
-                "results": [
-                    {
-                        "duration_ms": 1.0,
-                        "exit_code": 0,
-                        "timed_out": False,
-                        "stderr_tail": "",
-                        "stdout_tail": "",
-                        "intersection_size": pjc_module.EXPECTED_INTERSECTION_SIZE,
-                        "intersection_sum": pjc_module.EXPECTED_INTERSECTION_SUM,
-                        "result_file": "/tmp/seccomp_pjc_benchmark_example/attribution_result.json",
-                    }
-                ],
-            }
-            for mode in pjc_module.MODES
+                result_file="/tmp/seccomp_pjc_benchmark_example/attribution_result.json",
+            ),
+            pjc_fixture_entry(
+                mode="generated_scale_csv",
+                command=command,
+                server_csv="/tmp/seccomp_pjc_scale_server_100000.csv",
+                client_csv="/tmp/seccomp_pjc_scale_client_50000.csv",
+                scale={
+                    "source": "generated_csv",
+                    "server_items": generated_server_items,
+                    "client_items": generated_client_items,
+                    "overlap_count": generated_overlap_count,
+                    "overlap_ratio": generated_overlap,
+                    "expected_intersection_size": generated_overlap_count,
+                    "expected_intersection_sum": generated_sum,
+                },
+                result_file="/tmp/seccomp_pjc_benchmark_example/generated_scale_csv/attribution_result.json",
+            ),
         ],
     }
 

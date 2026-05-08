@@ -1152,6 +1152,20 @@ This emits `pjc_benchmark/v1` and currently measures:
 
 The benchmark starts the local PJC server on a random loopback port, runs the client, and validates that the resulting `attribution_result.json` still produces `intersection_size=2` and `intersection_sum=425`.
 
+For scale-oriented PJC measurements, use the generated CSV mode:
+
+```bash
+python3 scripts/benchmark_pjc.py \
+  --mode generated_scale_csv \
+  --server-items 100000 \
+  --client-items 50000 \
+  --overlap 0.2 \
+  --iterations 3 \
+  --output tmp/pjc_benchmark_100k.json
+```
+
+This emits the same `pjc_benchmark/v1` contract with a `scale` row. The 100k/50k/0.2 example derives `intersection_size=10000` and `intersection_sum=51005000`; `peak_rss_kb` is populated when `/usr/bin/time -v` is present.
+
 Benchmark the live SSE-backed demo wrapper over default cleanup, retained compatibility, and FIFO handoff modes:
 
 ```bash

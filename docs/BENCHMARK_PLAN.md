@@ -412,6 +412,20 @@ What it validates on each successful run:
 2. `attribution_result.json` still reports `intersection_size=2`
 3. `attribution_result.json` still reports `intersection_sum=425`
 
+Scale mode:
+
+```bash
+python3 scripts/benchmark_pjc.py \
+  --mode generated_scale_csv \
+  --server-items 100000 \
+  --client-items 50000 \
+  --overlap 0.2 \
+  --iterations 3 \
+  --output tmp/pjc_benchmark_100k.json
+```
+
+`generated_scale_csv` creates deterministic server/client CSVs for the requested scale, derives the expected intersection metrics from the overlap, records per-mode `scale` metadata, and records per-result `peak_rss_kb` when `/usr/bin/time -v` is available. Contract smoke validates a synthetic generated-scale row without starting the PJC runtime.
+
 Why it is not part of contract smoke:
 
 1. it directly starts the local PJC server on loopback

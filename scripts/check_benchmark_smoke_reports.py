@@ -224,7 +224,49 @@ def validate_bridge(payload: dict[str, Any]) -> None:
             or not isinstance(result.get("throughput_rows_per_sec"), (int, float))
             or not isinstance(result.get("peak_rss_kb"), int)
         ):
-            raise SystemExit(f"bridge benchmark result mismatch: {entry}")
+                raise SystemExit(f"bridge benchmark result mismatch: {entry}")
+
+
+def validate_pjc(payload: dict[str, Any]) -> None:
+    if payload.get("schema") != "pjc_benchmark/v1":
+        raise SystemExit(f"PJC benchmark schema mismatch: {payload}")
+    entries = payload.get("modes") or []
+    actual_modes = {entry.get("mode") for entry in entries}
+    if actual_modes != {"checked_in_sse_demo_job", "generated_scale_csv"}:
+        raise SystemExit(f"PJC benchmark modes mismatch: {payload}")
+    expected = {
+        "checked_in_sse_demo_job": {
+            "source": "checked_in_fixture",
+            "server_items": 2,
+            "client_items": 2,
+            "overlap_count": 2,
+            "expected_intersection_size": 2,
+            "expected_intersection_sum": 425,
+        },
+        "generated_scale_csv": {
+            "source": "generated_csv",
+            "server_items": 100000,
+            "client_items": 50000,
+            "overlap_count": 10000,
+            "expected_intersection_size": 10000,
+            "expected_intersection_sum": 51005000,
+        },
+    }
+    for entry in entries:
+        mode = entry.get("mode")
+        expect_single_success(entry, label=f"PJC benchmark mode {mode}")
+        scale = entry.get("scale") or {}
+        expected_scale = expected[mode]
+        for key, value in expected_scale.items():
+            if scale.get(key) != value:
+                raise SystemExit(f"PJC benchmark scale mismatch for {mode}: {entry}")
+        result = entry["results"][0]
+        if (
+            result.get("intersection_size") != expected_scale["expected_intersection_size"]
+            or result.get("intersection_sum") != expected_scale["expected_intersection_sum"]
+            or not isinstance(result.get("peak_rss_kb"), int)
+        ):
+            raise SystemExit(f"PJC benchmark result mismatch for {mode}: {entry}")
 
 
 def validate_dashboard_jobs(payload: dict[str, Any]) -> None:
@@ -255,6 +297,42 @@ def validate_dashboard_jobs(payload: dict[str, Any]) -> None:
         raise SystemExit(f"dashboard jobs benchmark start result mismatch: {payload}")
     if any(item.get("status_code") != 200 for item in dashboard_results):
         raise SystemExit(f"dashboard jobs benchmark dashboard read mismatch: {payload}")
+
+
+def validate_pipeline_slo(payload: dict[str, Any]) -> None:
+    if payload.get("schema") != "pipeline_slo_benchmark/v1":
+        raise SystemExit(f"pipeline SLO benchmark schema mismatch: {payload}")
+    config = payload.get("configuration") or {}
+    expected = payload.get("expected_result") or {}
+    summary = payload.get("summary") or {}
+    if (
+        config.get("server_rows") != 10000
+        or config.get("client_rows") != 10000
+        or config.get("overlap_count") != 1000
+        or expected.get("intersection_size") != 1000
+        or expected.get("intersection_sum") != 599500
+    ):
+        raise SystemExit(f"pipeline SLO benchmark config/result mismatch: {payload}")
+    if (
+        summary.get("status") != "ok"
+        or summary.get("exit_code") != 0
+        or summary.get("stage_count") != 5
+        or summary.get("all_stages_within_3x_p95") is not True
+        or summary.get("missing_duration_stages") != []
+        or summary.get("slo_breach_stages") != []
+    ):
+        raise SystemExit(f"pipeline SLO benchmark summary mismatch: {payload}")
+    stage_names = {item.get("stage") for item in payload.get("stages") or []}
+    if stage_names != {"sse_export", "record_recovery", "bridge_prepare_job", "pjc", "policy_release"}:
+        raise SystemExit(f"pipeline SLO benchmark stages mismatch: {payload}")
+    validation = payload.get("validation") or {}
+    run = payload.get("run") or {}
+    if (
+        validation.get("mainline_contract_check_embedded") is not True
+        or run.get("observability_schema") != "pipeline_observability/v1"
+        or int(run.get("observability_event_count") or 0) < 5
+    ):
+        raise SystemExit(f"pipeline SLO benchmark validation mismatch: {payload}")
 
 
 def validate_audit_bundle(payload: dict[str, Any]) -> None:
@@ -471,9 +549,11 @@ def build_parser() -> argparse.ArgumentParser:
     ap.add_argument("--read-adapter", required=True)
     ap.add_argument("--sse-export", required=True)
     ap.add_argument("--bridge", required=True)
+    ap.add_argument("--pjc", required=True)
     ap.add_argument("--dashboard-jobs", required=True)
     ap.add_argument("--record-recovery", required=True)
     ap.add_argument("--pipeline", required=True)
+    ap.add_argument("--pipeline-slo", required=True)
     ap.add_argument("--live-sse", required=True)
     ap.add_argument("--audit-bundle", required=True)
     ap.add_argument("--platform-health", required=True)
@@ -487,9 +567,11 @@ def main() -> int:
     validate_read_adapter(load(args.read_adapter))
     validate_sse_export(load(args.sse_export))
     validate_bridge(load(args.bridge))
+    validate_pjc(load(args.pjc))
     validate_dashboard_jobs(load(args.dashboard_jobs))
     validate_record_recovery(load(args.record_recovery))
     validate_pipeline(load(args.pipeline))
+    validate_pipeline_slo(load(args.pipeline_slo))
     validate_live_sse(load(args.live_sse))
     validate_audit_bundle(load(args.audit_bundle))
     validate_platform_health(load(args.platform_health))

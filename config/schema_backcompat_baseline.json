@@ -2939,6 +2939,60 @@
       ]
     },
     {
+      "path": "schemas/pjc_benchmark.schema.json",
+      "schema_id": "pjc_benchmark/v1",
+      "required": [
+        "schema",
+        "generated_at_utc",
+        "repo_root",
+        "pjc_bin_dir",
+        "expected_result",
+        "iterations",
+        "modes"
+      ],
+      "stable_properties": [
+        "expected_result",
+        "generated_at_utc",
+        "iterations",
+        "modes",
+        "pjc_bin_dir",
+        "repo_root",
+        "schema"
+      ]
+    },
+    {
+      "path": "schemas/pipeline_slo_benchmark.schema.json",
+      "schema_id": "pipeline_slo_benchmark/v1",
+      "required": [
+        "schema",
+        "generated_at_utc",
+        "repo_root",
+        "mode",
+        "configuration",
+        "expected_result",
+        "command",
+        "artifacts",
+        "summary",
+        "stages",
+        "validation",
+        "run"
+      ],
+      "stable_properties": [
+        "artifacts",
+        "command",
+        "configuration",
+        "expected_result",
+        "generated_at_utc",
+        "mode",
+        "repo_root",
+        "run",
+        "schema",
+        "stages",
+        "summary",
+        "validation"
+      ]
+    },
+    {
       "path": "schemas/dashboard_jobs_benchmark.schema.json",
       "schema_id": "dashboard_jobs_benchmark/v1",
       "required": [

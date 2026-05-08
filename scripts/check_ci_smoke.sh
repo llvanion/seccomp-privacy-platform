@@ -23,9 +23,13 @@ python3 -m py_compile \
   scripts/archive_audit_bundle.py \
   scripts/benchmark_bridge.py \
   scripts/benchmark_dashboard_jobs.py \
+  scripts/benchmark_pipeline_slo.py \
+  scripts/benchmark_pjc.py \
   scripts/benchmark_smoke.py \
   scripts/benchmark_query_workflow.py \
   scripts/build_audit_chain.py \
+  scripts/build_benchmark_contract_fixtures.py \
+  scripts/check_benchmark_smoke_reports.py \
   scripts/check_mainline_contract.py \
   scripts/check_schema_backcompat.py \
   scripts/check_platform_health.py \
