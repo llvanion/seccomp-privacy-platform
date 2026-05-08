@@ -42,6 +42,40 @@
 
 原因不是“不能存在这些人”，而是当前平台边界更聚焦于隐私查询和审计链路，优先建模的是能发起、审核、运维这条链路的人。
 
+## 业务身份扩展（Track-E2，2026-05-08 落基线）
+
+为了把上面这五类业务身份接入隐私平台、又不破坏 `caller_permissions` 已经冻结的 schema，新增一张 `business_identities` 表（迁移 [`migrations/metadata/011_add_business_identities.sql`](/home/llvanion/Desktop/seccomp-privacy-platform/migrations/metadata/011_add_business_identities.sql)），把"业务一线身份"作为 `caller` 的可选画像挂在已有的 `caller_permissions` 上。
+
+设计原则：
+
+1. **业务身份不是 caller**。买家、客服、快递员、商家店员不直接发起隐私查询；他们的身份只用于解释为什么某个 caller 能在某个 scope 内活动。
+2. **`caller_permissions` 不变**。`tenant_id` / `allowed_dataset_ids` / `allowed_service_ids` / `can_*` 仍是隐私阶段的唯一权限源；`business_identities` 不引入新的 stage gate。
+3. **PII 不进库**。表只存“业务身份的脱敏 ID + 角色 + 关联的 caller_id”，不存姓名、地址、电话、身份证。
+
+业务身份枚举（`identity_kind`）：
+
+| identity_kind | 谁 | 关联到 |
+|---------------|----|--------|
+| `buyer` | 买家 / 消费者 | `caller` 一般是 `commerce_ops_owner` 或 `compliance_auditor` 代查；`subject_external_id` 是脱敏买家 ID（不等同于明文 email） |
+| `merchant_staff` | 商家店员 / 店铺运营 | `caller` 一般是 `commerce_ops_owner` |
+| `customer_service_agent` | 客服 | `caller` 一般是 `compliance_auditor` 或专门的 supervisor |
+| `courier` | 快递员 / 物流履约人员 | 不发起查询；只在 `customer_service_interactions.agent_id` / `order_fulfillment.carrier_id` 里出现 |
+| `field_marketer` | 地推 / 渠道投放执行人员 | `caller` 一般是 `campaign_analyst` |
+
+字段定义（详见迁移）：`id` / `business_identity_id` / `tenant_id` / `dataset_id` / `identity_kind` / `caller_id` / `subject_external_id` / `display_label` / `enabled` / `created_at_utc` / `updated_at_utc` / `metadata_json`。约束：
+
+- `(tenant_id, business_identity_id)` 唯一。
+- `caller_id` 可空；非空时必须能在 `caller_permissions` 找到匹配 row。
+- `identity_kind` 受控集合：`buyer` / `merchant_staff` / `customer_service_agent` / `courier` / `field_marketer`。
+
+读取入口：`query_metadata.py --list-entity business-identities`（与现有 `caller-permissions` 视图同形态）。
+
+边界保留：
+
+1. 这一层不替代 OpenFGA 关系建模；它是 RBAC + scope 模型之上的一层"业务身份注解"。
+2. 不引入新的 stage gate（`can_*` 仍然只在 `caller_permissions` 上）。
+3. 不存 PII；任何把姓名/手机号/地址写入 `display_label` 或 `metadata_json` 的行为都属于策略违规，应该在导入路径上加校验（operator-side 实施）。
+
 ## 当前落地方式
 
 当前仓库没有第二套独立 RBAC 表。第一阶段仍然通过 `sse_export_policy/v1` 里的 caller 记录承载这些角色语义：

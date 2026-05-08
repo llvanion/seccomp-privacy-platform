@@ -1,0 +1,60 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "ecommerce_fact_layer_report/v1",
+  "title": "E-commerce fact-layer baseline report (Track-E1)",
+  "type": "object",
+  "required": [
+    "schema",
+    "generated_at_utc",
+    "migration_path",
+    "tables",
+    "summary"
+  ],
+  "properties": {
+    "schema": {"const": "ecommerce_fact_layer_report/v1"},
+    "generated_at_utc": {"type": "string", "minLength": 1},
+    "migration_path": {"type": "string", "minLength": 1},
+    "tables": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["name", "column_count", "columns", "indexes"],
+        "properties": {
+          "name": {"type": "string", "minLength": 1},
+          "column_count": {"type": "integer", "minimum": 1},
+          "columns": {
+            "type": "array",
+            "items": {"type": "string", "minLength": 1}
+          },
+          "indexes": {
+            "type": "array",
+            "items": {"type": "string", "minLength": 1}
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    "summary": {
+      "type": "object",
+      "required": [
+        "status",
+        "expected_tables",
+        "tables_present",
+        "tables_missing",
+        "table_count",
+        "total_index_count"
+      ],
+      "properties": {
+        "status": {"type": "string", "enum": ["ok", "fail"]},
+        "expected_tables": {"type": "array", "items": {"type": "string"}},
+        "tables_present": {"type": "array", "items": {"type": "string"}},
+        "tables_missing": {"type": "array", "items": {"type": "string"}},
+        "table_count": {"type": "integer", "minimum": 0},
+        "total_index_count": {"type": "integer", "minimum": 0}
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false
+}
