@@ -1383,46 +1383,50 @@ Implemented:
 
 ---
 
-### I2 — Alerting Integration (2 blocks / 10h)
+### I2 — Alerting Integration (2 blocks / 10h) — Repo-side completed 2026-05-08
 
 #### Tasks
 
-**I2-a — Wire alert check to Alertmanager / Slack (1 block)**
+**I2-a — Wire alert check to Alertmanager / Slack (1 block) — Completed 2026-05-08**
 
-Current: `check_observability_alerts.py` emits `observability_alert_report/v1` JSON but does not notify anyone.
+`scripts/check_observability_alerts.py` now accepts `--webhook-url`, `--webhook-format slack|alertmanager`, `--webhook-bearer-env`, `--webhook-timeout-sec`, `--webhook-include-resolved`, and `--require-webhook-ok`. Loopback URLs (`localhost` / `127.*` / `::1`) automatically bypass the system HTTP proxy; non-loopback URLs honor the standard env vars. The result is recorded in the existing `observability_alert_report/v1` under an optional `webhook_dispatch` block.
 
-Add `--webhook-url` flag to `check_observability_alerts.py`:
+Slack format produces a `{"text": "..."}` payload listing every firing alert with its severity, message, and triage steps. Alertmanager format produces a `[{"labels": {...}, "annotations": {...}, "startsAt": "..."}, ...]` array (one entry per firing alert) with `alertname`, `severity`, `service=seccomp-privacy-platform`, plus `job_id` / `tenant_id` / `correlation_id` labels when present.
 
-```python
-def post_alert_webhook(url: str, firing_alerts: list[dict]) -> None:
-    for alert in firing_alerts:
-        payload = {
-            "text": f":rotating_light: *{alert['alert_id']}* ({alert['severity']})\n{alert['message']}\nTriage: {alert['triage_path']}"
-        }
-        urllib.request.urlopen(
-            urllib.request.Request(url, data=json.dumps(payload).encode(), method="POST",
-                                   headers={"Content-Type": "application/json"}),
-            timeout=5,
-        )
+```bash
+python3 scripts/check_observability_alerts.py \
+  --dashboard tmp/observability_dashboard.json \
+  --webhook-url https://hooks.slack.com/services/T.../B.../... \
+  --webhook-format slack \
+  --out tmp/observability_alert_report.json
 ```
 
-For Alertmanager, post to `POST /api/v1/alerts` with Prometheus alert format. Support both Slack (simple webhook) and Alertmanager (structured alert JSON) via `--webhook-format slack|alertmanager`.
+Default `--webhook-url` skips empty notifications when zero alerts are firing (records `skipped_reason=no_firing_alerts`); `--webhook-include-resolved` POSTs the resolved-state payload too.
 
-**I2-b — Scheduled alert check via cron (1 block)**
+**I2-b — Scheduled alert daemon (1 block) — Completed 2026-05-08**
 
-Add `scripts/run_alert_check_daemon.py` that:
-1. Loops on a configurable interval (default 60s).
-2. Calls `check_observability_alerts.py` logic internally.
-3. Posts alerts to webhook on state change (firing → not firing, or new alert).
-4. Emits a heartbeat `alert_daemon_heartbeat/v1` log entry every interval.
+`scripts/run_alert_check_daemon.py` wraps the I2-a flow in a polling loop, tracks the last-known firing state per `alert_id` across iterations, and computes `unknown→firing`, `firing→resolved`, and `resolved→firing` transitions. It writes a JSONL `alert_daemon_heartbeat/v1` log every iteration with the alert state summary, transitions, duration, and (when a webhook is configured) the dispatch result.
 
-This replaces the need for a Prometheus scrape target until a full metrics endpoint is built (J3).
+```bash
+python3 scripts/run_alert_check_daemon.py \
+  --dashboard tmp/observability_dashboard.json \
+  --interval-sec 60 \
+  --heartbeat-log tmp/alert_daemon_heartbeat.jsonl \
+  --webhook-url https://hooks.slack.com/services/T.../B.../... \
+  --webhook-format slack
+```
+
+Honors SIGINT/SIGTERM for clean shutdown. `--max-iterations N` runs N iterations and exits (useful for cron-driven hosts that prefer one-shot invocations). Per-iteration webhook dispatch is gated on transitions by default; pass `--webhook-include-resolved` for explicit resolved-state notifications, or `--webhook-always` to POST every iteration (debug aid). `--require-webhook-ok` and `--exit-on-firing` are CI-friendly exit-code modes.
+
+#### Smoke Surface
+
+`scripts/check_alert_webhook_smoke.py` is the I2-a/I2-b smoke harness: spawns an in-process HTTP receiver on loopback, drives both Slack and Alertmanager webhook formats, drives the daemon for two iterations with a state-flip between them, and asserts dispatch.ok, status_code 200, schema validity (against `observability_alert_report/v1` and `alert_daemon_heartbeat/v1`), and a `firing→resolved` transition on the heartbeat JSONL. Default contract smoke invokes it.
 
 #### Acceptance Criteria
 
-1. A firing alert (`repeated_stage_error`) triggers a Slack notification within 120s.
-2. Alert resolves when the condition clears (no repeat notification).
-3. `alert_daemon_heartbeat/v1` log verifiable with `validate_json_contract.py`.
+1. **A firing alert (`repeated_stage_error`) triggers a Slack notification.** ✓ Verified by smoke harness — webhook receiver gets a `{"text": "..."}` payload with the firing alert listed; `webhook_dispatch.ok=true` recorded in `observability_alert_report/v1`.
+2. **Alert resolves when the condition clears (no repeat notification).** ✓ Verified — the daemon emits `firing→resolved` only once on the transition; subsequent iterations with the same resolved state produce zero transitions.
+3. **`alert_daemon_heartbeat/v1` log verifiable with `validate_json_contract.py`.** ✓ The schema is in `config/schema_backcompat_baseline.json` (118 schemas / 0 fail) and is validated end-to-end by the smoke harness.
 
 ---
 
@@ -1912,10 +1916,10 @@ Week 12-13: K3 external pen test only (audit-chain tamper-resistance + HTTP malf
 | F — Production PostgreSQL | 1 | 5h | F1-a done; F2-a/F2-b/F2-c/F3 and F4-a/F4-b repo-side done; F1-b plus F2-c/F3 live drills remain |
 | G — Scale & optimization | 5 | 25h | G1 + G2-a + G2-b + G6 + G8 done locally; G3 timing/report scaffold done with hotspot profiling pending; remaining G3-hotspot/G4-a/G4-b/G5/G7 |
 | H — Multi-tenant isolation | 0 | 0h | Complete: H1-a/H1-b/H2-a/H2-b/H3-a/H3-b |
-| I — Production operator console | 4 | 20h | I1-a/I1-b repo-side scaffolds done 2026-05-08 (live Tempo push and Grafana render are operator-environment); I2-a/I2-b/I3-a/I3-b open |
+| I — Production operator console | 2 | 10h | I1-a/I1-b/I2-a/I2-b repo-side done 2026-05-08; I3-a/I3-b open |
 | J — SRE / HA | 2 | 10h | J3-a done; J1 + J2-a + J3-b done repo-side; J2-b + J4 remain |
 | K — Compliance / external audit | 3 | 15h | K2 done 2026-05-08; K3 audit-chain tamper-resistance + HTTP malformed-input gate done 2026-05-08 (external pen test still pending operator engagement); K1-a/K1-b open |
-| **Total remaining** | **15** | **~75h** | |
+| **Total remaining** | **13** | **~65h** | |
 
 Completed since initial publication: F1-a, H2-a, H2-b, H3-a, H3-b, J3-a (2026-05-06); H1-a/H1-b, F2-a/F2-b, F2-c, F3, F4-a/F4-b, J1, J2-a, and J3-b repo-side (2026-05-07); G3 bridge benchmark/report scaffold plus local 100k/1M release-binary timing, G6 mTLS connection overhead measurement, G8 concurrent dashboard jobs, I1-a + I1-b observability stack repo-side scaffolds (Tempo + Prometheus + Grafana compose, datasource provisioning, two dashboards, render script + report schema, OTLP/HTTP push adapter on `export_otel_events.py`), K2 compliance mapping, and K3 repo-side scaffolds — audit-chain tamper-resistance + HTTP malformed-input gate (2026-05-08, K3 external pen test still operator-side)
 
@@ -1929,11 +1933,11 @@ As of 2026-05-06, the remaining production-readiness scope is:
 | F — Production PostgreSQL | F1-b |
 | G — Scale & optimization | G3 hotspot profiling evidence, G4-a, G4-b, G5, G7 |
 | H — Multi-tenant isolation | None |
-| I — Production operator console | I2-a, I2-b, I3-a, I3-b (I1-a/I1-b repo-side scaffolds done; live Tempo push + Grafana render still operator-environment) |
+| I — Production operator console | I3-a, I3-b (I1-a/I1-b/I2-a/I2-b repo-side done 2026-05-08; live Tempo push + Grafana render still operator-environment) |
 | J — SRE / HA | J2-b, J4 |
 | K — Compliance / external audit | K1-a, K1-b, K3 external pen test (K2 + K3 repo-side scaffolds done; external engagement still pending) |
 
-Current total: **15 blocks / ~75h**. (K2 compliance mapping done; K3 repo-side scaffolds — audit-chain tamper-resistance and HTTP malformed-input gate — both done; external pen test remains as the K3 operator-engagement block. G6 mTLS connection overhead also done. I1-a + I1-b observability scaffolds done 2026-05-08 — live Tempo push and Grafana render are operator-side.)
+Current total: **13 blocks / ~65h**. (K2 compliance mapping done; K3 repo-side scaffolds — audit-chain tamper-resistance and HTTP malformed-input gate — both done; external pen test remains as the K3 operator-engagement block. G6 mTLS connection overhead also done. I1-a + I1-b observability scaffolds done 2026-05-08 — live Tempo push and Grafana render are operator-side. I2-a webhook adapter + I2-b alert daemon done 2026-05-08 — Slack and Alertmanager formats supported, transition tracking verified end-to-end by `check_alert_webhook_smoke.py`.)
 
 ### 10.2 Active Review Fixups
 

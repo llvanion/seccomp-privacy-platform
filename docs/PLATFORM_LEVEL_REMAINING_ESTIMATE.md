@@ -118,7 +118,7 @@
 
 这个快照按 [PRODUCTION_READINESS_GUIDEBOOK.md](/home/llvanion/Desktop/seccomp-privacy-platform/docs/PRODUCTION_READINESS_GUIDEBOOK.md) 的生产就绪口径统计，不改变上方“平台基线已完成”的结论。
 
-当前剩余：**15 blocks / 约 75h**。
+当前剩余：**13 blocks / 约 65h**。
 
 | 类别 | 剩余 block 数 | 具体 block |
 | --- | ---: | --- |
@@ -126,7 +126,7 @@
 | F — Production PostgreSQL | 1 | F1-b（F2-c/F3 live drill 属于 operator 环境验证） |
 | G — Scale & optimization | 5 | G3 hotspot profiling evidence；G4-a；G4-b；G5；G7（G3 timing/report scaffold 已完成，G6 与 G8 均已完成 2026-05-08） |
 | H — Multi-tenant isolation | 0 | H 类已完成（H1-a / H1-b / H2-a / H2-b / H3-a / H3-b） |
-| I — Production operator console | 4 | I2-a；I2-b；I3-a；I3-b（I1-a 与 I1-b 的 repo-side 脚手架 — Tempo + Prometheus + Grafana compose、datasource 与 dashboard 自动 provision、render 验证脚本与报告 schema、export_otel_events 的 OTLP/HTTP 推送适配 — 均已完成 2026-05-08；live Tempo push 与 Grafana 渲染仍是 operator 环境工作） |
+| I — Production operator console | 2 | I3-a；I3-b（I1-a / I1-b / I2-a / I2-b 均已完成 2026-05-08；live Tempo push 与 Grafana 渲染仍是 operator 环境工作） |
 | J — SRE / HA | 2 | J2-b；J4 |
 | K — Compliance / external audit | 3 | K1-a；K1-b；K3 external pen test（K2 与 K3 repo-side scaffolds — audit-chain tamper-resistance + HTTP malformed-input gate — 均已完成 2026-05-08；剩余 external pen test 仍属 operator-side 工作，比照 F1-b 仍按 1 个 block 计入） |
 
@@ -186,6 +186,16 @@
 2026-05-08 进展：K3 的 HTTP malformed-input gate 已完成 repo-side。新增 `scripts/check_http_malformed_input_gate.py` 与 `schemas/http_malformed_input_gate.schema.json`：脚本默认在 loopback 启 in-process 的 record-recovery HTTP 服务，并跑 10 个攻击 scenario——missing `X-Request-Signature`、过期 `request_timestamp_utc`、未来 `request_timestamp_utc`、SQL-injection-pattern caller/tenant_id/job_id（必须被当作 opaque string）、坏 JSON、非 object JSON、缺 required `candidate_ids`、错误 HTTP method（DELETE）、未知 path、超大 body——每个 scenario 记录 HTTP status、transport_error、response error/reason 字段。`scripts/check_json_contracts.sh` 把它接入默认 contract smoke 并断言 `summary.status=ok` / `summary.detected==summary.total>=8` 以及必要 scenario 名集；`scripts/check_ci_smoke.sh` 把脚本加入 py_compile；`config/schema_backcompat_baseline.json` 把 `http_malformed_input_gate/v1` 加入 stable schema 集。本地 in-process run 跑通：10/10 scenario 全部 detected，oversized body 在 400 被拒，wrong method 返回 501，unknown path 返回 404。外部 pen testing 仍是 operator-side，因此 K3 仍按 1 个 block 计入剩余（与 F1-b 把 operator 环境执行计入同一口径），K 类剩余从 4 → 3 主要来自 K2。
 
 2026-05-08 进展：G6 已完成本地 benchmark 验收。新增 `scripts/benchmark_mtls_overhead.py` 与 `schemas/recovery_mtls_benchmark.schema.json`：脚本会在 loopback 起两份 in-process record-recovery HTTP 服务（一份 plaintext、一份用 `scripts/issue_mtls_certs.py` 生成的 mock 证书做 mTLS），用 `http.client.HTTPConnection` / `HTTPSConnection` 直连，分别在 fresh-connection 与 persistent-connection 两种连接模式下打 N 次 `/health` 测延迟，输出每对 (transport, connection_mode) 的 p50/p95/min/mean/max 和原始结果，并计算 mTLS fresh/persistent overhead p95、keep-alive savings p95，自动判断是否触发 50ms 警戒值。默认 contract smoke 跑 5 iterations × 4 transport-mode = 20 个请求并断言 status=ok / 全部成功 / 四个 transport-mode 组合都出现；`scripts/check_ci_smoke.sh` 加入 py_compile，`config/schema_backcompat_baseline.json` 加入 stable schema 集。本地 5 iter loopback 测得：plain HTTP fresh p95 ≈ 0.62ms、plain HTTP persistent p95 ≈ 0.52ms、mTLS fresh p95 ≈ 2.25ms、mTLS persistent p95 ≈ 2.07ms；mTLS fresh-connection overhead p95 ≈ 1.6ms（远低于 50ms 警戒值），keep-alive 在 mTLS p95 上节省 0.18ms。剩余 block 数下调 1（G 类 6 → 5）。
+
+2026-05-08 进展：I2-a + I2-b alerting integration 同步完成 repo-side。
+
+- **I2-a（webhook adapter）**：`scripts/check_observability_alerts.py` 新增 `--webhook-url` / `--webhook-format slack|alertmanager` / `--webhook-bearer-env` / `--webhook-timeout-sec` / `--webhook-include-resolved` / `--require-webhook-ok`。Slack 格式输出 `{"text": "..."}` 列出每条 firing alert 的 severity / message / triage；Alertmanager 格式输出 `[{"labels": {alertname, severity, service, job_id?, tenant_id?, correlation_id?}, "annotations": {summary, description, triage_path}, "startsAt"}]` 数组（每条 firing alert 一项）。结果写入 `observability_alert_report/v1` 的可选 `webhook_dispatch` block；loopback URL 自动 bypass 系统 HTTP proxy；零 firing alert 时默认 skip 通知。
+- **I2-b（alert daemon）**：`scripts/run_alert_check_daemon.py` 在轮询循环中跟踪每个 `alert_id` 的上一轮 firing 状态，计算 `unknown→firing` / `firing→resolved` / `resolved→firing` 三类 transition，每轮写一条 JSONL `alert_daemon_heartbeat/v1`；新增 `schemas/alert_daemon_heartbeat.schema.json`。Webhook dispatch 默认按 transition 触发；`--webhook-include-resolved` 显式发已恢复通知；`--webhook-always` 用于 debug；`--max-iterations N` 支持 cron one-shot；SIGINT/SIGTERM 干净退出。
+- **I2 smoke 接入**：新增 `scripts/check_alert_webhook_smoke.py`，启用 in-process loopback HTTP receiver、跑 Slack + Alertmanager 两种 format、跑 daemon 两次迭代并在中途 flip dashboard，断言 dispatch.ok / status_code=200 / 两 schema 通过 / `firing→resolved` transition 写到 heartbeat JSONL。默认 contract smoke 调用它。
+- 验收对照 [`docs/PRODUCTION_READINESS_GUIDEBOOK.md`](/home/llvanion/Desktop/seccomp-privacy-platform/docs/PRODUCTION_READINESS_GUIDEBOOK.md) §6.I2 的三条 acceptance 全部通过。
+- backcompat baseline 同步从 117 → 118 schemas，0 fail。CI smoke + JSON contract smoke 全绿；replay 仍 `intersection_size=2 / intersection_sum=425`（file mode + FIFO mode）。
+
+剩余 block 从 15 → 13（~75h → ~65h）；I 类从 4 → 2，下一步建议优先 I3-a（请求 submission form）以接续 Track-E3 §10 的 forward-spec。
 
 2026-05-08 进展：Track-E1 / Track-E2 / Track-E3 e-commerce 平台叙事三块同步完成 repo-side。
 

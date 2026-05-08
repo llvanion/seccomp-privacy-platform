@@ -44,6 +44,21 @@
           }
         }
       }
+    },
+    "webhook_dispatch": {
+      "type": "object",
+      "required": ["endpoint_url", "format", "ok", "status_code"],
+      "properties": {
+        "endpoint_url":       { "type": "string", "minLength": 1 },
+        "format":             { "type": "string", "enum": ["slack", "alertmanager"] },
+        "ok":                 { "type": "boolean" },
+        "status_code":        { "type": "integer", "minimum": 0 },
+        "transport_error":    { "type": ["string", "null"] },
+        "payload_byte_count": { "type": "integer", "minimum": 0 },
+        "firing_count":       { "type": "integer", "minimum": 0 },
+        "skipped_reason":     { "type": ["string", "null"] }
+      },
+      "additionalProperties": false
     }
   }
 }

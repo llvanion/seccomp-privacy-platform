@@ -42,6 +42,7 @@ SCHEMAS=(
   "$REPO_ROOT/schemas/ecommerce_fact_layer_report.schema.json"
   "$REPO_ROOT/schemas/console_manifest.schema.json"
   "$REPO_ROOT/schemas/operator_console_manifest_report.schema.json"
+  "$REPO_ROOT/schemas/alert_daemon_heartbeat.schema.json"
   "$REPO_ROOT/schemas/key_manifest.schema.json"
   "$REPO_ROOT/schemas/keyring.schema.json"
   "$REPO_ROOT/schemas/vault_kv_backend.schema.json"
@@ -2750,6 +2751,8 @@ python3 "$REPO_ROOT/scripts/check_observability_alerts.py" \
 python3 "$VALIDATOR" \
   --schema "$REPO_ROOT/schemas/observability_alert_report.schema.json" \
   --json "$tmp/observability_alert_report_no_health.json"
+# I2-a + I2-b: alert webhook adapter + alert daemon transitions
+python3 "$REPO_ROOT/scripts/check_alert_webhook_smoke.py" --out-dir "$tmp/alert_webhook_smoke"
 # B5: status list scan
 python3 "$REPO_ROOT/scripts/list_query_workflow_status.py" \
   --search-dir "$tmp" \

@@ -3106,6 +3106,38 @@
         "static_index_path",
         "summary"
       ]
+    },
+    {
+      "path": "schemas/alert_daemon_heartbeat.schema.json",
+      "schema_id": "alert_daemon_heartbeat/v1",
+      "required": [
+        "schema",
+        "iteration",
+        "started_at_utc",
+        "completed_at_utc",
+        "interval_sec",
+        "dashboard_path",
+        "alert_count",
+        "firing_count",
+        "overall_status",
+        "transitions",
+        "duration_ms"
+      ],
+      "stable_properties": [
+        "alert_count",
+        "alert_state_summary",
+        "completed_at_utc",
+        "dashboard_path",
+        "duration_ms",
+        "firing_count",
+        "interval_sec",
+        "iteration",
+        "overall_status",
+        "platform_health_path",
+        "schema",
+        "started_at_utc",
+        "transitions"
+      ]
     }
   ]
 }

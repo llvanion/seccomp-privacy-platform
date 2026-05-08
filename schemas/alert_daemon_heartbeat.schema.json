@@ -1,0 +1,67 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "alert_daemon_heartbeat/v1",
+  "title": "Heartbeat record emitted by the operator alert daemon (I2-b)",
+  "type": "object",
+  "required": [
+    "schema",
+    "iteration",
+    "started_at_utc",
+    "completed_at_utc",
+    "interval_sec",
+    "dashboard_path",
+    "alert_count",
+    "firing_count",
+    "overall_status",
+    "transitions",
+    "duration_ms"
+  ],
+  "properties": {
+    "schema": {"const": "alert_daemon_heartbeat/v1"},
+    "iteration": {"type": "integer", "minimum": 0},
+    "started_at_utc": {"type": "string", "minLength": 1},
+    "completed_at_utc": {"type": "string", "minLength": 1},
+    "interval_sec": {"type": "number", "minimum": 0},
+    "dashboard_path": {"type": "string", "minLength": 1},
+    "platform_health_path": {"type": ["string", "null"]},
+    "alert_count": {"type": "integer", "minimum": 0},
+    "firing_count": {"type": "integer", "minimum": 0},
+    "overall_status": {"type": "string", "enum": ["ok", "warn", "error"]},
+    "duration_ms": {"type": "number", "minimum": 0},
+    "alert_state_summary": {
+      "type": "object",
+      "additionalProperties": {"type": "string", "enum": ["firing", "resolved"]}
+    },
+    "transitions": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["alert_id", "from", "to"],
+        "properties": {
+          "alert_id": {"type": "string", "minLength": 1},
+          "from": {"type": "string", "enum": ["unknown", "firing", "resolved"]},
+          "to": {"type": "string", "enum": ["firing", "resolved"]},
+          "severity": {"type": "string", "enum": ["ok", "warn", "error"]},
+          "message": {"type": "string"}
+        },
+        "additionalProperties": false
+      }
+    },
+    "webhook_dispatch": {
+      "type": "object",
+      "required": ["endpoint_url", "format", "ok", "status_code"],
+      "properties": {
+        "endpoint_url": {"type": "string", "minLength": 1},
+        "format": {"type": "string", "enum": ["slack", "alertmanager"]},
+        "ok": {"type": "boolean"},
+        "status_code": {"type": "integer", "minimum": 0},
+        "transport_error": {"type": ["string", "null"]},
+        "payload_byte_count": {"type": "integer", "minimum": 0},
+        "firing_count": {"type": "integer", "minimum": 0},
+        "skipped_reason": {"type": ["string", "null"]}
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false
+}

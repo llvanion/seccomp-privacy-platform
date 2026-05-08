@@ -1331,6 +1331,40 @@ The output schema is `observability_alert_report/v1`. Each alert entry has `aler
 | `platform_health_degraded` | `health_summary.status` is `warn` or `error` |
 | `stage_coverage_gap` | Any of the 5 core pipeline stages is absent from the dashboard |
 
+Send firing alerts to a Slack or Alertmanager webhook (I2-a):
+
+```bash
+# Slack incoming-webhook
+python3 scripts/check_observability_alerts.py \
+  --dashboard tmp/sse_bridge_pipeline_demo/observability_dashboard.json \
+  --webhook-url "$SECCOMP_SLACK_WEBHOOK" \
+  --webhook-format slack \
+  --out tmp/sse_bridge_pipeline_demo/observability_alert_report.json
+
+# Alertmanager
+python3 scripts/check_observability_alerts.py \
+  --dashboard tmp/sse_bridge_pipeline_demo/observability_dashboard.json \
+  --webhook-url "$SECCOMP_ALERTMANAGER_URL/api/v1/alerts" \
+  --webhook-format alertmanager \
+  --webhook-bearer-env SECCOMP_ALERTMANAGER_TOKEN \
+  --out tmp/sse_bridge_pipeline_demo/observability_alert_report.json
+```
+
+The result is recorded in `observability_alert_report/v1` under an optional `webhook_dispatch` block (`endpoint_url`, `format`, `ok`, `status_code`, `transport_error`, `payload_byte_count`, `firing_count`, `skipped_reason`). When zero alerts are firing, the script records `skipped_reason=no_firing_alerts` and does not POST; pass `--webhook-include-resolved` to override. Loopback URLs (`localhost` / `127.*` / `::1`) automatically bypass the system HTTP proxy.
+
+Run the alert check on a polling interval (I2-b):
+
+```bash
+python3 scripts/run_alert_check_daemon.py \
+  --dashboard tmp/sse_bridge_pipeline_demo/observability_dashboard.json \
+  --interval-sec 60 \
+  --heartbeat-log tmp/alert_daemon_heartbeat.jsonl \
+  --webhook-url "$SECCOMP_SLACK_WEBHOOK" \
+  --webhook-format slack
+```
+
+Each iteration appends one `alert_daemon_heartbeat/v1` record to the heartbeat log. The daemon tracks the last-known firing state per `alert_id` and posts only on transitions (`unknown→firing`, `firing→resolved`, `resolved→firing`). Pass `--max-iterations N` for a cron-driven one-shot, `--webhook-include-resolved` to emit explicit resolved-state notifications, or `--exit-on-firing` to make CI runs fail when any alert fires. SIGINT/SIGTERM cleanly terminates the loop. Heartbeat JSONL can be tailed for incident-review with `tail -f tmp/alert_daemon_heartbeat.jsonl | jq '.transitions[]'`.
+
 ## Query Workflow Status List
 
 Scan a directory tree for `query_workflow/status.json` files:

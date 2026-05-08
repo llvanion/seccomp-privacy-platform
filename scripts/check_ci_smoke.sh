@@ -78,6 +78,8 @@ python3 -m py_compile \
   scripts/render_observability_topology.py \
   scripts/render_ecommerce_fact_layer.py \
   scripts/render_operator_console_manifest.py \
+  scripts/run_alert_check_daemon.py \
+  scripts/check_alert_webhook_smoke.py \
   scripts/write_pjc_audit.py \
   scripts/check_malformed_input_gate.py \
   scripts/check_pre_release_gate.py \
