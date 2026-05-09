@@ -105,6 +105,13 @@
       "type": ["integer", "null"],
       "minimum": 0
     },
+    "phase_timings_ms": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "number",
+        "minimum": 0
+      }
+    },
     "decision": {
       "enum": ["allow", "deny"]
     },

@@ -93,7 +93,38 @@ def _translate_postgres_statement(statement: str) -> str:
         return ""
     translated = re.sub(r"\bINTEGER\s+PRIMARY\s+KEY\b", "SERIAL PRIMARY KEY", translated, flags=re.IGNORECASE)
     translated = re.sub(r"\bAUTOINCREMENT\b", "", translated, flags=re.IGNORECASE)
+    translated = _quote_postgres_reserved_identifiers(translated)
     return translated
+
+
+def _quote_postgres_reserved_identifiers(query: str) -> str:
+    """Quote SQLite-era identifier names that collide with PostgreSQL keywords."""
+    rendered: list[str] = []
+    in_single = False
+    in_double = False
+    index = 0
+    while index < len(query):
+        char = query[index]
+        if char == "'" and not in_double:
+            in_single = not in_single
+            rendered.append(char)
+            index += 1
+            continue
+        if char == '"' and not in_single:
+            in_double = not in_double
+            rendered.append(char)
+            index += 1
+            continue
+        if not in_single and not in_double and query[index : index + 4].lower() == "user":
+            before = query[index - 1] if index > 0 else ""
+            after = query[index + 4] if index + 4 < len(query) else ""
+            if not (before.isalnum() or before == "_") and not (after.isalnum() or after == "_"):
+                rendered.append('"user"')
+                index += 4
+                continue
+        rendered.append(char)
+        index += 1
+    return "".join(rendered)
 
 
 def _convert_qmark_placeholders(query: str) -> str:
@@ -113,7 +144,7 @@ def _convert_qmark_placeholders(query: str) -> str:
             rendered.append("%s")
             continue
         rendered.append(char)
-    return "".join(rendered)
+    return _quote_postgres_reserved_identifiers("".join(rendered))
 
 
 def _normalize_param(value: Any) -> Any:

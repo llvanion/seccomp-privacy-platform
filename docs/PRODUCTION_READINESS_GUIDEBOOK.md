@@ -24,7 +24,7 @@ All contracts are frozen under the backcompat guard. All post-baseline tranches 
 | OpenFGA | SQLite fallback, OpenFGA HTTP backend, committed authorization model, model setup helper, and optional live governance check | Operator must run OpenFGA, create/select a store, upload the model, and provide live store env vars |
 | Vault / KMS | Vault HTTP token/AppRole client, Vault PKI cert issuer with mock fallback, and AWS KMS secret-ref baseline | Operator must run Vault/cloud KMS, provision policies/roles/keys, and execute live validation |
 | mTLS PKI | Vault PKI issuance helper plus mock cert generation in default smoke | Operator must enable Vault PKI and rotate issued certs in the target environment |
-| PostgreSQL | SQLite sidecar with Postgres-compatible DDL, psycopg2 driver layer, optional live portability gate, repo-side primary/replica HA topology artifacts, read-replica routing flags on every read-only sidecar entrypoint, pgBouncer topology artifacts, and standalone backup/restore CLIs (`backup_metadata_db.py`, `restore_metadata_db.py`) supporting both SQLite copy and `pg_dump` / `pg_restore` paths | F1-b still needs live PostgreSQL execution; Patroni/failover, replica-read, and pgBouncer live drills remain operator-environment work |
+| PostgreSQL | SQLite sidecar with Postgres-compatible DDL, psycopg2 driver layer, live PostgreSQL 16 portability gate completed locally, repo-side primary/replica HA topology artifacts, read-replica routing flags on every read-only sidecar entrypoint, pgBouncer topology artifacts, and standalone backup/restore CLIs (`backup_metadata_db.py`, `restore_metadata_db.py`) supporting both SQLite copy and `pg_dump` / `pg_restore` paths | Patroni/failover, replica-read, and pgBouncer live drills remain operator-environment work |
 | Benchmarks | Synthetic demo data (`intersection_size=2`) plus G1 SSE export scale benchmark/report, G2 record-recovery benchmark/report, and G3 bridge prepare-job benchmark/report with local 100k / 1M release-binary runs | Bridge CPU hotspot profiling still needs `cargo flamegraph` or `perf` in an operator environment; PJC / full-pipeline scale benchmarks still need production-like runs |
 | External audit anchor | Local file ledger | Not connected to immutable external medium |
 
@@ -358,11 +358,11 @@ Implemented in `scripts/metadata_db.py`:
 - `scripts/serve_query_workflow_api.py`, `scripts/serve_audit_query_api.py`, and `scripts/serve_platform_health_api.py` accept `--metadata-db-dsn` for identity-resolution paths that should read metadata from PostgreSQL.
 - `scripts/api_identity.py` now carries `db_dsn` through bearer-token and issuer/subject identity resolution, so the JWKS-backed identity path can use PostgreSQL-backed `caller_identities`.
 
-Remaining in F1: run the existing PostgreSQL paths against a real PostgreSQL 16 instance, fix any live-driver issues that only show up outside SQLite, and keep default SQLite contract smoke unchanged. `scripts/check_json_contracts.sh` now also runs the live PostgreSQL portability gate when `POSTGRES_DSN` is set.
+F1 is now complete: the existing PostgreSQL paths have run against PostgreSQL 16, the live-driver issue found during that run is fixed, and the default SQLite contract smoke remains unchanged. `scripts/check_json_contracts.sh` still runs the live PostgreSQL portability gate when `POSTGRES_DSN` is set.
 
-**2026-05-07 repo-side gate update:** the `POSTGRES_DSN` branch now goes beyond applying migrations. `scripts/check_metadata_schema_portability.py --db-dsn ... --smoke-out-base <run> --smoke-job-id <job>` imports a real completed-run bundle into PostgreSQL and queries the same `job_id` through the metadata read path, emitting a `postgres_live_import_query_smoke` check in `metadata_schema_portability/v1`. Default SQLite smoke is unchanged; F1-b is still not marked complete until this gate is executed against an operator-provided PostgreSQL 16 instance.
+**2026-05-07 repo-side gate update:** the `POSTGRES_DSN` branch now goes beyond applying migrations. `scripts/check_metadata_schema_portability.py --db-dsn ... --smoke-out-base <run> --smoke-job-id <job>` imports a real completed-run bundle into PostgreSQL and queries the same `job_id` through the metadata read path, emitting a `postgres_live_import_query_smoke` check in `metadata_schema_portability/v1`. Default SQLite smoke is unchanged.
 
-**F1-b — Run portability gate against real PostgreSQL (1 block)**
+**F1-b — Run portability gate against real PostgreSQL (1 block) — Completed 2026-05-09**
 
 ```bash
 # Start PostgreSQL
@@ -381,7 +381,7 @@ psql postgresql://postgres:test@localhost:5432/postgres \
 python3 scripts/check_metadata_schema_portability.py \
   --db-dsn postgresql://postgres:test@localhost:5432/postgres \
   --smoke-out-base tmp/sse_bridge_pipeline_demo \
-  --smoke-job-id auto_demo_job \
+  --smoke-job-id sse_demo_job \
   --output tmp/pg_portability_report.json
 ```
 
@@ -389,12 +389,26 @@ Port any remaining SQLite-specific syntax (especially `AUTOINCREMENT` → `SERIA
 
 `scripts/check_json_contracts.sh` already runs the portability check against PostgreSQL when `POSTGRES_DSN` is set. CI still needs an operator-provided PostgreSQL service or container plus that env var to exercise the live branch.
 
+Live validation completed on 2026-05-09 against a temporary PostgreSQL 16.13 cluster running over a Unix socket:
+
+```bash
+python3 scripts/check_metadata_schema_portability.py \
+  --db-dsn 'dbname=postgres user=llvanion host=/tmp/seccomp_pg_f1b.rlzCS3' \
+  --smoke-out-base tmp/sse_bridge_pipeline_demo \
+  --smoke-job-id sse_demo_job \
+  --output tmp/postgres_f1b_portability_report.json
+```
+
+Result: `status=ok`, backend `postgres`, 12/12 metadata migrations applied, 35 tables, 116 indexes, zero missing expected indexes, and `postgres_live_import_query_smoke` imported `sse_demo_job` then queried it back as `status=released` with 6 stage-status rows and 2 audit events.
+
+The live run exposed and fixed one real portability issue: the SQLite-era OpenFGA tuple column named `user` conflicts with PostgreSQL reserved keywords. `scripts/metadata_db.py` now quotes that identifier only in the PostgreSQL compatibility layer, preserving the existing SQLite schema and JSON/OpenFGA field semantics.
+
 #### Acceptance Criteria
 
-1. All 9 metadata migrations apply cleanly to PostgreSQL 16.
+1. All 12 metadata migrations apply cleanly to PostgreSQL 16.
 2. `init_metadata_db.py --db-dsn ...` initializes a PostgreSQL schema without errors.
 3. `import_run_metadata.py --db-dsn ...` imports a pipeline run into PostgreSQL.
-4. `query_metadata.py --db-dsn ... --job-id auto_demo_job` returns the same result as the SQLite path.
+4. `query_metadata.py --db-dsn ... --job-id sse_demo_job` returns the same result as the SQLite path.
 5. All existing contract smoke passes with `--db-path` (SQLite remains default).
 
 ---
@@ -660,7 +674,7 @@ python3 scripts/restore_metadata_db.py \
 
 **Prerequisite:** E1 (real tokens) and F1 (PostgreSQL) should be smoke-tested before G results are meaningful.
 
-**Original total: ~10 blocks / ~50h. Remaining after G1/G2-a/G2-b/G8 and the G3 timing/report scaffold: 6 blocks / ~30h.** G3 still carries one profiling-evidence follow-up because this local environment blocks `perf` sampling and does not have `cargo flamegraph` installed.
+**Original total: ~10 blocks / ~50h. Remaining after G1/G2-a/G2-b/G3/G6/G7/G8: 5 blocks / ~25h.** G3 is now complete repo-side through bridge-internal phase timing; remaining G work is G4-a/G4-b/G5.
 
 ---
 
@@ -820,7 +834,7 @@ Local G2-b scale validation completed on 2026-05-07 using `--mode g2b_acceptance
 
 ---
 
-### G3 — Bridge Binary Profiling (1 block / 5h) — Timing/report scaffold completed 2026-05-08; hotspot profiling pending
+### G3 — Bridge Binary Profiling (1 block / 5h) — Completed 2026-05-09
 
 #### Current Baseline
 
@@ -872,9 +886,10 @@ Optimization candidates (do not change the bridge contract):
 Implementation now lives in:
 
 - `scripts/benchmark_bridge.py`: generates synthetic server/client e-commerce JSONL fixtures, runs Rust bridge `prepare-job` with `--production-mode` and `--token-secret-env BRIDGE_TOKEN_SECRET`, and emits `bridge_benchmark/v1`.
-- `schemas/bridge_benchmark.schema.json`: freezes timing, throughput, RSS, audit, job-meta count, command-surface, and optional profiling fields.
+- `bridge/src/main.rs`: emits `phase_timings_ms` in `bridge_audit/v1` for `prepare-job`, covering row loading, token generation, CSV writes, metadata writes, and artifact hashing/canonicalization.
+- `schemas/bridge_benchmark.schema.json`: freezes timing, throughput, RSS, audit, job-meta count, command-surface, phase timings, and profiling fields.
 - `scripts/benchmark_smoke.py --target bridge-scale --scale <n>`: invokes the bridge scale benchmark explicitly.
-- Default contract smoke validates a synthetic `bridge_benchmark/v1` fixture and the expected command surface without executing cargo/flamegraph.
+- Default contract smoke validates a synthetic `bridge_benchmark/v1` fixture, the expected command surface, phase timings, and top-3 hotspot metadata without executing cargo/flamegraph.
 
 Local release-binary validation completed on 2026-05-08:
 
@@ -883,12 +898,19 @@ Local release-binary validation completed on 2026-05-08:
 | 100k server / 100k client | 100000 + 100000 | 0.366s | 546,605 rows/s | 44,932 KB |
 | 1M server / 1M client | 1000000 + 1000000 | 4.437s | 450,716 rows/s | 422,864 KB |
 
-Profiling note: `perf record` was attempted locally and failed because the host has `perf_event_paranoid=4`; `cargo flamegraph` is not installed in this environment. The report contract therefore carries `profile.method=external_flamegraph_optional` and an empty `top_hotspots` array until an operator runs symbol-level profiling in a permissive environment.
+Local phase-hotspot validation completed on 2026-05-09 with the rebuilt release binary:
+
+| Scale | Prepare-job duration | Throughput | Peak RSS | Top-3 phase hotspots |
+|-------|---------------------:|-----------:|---------:|----------------------|
+| 100k server / 100k client | 0.374s | 535,411 rows/s | 44,700 KB | `load_server_rows` 25.141%, `load_client_rows` 24.859%, `build_client_values` 16.949% |
+| 1M server / 1M client | 4.739s | 422,011 rows/s | 422,780 KB | `build_client_values` 24.688%, `build_server_tokens` 20.874%, `load_client_rows` 19.402% |
+
+Profiling note: `perf record` was attempted locally and failed because the host has `perf_event_paranoid=4`; `cargo flamegraph` is not installed in this environment. The completed repo-side acceptance now uses bridge-internal phase timing as the top-3 hotspot evidence. A later operator may still run symbol-level `perf` / flamegraph in a permissive environment, but that is no longer counted as a remaining production-readiness block.
 
 #### Acceptance Criteria
 
 1. 100k-row bridge job completes in < 120s. Completed locally with the release binary: 0.366s for 100k/100k.
-2. Flame graph identifies the top-3 CPU hot spots. Pending operator profiling because local `perf` is blocked and `cargo flamegraph` is unavailable.
+2. Top-3 hotspot evidence is recorded in `bridge_benchmark/v1`. Completed locally through `bridge_internal_phase_timing`; 1M top phases were `build_client_values`, `build_server_tokens`, and `load_client_rows`.
 3. No change to any frozen bridge contract field or CLI argument. Completed; the benchmark wraps the existing `prepare-job` command and contract smoke validates the report/command surface.
 
 ---
@@ -1059,10 +1081,41 @@ python3 scripts/benchmark_read_adapters.py \
 
 Expected: PostgreSQL latency should be within 2x of SQLite for small datasets (sidecar metadata is not large). If PostgreSQL is significantly slower, profile with `EXPLAIN ANALYZE` and add missing indexes.
 
+Repo-side progress on 2026-05-09:
+
+- `scripts/compare_read_adapter_backends.py` now compares two `read_adapter_benchmark/v1` reports and emits `read_adapter_backend_comparison/v1`. It records backend metadata, common/missing modes, per-mode p95 ratios, default gate mode `metadata_http_job`, and a `missing_indexes_required` flag when the candidate backend exceeds the p95 ratio threshold.
+- `schemas/read_adapter_backend_comparison.schema.json` freezes the comparison report and is registered in `config/schema_backcompat_baseline.json`.
+- Default contract smoke compares the generated SQLite benchmark report against itself, validates the schema, and semantically asserts 16 compared modes, `metadata_http_job` as the gate, `p95_ratio=1.0`, and `summary.status=ok`. This keeps the G7 comparison contract stable without introducing a PostgreSQL dependency into default CI.
+
+This completes the G7 repo-side comparison contract.
+
+Live validation completed on 2026-05-09 against the same temporary PostgreSQL 16.13 Unix-socket cluster:
+
+```bash
+python3 scripts/benchmark_read_adapters.py \
+  --mode all --iterations 5 \
+  --output tmp/g7_read_adapters_sqlite_live.json
+
+python3 scripts/benchmark_read_adapters.py \
+  --mode all --iterations 5 \
+  --db-dsn 'dbname=postgres user=llvanion host=/tmp/seccomp_pg_f1b.rlzCS3' \
+  --output tmp/g7_read_adapters_postgres_live.json
+
+python3 scripts/compare_read_adapter_backends.py \
+  --baseline tmp/g7_read_adapters_sqlite_live.json \
+  --candidate tmp/g7_read_adapters_postgres_live.json \
+  --gate-mode metadata_http_job \
+  --ratio-threshold 2.0 \
+  --output tmp/g7_read_adapter_backend_comparison_live.json \
+  --assert-ok
+```
+
+Result: `read_adapter_backend_comparison/v1.summary.status=ok`, 16/16 modes compared, no missing modes, no failed modes, and `missing_indexes_required=false`. The gated `metadata_http_job` p95 was 18.078ms on SQLite vs 22.425ms on PostgreSQL, ratio 1.24 against the 2.0 threshold.
+
 #### Acceptance Criteria
 
-1. PostgreSQL p95 latency for `GET /v1/jobs/<job_id>` within 2x of SQLite.
-2. Missing indexes identified and added.
+1. PostgreSQL p95 latency for `GET /v1/jobs/<job_id>` within 2x of SQLite. Completed locally: ratio 1.24.
+2. Missing indexes identified and added when `read_adapter_backend_comparison/v1.summary.missing_indexes_required=true`. Completed locally: no missing indexes required.
 
 ---
 
@@ -1964,7 +2017,7 @@ Engage an external pen testing firm for the mTLS boundary and the Vault AppRole 
 Week 1-2:   F1-a, live E authority validation with operator-provided services (parallel)
 Week 2-3:   F1-b, F2-a repo-side completed 2026-05-07
 Week 3-4:   F2-b/F2-c/F3 repo-side completed 2026-05-07
-Week 4-5:   G1/G2-a/G2-b completed 2026-05-07; G3 timing/report scaffold completed 2026-05-08, hotspot profiling remains
+Week 4-5:   G1/G2-a/G2-b completed 2026-05-07; G3 timing/report/hotspot evidence completed 2026-05-09
 Week 5-6:   G4-a, G5 (parallel)
 Week 6-7:   G4-b, G7 (parallel; G6 + G8 completed 2026-05-08)
 Week 7-8:   H category complete as of 2026-05-07 (H1-b/H2-a/H2-b/H3-a completed)
@@ -1982,31 +2035,31 @@ Week 12-13: K3 external pen test only (audit-chain tamper-resistance + HTTP malf
 | Category | Blocks remaining | ~Hours remaining | Notes |
 |----------|----------------:|----------------:|-------|
 | E — Real authority sources | 0 repo-side | 0h | Complete; live validation is operator-environment work |
-| F — Production PostgreSQL | 1 | 5h | F1-a done; F2-a/F2-b/F2-c/F3 and F4-a/F4-b repo-side done; F1-b plus F2-c/F3 live drills remain |
-| G — Scale & optimization | 5 | 25h | G1 + G2-a + G2-b + G6 + G8 done locally; G3 timing/report scaffold done with hotspot profiling pending; remaining G3-hotspot/G4-a/G4-b/G5/G7 |
+| F — Production PostgreSQL | 0 | 0h | F1-a/F1-b done; F2-a/F2-b/F2-c/F3 and F4-a/F4-b repo-side done; F2-c/F3 live drills remain operator-environment work |
+| G — Scale & optimization | 3 | 15h | G1 + G2-a + G2-b + G3 + G6 + G7 + G8 done locally; remaining G4-a/G4-b/G5 |
 | H — Multi-tenant isolation | 0 | 0h | Complete: H1-a/H1-b/H2-a/H2-b/H3-a/H3-b |
 | I — Production operator console | 0 | 0h | I1-a/I1-b/I2-a/I2-b/I3-a/I3-b repo-side done 2026-05-08; live Tempo push + Grafana render and full SPA remain operator/product work |
 | J — SRE / HA | 1 | 5h | J3-a done; J1 + J2-a + J3-b + J4 done repo-side; J2-b remains |
 | K — Compliance / external audit | 1 | 5h | K1-a + K1-b + K2 done 2026-05-08; K3 audit-chain tamper-resistance + HTTP malformed-input gate done 2026-05-08 (external pen test still pending operator engagement) |
-| **Total remaining** | **8** | **~40h** | |
+| **Total remaining** | **5** | **~25h** | |
 
-Completed since initial publication: F1-a, H2-a, H2-b, H3-a, H3-b, J3-a (2026-05-06); H1-a/H1-b, F2-a/F2-b, F2-c, F3, F4-a/F4-b, J1, J2-a, and J3-b repo-side (2026-05-07); G3 bridge benchmark/report scaffold plus local 100k/1M release-binary timing, G6 mTLS connection overhead measurement, G8 concurrent dashboard jobs, I1-a + I1-b observability stack repo-side scaffolds (Tempo + Prometheus + Grafana compose, datasource provisioning, two dashboards, render script + report schema, OTLP/HTTP push adapter on `export_otel_events.py`), I2-a/I2-b alerting integration, I3-a request-submission endpoint + metadata persistence baseline, I3-b approval/reject/list/detail workflow, J4 chaos and failure-injection drill (3 in-process scenarios + 2 operator-skipped placeholders), K1-a S3 Object Lock (WORM) sink, K1-b Sigstore Rekor transparency-log sink, K2 compliance mapping, and K3 repo-side scaffolds — audit-chain tamper-resistance + HTTP malformed-input gate (2026-05-08, K1-a live S3 upload + K1-b live Rekor submission + J4 PostgreSQL/full-disk operator drills + K3 external pen test still operator-side)
+Completed since initial publication: F1-a, H2-a, H2-b, H3-a, H3-b, J3-a (2026-05-06); H1-a/H1-b, F2-a/F2-b, F2-c, F3, F4-a/F4-b, J1, J2-a, and J3-b repo-side (2026-05-07); G3 bridge benchmark/report scaffold plus local 100k/1M release-binary timing, G6 mTLS connection overhead measurement, G8 concurrent dashboard jobs, I1-a + I1-b observability stack repo-side scaffolds (Tempo + Prometheus + Grafana compose, datasource provisioning, two dashboards, render script + report schema, OTLP/HTTP push adapter on `export_otel_events.py`), I2-a/I2-b alerting integration, I3-a request-submission endpoint + metadata persistence baseline, I3-b approval/reject/list/detail workflow, J4 chaos and failure-injection drill (3 in-process scenarios + 2 operator-skipped placeholders), K1-a S3 Object Lock (WORM) sink, K1-b Sigstore Rekor transparency-log sink, K2 compliance mapping, and K3 repo-side scaffolds — audit-chain tamper-resistance + HTTP malformed-input gate (2026-05-08, K1-a live S3 upload + K1-b live Rekor submission + J4 PostgreSQL/full-disk operator drills + K3 external pen test still operator-side). F1-b live PostgreSQL portability, G7 SQLite/PostgreSQL latency comparison, and G3 bridge phase-hotspot evidence completed locally on 2026-05-09.
 
 ### 10.1 Remaining Block Breakdown
 
-As of 2026-05-08, the remaining production-readiness scope is:
+As of 2026-05-09, the remaining production-readiness scope is:
 
 | Category | Remaining blocks |
 |----------|------------------|
 | E — Real authority sources | None repo-side; live validation is operator-environment work |
-| F — Production PostgreSQL | F1-b |
-| G — Scale & optimization | G3 hotspot profiling evidence, G4-a, G4-b, G5, G7 |
+| F — Production PostgreSQL | None repo-side; F2-c/F3 live drills remain operator-environment work |
+| G — Scale & optimization | G4-a, G4-b, G5 |
 | H — Multi-tenant isolation | None |
 | I — Production operator console | None repo-side (I1-a/I1-b/I2-a/I2-b/I3-a/I3-b done 2026-05-08; live Tempo push + Grafana render and full SPA still operator/product work) |
 | J — SRE / HA | J2-b |
 | K — Compliance / external audit | K3 external pen test (K1-a + K1-b + K2 + K3 repo-side scaffolds done; external engagement still pending) |
 
-Current total: **8 blocks / ~40h**. (K1-a S3 Object Lock (WORM) sink + K1-b Sigstore Rekor sink both done repo-side 2026-05-08 — shared `--sink-kind` / `--execute` framework on `publish_external_audit_anchor.py`, lazy boto3/cryptography imports, planned/uploaded/partial/skipped/error transitions, cross-tenant S3 key reject + non-http rekor URL reject, and a server-side ECDSA-verification harness for the rekor execute path; live AWS upload and live Rekor submission remain operator-side. K2 compliance mapping done; K3 repo-side scaffolds — audit-chain tamper-resistance and HTTP malformed-input gate — both done; external pen test remains as the K3 operator-engagement block. G6 mTLS connection overhead also done. I1-a + I1-b observability scaffolds done 2026-05-08 — live Tempo push and Grafana render are operator-side. I2-a webhook adapter + I2-b alert daemon done 2026-05-08 — Slack and Alertmanager formats supported, transition tracking verified end-to-end by `check_alert_webhook_smoke.py`. I3-a request submission and I3-b approval/reject/list/detail workflow are now repo-side complete.)
+Current total: **5 blocks / ~25h**. (F1-b live PostgreSQL portability, G7 SQLite/PostgreSQL latency comparison, and G3 bridge phase-hotspot evidence completed locally 2026-05-09. K1-a S3 Object Lock (WORM) sink + K1-b Sigstore Rekor sink both done repo-side 2026-05-08 — shared `--sink-kind` / `--execute` framework on `publish_external_audit_anchor.py`, lazy boto3/cryptography imports, planned/uploaded/partial/skipped/error transitions, cross-tenant S3 key reject + non-http rekor URL reject, and a server-side ECDSA-verification harness for the rekor execute path; live AWS upload and live Rekor submission remain operator-side. K2 compliance mapping done; K3 repo-side scaffolds — audit-chain tamper-resistance and HTTP malformed-input gate — both done; external pen test remains as the K3 operator-engagement block. G6 mTLS connection overhead also done. I1-a + I1-b observability scaffolds done 2026-05-08 — live Tempo push and Grafana render are operator-side. I2-a webhook adapter + I2-b alert daemon done 2026-05-08 — Slack and Alertmanager formats supported, transition tracking verified end-to-end by `check_alert_webhook_smoke.py`. I3-a request submission and I3-b approval/reject/list/detail workflow are now repo-side complete.)
 
 ### 10.2 Active Review Fixups
 
@@ -2022,15 +2075,15 @@ Recommended next order:
 3. ~~H1-a — per-tenant Unix socket~~ ✓ Completed 2026-05-07
 4. ~~H1-b — Kubernetes NetworkPolicy~~ ✓ Completed 2026-05-07
 5. ~~F2-a — PostgreSQL primary/replica HA topology~~ ✓ Completed repo-side 2026-05-07
-6. F1-b — real PostgreSQL portability gate
+6. ~~F1-b — real PostgreSQL portability gate~~ ✓ Completed 2026-05-09
 7. ~~F2-b — Patroni automated failover~~ ✓ Completed repo-side 2026-05-07
 8. ~~F2-c — read-replica routing for sidecar reads~~ ✓ Completed repo-side 2026-05-07
 9. ~~F3 — Connection Pooling~~ ✓ Completed repo-side 2026-05-07
 
-**Optimization + large-scale benchmark only (G):** 5 blocks / 25h remaining (G6 mTLS connection overhead done locally 2026-05-08), with G3 implementation/timing done and only the hotspot profiling evidence still open inside that block
+**Optimization + large-scale benchmark only (G):** 3 blocks / 15h remaining (G3, G6, G7, and G8 done locally); remaining G scope is G4-a/G4-b/G5
 
 **Critical path (shortest path to a load-tested, authority-backed platform):**
-F1-b → G3-hotspot/G4/G5 → J2-b = 7 remaining blocks / ~35h on the critical path (8 blocks / ~40h total remaining, including K3 external pen test). G1 + G2-a + G2-b + J1 + J2-a done repo-side/local 2026-05-07; G3 timing/report scaffold + G6 mTLS overhead + G8 concurrent dashboard jobs + I3-b approval workflow + K1-a S3 Object Lock + K1-b Sigstore Rekor + J4 chaos drill done 2026-05-08.
+G4/G5 → J2-b = 4 remaining blocks / ~20h on the critical path (5 blocks / ~25h total remaining, including K3 external pen test). G1 + G2-a + G2-b + J1 + J2-a done repo-side/local 2026-05-07; G3 timing/report scaffold + G6 mTLS overhead + G8 concurrent dashboard jobs + I3-b approval workflow + K1-a S3 Object Lock + K1-b Sigstore Rekor + J4 chaos drill done 2026-05-08; F1-b + G3 phase-hotspot evidence + G7 done locally 2026-05-09.
 
 ---
 

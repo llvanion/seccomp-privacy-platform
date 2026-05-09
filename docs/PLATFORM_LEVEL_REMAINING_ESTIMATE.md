@@ -114,17 +114,17 @@
 
 1. [POST_BASELINE_ROADMAP.md](/home/llvanion/Desktop/seccomp-privacy-platform/docs/POST_BASELINE_ROADMAP.md)
 
-## 4.1 生产就绪剩余 block 快照（2026-05-08 更新 / J4 收口）
+## 4.1 生产就绪剩余 block 快照（2026-05-09 更新 / F1-b + G3 + G7 收口）
 
 这个快照按 [PRODUCTION_READINESS_GUIDEBOOK.md](/home/llvanion/Desktop/seccomp-privacy-platform/docs/PRODUCTION_READINESS_GUIDEBOOK.md) 的生产就绪口径统计，不改变上方“平台基线已完成”的结论。
 
-当前剩余：**8 blocks / 约 40h**。
+当前剩余：**5 blocks / 约 25h**。
 
 | 类别 | 剩余 block 数 | 具体 block |
 | --- | ---: | --- |
 | E — Real authority sources | 0 repo-side | repo-side 已完成；live validation 是 operator 环境工作 |
-| F — Production PostgreSQL | 1 | F1-b（F2-c/F3 live drill 属于 operator 环境验证） |
-| G — Scale & optimization | 5 | G3 hotspot profiling evidence；G4-a；G4-b；G5；G7（G3 timing/report scaffold 已完成，G6 与 G8 均已完成 2026-05-08） |
+| F — Production PostgreSQL | 0 | F1-b 已完成；F2-c/F3 live drill 属于 operator 环境验证 |
+| G — Scale & optimization | 3 | G4-a；G4-b；G5（G3/G6/G7/G8 均已完成） |
 | H — Multi-tenant isolation | 0 | H 类已完成（H1-a / H1-b / H2-a / H2-b / H3-a / H3-b） |
 | I — Production operator console | 0 | I1-a / I1-b / I2-a / I2-b / I3-a / I3-b 均已完成 repo-side 2026-05-08；live Tempo push、Grafana 渲染与完整 SPA 仍是 operator/product 工作 |
 | J — SRE / HA | 1 | J2-b（J4 chaos drill 已完成 repo-side 2026-05-08：3 个 in-process 场景 + 2 个 operator-skipped 占位） |
@@ -143,7 +143,7 @@
 
 1. ~~H2-b / H3-a review 返工~~ ✓ 已完成（2026-05-06）
 2. ~~H3-b：per-tenant external ledger paths~~ ✓ 已完成（2026-05-06）
-3. F1-b：real PostgreSQL portability gate
+3. ~~F1-b：real PostgreSQL portability gate~~ ✓ 已完成（2026-05-09）
 4. ~~H1-a：per-tenant Unix socket~~ ✓ 已完成（2026-05-07）
 5. ~~H1-b：Kubernetes NetworkPolicy~~ ✓ 已完成（2026-05-07）
 6. ~~F2-a：PostgreSQL primary/replica HA topology~~ ✓ repo-side 已完成（2026-05-07）
@@ -153,7 +153,7 @@
 10. ~~G1：SSE Export Throughput at Scale~~ ✓ 本地 100k / 1M benchmark 已完成（2026-05-07）
 11. ~~G2-a：Record Recovery Large Candidate Set Benchmark~~ ✓ 本地 1k / 10k benchmark 已完成（2026-05-07）
 12. ~~G2-b：Record Recovery Concurrent Request Benchmark~~ ✓ 本地 1k / 10 并发 benchmark 已完成（2026-05-07）
-13. G3：Bridge Binary Profiling — timing/report scaffold 已完成（2026-05-08），`cargo flamegraph` / `perf` top-3 hotspot evidence 仍待 operator 环境补跑
+13. ~~G3：Bridge Binary Profiling~~ ✓ 已完成（2026-05-09，repo-side phase timing top-3 hotspot evidence 已纳入 `bridge_benchmark/v1`）
 14. ~~G8：Concurrent Dashboard Jobs~~ ✓ 本地 5 并发 dashboard job benchmark 已完成（2026-05-08）
 15. ~~K2：Compliance Documentation~~ ✓ `docs/COMPLIANCE_MAPPING.md` 已完成（2026-05-08），覆盖 GDPR Article 5(1) 7 条原则 + Article 15-22 数据主体权利 + 已知限制 + reviewer checklist；legal review 仍是 operator-side 工作
 16. K3：Penetration Testing — audit-chain tamper-resistance 脚本+schema+contract smoke 已完成（2026-05-08），HTTP malformed-input gate 也已完成（2026-05-08，10 scenario / 10 detected）；外部渗透测试仍是 operator-side 工作
@@ -262,6 +262,10 @@
 2026-05-08 进展：G5 end-to-end pipeline latency SLO 的 repo-side runner/contract 已完成，但不下调剩余 block。新增 `scripts/benchmark_pipeline_slo.py` 与 `schemas/pipeline_slo_benchmark.schema.json`：脚本生成 deterministic 10k/10k/1k-overlap JSONL fixture，自动推导 `expected_intersection_size` / `expected_intersection_sum`，复用现有 `run_sse_bridge_pipeline.sh` file-handoff 路径，成功后读取 `pipeline_observability/v1` 的核心 stage `duration_ms`，按 G5 SLO 表输出 per-stage 与 total-pipeline 的 p50/p95/3×p95 判定；失败时保留 stdout/stderr tail 方便定位。`benchmark_smoke.py --target pipeline-slo --scale <n>` 已接入显式入口；默认 contract smoke 走 `--fixture-only` 校验 10k SLO report contract，不执行重型 pipeline；`config/schema_backcompat_baseline.json` 注册 `pipeline_slo_benchmark/v1` 为 stable schema。G5 的最终 10k live timing 仍需要在装好 SSE Python dependencies 与 PJC binaries 的标准 runtime 环境补跑，因此 G 类剩余仍按 5 blocks 统计。
 
 2026-05-08 进展：G4 PJC/APSI profiling 的 repo-side scale runner/contract 已完成，但不下调剩余 block。`scripts/benchmark_pjc.py --mode generated_scale_csv` 现在可按 `--server-items` / `--client-items` / `--overlap` 生成 deterministic PJC CSV fixture，自动推导 expected intersection metrics，并在 real run 时通过 `/usr/bin/time -v` 记录 `peak_rss_kb`；`pjc_benchmark/v1` 增加 per-mode `scale` 元数据，`benchmark_smoke.py --target pjc-scale --scale <n>` 已接入显式 operator 入口；默认 contract smoke 校验 synthetic generated-scale row。G4-a/G4-b 的 100k/1M 实测 timing、memory ceiling、connection reuse 仍需要在装好 PJC binaries 的标准 runtime 环境补跑，因此 G 类剩余仍按 5 blocks 统计。
+
+2026-05-09 进展：F1-b 与 G7 已完成本地 live PostgreSQL 验收，剩余 block 从 8 → 6。F1-b 使用临时 PostgreSQL 16.13 Unix-socket cluster 跑通 `scripts/check_metadata_schema_portability.py --db-dsn ... --smoke-out-base tmp/sse_bridge_pipeline_demo --smoke-job-id sse_demo_job`：12/12 metadata migrations、35 tables、116 indexes、`postgres_live_import_query_smoke` 查询 `sse_demo_job` 为 `released`，6 个 stage-status rows、2 个 audit events。过程中修复了真实 PostgreSQL 兼容问题：OpenFGA tuple 表的裸列名 `user` 在 PostgreSQL 中与保留字冲突，现由 `scripts/metadata_db.py` 的 PostgreSQL compatibility layer 自动 quote，不改变 SQLite schema 或 OpenFGA JSON 字段语义。G7 新增 `scripts/compare_read_adapter_backends.py` 与 `schemas/read_adapter_backend_comparison.schema.json`，并完成 live SQLite/PostgreSQL 对比：16/16 modes compared，`metadata_http_job` p95 SQLite 18.078ms vs PostgreSQL 22.425ms，ratio 1.24 < 2.0，`missing_indexes_required=false`。
+
+2026-05-09 进展：G3 Bridge Binary Profiling 已完成整块 repo-side 验收，剩余 block 从 6 → 5，G 类从 4 → 3。`bridge/src/main.rs` 的 `prepare-job` 审计现在输出 `phase_timings_ms`，覆盖 row loading、server/client token generation、CSV writes、job-meta writes 与 artifact hash/canonicalize；`scripts/benchmark_bridge.py` 会从成功迭代的 phase timings 汇总 `profile.method=bridge_internal_phase_timing` 与 top-3 hotspots，`bridge_benchmark/v1` schema 和 benchmark smoke fixture/semantic check 已同步。重建 release binary 后本地跑通 100k/100k：0.374s、535,411 rows/s、RSS 44,700 KB，top-3 为 `load_server_rows` 25.141%、`load_client_rows` 24.859%、`build_client_values` 16.949%；1M/1M：4.739s、422,011 rows/s、RSS 422,780 KB，top-3 为 `build_client_values` 24.688%、`build_server_tokens` 20.874%、`load_client_rows` 19.402%。`perf` / flamegraph 的 symbol-level 栈仍可作为 operator 环境补充材料，但不再计入当前生产就绪剩余 block。
 
 2026-05-08 进展：Track-E1 / Track-E2 / Track-E3 e-commerce 平台叙事三块同步完成 repo-side。
 

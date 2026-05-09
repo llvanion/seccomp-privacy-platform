@@ -1,0 +1,257 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "read_adapter_backend_comparison/v1",
+  "title": "SQLite vs PostgreSQL read adapter backend comparison",
+  "type": "object",
+  "required": [
+    "schema",
+    "generated_at_utc",
+    "repo_root",
+    "baseline",
+    "candidate",
+    "summary",
+    "comparisons"
+  ],
+  "properties": {
+    "schema": {
+      "const": "read_adapter_backend_comparison/v1"
+    },
+    "generated_at_utc": {
+      "type": "string",
+      "minLength": 1
+    },
+    "repo_root": {
+      "type": "string",
+      "minLength": 1
+    },
+    "baseline": {
+      "$ref": "#/$defs/backend_report"
+    },
+    "candidate": {
+      "type": "object",
+      "required": [
+        "backend",
+        "db_dsn_present",
+        "db_dsn_read_replica_present",
+        "fixture_profile",
+        "fixture_job_id",
+        "iterations"
+      ],
+      "properties": {
+        "backend": {
+          "type": "string",
+          "minLength": 1
+        },
+        "db_dsn_present": {
+          "type": "boolean"
+        },
+        "db_dsn_read_replica_present": {
+          "type": "boolean"
+        },
+        "fixture_profile": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "fixture_job_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "iterations": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 1
+        }
+      },
+      "additionalProperties": false
+    },
+    "summary": {
+      "type": "object",
+      "required": [
+        "status",
+        "ratio_threshold",
+        "gate_modes",
+        "compared_mode_count",
+        "missing_in_candidate",
+        "missing_in_baseline",
+        "missing_gate_modes",
+        "failed_modes",
+        "threshold_exceeded_modes",
+        "missing_indexes_required"
+      ],
+      "properties": {
+        "status": {
+          "type": "string",
+          "enum": [
+            "ok",
+            "warn",
+            "fail"
+          ]
+        },
+        "ratio_threshold": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        },
+        "gate_modes": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "compared_mode_count": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "missing_in_candidate": {
+          "$ref": "#/$defs/string_array"
+        },
+        "missing_in_baseline": {
+          "$ref": "#/$defs/string_array"
+        },
+        "missing_gate_modes": {
+          "$ref": "#/$defs/string_array"
+        },
+        "failed_modes": {
+          "$ref": "#/$defs/string_array"
+        },
+        "threshold_exceeded_modes": {
+          "$ref": "#/$defs/string_array"
+        },
+        "missing_indexes_required": {
+          "type": "boolean"
+        }
+      },
+      "additionalProperties": false
+    },
+    "comparisons": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "mode",
+          "family",
+          "baseline_p95_ms",
+          "candidate_p95_ms",
+          "p95_ratio",
+          "ratio_threshold",
+          "gate_mode",
+          "within_threshold",
+          "baseline_successful",
+          "candidate_successful"
+        ],
+        "properties": {
+          "mode": {
+            "type": "string",
+            "minLength": 1
+          },
+          "family": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "enum": [
+              "metadata",
+              "audit",
+              null
+            ]
+          },
+          "baseline_p95_ms": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "minimum": 0
+          },
+          "candidate_p95_ms": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "minimum": 0
+          },
+          "p95_ratio": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "minimum": 0
+          },
+          "ratio_threshold": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "exclusiveMinimum": 0
+          },
+          "gate_mode": {
+            "type": "boolean"
+          },
+          "within_threshold": {
+            "type": "boolean"
+          },
+          "baseline_successful": {
+            "type": "boolean"
+          },
+          "candidate_successful": {
+            "type": "boolean"
+          }
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  "$defs": {
+    "backend_report": {
+      "type": "object",
+      "required": [
+        "backend",
+        "db_dsn_present",
+        "fixture_profile",
+        "fixture_job_id",
+        "iterations"
+      ],
+      "properties": {
+        "backend": {
+          "type": "string",
+          "minLength": 1
+        },
+        "db_dsn_present": {
+          "type": "boolean"
+        },
+        "fixture_profile": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "fixture_job_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "iterations": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 1
+        }
+      },
+      "additionalProperties": false
+    },
+    "string_array": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    }
+  },
+  "additionalProperties": false
+}

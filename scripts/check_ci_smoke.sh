@@ -27,6 +27,7 @@ python3 -m py_compile \
   scripts/benchmark_pjc.py \
   scripts/benchmark_smoke.py \
   scripts/benchmark_query_workflow.py \
+  scripts/compare_read_adapter_backends.py \
   scripts/build_audit_chain.py \
   scripts/build_benchmark_contract_fixtures.py \
   scripts/check_benchmark_smoke_reports.py \

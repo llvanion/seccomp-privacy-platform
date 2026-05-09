@@ -322,6 +322,13 @@
                   ],
                   "minimum": 0
                 },
+                "phase_timings_ms": {
+                  "type": "object",
+                  "additionalProperties": {
+                    "type": "number",
+                    "minimum": 0
+                  }
+                },
                 "production_mode": {
                   "type": [
                     "boolean",

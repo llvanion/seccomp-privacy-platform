@@ -920,6 +920,28 @@
       ]
     },
     {
+      "path": "schemas/read_adapter_backend_comparison.schema.json",
+      "schema_id": "read_adapter_backend_comparison/v1",
+      "required": [
+        "schema",
+        "generated_at_utc",
+        "repo_root",
+        "baseline",
+        "candidate",
+        "summary",
+        "comparisons"
+      ],
+      "stable_properties": [
+        "baseline",
+        "candidate",
+        "comparisons",
+        "generated_at_utc",
+        "repo_root",
+        "schema",
+        "summary"
+      ]
+    },
+    {
       "path": "schemas/sse_export_benchmark.schema.json",
       "schema_id": "sse_export_benchmark/v1",
       "required": [

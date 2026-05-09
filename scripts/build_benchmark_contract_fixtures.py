@@ -389,9 +389,13 @@ def build_bridge_fixture(bridge_module: Any) -> dict[str, Any]:
             "client_jsonl": "/tmp/seccomp_bridge_benchmark_example/client.jsonl",
         },
         "profile": {
-            "method": "external_flamegraph_optional",
-            "top_hotspots": [],
-            "notes": "Contract fixture; run the benchmark script for measured timing and RSS.",
+            "method": "bridge_internal_phase_timing",
+            "top_hotspots": [
+                {"rank": 1, "symbol": "build_client_values", "percent": 35.0},
+                {"rank": 2, "symbol": "build_server_tokens", "percent": 30.0},
+                {"rank": 3, "symbol": "load_client_rows", "percent": 20.0},
+            ],
+            "notes": "Contract fixture; run the benchmark script for measured phase timing, throughput, and RSS.",
         },
         "iterations": 1,
         "modes": [
@@ -424,6 +428,12 @@ def build_bridge_fixture(bridge_module: Any) -> dict[str, Any]:
                         "client_output_rows": 5,
                         "audit_decision": "allow",
                         "audit_duration_ms": 1,
+                        "phase_timings_ms": {
+                            "build_client_values": 35.0,
+                            "build_server_tokens": 30.0,
+                            "load_client_rows": 20.0,
+                            "load_server_rows": 15.0,
+                        },
                         "production_mode": True,
                         "token_secret_source_kind": "env",
                         "throughput_rows_per_sec": 1000.0,

@@ -59,6 +59,7 @@ SCHEMAS=(
   "$REPO_ROOT/schemas/schema_backcompat_check.schema.json"
   "$REPO_ROOT/schemas/query_workflow_benchmark.schema.json"
   "$REPO_ROOT/schemas/read_adapter_benchmark.schema.json"
+  "$REPO_ROOT/schemas/read_adapter_backend_comparison.schema.json"
   "$REPO_ROOT/schemas/sse_export_benchmark.schema.json"
   "$REPO_ROOT/schemas/bridge_benchmark.schema.json"
   "$REPO_ROOT/schemas/dashboard_jobs_benchmark.schema.json"
@@ -290,6 +291,15 @@ python3 "$REPO_ROOT/scripts/benchmark_read_adapters.py" \
 python3 "$VALIDATOR" \
   --schema "$REPO_ROOT/schemas/read_adapter_benchmark.schema.json" \
   --json "$tmp/read_adapter_benchmark.json"
+python3 "$REPO_ROOT/scripts/compare_read_adapter_backends.py" \
+  --baseline "$tmp/read_adapter_benchmark.json" \
+  --candidate "$tmp/read_adapter_benchmark.json" \
+  --output "$tmp/read_adapter_backend_comparison.json" \
+  --assert-ok \
+  > /dev/null
+python3 "$VALIDATOR" \
+  --schema "$REPO_ROOT/schemas/read_adapter_backend_comparison.schema.json" \
+  --json "$tmp/read_adapter_backend_comparison.json"
 "$SSE_PY" "$REPO_ROOT/scripts/benchmark_sse_export.py" \
   --record-count 5 \
   --candidate-count 3 \
@@ -361,6 +371,7 @@ python3 "$VALIDATOR" \
 python3 "$REPO_ROOT/scripts/check_benchmark_smoke_reports.py" \
   --query-workflow "$tmp/query_workflow_benchmark.json" \
   --read-adapter "$tmp/read_adapter_benchmark.json" \
+  --read-adapter-backend-comparison "$tmp/read_adapter_backend_comparison.json" \
   --sse-export "$tmp/sse_export_benchmark.json" \
   --bridge "$tmp/bridge_benchmark_contract_fixture.json" \
   --pjc "$tmp/pjc_benchmark_contract_fixture.json" \

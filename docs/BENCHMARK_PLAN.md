@@ -8,7 +8,7 @@ The goal is not to invent a new benchmark harness inside the main pipeline. The 
 
 ## Current Coverage
 
-The repository now has fourteen lightweight benchmark paths:
+The repository now has fifteen lightweight benchmark paths:
 
 1. [scripts/benchmark_smoke.py](/home/llvanion/Desktop/seccomp-privacy-platform/scripts/benchmark_smoke.py)
 2. [scripts/check_schema_backcompat.py](/home/llvanion/Desktop/seccomp-privacy-platform/scripts/check_schema_backcompat.py) via `benchmark_smoke.py --target schema-backcompat`
@@ -24,6 +24,7 @@ The repository now has fourteen lightweight benchmark paths:
 12. [scripts/benchmark_bridge.py](/home/llvanion/Desktop/seccomp-privacy-platform/scripts/benchmark_bridge.py)
 13. [scripts/benchmark_dashboard_jobs.py](/home/llvanion/Desktop/seccomp-privacy-platform/scripts/benchmark_dashboard_jobs.py)
 14. [scripts/benchmark_mtls_overhead.py](/home/llvanion/Desktop/seccomp-privacy-platform/scripts/benchmark_mtls_overhead.py)
+15. [scripts/compare_read_adapter_backends.py](/home/llvanion/Desktop/seccomp-privacy-platform/scripts/compare_read_adapter_backends.py)
 
 ## Query Workflow Benchmark
 
@@ -137,6 +138,46 @@ Why it uses a synthetic fixture:
 6. metadata jobs-list modes also preserve the top-level `mainline_contract_summary_counts` rollup, so the same synthetic fixture still aggregates to `job_count=1`, `handoff_cleanup.server.removed=1`, `handoff_cleanup.client.cleaned=1`, `service_audit_consistency.server.not_applicable=1`, `service_audit_consistency.client.ok=1`, and `error_count_total=0`
 7. metadata entity modes now also pin a synthetic multi-role policy fixture rather than the repo-wide demo policy, and they assert that `permission_summary` still exposes the caller-scoped role matrix fields for `platform_role_counts`, `access_profiles`, and the expected `query_submitter` / `privacy_operator` coverage for `auto_demo`
 
+## Read Adapter Backend Comparison
+
+Current supported report schema:
+
+```text
+read_adapter_backend_comparison/v1
+```
+
+This comparison is the G7 repo-side contract for SQLite vs PostgreSQL read latency. It deliberately does not start PostgreSQL by itself; it consumes two existing `read_adapter_benchmark/v1` reports and computes per-mode p95 ratios.
+
+Example:
+
+```bash
+python3 scripts/benchmark_read_adapters.py \
+  --mode all --iterations 5 \
+  --output tmp/read_adapters_sqlite.json
+
+python3 scripts/benchmark_read_adapters.py \
+  --mode all --iterations 5 \
+  --db-dsn postgresql://postgres:test@localhost:5432/postgres \
+  --output tmp/read_adapters_postgres.json
+
+python3 scripts/compare_read_adapter_backends.py \
+  --baseline tmp/read_adapters_sqlite.json \
+  --candidate tmp/read_adapters_postgres.json \
+  --gate-mode metadata_http_job \
+  --ratio-threshold 2.0 \
+  --output tmp/read_adapter_backend_comparison.json \
+  --assert-ok
+```
+
+Default contract smoke compares the synthetic SQLite report to itself so the comparison schema, gate-mode logic, and semantic assertions stay covered without requiring PostgreSQL. A live G7 acceptance run should compare SQLite against PostgreSQL and treat `summary.missing_indexes_required=true` as the signal to inspect `EXPLAIN ANALYZE` and add indexes.
+
+Local 2026-05-09 live comparison against PostgreSQL 16.13 over a Unix socket:
+
+1. SQLite baseline: `tmp/g7_read_adapters_sqlite_live.json`
+2. PostgreSQL candidate: `tmp/g7_read_adapters_postgres_live.json`
+3. Comparison report: `tmp/g7_read_adapter_backend_comparison_live.json`
+4. Result: 16/16 modes compared, `summary.status=ok`, `missing_indexes_required=false`, and gated `metadata_http_job` p95 ratio = 1.24 (SQLite 18.078ms vs PostgreSQL 22.425ms), below the 2.0 threshold.
+
 ## SSE Export Scale Benchmark
 
 Current supported report schema:
@@ -187,7 +228,7 @@ This benchmark measures the Rust bridge `prepare-job` path over deterministic sy
 
 1. `scripts/benchmark_bridge.py` generates server/client JSONL fixtures with `email` join keys and `amount` values.
 2. It runs `bridge prepare-job` in `--production-mode` with `--token-secret-env BRIDGE_TOKEN_SECRET`.
-3. It validates the bridge audit decision, job metadata counts, tokenized `server.csv` / `client.csv` row counts, throughput, and peak RSS.
+3. It validates the bridge audit decision, job metadata counts, tokenized `server.csv` / `client.csv` row counts, throughput, peak RSS, and `phase_timings_ms`.
 4. `scripts/benchmark_smoke.py --target bridge-scale --scale <n>` invokes the same path for explicit local scale runs.
 
 Example:
@@ -200,21 +241,21 @@ python3 scripts/benchmark_bridge.py \
   --output tmp/bridge_benchmark_100k.json
 ```
 
-Default contract smoke does not execute the Rust benchmark; it validates a synthetic `bridge_benchmark/v1` fixture and the expected command surface so the report contract remains stable without forcing cargo/flamegraph into fast checks.
+Default contract smoke does not execute the Rust benchmark; it validates a synthetic `bridge_benchmark/v1` fixture, the expected command surface, phase timings, and top-3 hotspot metadata so the report contract remains stable without forcing cargo/flamegraph into fast checks.
 
-Local 2026-05-08 scale runs:
+Local 2026-05-09 release-binary phase-profile runs:
 
-1. 100k server rows / 100k client rows: 100000 server output rows, 100000 client output rows, 5.589s prepare-job duration, 35,783 rows/s, peak RSS 46,388 KB.
-2. 1M server rows / 1M client rows: 1000000 server output rows, 1000000 client output rows, 57.555s prepare-job duration, 34,750 rows/s, peak RSS 424,432 KB.
+1. 100k server rows / 100k client rows: 100000 server output rows, 100000 client output rows, 0.374s prepare-job duration, 535,411 rows/s, peak RSS 44,700 KB; top phases were `load_server_rows` 25.141%, `load_client_rows` 24.859%, `build_client_values` 16.949%.
+2. 1M server rows / 1M client rows: 1000000 server output rows, 1000000 client output rows, 4.739s prepare-job duration, 422,011 rows/s, peak RSS 422,780 KB; top phases were `build_client_values` 24.688%, `build_server_tokens` 20.874%, `load_client_rows` 19.402%.
 
-CPU hotspot attribution remains an explicit operator profiling step:
+The report's `profile.method=bridge_internal_phase_timing` is the repo-side G3 hotspot evidence. Symbol-level attribution can still be attached as optional operator evidence:
 
 ```bash
 cd bridge
 cargo flamegraph -- prepare-job ...
 ```
 
-The benchmark report preserves timing, throughput, RSS, audit, and metadata fields; flamegraph/perf symbol review should be attached alongside the JSON report when doing optimization work.
+The benchmark report preserves timing, throughput, RSS, audit, metadata, phase timing, and hotspot fields; flamegraph/perf symbol review can be attached alongside the JSON report when doing deeper optimization work.
 
 ## Concurrent Dashboard Jobs Benchmark
 

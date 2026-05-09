@@ -112,6 +112,27 @@ def validate_read_adapter(payload: dict[str, Any]) -> None:
                 raise SystemExit(f"read adapter benchmark metadata entity permission summary mismatch: {entry}")
 
 
+def validate_read_adapter_backend_comparison(payload: dict[str, Any]) -> None:
+    if payload.get("schema") != "read_adapter_backend_comparison/v1":
+        raise SystemExit(f"read adapter backend comparison schema mismatch: {payload}")
+    summary = payload.get("summary") or {}
+    if summary.get("status") != "ok" or summary.get("missing_indexes_required") is not False:
+        raise SystemExit(f"read adapter backend comparison summary mismatch: {payload}")
+    if "metadata_http_job" not in set(summary.get("gate_modes") or []):
+        raise SystemExit(f"read adapter backend comparison missing metadata_http_job gate: {payload}")
+    comparisons = payload.get("comparisons") or []
+    if len(comparisons) != 16:
+        raise SystemExit(f"read adapter backend comparison mode count mismatch: {payload}")
+    gate_rows = [row for row in comparisons if row.get("mode") == "metadata_http_job"]
+    if (
+        len(gate_rows) != 1
+        or gate_rows[0].get("gate_mode") is not True
+        or gate_rows[0].get("within_threshold") is not True
+        or gate_rows[0].get("p95_ratio") != 1.0
+    ):
+        raise SystemExit(f"read adapter backend comparison gate row mismatch: {payload}")
+
+
 def validate_record_recovery(payload: dict[str, Any]) -> None:
     expected_record_modes = {
         "unix_socket_health_cli": ("unix_socket", "health"),
@@ -192,7 +213,15 @@ def validate_bridge(payload: dict[str, Any]) -> None:
     if scale.get("server_rows") != 5 or scale.get("client_rows") != 5:
         raise SystemExit(f"bridge benchmark scale mismatch: {payload}")
     profile = payload.get("profile") or {}
-    if profile.get("method") != "external_flamegraph_optional" or not isinstance(profile.get("top_hotspots"), list):
+    hotspots = profile.get("top_hotspots")
+    if (
+        profile.get("method") != "bridge_internal_phase_timing"
+        or not isinstance(hotspots, list)
+        or len(hotspots) < 3
+        or [item.get("rank") for item in hotspots[:3]] != [1, 2, 3]
+        or any(not item.get("symbol") for item in hotspots[:3])
+        or any(not isinstance(item.get("percent"), (int, float)) for item in hotspots[:3])
+    ):
         raise SystemExit(f"bridge benchmark profile metadata mismatch: {payload}")
     entries = payload.get("modes") or []
     actual_modes = {entry.get("mode") for entry in entries}
@@ -221,6 +250,8 @@ def validate_bridge(payload: dict[str, Any]) -> None:
             or result.get("audit_decision") != "allow"
             or result.get("production_mode") is not True
             or result.get("token_secret_source_kind") != "env"
+            or not isinstance(result.get("phase_timings_ms"), dict)
+            or not result.get("phase_timings_ms")
             or not isinstance(result.get("throughput_rows_per_sec"), (int, float))
             or not isinstance(result.get("peak_rss_kb"), int)
         ):
@@ -547,6 +578,7 @@ def build_parser() -> argparse.ArgumentParser:
     ap = argparse.ArgumentParser(description="Validate benchmark smoke reports against expected mode and result invariants.")
     ap.add_argument("--query-workflow", required=True)
     ap.add_argument("--read-adapter", required=True)
+    ap.add_argument("--read-adapter-backend-comparison", required=True)
     ap.add_argument("--sse-export", required=True)
     ap.add_argument("--bridge", required=True)
     ap.add_argument("--pjc", required=True)
@@ -565,6 +597,7 @@ def main() -> int:
     args = build_parser().parse_args()
     validate_query_workflow(load(args.query_workflow))
     validate_read_adapter(load(args.read_adapter))
+    validate_read_adapter_backend_comparison(load(args.read_adapter_backend_comparison))
     validate_sse_export(load(args.sse_export))
     validate_bridge(load(args.bridge))
     validate_pjc(load(args.pjc))

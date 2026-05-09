@@ -70,6 +70,32 @@ def summarize(results: list[dict[str, Any]]) -> dict[str, Any]:
     }
 
 
+def derive_phase_hotspots(results: list[dict[str, Any]], *, limit: int = 3) -> list[dict[str, Any]]:
+    totals: dict[str, float] = {}
+    for item in results:
+        if item.get("exit_code") != 0:
+            continue
+        timings = item.get("phase_timings_ms")
+        if not isinstance(timings, dict):
+            continue
+        for phase, value in timings.items():
+            if isinstance(value, (int, float)):
+                totals[str(phase)] = totals.get(str(phase), 0.0) + float(value)
+
+    total_ms = sum(totals.values())
+    if total_ms <= 0:
+        return []
+    ranked = sorted(totals.items(), key=lambda item: item[1], reverse=True)
+    return [
+        {
+            "rank": index + 1,
+            "symbol": phase,
+            "percent": round((duration_ms / total_ms) * 100.0, 3),
+        }
+        for index, (phase, duration_ms) in enumerate(ranked[:limit])
+    ]
+
+
 def default_bridge_command() -> list[str]:
     override = os.environ.get("BRIDGE_BIN", "").strip()
     if override:
@@ -240,6 +266,7 @@ def run_prepare_job_once(
         "client_output_rows": line_count(out_dir / "client.csv"),
         "audit_decision": audit.get("decision"),
         "audit_duration_ms": audit.get("duration_ms"),
+        "phase_timings_ms": audit.get("phase_timings_ms") if isinstance(audit.get("phase_timings_ms"), dict) else {},
         "production_mode": audit.get("production_mode"),
         "token_secret_source_kind": (audit.get("token_secret_source") or {}).get("kind"),
         "throughput_rows_per_sec": throughput,
@@ -298,6 +325,7 @@ def main() -> int:
                 )
                 for iteration in range(args.iterations)
             ]
+            phase_hotspots = derive_phase_hotspots(results)
             mode_entries.append(
                 {
                     "mode": mode,
@@ -316,6 +344,7 @@ def main() -> int:
                     },
                     "summary": summarize(results),
                     "results": results,
+                    "profile_hotspots": phase_hotspots,
                 }
             )
         report = {
@@ -335,12 +364,20 @@ def main() -> int:
                 "client_jsonl": str(client_jsonl),
             },
             "profile": {
-                "method": "external_flamegraph_optional",
-                "top_hotspots": [],
-                "notes": "Run cargo flamegraph/perf externally for symbol-level hotspots; this report preserves timing, throughput, RSS, and audit contract fields.",
+                "method": "bridge_internal_phase_timing" if any(
+                    entry["profile_hotspots"] for entry in mode_entries
+                ) else "external_flamegraph_optional",
+                "top_hotspots": next(
+                    (entry["profile_hotspots"] for entry in mode_entries if entry["profile_hotspots"]),
+                    [],
+                ),
+                "notes": "Top hotspots are derived from bridge audit phase timings. Run cargo flamegraph/perf externally for symbol-level CPU stacks when the host allows it.",
             },
             "iterations": args.iterations,
-            "modes": mode_entries,
+            "modes": [
+                {key: value for key, value in entry.items() if key != "profile_hotspots"}
+                for entry in mode_entries
+            ],
         }
 
     text = json.dumps(report, ensure_ascii=False, indent=2)

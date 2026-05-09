@@ -440,9 +440,15 @@ fn run_prepare_job_with_failure_audit(args: PrepareJobArgs) -> Result<()> {
 }
 
 fn run_prepare_job(args: PrepareJobArgs, started_at: Instant) -> Result<()> {
+    let mut phase_timings_ms = BTreeMap::new();
+    let phase_started = Instant::now();
     let production_mode = production_mode_enabled(args.production_mode);
     let token_secret =
         resolve_token_secret(&args.token_secret, &args.token_secret_env, production_mode)?;
+    phase_timings_ms.insert(
+        "resolve_token_secret".to_string(),
+        phase_started.elapsed().as_millis() as u64,
+    );
     let server_spec = InputSpec {
         input: args.server_input.clone(),
         input_format: args.server_input_format,
@@ -458,8 +464,18 @@ fn run_prepare_job(args: PrepareJobArgs, started_at: Instant) -> Result<()> {
         normalizer: args.client_normalizer,
     };
 
+    let phase_started = Instant::now();
     let server_rows = load_rows(&server_spec, Role::Server)?;
+    phase_timings_ms.insert(
+        "load_server_rows".to_string(),
+        phase_started.elapsed().as_millis() as u64,
+    );
+    let phase_started = Instant::now();
     let client_rows = load_rows(&client_spec, Role::Client)?;
+    phase_timings_ms.insert(
+        "load_client_rows".to_string(),
+        phase_started.elapsed().as_millis() as u64,
+    );
     if server_rows.is_empty() {
         bail!("server input produced zero usable rows");
     }
@@ -474,17 +490,38 @@ fn run_prepare_job(args: PrepareJobArgs, started_at: Instant) -> Result<()> {
         )
     })?;
 
+    let phase_started = Instant::now();
     let server_tokens = build_server_tokens(&server_rows, &args.token_scope, &token_secret)?;
+    phase_timings_ms.insert(
+        "build_server_tokens".to_string(),
+        phase_started.elapsed().as_millis() as u64,
+    );
+    let phase_started = Instant::now();
     let client_values = build_client_values(
         &client_rows,
         &args.token_scope,
         &token_secret,
         args.client_value_mode,
     )?;
+    phase_timings_ms.insert(
+        "build_client_values".to_string(),
+        phase_started.elapsed().as_millis() as u64,
+    );
 
+    let phase_started = Instant::now();
     write_server_csv(&args.out_dir.join("server.csv"), &server_tokens)?;
+    phase_timings_ms.insert(
+        "write_server_csv".to_string(),
+        phase_started.elapsed().as_millis() as u64,
+    );
+    let phase_started = Instant::now();
     write_client_csv(&args.out_dir.join("client.csv"), &client_values)?;
+    phase_timings_ms.insert(
+        "write_client_csv".to_string(),
+        phase_started.elapsed().as_millis() as u64,
+    );
 
+    let phase_started = Instant::now();
     let meta = json!({
         "schema": "bridge_job_meta/v1",
         "job_id": args.job_id,
@@ -533,30 +570,56 @@ fn run_prepare_job(args: PrepareJobArgs, started_at: Instant) -> Result<()> {
             "client_unique_join_tokens": client_values.len()
         }
     });
+    phase_timings_ms.insert(
+        "build_job_meta".to_string(),
+        phase_started.elapsed().as_millis() as u64,
+    );
 
+    let phase_started = Instant::now();
     write_json_pretty(&args.out_dir.join("job_meta.json"), &meta)?;
+    phase_timings_ms.insert(
+        "write_job_meta".to_string(),
+        phase_started.elapsed().as_millis() as u64,
+    );
     let audit_path = args
         .audit_log
         .clone()
         .unwrap_or_else(|| args.out_dir.join("bridge_audit.jsonl"));
+    let phase_started = Instant::now();
+    let server_input_file = canonicalize_display(&server_spec.input)?;
+    let server_input_file_type = path_file_type_label(&server_spec.input)?;
+    let server_input_sha256 = sha256_regular_file_json(&server_spec.input)?;
+    let client_input_file = canonicalize_display(&client_spec.input)?;
+    let client_input_file_type = path_file_type_label(&client_spec.input)?;
+    let client_input_sha256 = sha256_regular_file_json(&client_spec.input)?;
+    let server_csv = canonicalize_display(&args.out_dir.join("server.csv"))?;
+    let server_csv_sha256 = sha256_file(&args.out_dir.join("server.csv"))?;
+    let client_csv = canonicalize_display(&args.out_dir.join("client.csv"))?;
+    let client_csv_sha256 = sha256_file(&args.out_dir.join("client.csv"))?;
+    let job_meta_file = canonicalize_display(&args.out_dir.join("job_meta.json"))?;
+    let job_meta_sha256 = sha256_file(&args.out_dir.join("job_meta.json"))?;
+    phase_timings_ms.insert(
+        "hash_and_canonicalize_artifacts".to_string(),
+        phase_started.elapsed().as_millis() as u64,
+    );
     append_bridge_audit(
         &audit_path,
         json!({
             "event": "bridge_prepare_job",
             "job_id": meta.get("job_id").and_then(Value::as_str).unwrap_or(""),
             "correlation_id": meta.get("job_id").and_then(Value::as_str).unwrap_or(""),
-            "server_input_file": canonicalize_display(&server_spec.input)?,
-            "server_input_file_type": path_file_type_label(&server_spec.input)?,
-            "server_input_sha256": sha256_regular_file_json(&server_spec.input)?,
-            "client_input_file": canonicalize_display(&client_spec.input)?,
-            "client_input_file_type": path_file_type_label(&client_spec.input)?,
-            "client_input_sha256": sha256_regular_file_json(&client_spec.input)?,
-            "server_csv": canonicalize_display(&args.out_dir.join("server.csv"))?,
-            "server_csv_sha256": sha256_file(&args.out_dir.join("server.csv"))?,
-            "client_csv": canonicalize_display(&args.out_dir.join("client.csv"))?,
-            "client_csv_sha256": sha256_file(&args.out_dir.join("client.csv"))?,
-            "job_meta_file": canonicalize_display(&args.out_dir.join("job_meta.json"))?,
-            "job_meta_sha256": sha256_file(&args.out_dir.join("job_meta.json"))?,
+            "server_input_file": server_input_file,
+            "server_input_file_type": server_input_file_type,
+            "server_input_sha256": server_input_sha256,
+            "client_input_file": client_input_file,
+            "client_input_file_type": client_input_file_type,
+            "client_input_sha256": client_input_sha256,
+            "server_csv": server_csv,
+            "server_csv_sha256": server_csv_sha256,
+            "client_csv": client_csv,
+            "client_csv_sha256": client_csv_sha256,
+            "job_meta_file": job_meta_file,
+            "job_meta_sha256": job_meta_sha256,
             "counts": meta.get("counts").cloned().unwrap_or(Value::Null),
             "token_scheme": meta.pointer("/bridge/token_scheme").and_then(Value::as_str).unwrap_or(""),
             "token_scope": meta.pointer("/bridge/token_scope").and_then(Value::as_str).unwrap_or(""),
@@ -569,6 +632,7 @@ fn run_prepare_job(args: PrepareJobArgs, started_at: Instant) -> Result<()> {
             "production_mode": production_mode,
             "token_secret_source": token_secret_source(&args.token_secret, &args.token_secret_env),
             "duration_ms": started_at.elapsed().as_millis() as u64,
+            "phase_timings_ms": phase_timings_ms,
             "decision": "allow",
             "reason_code": "ok"
         }),
