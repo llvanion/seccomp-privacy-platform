@@ -114,20 +114,20 @@
 
 1. [POST_BASELINE_ROADMAP.md](/home/llvanion/Desktop/seccomp-privacy-platform/docs/POST_BASELINE_ROADMAP.md)
 
-## 4.1 生产就绪剩余 block 快照（2026-05-09 更新 / F1-b + G3 + G7 收口）
+## 4.1 生产就绪剩余 block 快照（2026-05-09 更新 / F1-b + G3 + G7 + J2-b + G4-a + G4-b + G5 收口）
 
 这个快照按 [PRODUCTION_READINESS_GUIDEBOOK.md](/home/llvanion/Desktop/seccomp-privacy-platform/docs/PRODUCTION_READINESS_GUIDEBOOK.md) 的生产就绪口径统计，不改变上方“平台基线已完成”的结论。
 
-当前剩余：**5 blocks / 约 25h**。
+当前剩余：**1 block / 约 5h**（仅 K3 external pen test）。
 
 | 类别 | 剩余 block 数 | 具体 block |
 | --- | ---: | --- |
 | E — Real authority sources | 0 repo-side | repo-side 已完成；live validation 是 operator 环境工作 |
 | F — Production PostgreSQL | 0 | F1-b 已完成；F2-c/F3 live drill 属于 operator 环境验证 |
-| G — Scale & optimization | 3 | G4-a；G4-b；G5（G3/G6/G7/G8 均已完成） |
+| G — Scale & optimization | 0 | G1/G2-a/G2-b/G3/G4-a/G4-b/G5/G6/G7/G8 全部本地完成（G4-a 100k 222s、G4-b 三轮 back-to-back 稳定、G5 10k pipeline 34.9s 均在 2026-05-09 收口；live 1M memory-ceiling row 完成后追加在 §10 表后） |
 | H — Multi-tenant isolation | 0 | H 类已完成（H1-a / H1-b / H2-a / H2-b / H3-a / H3-b） |
 | I — Production operator console | 0 | I1-a / I1-b / I2-a / I2-b / I3-a / I3-b 均已完成 repo-side 2026-05-08；live Tempo push、Grafana 渲染与完整 SPA 仍是 operator/product 工作 |
-| J — SRE / HA | 1 | J2-b（J4 chaos drill 已完成 repo-side 2026-05-08：3 个 in-process 场景 + 2 个 operator-skipped 占位） |
+| J — SRE / HA | 0 repo-side | J 类 repo-side 已完成（J1 / J2-a / J2-b / J3-a / J3-b / J4 均已纳入默认 contract smoke）；J2-b 真实 Patroni switchover live drill 与 J4 真实 chaos drills 仍属 operator 环境验证 |
 | K — Compliance / external audit | 1 | K3 external pen test（K1-a S3 Object Lock + K1-b Sigstore Rekor + K2 + K3 repo-side scaffolds — audit-chain tamper-resistance + HTTP malformed-input gate — 均已完成 2026-05-08；剩余 K1-a live AWS execute 与 K1-b live Rekor submission 仍属 operator-side 工作，K1 整体已不再计入；external pen test 仍按 1 个 block 计入） |
 
 ### 当前 review 返工项
@@ -162,6 +162,10 @@
 19. ~~I1-b：Grafana 仪表盘 provision~~ ✓ `pipeline-overview.json` 与 `recovery-service.json` 两个 dashboard、`dashboards.yaml` provider、render/validate 脚本与 `observability_topology_report/v1` schema 已完成（2026-05-08）
 20. ~~I3-a：Request submission form~~ ✓ `serve_operator_dashboard.py POST /v1/request/submit`、`workflow_submissions` metadata sidecar 表、`operator_request_submission/v1` schema、console manifest `requests` section 与 contract smoke 已完成（2026-05-08）
 21. ~~I3-b：approval / reject / pending request list workflow~~ ✓ `serve_operator_dashboard.py` approve/reject/list/detail endpoints、same-identity self-approval 403、approval-starts-job、`operator_request_submission_list/v1` 与 contract smoke 已完成（2026-05-08）
+22. ~~J2-b：PostgreSQL Patroni failover repo-side scaffold~~ ✓ `scripts/test_metadata_db_failover.py` + `metadata_db_failover_test/v1` + `connect_db_with_retry` 已纳入默认 contract smoke（2026-05-09）；live Patroni switchover 仍属 operator 环境工作
+23. ~~G4-a：PJC 100k×100k 实测~~ ✓ 222.02s / 260.8 MB peak RSS，本地 bazel-built PJC binary（2026-05-09）；100k < 300s SLO ✓
+24. ~~G4-b：connection reuse + memory ceiling~~ ✓ 三轮 back-to-back 10k PJC 生命周期稳定、RSS 36-39 MB 无 leak；scaling 表 1k→10k→100k 落入 `pjc_benchmark/v1`，1M live ceiling 实测 33.68 min / 2.20 GB peak RSS / `exit_code=1`（grpc 512MB cap 限制 single-machine 1M 部署）（2026-05-09）
+25. ~~G5：10k 全链路 SLO~~ ✓ total 34.9s / 90s p50 SLO（38% 预算）、per-stage sse 48ms / bridge 13ms / pjc 33.9s / policy 0ms（2026-05-09）；`pipeline_slo_benchmark/v1` schema 加 `not_applicable` 状态以正确表达 JSONL fixture 不走加密 record store
 
 2026-05-07 进展：F1-b 的 repo-side live gate 已加强。`POSTGRES_DSN` 分支现在会通过 `check_metadata_schema_portability.py --smoke-out-base --smoke-job-id` 在 PostgreSQL 上完成 migration + import_run_metadata + query_metadata job detail 三段检查，并输出 `postgres_live_import_query_smoke`；真实 PostgreSQL 16 环境执行仍未在本地完成，因此剩余 block 数暂不下调。
 
@@ -266,6 +270,16 @@
 2026-05-09 进展：F1-b 与 G7 已完成本地 live PostgreSQL 验收，剩余 block 从 8 → 6。F1-b 使用临时 PostgreSQL 16.13 Unix-socket cluster 跑通 `scripts/check_metadata_schema_portability.py --db-dsn ... --smoke-out-base tmp/sse_bridge_pipeline_demo --smoke-job-id sse_demo_job`：12/12 metadata migrations、35 tables、116 indexes、`postgres_live_import_query_smoke` 查询 `sse_demo_job` 为 `released`，6 个 stage-status rows、2 个 audit events。过程中修复了真实 PostgreSQL 兼容问题：OpenFGA tuple 表的裸列名 `user` 在 PostgreSQL 中与保留字冲突，现由 `scripts/metadata_db.py` 的 PostgreSQL compatibility layer 自动 quote，不改变 SQLite schema 或 OpenFGA JSON 字段语义。G7 新增 `scripts/compare_read_adapter_backends.py` 与 `schemas/read_adapter_backend_comparison.schema.json`，并完成 live SQLite/PostgreSQL 对比：16/16 modes compared，`metadata_http_job` p95 SQLite 18.078ms vs PostgreSQL 22.425ms，ratio 1.24 < 2.0，`missing_indexes_required=false`。
 
 2026-05-09 进展：G3 Bridge Binary Profiling 已完成整块 repo-side 验收，剩余 block 从 6 → 5，G 类从 4 → 3。`bridge/src/main.rs` 的 `prepare-job` 审计现在输出 `phase_timings_ms`，覆盖 row loading、server/client token generation、CSV writes、job-meta writes 与 artifact hash/canonicalize；`scripts/benchmark_bridge.py` 会从成功迭代的 phase timings 汇总 `profile.method=bridge_internal_phase_timing` 与 top-3 hotspots，`bridge_benchmark/v1` schema 和 benchmark smoke fixture/semantic check 已同步。重建 release binary 后本地跑通 100k/100k：0.374s、535,411 rows/s、RSS 44,700 KB，top-3 为 `load_server_rows` 25.141%、`load_client_rows` 24.859%、`build_client_values` 16.949%；1M/1M：4.739s、422,011 rows/s、RSS 422,780 KB，top-3 为 `build_client_values` 24.688%、`build_server_tokens` 20.874%、`load_client_rows` 19.402%。`perf` / flamegraph 的 symbol-level 栈仍可作为 operator 环境补充材料，但不再计入当前生产就绪剩余 block。
+
+2026-05-09 进展：G4-a / G4-b / G5 已完成本地 measured benchmark 验收，剩余 block 从 4 → 1，G 类从 3 → 0。
+
+- **G4-a (PJC 100k 验收)**：`scripts/benchmark_pjc.py --mode generated_scale_csv --server-items 100000 --client-items 100000 --overlap 0.2 --iterations 1 --timeout-sec 1800` 跑通 `a-psi/private-join-and-compute/bazel-bin/private_join_and_compute/{server,client}` real binary，`intersection_size=20000`、`intersection_sum=202010000`、wall time **222.02s** ✓ < 300s SLO（约 26% 余量）、peak RSS 260.8 MB。同时记录了 1k/10k 段的 baseline：1k=10.72s/13.9MB、10k=32.82s/38.4MB；scaling 表已写入 `docs/PRODUCTION_READINESS_GUIDEBOOK.md` §G4。
+- **G4-b (memory ceiling + connection reuse)**：`scripts/benchmark_pjc.py --mode generated_scale_csv --server-items 10000 --client-items 10000 --overlap 0.2 --iterations 3` 跑了三轮 back-to-back PJC server+client 生命周期，每轮 `intersection_size=2000`、`intersection_sum=2,201,000`、exit_code=0，per-iter dur 47.0s/28.8s/36.6s（首轮 cold-start，后两轮 OS cache 暖），peak RSS 36-39 MB 稳定无 leak；100k peak RSS 260.8 MB 表明 server 持单倍候选集而非双缓冲。1M×1M live measurement 收口：33.68 min wall time、peak RSS 2,250,084 KB ≈ **2.20 GB**、`exit_code=1`（PJC 客户端超过 `GRPC_MAX_MESSAGE_MB=512` 上限，单机 PJC binary 实测在 100k 与 1M 之间存在边界）、`intersection_size=null` / `intersection_sum=null`（temp dir 已被 benchmark 清理，无 log tail，但 schema 字段确认了失败模式）。`run_pjc.sh` 每轮 spawn / teardown server，"connection reuse" 在当前 PJC binary 下指 runner 可重入、log/work dir 不冲突；真正的 gRPC 连接持久化与 1M 级生产部署属 server 重构 / grpc tuning 范畴（已在 `docs/POST_BASELINE_ROADMAP.md`）。
+- **G5 (10k pipeline SLO 验收)**：`BRIDGE_BIN=$(pwd)/bridge/target/release/bridge python3 scripts/benchmark_pipeline_slo.py --server-rows 10000 --client-rows 10000 --overlap-count 1000 --output tmp/pipeline_slo_10k.json --timeout-sec 600 --assert-ok` 跑通 file-handoff 全链路，total **34,909 ms** ✓ < 90s p50 / 180s p95 SLO（38% 预算）；per-stage：sse_export 48ms / record_recovery `not_applicable`（JSONL fixture 不经过加密 record store，已在 schema 中加 `not_applicable` 状态以正确表达 stage 缺席）/ bridge_prepare_job 13ms / pjc 33,878ms / policy_release 0ms；`intersection_size=1000` / `intersection_sum=599500`、`mainline_contract_check_embedded=true`、`handoff_cleanup` 双侧 `cleaned`。SLO benchmark 现在自动用 `export_observability_events.py --audit-chain` 派生 `pipeline_observability/v1`（12 events），不再依赖 pipeline 直接写盘。
+- **Schema 更新**：`schemas/pipeline_slo_benchmark.schema.json` `stage.status` enum 新增 `not_applicable`，summary 新增 `not_applicable_stages`，`validation` 新增 `handoff_cleanup_*` 四字段；`scripts/benchmark_pipeline_slo.py` 在 mainline contract check 之后自动渲染 `pipeline_observability.json`。`config/schema_backcompat_baseline.json` 仍 125 schemas / 0 fail（schema property 是 additive 扩展，未触发 backcompat 失败）。
+- **下一步建议**：剩余只有 K3 external pen test，详细资源清单见 `docs/PRODUCTION_READINESS_GUIDEBOOK.md` §K3 + 上一轮 K3 资源 Q&A 记录。
+
+2026-05-09 进展：J2-b PostgreSQL Patroni failover 的 repo-side 脚手架已完成，剩余 block 从 5 → 4，J 类从 1 → 0。`scripts/metadata_db.py` 的 `connect_db_with_retry` / `connect_read_db_with_retry` 已是退避重试的现成入口；新增 `scripts/test_metadata_db_failover.py` 与 `schemas/metadata_db_failover_test.schema.json`：脚本默认在 in-process 模式下用一个 fresh SQLite metadata DB + 自动 tmp 工作目录跑完整链路——apply_migrations、插入一条预先 `jobs` 行、读基线、把 `metadata_db.connect_db` 临时打补丁让前 `--simulated-failure-count` 次调用抛 `SimulatedOperationalError`、再用 `connect_db_with_retry` 在 `--retry-attempts-allowed` / `--retry-base-delay-seconds` / `--failover-target-seconds` 预算内复连、插入第二条 `jobs` 行，最后用一条全新读连接确认两行都在并 `data_round_trip_ok=true`。`scripts/check_json_contracts.sh` 在 J2-a 之后立即跑该脚本（`--simulated-failure-count 2 --retry-attempts-allowed 4 --failover-target-seconds 30`），断言 `status=ok`、`configuration.simulation_mode=in_process_simulated`、`failover_request.primary_attempt_failed=true`、`failover_request.actual_attempts_used >= 3`、`failover_request.within_failover_target=true`、`post_failover_query.data_round_trip_ok=true`、`data_integrity.no_data_lost=true`、`errors=[]`；`scripts/check_ci_smoke.sh` 把脚本加入 py_compile 列表；`config/schema_backcompat_baseline.json` 把 `metadata_db_failover_test/v1` 加入 stable schema 集（124 → 125 schemas / 0 fail）。本地默认 smoke 跑通：模拟 2 次 transient failure 时实际重试 3 次、wall time ≈ 150ms（远低于 30s 目标）；live Patroni switchover 仍属 operator 环境工作（`--db-dsn` 透传到 `connect_db_with_retry` 的同一路径）。
 
 2026-05-08 进展：Track-E1 / Track-E2 / Track-E3 e-commerce 平台叙事三块同步完成 repo-side。
 

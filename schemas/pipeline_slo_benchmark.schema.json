@@ -87,6 +87,7 @@
         "stage_count": {"type": "integer", "minimum": 0},
         "missing_duration_stages": {"type": "array", "items": {"type": "string", "minLength": 1}},
         "slo_breach_stages": {"type": "array", "items": {"type": "string", "minLength": 1}},
+        "not_applicable_stages": {"type": "array", "items": {"type": "string", "minLength": 1}},
         "all_stages_within_3x_p95": {"type": "boolean"}
       },
       "additionalProperties": false
@@ -106,7 +107,11 @@
         "intersection_sum": {"type": ["integer", "null"], "minimum": 0},
         "public_report_released": {"type": ["boolean", "null"]},
         "public_report_reason_code": {"type": ["string", "null"]},
-        "mainline_contract_check_embedded": {"type": ["boolean", "null"]}
+        "mainline_contract_check_embedded": {"type": ["boolean", "null"]},
+        "handoff_cleanup_server_status": {"type": ["string", "null"]},
+        "handoff_cleanup_client_status": {"type": ["string", "null"]},
+        "handoff_cleanup_server_exists_after_run": {"type": ["boolean", "null"]},
+        "handoff_cleanup_client_exists_after_run": {"type": ["boolean", "null"]}
       },
       "additionalProperties": false
     },
@@ -154,7 +159,7 @@
         "within_p50_target": {"type": ["boolean", "null"]},
         "within_p95_target": {"type": ["boolean", "null"]},
         "within_3x_p95_target": {"type": ["boolean", "null"]},
-        "status": {"type": "string", "enum": ["ok", "missing_duration", "slo_breach"]}
+        "status": {"type": "string", "enum": ["ok", "missing_duration", "slo_breach", "not_applicable"]}
       },
       "additionalProperties": false
     }

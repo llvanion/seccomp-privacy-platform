@@ -81,9 +81,16 @@ def read_json(path: Path) -> dict[str, Any]:
     return payload
 
 
+OPTIONAL_STAGES = frozenset({"record_recovery"})
+
+
 def evaluate_stage(stage: str, duration_ms: float | None) -> dict[str, Any]:
     target = SLO_TARGETS_MS[stage]
     if duration_ms is None:
+        # Stages like record_recovery only fire when the pipeline uses an
+        # encrypted record store; with raw JSONL fixtures they are simply
+        # absent and should not break the SLO summary.
+        absence_status = "not_applicable" if stage in OPTIONAL_STAGES else "missing_duration"
         return {
             "stage": stage,
             "duration_ms": None,
@@ -92,7 +99,7 @@ def evaluate_stage(stage: str, duration_ms: float | None) -> dict[str, Any]:
             "within_p50_target": None,
             "within_p95_target": None,
             "within_3x_p95_target": None,
-            "status": "missing_duration",
+            "status": absence_status,
         }
     return {
         "stage": stage,
@@ -128,6 +135,7 @@ def build_summary(*, stages: list[dict[str, Any]], total_duration_ms: float, exi
     checked = [*stages, total]
     missing = [item["stage"] for item in checked if item["status"] == "missing_duration"]
     breaches = [item["stage"] for item in checked if item["status"] == "slo_breach"]
+    not_applicable = [item["stage"] for item in checked if item["status"] == "not_applicable"]
     return {
         "status": "ok" if exit_code == 0 and not missing and not breaches else "fail",
         "exit_code": exit_code,
@@ -136,6 +144,7 @@ def build_summary(*, stages: list[dict[str, Any]], total_duration_ms: float, exi
         "stage_count": len(stages),
         "missing_duration_stages": missing,
         "slo_breach_stages": breaches,
+        "not_applicable_stages": not_applicable,
         "all_stages_within_3x_p95": not missing and not breaches,
     }
 
@@ -208,7 +217,24 @@ def run_pipeline_slo(args: argparse.Namespace) -> dict[str, Any]:
                     expected_intersection_size=args.overlap_count,
                     expected_intersection_sum=expected_sum,
                 )
-                observability = read_json(out_base / "pipeline_observability.json")
+                # The pipeline writes audit_chain.json directly; pipeline_observability/v1
+                # is the derived stage-event view. Render it here so per-stage
+                # duration_ms can be evaluated against the SLO targets.
+                obs_path = out_base / "pipeline_observability.json"
+                if not obs_path.exists():
+                    subprocess.run(
+                        [
+                            "python3",
+                            str(REPO_ROOT / "scripts" / "export_observability_events.py"),
+                            "--audit-chain",
+                            str(out_base / "audit_chain.json"),
+                            "--out",
+                            str(obs_path),
+                        ],
+                        check=True,
+                        cwd=str(REPO_ROOT),
+                    )
+                observability = read_json(obs_path)
                 stages = stage_breakdown(observability)
             except Exception as exc:
                 exit_code = 1

@@ -2811,6 +2811,32 @@
       ]
     },
     {
+      "path": "schemas/metadata_db_failover_test.schema.json",
+      "schema_id": "metadata_db_failover_test/v1",
+      "required": [
+        "schema",
+        "generated_at_utc",
+        "status",
+        "configuration",
+        "baseline_query",
+        "failover_request",
+        "post_failover_query",
+        "data_integrity",
+        "errors"
+      ],
+      "stable_properties": [
+        "baseline_query",
+        "configuration",
+        "data_integrity",
+        "errors",
+        "failover_request",
+        "generated_at_utc",
+        "post_failover_query",
+        "schema",
+        "status"
+      ]
+    },
+    {
       "path": "schemas/postgres_ha_topology_report.schema.json",
       "schema_id": "postgres_ha_topology_report/v1",
       "required": [

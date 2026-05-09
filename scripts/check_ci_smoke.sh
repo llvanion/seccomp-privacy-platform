@@ -87,6 +87,7 @@ python3 -m py_compile \
   scripts/render_operator_console_manifest.py \
   scripts/run_alert_check_daemon.py \
   scripts/run_chaos_test.py \
+  scripts/test_metadata_db_failover.py \
   scripts/check_alert_webhook_smoke.py \
   scripts/write_pjc_audit.py \
   scripts/check_malformed_input_gate.py \

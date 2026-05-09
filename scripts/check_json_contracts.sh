@@ -2746,6 +2746,19 @@ python3 "$VALIDATOR" \
   --schema "$REPO_ROOT/schemas/recovery_service_failover_test.schema.json" \
   --json "$tmp/recovery_service_failover_test.json"
 python3 -c 'import json, sys; p=json.load(open(sys.argv[1], "r", encoding="utf-8")); assert p["status"] == "ok", p; assert p["primary"]["started"] is True, p; assert p["secondary"]["started"] is True, p; assert p["primary"]["kill_method"] == "SIGKILL", p; assert p["baseline_request"]["ok"] is True, p; assert p["baseline_request"]["served_by"] == "primary", p; assert p["failover_request"]["served_by"] == "secondary", p; assert p["failover_request"]["primary_attempt_failed"] is True, p; assert p["failover_request"]["within_failover_target"] is True, p; assert p["audit_integrity"]["no_audit_events_lost"] is True, p; assert p["audit_integrity"]["primary_records_for_baseline_job"] >= 1, p; assert p["audit_integrity"]["secondary_records_for_failover_job"] >= 1, p' "$tmp/recovery_service_failover_test.json"
+# J2-b — metadata sidecar DB failover test (simulates Patroni-style transient connect failures and verifies connect_db_with_retry rides them out within budget)
+python3 "$REPO_ROOT/scripts/test_metadata_db_failover.py" \
+  --simulated-failure-count 2 \
+  --retry-attempts-allowed 4 \
+  --retry-base-delay-seconds 0.05 \
+  --failover-target-seconds 30 \
+  --output "$tmp/metadata_db_failover_test.json" \
+  --assert-ok \
+  > /dev/null
+python3 "$VALIDATOR" \
+  --schema "$REPO_ROOT/schemas/metadata_db_failover_test.schema.json" \
+  --json "$tmp/metadata_db_failover_test.json"
+python3 -c 'import json, sys; p=json.load(open(sys.argv[1], "r", encoding="utf-8")); assert p["status"] == "ok", p; assert p["configuration"]["backend"] == "sqlite", p; assert p["configuration"]["simulation_mode"] == "in_process_simulated", p; assert p["configuration"]["simulated_failure_count"] == 2, p; assert p["baseline_query"]["ok"] is True, p; assert p["failover_request"]["primary_attempt_failed"] is True, p; assert p["failover_request"]["actual_attempts_used"] >= 3, p; assert p["failover_request"]["within_failover_target"] is True, p; assert p["failover_request"]["ok"] is True, p; assert p["post_failover_query"]["ok"] is True, p; assert p["post_failover_query"]["data_round_trip_ok"] is True, p; assert p["data_integrity"]["rows_inserted_pre_failover"] == 1, p; assert p["data_integrity"]["rows_inserted_post_failover"] == 1, p; assert p["data_integrity"]["rows_observed_post_failover"] >= 2, p; assert p["data_integrity"]["no_data_lost"] is True, p; assert p["errors"] == [], p' "$tmp/metadata_db_failover_test.json"
 python3 "$REPO_ROOT/scripts/render_postgres_ha_topology.py" \
   --out-dir "$tmp/postgres-ha" \
   --output "$tmp/postgres_ha_topology_report.json" \

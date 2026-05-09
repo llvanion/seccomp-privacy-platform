@@ -210,6 +210,112 @@ PATRONI_CONFIG=patroni-primary.yml bash patroni_failover_commands.sh
 
 F2-b is a repo-side topology and contract artifact. Actual switchover/failover timing, production credentials, quorum sizing, and HA SLO evidence remain operator-environment work.
 
+### Metadata DB Failover Drill (J2-b)
+
+`scripts/test_metadata_db_failover.py` is the repo-side scaffold for the J2-b PostgreSQL/Patroni failover drill. Default smoke runs entirely in-process against a fresh SQLite DB and patches `metadata_db.connect_db` so the first `--simulated-failure-count` calls raise a synthetic `OperationalError`; `connect_db_with_retry` has to ride those out within `--failover-target-seconds`. The script then writes a post-failover row through the recovered connection and confirms a fresh read sees both rows.
+
+Run the default scaffold (covered by `bash scripts/check_json_contracts.sh`):
+
+```bash
+python3 scripts/test_metadata_db_failover.py \
+  --simulated-failure-count 2 \
+  --retry-attempts-allowed 4 \
+  --retry-base-delay-seconds 0.05 \
+  --failover-target-seconds 30 \
+  --output tmp/metadata_db_failover_test.json \
+  --assert-ok
+
+python3 scripts/validate_json_contract.py \
+  --schema schemas/metadata_db_failover_test.schema.json \
+  --json tmp/metadata_db_failover_test.json
+```
+
+For the live operator drill, point the same script at the live DSN and pair it with a Patroni switchover:
+
+```bash
+# (a) verify retry path against the live DSN (still uses the in-process simulator)
+python3 scripts/test_metadata_db_failover.py \
+  --db-dsn postgresql://postgres:pass@pgbouncer:6432/postgres \
+  --simulated-failure-count 2 \
+  --retry-attempts-allowed 4 \
+  --failover-target-seconds 30 \
+  --output tmp/metadata_db_failover_test.json \
+  --assert-ok
+
+# (b) trigger a real Patroni switchover and re-run the importer through the same DSN
+patronictl -c config/patroni-ha/patroni-primary.yml switchover \
+  --master pg-primary --candidate pg-replica --force
+python3 scripts/check_platform_health.py \
+  --metadata-db-dsn postgresql://postgres:pass@pgbouncer:6432/postgres
+python3 scripts/import_run_metadata.py \
+  --out-base tmp/sse_bridge_pipeline_demo \
+  --db-dsn postgresql://postgres:pass@pgbouncer:6432/postgres
+```
+
+J2-b acceptance: `failover_request.within_failover_target=true`, `post_failover_query.data_round_trip_ok=true`, `data_integrity.no_data_lost=true`, sidecar reconnects within 30s post-Patroni-switchover.
+
+### Scale Benchmarks (G4-a / G4-b / G5)
+
+These three benchmarks share the same `a-psi/private-join-and-compute/bazel-bin/private_join_and_compute/{server,client}` binary plus the prebuilt `bridge/target/release/bridge`. Default contract smoke does not run them — they are explicit operator measurements. Each writes a schema-validated JSON report under `tmp/`.
+
+**G4-a — PJC intersection scaling**
+
+```bash
+# 1k smoke
+python3 scripts/benchmark_pjc.py --mode generated_scale_csv \
+  --server-items 1000 --client-items 1000 --overlap 0.2 --iterations 1 \
+  --output tmp/pjc_benchmark_1k.json --timeout-sec 120
+
+# 100k acceptance (must be < 300s)
+python3 scripts/benchmark_pjc.py --mode generated_scale_csv \
+  --server-items 100000 --client-items 100000 --overlap 0.2 --iterations 1 \
+  --output tmp/pjc_benchmark_100k.json --timeout-sec 1800
+```
+
+Local 2026-05-09 reference timings: 1k=10.7s/14 MB, 10k=32.8s/38 MB, **100k=222.0s/261 MB ✓**.
+
+**G4-b — Memory ceiling + connection reuse**
+
+```bash
+# Three back-to-back invocations to verify runner re-entrancy and absence of leak
+python3 scripts/benchmark_pjc.py --mode generated_scale_csv \
+  --server-items 10000 --client-items 10000 --overlap 0.2 --iterations 3 \
+  --output tmp/pjc_benchmark_10k_x3.json --timeout-sec 600
+
+# 1M memory ceiling (multi-hour wall time; budget for ~30-60 minutes per iteration)
+python3 scripts/benchmark_pjc.py --mode generated_scale_csv \
+  --server-items 1000000 --client-items 1000000 --overlap 0.2 --iterations 1 \
+  --output tmp/pjc_benchmark_1m.json --timeout-sec 7200
+```
+
+Acceptance: per-iteration `intersection_size` and `intersection_sum` constant across iterations; `peak_rss_kb` does not grow across iterations; 1M `peak_rss_kb` documented (extrapolation upper bound from 100k slope is ~2.6 GB on the reference machine).
+
+**G5 — End-to-end pipeline SLO at 10k**
+
+```bash
+BRIDGE_BIN="$(pwd)/bridge/target/release/bridge" \
+  python3 scripts/benchmark_pipeline_slo.py \
+    --server-rows 10000 --client-rows 10000 --overlap-count 1000 \
+    --output tmp/pipeline_slo_10k.json --timeout-sec 600 --assert-ok
+
+python3 scripts/validate_json_contract.py \
+  --schema schemas/pipeline_slo_benchmark.schema.json \
+  --json   tmp/pipeline_slo_10k.json
+```
+
+The benchmark spawns `scripts/run_sse_bridge_pipeline.sh` (file-handoff mode) over deterministic JSONL fixtures, validates `intersection_size=1000` / `intersection_sum=599,500`, auto-derives `pipeline_observability/v1` from `audit_chain.json`, and evaluates per-stage `duration_ms` against the `SLO_TARGETS_MS` table. SLO targets:
+
+| Stage | p50 | p95 |
+|-------|----:|----:|
+| sse_export | 5s | 15s |
+| record_recovery (encrypted store only) | 500ms | 2s |
+| bridge_prepare_job | 10s | 30s |
+| pjc | 60s | 120s |
+| policy_release | 1s | 3s |
+| **total_pipeline** | **90s** | **180s** |
+
+`record_recovery` is reported as `not_applicable` when the fixture skips the encrypted record store (the default JSONL path); to exercise the recovery boundary, swap to `scripts/run_live_sse_bridge_demo.sh` with an encrypted record store. Local 2026-05-09 reference run: total **34.9s** ✓ (38% of p50 budget); per-stage sse 48ms / bridge 13ms / pjc 33,878ms / policy 0ms.
+
 ### Recovery Service Runtime Logs
 
 When the recovery service is started through `scripts/manage_record_recovery_service.py start` with a `log_file` in its config lifecycle block, stdout/stderr are captured there. The service now writes one JSON object per line using `record_recovery_service_log/v1`.

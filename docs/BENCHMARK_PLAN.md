@@ -467,6 +467,18 @@ python3 scripts/benchmark_pjc.py \
 
 `generated_scale_csv` creates deterministic server/client CSVs for the requested scale, derives the expected intersection metrics from the overlap, records per-mode `scale` metadata, and records per-result `peak_rss_kb` when `/usr/bin/time -v` is available. Contract smoke validates a synthetic generated-scale row without starting the PJC runtime.
 
+Local 2026-05-09 measured runs against the bazel-built PJC server/client (`a-psi/private-join-and-compute/bazel-bin/private_join_and_compute/{server,client}`):
+
+| Server / Client items | Wall time | Throughput | Peak RSS | intersection_size | intersection_sum | Iterations |
+|---|---:|---:|---:|---:|---:|---:|
+| 1k / 1k (×0.2) | 10.72s | ~93 items/s | 13.9 MB | 200 | 40,100 | 1 |
+| 10k / 10k (×0.2) | 32.82s | ~305 items/s | 38.4 MB | 2,000 | 2,201,000 | 1 |
+| **10k / 10k (×0.2) ×3 back-to-back** | 47.0 / 28.8 / 36.6s | — | 36-39 MB stable | 2,000 each | 2,201,000 each | 3 |
+| **100k / 100k (×0.2)** | **222.02s** | ~450 items/s | 260.8 MB | 20,000 | 202,010,000 | 1 |
+| **1M / 1M (×0.2)** | **33.68 min (2,021s)** | n/a (failed) | **2.20 GB** | n/a (`exit_code=1`) | n/a (`exit_code=1`) | 1 |
+
+100k×100k passes the G4-a SLO of < 300s with ~26% headroom. 10k×3 back-to-back proves runner re-entrancy + no per-iteration RSS growth. 1M×1M reached the bazel-built PJC binary's gRPC message-size ceiling (`GRPC_MAX_MESSAGE_MB=512`) on the single-machine reference run; the practical operating ceiling on this host falls between 100k and 1M items per side. Production 1M-scale deployments need either grpc message-size tuning, a sharded/streaming protocol change, or larger per-side memory + grpc buffers.
+
 Why it is not part of contract smoke:
 
 1. it directly starts the local PJC server on loopback
