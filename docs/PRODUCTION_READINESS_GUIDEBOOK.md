@@ -961,7 +961,7 @@ Repo-side progress on 2026-05-08:
 
 This completes the G4 report contract and generated scale runner.
 
-Local 2026-05-09 measured runs against the bazel-built PJC server/client (`a-psi/private-join-and-compute/bazel-bin/private_join_and_compute/{server,client}`):
+Local measured runs against the bazel-built PJC server/client (`a-psi/private-join-and-compute/bazel-bin/private_join_and_compute/{server,client}`); 1k/10k/100k were measured on 2026-05-09, and the 1M ceiling row was rerun on 2026-05-12:
 
 | Server / Client items | Wall time | Throughput | Peak RSS | intersection_size | intersection_sum |
 |---|---:|---:|---:|---:|---:|
@@ -977,17 +977,17 @@ At 1M items, measure whether APSI holds the entire set in memory or streams. Pro
 
 Test whether PJC server can handle back-to-back queries without restart (connection reuse across `run_pjc.sh` invocations).
 
-Local 2026-05-09 measured results:
+Local measured results:
 
 - **Connection reuse / back-to-back invocations.** `scripts/benchmark_pjc.py --mode generated_scale_csv --server-items 10000 --client-items 10000 --overlap 0.2 --iterations 3` ran three sequential PJC server+client lifecycles via `run_pjc.sh` against deterministic 10k/10k/×0.2 fixtures. All three iterations returned `intersection_size=2000`, `intersection_sum=2,201,000`, exit code 0, and stayed within RSS 36–39 MB (no growth across iterations); per-iteration durations 47.0s / 28.8s / 36.6s reflect cold-start / OS-cache warm-up rather than per-iteration leak.
-- **Memory ceiling scaling (measured).** Peak RSS scales sub-linearly from 1k → 100k (13.9 MB → 38.4 MB → 260.8 MB ≈ 18.7× over 100× input), so the bazel-built PJC server holds the candidate set in memory but does not double-buffer per-stage. The live 1M×1M measurement on 2026-05-09 ran for **33.68 min** wall time and pushed peak RSS to **2,250,084 KB ≈ 2.20 GB** before the PJC client exited with `exit_code=1` (the on-the-wire response at 1M items exceeds the configured `GRPC_MAX_MESSAGE_MB=512` ceiling on a single-machine deployment; the temp dir is cleaned up by `benchmark_pjc.py` so no log tail is preserved, but `intersection_size=null` / `intersection_sum=null` in the report make the failure unambiguous). The practical operating ceiling for the bazel-built PJC binary on this reference machine is therefore **somewhere between 100k and 1M items per side**; production-scale 1M deployments need either gRPC message-size tuning, a streaming protocol change, or larger per-side memory + grpc buffers.
+- **Memory ceiling scaling (measured).** Peak RSS scales sub-linearly from 1k → 100k (13.9 MB → 38.4 MB → 260.8 MB ≈ 18.7× over 100× input), so the bazel-built PJC server holds the candidate set in memory but does not double-buffer per-stage. The live 1M×1M measurement was rerun on 2026-05-12 and ran for **32.72 min** wall time (**1,963.43s**) with peak RSS **2,248,648 KB ≈ 2.25 GB** before the PJC client exited with `exit_code=1` (the on-the-wire response at 1M items exceeds the configured `GRPC_MAX_MESSAGE_MB=512` ceiling on a single-machine deployment; the temp dir is cleaned up by `benchmark_pjc.py` so no log tail is preserved, but `intersection_size=null` / `intersection_sum=null` in the report make the failure unambiguous). The practical operating ceiling for the bazel-built PJC binary on this reference machine is therefore **somewhere between 100k and 1M items per side**; production-scale 1M deployments need either gRPC message-size tuning, a streaming protocol change, or larger per-side memory + grpc buffers.
 - **Connection model note.** Each `run_pjc.sh` invocation spawns a fresh server and client and tears them down at the end of the round, so "connection reuse" here means the runner is re-entrant and the working dir/log files do not collide; true gRPC connection persistence across rounds is out of scope for the current PJC binary and would require server-side refactor (tracked in `docs/POST_BASELINE_ROADMAP.md`, not in G4-b).
 
 #### Acceptance Criteria
 
 1. 100k-item intersection completes in < 300s. **Pass:** 222.02s on the reference machine 2026-05-09.
-2. Memory ceiling at 1M items documented. **Pass:** scaling table above plus the live 1M measurement (33.68 min wall time, 2.20 GB peak RSS, gRPC message-size ceiling reached on the single-machine reference run). The bazel-built PJC binary holds the full candidate set in memory and is not stream-buffered; production 1M-scale deployment needs grpc/window tuning or a sharded protocol.
-3. Benchmark report emitted as `pjc_benchmark/v1` with `scale` mode rows. **Pass:** `tmp/pjc_benchmark_{1k,10k,100k,10k_x3}.json` all schema-valid, `summary.scale` populated, `peak_rss_kb` populated for every row.
+2. Memory ceiling at 1M items documented. **Pass:** scaling table above plus the 2026-05-12 live 1M rerun (32.72 min wall time, 2.25 GB peak RSS, gRPC message-size ceiling reached on the single-machine reference run). The bazel-built PJC binary holds the full candidate set in memory and is not stream-buffered; production 1M-scale deployment needs grpc/window tuning or a sharded protocol.
+3. Benchmark report emitted as `pjc_benchmark/v1` with `scale` mode rows. **Pass:** `tmp/pjc_benchmark_{1k,10k,100k,10k_x3,1m}.json` all schema-valid, `summary.scale` populated, `peak_rss_kb` populated for every row.
 
 ---
 
@@ -2098,7 +2098,7 @@ Week 12-13: K3 external pen test only (audit-chain tamper-resistance + HTTP malf
 |----------|----------------:|----------------:|-------|
 | E — Real authority sources | 0 repo-side | 0h | Complete; live validation is operator-environment work |
 | F — Production PostgreSQL | 0 | 0h | F1-a/F1-b done; F2-a/F2-b/F2-c/F3 and F4-a/F4-b repo-side done; F2-c/F3 live drills remain operator-environment work |
-| G — Scale & optimization | 0 | 0h | G1 + G2-a + G2-b + G3 + G4-a + G4-b + G5 + G6 + G7 + G8 all measured locally 2026-05-09 (G4-a 100k 222.02s, G4-b back-to-back stable + 1M ceiling 33.68 min / 2.20 GB / gRPC limit, G5 10k 34.9s) |
+| G — Scale & optimization | 0 | 0h | G1 + G2-a + G2-b + G3 + G4-a + G4-b + G5 + G6 + G7 + G8 all measured locally; 1M PJC ceiling rerun 2026-05-12 (G4-a 100k 222.02s, G4-b back-to-back stable + 1M ceiling 32.72 min / 2.25 GB / gRPC limit, G5 10k 34.9s) |
 | H — Multi-tenant isolation | 0 | 0h | Complete: H1-a/H1-b/H2-a/H2-b/H3-a/H3-b |
 | I — Production operator console | 0 | 0h | I1-a/I1-b/I2-a/I2-b/I3-a/I3-b repo-side done 2026-05-08; live Tempo push + Grafana render and full SPA remain operator/product work |
 | J — SRE / HA | 0 repo-side | 0h | J1 + J2-a + J2-b + J3-a + J3-b + J4 done repo-side (J2-b 2026-05-09); live Patroni switchover + chaos drills remain operator-environment work |
@@ -2115,7 +2115,7 @@ As of 2026-05-09, the remaining production-readiness scope is:
 |----------|------------------|
 | E — Real authority sources | None repo-side; live validation is operator-environment work |
 | F — Production PostgreSQL | None repo-side; F2-c/F3 live drills remain operator-environment work |
-| G — Scale & optimization | None (G4-a 100k×100k 222.02s + G4-b 3-iter back-to-back stability + G4-b 1M×1M ceiling 33.68 min / 2.20 GB peak RSS / `exit_code=1` at gRPC limit + G5 10k pipeline 34.9s all measured locally 2026-05-09) |
+| G — Scale & optimization | None (G4-a 100k×100k 222.02s + G4-b 3-iter back-to-back stability + G4-b 1M×1M ceiling 32.72 min / 2.25 GB peak RSS / `exit_code=1` at gRPC limit, rerun 2026-05-12 + G5 10k pipeline 34.9s) |
 | H — Multi-tenant isolation | None |
 | I — Production operator console | None repo-side (I1-a/I1-b/I2-a/I2-b/I3-a/I3-b done 2026-05-08; live Tempo push + Grafana render and full SPA still operator/product work) |
 | J — SRE / HA | None repo-side (J2-b in-process simulator + `connect_db_with_retry` validation done 2026-05-09; live Patroni switchover + chaos drills still operator/product work) |
