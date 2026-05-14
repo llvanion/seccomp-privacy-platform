@@ -122,6 +122,60 @@
     "released": {
       "type": ["object", "null"]
     },
+    "privacy_budget": {
+      "type": "object",
+      "properties": {
+        "enabled": {
+          "type": "boolean"
+        },
+        "decision": {
+          "enum": ["allow", "deny", "not_applicable"]
+        },
+        "reason_code": {
+          "type": "string"
+        },
+        "reason": {
+          "type": "string"
+        },
+        "ledger_path": {
+          "type": ["string", "null"]
+        },
+        "budget_limit": {
+          "type": ["number", "null"],
+          "minimum": 0
+        },
+        "budget_cost": {
+          "type": ["number", "null"],
+          "exclusiveMinimum": 0
+        },
+        "budget_used_before": {
+          "type": ["number", "null"],
+          "minimum": 0
+        },
+        "budget_used_after": {
+          "type": ["number", "null"],
+          "minimum": 0
+        },
+        "query_fingerprint": {
+          "type": ["string", "null"]
+        },
+        "query_payload": {
+          "type": "object"
+        },
+        "abuse_signal": {
+          "type": ["string", "null"]
+        },
+        "matched_prior_fingerprint": {
+          "type": ["string", "null"]
+        },
+        "matched_prior_job_id": {
+          "type": ["string", "null"]
+        },
+        "matched_prior_relation": {
+          "type": ["string", "null"]
+        }
+      }
+    },
     "auth": {
       "type": "object",
       "required": ["mode", "auth_ok", "auth_reason_code"],

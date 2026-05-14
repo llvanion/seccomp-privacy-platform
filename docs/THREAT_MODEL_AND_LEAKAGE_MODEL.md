@@ -139,6 +139,7 @@ Current controls:
 2. duplicate-query deny mode
 3. release audit with `correlation_id`
 4. audit-chain sealing and optional archive indexing
+5. optional `privacy_budget_ledger/v1` release gate for exact repeated query fingerprints, overlapping / containing query windows, and caller-local budget exhaustion
 
 ## 5. Threat Actors
 
@@ -303,7 +304,7 @@ Current highest residual risks:
 2. standalone recovery service is still a local process boundary, not a separate production deployment boundary
 3. secret refs are still env-backed in the local prototype
 4. audit storage now has a local append-only anchor log, but it is not yet externally anchored or off-host tamper-evident
-5. duplicate-query denial does not yet cover near-duplicate or differencing attacks
+5. duplicate-query denial now has an optional privacy-budget ledger gate for near-duplicate or differencing attempts, but it is not yet a mandatory production control with metadata read models and three-person certification
 6. metadata and audit read adapters are read-only, but their access control is still local-token based
 
 ### 8.1 Complete Solution Tracks
@@ -314,7 +315,7 @@ For production planning, these items are no longer tracked only as residual risk
 | --- | --- |
 | bridge-ready plaintext handoff | `S1` eliminates retained plaintext handoff in production mode |
 | env/local secret trusted root | `S2` makes real KMS/Vault/cloud KMS the production key source |
-| differencing and near-duplicate queries | `S3` adds privacy budget and query-abuse ledger controls |
+| differencing and near-duplicate queries | `S3` adds privacy budget and query-abuse ledger controls; repo-side first gate is partial and optional |
 | PJC resource exhaustion or local-only runner | `S4` adds service/worker execution, preflight, limits, and streaming gRPC audit |
 | public metadata leakage | `S5` separates public report fields from operator-only metrics |
 | local-only audit trust | `S6` requires externally anchored audit evidence for production release |

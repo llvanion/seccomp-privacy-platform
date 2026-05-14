@@ -59,6 +59,7 @@ SCHEMAS=(
   "$REPO_ROOT/schemas/pjc_audit.schema.json"
   "$REPO_ROOT/schemas/public_report.schema.json"
   "$REPO_ROOT/schemas/policy_audit.schema.json"
+  "$REPO_ROOT/schemas/privacy_budget_ledger.schema.json"
   "$REPO_ROOT/schemas/audit_chain.schema.json"
   "$REPO_ROOT/schemas/audit_archive_index.schema.json"
   "$REPO_ROOT/schemas/audit_archive_anchor.schema.json"
@@ -763,6 +764,58 @@ python3 "$VALIDATOR" --schema "$REPO_ROOT/schemas/bridge_audit.schema.json" --js
 python3 "$VALIDATOR" --schema "$REPO_ROOT/schemas/pjc_audit.schema.json" --jsonl "$tmp/a_psi_run/pjc_audit.jsonl"
 python3 "$VALIDATOR" --schema "$REPO_ROOT/schemas/public_report.schema.json" --json "$tmp/a_psi_run/public_report.json"
 python3 "$VALIDATOR" --schema "$REPO_ROOT/schemas/policy_audit.schema.json" --jsonl "$tmp/a_psi_run/audit_log.jsonl"
+printf '%s\n' \
+  '{"intersection_size":2,"intersection_sum":10}' \
+  > "$tmp/privacy_budget_result.json"
+printf '%s\n' \
+  '{"job_id":"privacy-budget-job-1","window_start":"2026-01-01T00:00:00Z","window_end":"2026-01-31T00:00:00Z","bucket":"campaign-a"}' \
+  > "$tmp/privacy_budget_meta_1.json"
+printf '%s\n' \
+  '{"job_id":"privacy-budget-job-2","window_start":"2026-01-01T00:00:00Z","window_end":"2026-01-31T00:00:00Z","bucket":"campaign-a"}' \
+  > "$tmp/privacy_budget_meta_2.json"
+printf '%s\n' \
+  '{"job_id":"privacy-budget-job-3","window_start":"2026-02-01T00:00:00Z","window_end":"2026-02-28T00:00:00Z","bucket":"campaign-a"}' \
+  > "$tmp/privacy_budget_meta_3.json"
+python3 "$REPO_ROOT/a-psi/moduleA_psi/scripts/policy_release.py" \
+  --input "$tmp/privacy_budget_result.json" \
+  --job-meta "$tmp/privacy_budget_meta_1.json" \
+  --out "$tmp/privacy_budget_report_1.json" \
+  --audit-log "$tmp/privacy_budget_policy_audit.jsonl" \
+  --caller "privacy_budget_demo" \
+  --threshold-k 1 \
+  --max-queries 10 \
+  --privacy-budget-ledger "$tmp/privacy_budget_ledger.jsonl" \
+  --privacy-budget-limit 1 \
+  > /dev/null
+python3 "$REPO_ROOT/a-psi/moduleA_psi/scripts/policy_release.py" \
+  --input "$tmp/privacy_budget_result.json" \
+  --job-meta "$tmp/privacy_budget_meta_2.json" \
+  --out "$tmp/privacy_budget_report_2.json" \
+  --audit-log "$tmp/privacy_budget_policy_audit.jsonl" \
+  --caller "privacy_budget_demo" \
+  --threshold-k 1 \
+  --max-queries 10 \
+  --privacy-budget-ledger "$tmp/privacy_budget_ledger.jsonl" \
+  --privacy-budget-limit 1 \
+  > /dev/null
+python3 "$REPO_ROOT/a-psi/moduleA_psi/scripts/policy_release.py" \
+  --input "$tmp/privacy_budget_result.json" \
+  --job-meta "$tmp/privacy_budget_meta_3.json" \
+  --out "$tmp/privacy_budget_report_3.json" \
+  --audit-log "$tmp/privacy_budget_policy_audit.jsonl" \
+  --caller "privacy_budget_demo" \
+  --threshold-k 1 \
+  --max-queries 10 \
+  --privacy-budget-ledger "$tmp/privacy_budget_ledger.jsonl" \
+  --privacy-budget-limit 1 \
+  > /dev/null
+python3 "$VALIDATOR" --schema "$REPO_ROOT/schemas/public_report.schema.json" --json "$tmp/privacy_budget_report_1.json"
+python3 "$VALIDATOR" --schema "$REPO_ROOT/schemas/public_report.schema.json" --json "$tmp/privacy_budget_report_2.json"
+python3 "$VALIDATOR" --schema "$REPO_ROOT/schemas/public_report.schema.json" --json "$tmp/privacy_budget_report_3.json"
+python3 "$VALIDATOR" --schema "$REPO_ROOT/schemas/policy_audit.schema.json" --jsonl "$tmp/privacy_budget_policy_audit.jsonl"
+python3 "$VALIDATOR" --schema "$REPO_ROOT/schemas/privacy_budget_ledger.schema.json" --jsonl "$tmp/privacy_budget_ledger.jsonl"
+python3 -c 'import json, sys; reports=[json.load(open(p, "r", encoding="utf-8")) for p in sys.argv[1:4]]; assert reports[0]["released"] is True, reports[0]; assert reports[1]["released"] is False and reports[1]["reason_code"] == "privacy_budget_duplicate_query", reports[1]; assert reports[2]["released"] is False and reports[2]["reason_code"] == "privacy_budget_exhausted", reports[2]' "$tmp/privacy_budget_report_1.json" "$tmp/privacy_budget_report_2.json" "$tmp/privacy_budget_report_3.json"
+python3 -c 'import json, sys; rows=[json.loads(line) for line in open(sys.argv[1], "r", encoding="utf-8") if line.strip()]; assert len(rows) == 3, rows; assert rows[0]["budget"]["consumed"] is True, rows; assert rows[1]["abuse_signal"] == "exact_duplicate" and rows[1]["budget"]["consumed"] is False, rows[1]; assert rows[2]["abuse_signal"] == "budget_exhausted" and rows[2]["budget"]["consumed"] is False, rows[2]' "$tmp/privacy_budget_ledger.jsonl"
 python3 "$VALIDATOR" --schema "$REPO_ROOT/schemas/key_access_audit.schema.json" --jsonl "$tmp/key_access_audit.jsonl"
 python3 "$VALIDATOR" --schema "$REPO_ROOT/schemas/key_access_audit.schema.json" --jsonl "$tmp/external_key_access_audit.jsonl"
 python3 "$VALIDATOR" --schema "$REPO_ROOT/schemas/key_access_audit.schema.json" --jsonl "$tmp/key_agent_vault_access_audit.jsonl"

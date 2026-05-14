@@ -82,6 +82,51 @@
       ]
     },
     {
+      "path": "schemas/privacy_budget_ledger.schema.json",
+      "schema_id": "privacy_budget_ledger/v1",
+      "required": [
+        "schema",
+        "ts_utc",
+        "policy_version",
+        "job_id",
+        "correlation_id",
+        "caller",
+        "window",
+        "threshold_k",
+        "query_fingerprint",
+        "query_payload_sha256",
+        "decision",
+        "reason_code",
+        "reason",
+        "budget",
+        "parsed_metrics"
+      ],
+      "stable_properties": [
+        "schema",
+        "ts_utc",
+        "policy_version",
+        "job_id",
+        "correlation_id",
+        "caller",
+        "window",
+        "bucket",
+        "value_mode",
+        "threshold_k",
+        "query_fingerprint",
+        "query_payload_sha256",
+        "decision",
+        "reason_code",
+        "reason",
+        "abuse_signal",
+        "matched_prior_fingerprint",
+        "matched_prior_job_id",
+        "matched_prior_relation",
+        "budget",
+        "parsed_metrics",
+        "public_report_sha256"
+      ]
+    },
+    {
       "path": "schemas/pipeline_observability.schema.json",
       "schema_id": "pipeline_observability/v1",
       "required": [
@@ -1699,6 +1744,7 @@
         "reason",
         "reason_code",
         "released",
+        "privacy_budget",
         "auth"
       ]
     },

@@ -312,6 +312,240 @@ def canonical_query_signature(payload: Dict[str, Any]) -> str:
     return sha256_hex_str(msg)
 
 
+def canonical_privacy_budget_payload(
+    *,
+    caller: str,
+    window: Dict[str, Optional[str]],
+    bucket: Optional[str],
+    value_mode: Optional[str],
+    threshold_k: int,
+    bridge_meta: Dict[str, Any],
+) -> Dict[str, Any]:
+    return {
+        "caller": caller,
+        "window_start": window.get("start"),
+        "window_end": window.get("end"),
+        "bucket": bucket,
+        "value_mode": value_mode,
+        "threshold_k": threshold_k,
+        "token_scope": bridge_meta.get("token_scope"),
+        "server_join_key_column": bridge_meta.get("server_join_key_column"),
+        "client_join_key_column": bridge_meta.get("client_join_key_column"),
+        "client_value_column": bridge_meta.get("client_value_column"),
+    }
+
+
+def privacy_budget_default() -> Dict[str, Any]:
+    return {
+        "enabled": False,
+        "decision": "not_applicable",
+        "reason_code": "disabled",
+        "reason": "privacy budget ledger disabled",
+        "ledger_path": None,
+        "budget_limit": None,
+        "budget_cost": None,
+        "budget_used_before": None,
+        "budget_used_after": None,
+        "query_fingerprint": None,
+        "abuse_signal": None,
+        "matched_prior_fingerprint": None,
+        "matched_prior_job_id": None,
+        "matched_prior_relation": None,
+    }
+
+
+def _load_privacy_budget_records(ledger_path: str, caller: str) -> List[Dict[str, Any]]:
+    if not os.path.exists(ledger_path):
+        return []
+    records = []
+    with open(ledger_path, "r", encoding="utf-8") as f:
+        for line in f:
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                rec = json.loads(line)
+            except Exception:
+                continue
+            if rec.get("schema") == "privacy_budget_ledger/v1" and rec.get("caller") == caller:
+                records.append(rec)
+    return records
+
+
+def _parse_window_dt(window: Dict[str, Optional[str]]) -> Tuple[Optional[datetime], Optional[datetime]]:
+    try:
+        start = parse_iso8601_utc(window["start"]) if window.get("start") else None
+        end = parse_iso8601_utc(window["end"]) if window.get("end") else None
+        return start, end
+    except Exception:
+        return None, None
+
+
+def _window_relation(a: Dict[str, Optional[str]], b: Dict[str, Optional[str]]) -> str:
+    if a.get("start") == b.get("start") and a.get("end") == b.get("end"):
+        return "same"
+    a_start, a_end = _parse_window_dt(a)
+    b_start, b_end = _parse_window_dt(b)
+    if a_start is None or a_end is None or b_start is None or b_end is None:
+        return "unknown"
+    if a_end <= b_start or b_end <= a_start:
+        return "disjoint"
+    if a_start <= b_start and a_end >= b_end:
+        return "contains"
+    if b_start <= a_start and b_end >= a_end:
+        return "contained_by"
+    return "overlaps"
+
+
+def evaluate_privacy_budget(
+    *,
+    ledger_path: Optional[str],
+    caller: str,
+    job_id: Optional[str],
+    window: Dict[str, Optional[str]],
+    bucket: Optional[str],
+    value_mode: Optional[str],
+    threshold_k: int,
+    bridge_meta: Dict[str, Any],
+    budget_limit: Optional[float],
+    budget_cost: float,
+) -> Dict[str, Any]:
+    if not ledger_path:
+        return privacy_budget_default()
+    if budget_cost <= 0:
+        raise ValueError("--privacy-budget-cost must be positive")
+    if budget_limit is not None and budget_limit < 0:
+        raise ValueError("--privacy-budget-limit must be non-negative")
+
+    payload = canonical_privacy_budget_payload(
+        caller=caller,
+        window=window,
+        bucket=bucket,
+        value_mode=value_mode,
+        threshold_k=threshold_k,
+        bridge_meta=bridge_meta,
+    )
+    query_fingerprint = canonical_query_signature(payload)
+    prior_records = _load_privacy_budget_records(ledger_path, caller)
+    consumed_records = [
+        rec for rec in prior_records
+        if rec.get("budget", {}).get("consumed") is True and rec.get("decision") == "allow"
+    ]
+    used_before = sum(float(rec.get("budget", {}).get("cost") or 0.0) for rec in consumed_records)
+
+    base = {
+        "enabled": True,
+        "ledger_path": os.path.abspath(ledger_path),
+        "budget_limit": budget_limit,
+        "budget_cost": budget_cost,
+        "budget_used_before": used_before,
+        "budget_used_after": used_before,
+        "query_fingerprint": query_fingerprint,
+        "query_payload": payload,
+        "abuse_signal": None,
+        "matched_prior_fingerprint": None,
+        "matched_prior_job_id": None,
+        "matched_prior_relation": None,
+    }
+
+    for prior in consumed_records:
+        prior_fingerprint = prior.get("query_fingerprint")
+        prior_window = prior.get("window") if isinstance(prior.get("window"), dict) else {}
+        relation = _window_relation(window, prior_window)
+        same_bucket = prior.get("bucket") == bucket
+        if prior_fingerprint == query_fingerprint:
+            return {
+                **base,
+                "decision": "deny",
+                "reason_code": "privacy_budget_duplicate_query",
+                "reason": "privacy budget denied exact repeated query fingerprint",
+                "abuse_signal": "exact_duplicate",
+                "matched_prior_fingerprint": prior_fingerprint,
+                "matched_prior_job_id": prior.get("job_id"),
+                "matched_prior_relation": relation,
+            }
+        if same_bucket and relation in {"same", "contains", "contained_by", "overlaps", "unknown"}:
+            return {
+                **base,
+                "decision": "deny",
+                "reason_code": "privacy_budget_near_duplicate",
+                "reason": f"privacy budget denied {relation} query window for caller/bucket",
+                "abuse_signal": "near_duplicate_or_differencing",
+                "matched_prior_fingerprint": prior_fingerprint,
+                "matched_prior_job_id": prior.get("job_id"),
+                "matched_prior_relation": relation,
+            }
+
+    used_after = used_before + budget_cost
+    if budget_limit is not None and used_after > budget_limit:
+        return {
+            **base,
+            "decision": "deny",
+            "reason_code": "privacy_budget_exhausted",
+            "reason": f"privacy budget exhausted ({used_before:g} + {budget_cost:g} > {budget_limit:g})",
+            "abuse_signal": "budget_exhausted",
+        }
+
+    return {
+        **base,
+        "decision": "allow",
+        "reason_code": "privacy_budget_ok",
+        "reason": "privacy budget check passed",
+        "budget_used_after": used_after,
+    }
+
+
+def append_privacy_budget_ledger_record(
+    *,
+    ledger_path: Optional[str],
+    policy_version: str,
+    job_id: Optional[str],
+    caller: str,
+    window: Dict[str, Optional[str]],
+    bucket: Optional[str],
+    value_mode: Optional[str],
+    threshold_k: int,
+    privacy_budget: Dict[str, Any],
+    policy_out: Dict[str, Any],
+    metrics: Dict[str, Optional[int]],
+    public_report_path: str,
+) -> None:
+    if not ledger_path or not privacy_budget.get("enabled"):
+        return
+    consumed = policy_out.get("decision") == "allow" and privacy_budget.get("decision") == "allow"
+    record = {
+        "schema": "privacy_budget_ledger/v1",
+        "ts_utc": utc_now_iso(),
+        "policy_version": policy_version,
+        "job_id": job_id,
+        "correlation_id": job_id,
+        "caller": caller,
+        "window": window,
+        "bucket": bucket,
+        "value_mode": value_mode,
+        "threshold_k": threshold_k,
+        "query_fingerprint": privacy_budget.get("query_fingerprint"),
+        "query_payload_sha256": canonical_query_signature(privacy_budget.get("query_payload") or {}),
+        "decision": policy_out.get("decision"),
+        "reason_code": policy_out.get("reason_code"),
+        "reason": policy_out.get("reason"),
+        "abuse_signal": privacy_budget.get("abuse_signal"),
+        "matched_prior_fingerprint": privacy_budget.get("matched_prior_fingerprint"),
+        "matched_prior_job_id": privacy_budget.get("matched_prior_job_id"),
+        "matched_prior_relation": privacy_budget.get("matched_prior_relation"),
+        "budget": {
+            "limit": privacy_budget.get("budget_limit"),
+            "cost": privacy_budget.get("budget_cost"),
+            "used_before": privacy_budget.get("budget_used_before"),
+            "used_after": privacy_budget.get("budget_used_after") if consumed else privacy_budget.get("budget_used_before"),
+            "consumed": consumed,
+        },
+        "parsed_metrics": metrics,
+        "public_report_sha256": sha256_file(public_report_path) if os.path.exists(public_report_path) else None,
+    }
+    append_jsonl(ledger_path, record)
+
+
 # ---------- auth and anti-replay ----------
 
 @dataclass
@@ -673,9 +907,10 @@ def build_audit_record(
     policy_out: Dict[str, Any],
     auth_result: AuthResult,
     duration_ms: Optional[int],
+    privacy_budget: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
     input_sha256 = sha256_file(input_path)
-    return {
+    record = {
         "ts_utc": utc_now_iso(),
         "event": "policy_release",
         "policy_version": policy_version,
@@ -715,6 +950,9 @@ def build_audit_record(
             "auth_reason_code": auth_result.reason_code,
         },
     }
+    if privacy_budget is not None:
+        record["privacy_budget"] = privacy_budget
+    return record
 
 
 # ---------- main ----------
@@ -735,6 +973,12 @@ def main() -> None:
     ap.add_argument("--max-queries", "--n", dest="max_queries", type=int, default=5)
     ap.add_argument("--round-sum-to", type=int, default=None)
     ap.add_argument("--deny-duplicate-query", action="store_true", help="Deny an exact repeated canonical query signature for the caller")
+    ap.add_argument("--privacy-budget-ledger", default=None,
+                    help="Optional JSONL privacy_budget_ledger/v1 path. Enables budget, duplicate, and overlapping-window checks before release.")
+    ap.add_argument("--privacy-budget-limit", type=float, default=None,
+                    help="Maximum cumulative privacy budget units for this caller in --privacy-budget-ledger.")
+    ap.add_argument("--privacy-budget-cost", type=float, default=1.0,
+                    help="Budget units consumed by an allowed release when --privacy-budget-ledger is enabled.")
 
     # signed result delivery
     ap.add_argument("--result-callback-url", default=None,
@@ -873,6 +1117,7 @@ def main() -> None:
             policy_out=deny_out,
             auth_result=auth_result,
             duration_ms=elapsed_ms(started_at),
+            privacy_budget=privacy_budget_default(),
         )
         append_jsonl(audit_log_path, audit_record)
         print(json.dumps(report, ensure_ascii=False, indent=2))
@@ -880,6 +1125,7 @@ def main() -> None:
 
     caller = auth_result.caller or args.caller or "local_demo"
     rate_limit_out = apply_rate_limit(audit_log_path, caller, window, args.max_queries)
+    privacy_budget_out = privacy_budget_default()
 
     if args.deny_duplicate_query and seen_query_signature(audit_log_path, caller, query_sig):
         policy_out = {
@@ -896,11 +1142,31 @@ def main() -> None:
             "released": None,
         }
     else:
-        policy_out = apply_threshold_policy(
-            metrics, args.threshold_k, args.round_sum_to,
-            dp_epsilon=args.dp_epsilon,
-            dp_sensitivity=args.dp_sensitivity,
+        privacy_budget_out = evaluate_privacy_budget(
+            ledger_path=args.privacy_budget_ledger,
+            caller=caller,
+            job_id=job_id,
+            window=window,
+            bucket=bucket,
+            value_mode=value_mode,
+            threshold_k=args.threshold_k,
+            bridge_meta=bridge_meta,
+            budget_limit=args.privacy_budget_limit,
+            budget_cost=args.privacy_budget_cost,
         )
+        if privacy_budget_out.get("decision") == "deny":
+            policy_out = {
+                "decision": "deny",
+                "reason_code": privacy_budget_out["reason_code"],
+                "reason": privacy_budget_out["reason"],
+                "released": None,
+            }
+        else:
+            policy_out = apply_threshold_policy(
+                metrics, args.threshold_k, args.round_sum_to,
+                dp_epsilon=args.dp_epsilon,
+                dp_sensitivity=args.dp_sensitivity,
+            )
 
     report = build_public_report(
         policy_version=args.policy_version,
@@ -920,6 +1186,21 @@ def main() -> None:
     ensure_dir(os.path.dirname(out_path) or ".")
     with open(out_path, "w", encoding="utf-8") as f:
         json.dump(report, f, ensure_ascii=False, indent=2)
+
+    append_privacy_budget_ledger_record(
+        ledger_path=args.privacy_budget_ledger,
+        policy_version=args.policy_version,
+        job_id=job_id,
+        caller=caller,
+        window=window,
+        bucket=bucket,
+        value_mode=value_mode,
+        threshold_k=args.threshold_k,
+        privacy_budget=privacy_budget_out,
+        policy_out=policy_out,
+        metrics=metrics,
+        public_report_path=out_path,
+    )
 
     audit_record = build_audit_record(
         policy_version=args.policy_version,
@@ -943,6 +1224,7 @@ def main() -> None:
         policy_out=policy_out,
         auth_result=auth_result,
         duration_ms=elapsed_ms(started_at),
+        privacy_budget=privacy_budget_out,
     )
     append_jsonl(audit_log_path, audit_record)
 

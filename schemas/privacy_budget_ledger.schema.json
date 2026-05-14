@@ -1,0 +1,132 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "privacy_budget_ledger/v1",
+  "title": "Privacy budget ledger JSONL record",
+  "type": "object",
+  "required": [
+    "schema",
+    "ts_utc",
+    "policy_version",
+    "job_id",
+    "correlation_id",
+    "caller",
+    "window",
+    "threshold_k",
+    "query_fingerprint",
+    "query_payload_sha256",
+    "decision",
+    "reason_code",
+    "reason",
+    "budget",
+    "parsed_metrics"
+  ],
+  "properties": {
+    "schema": {
+      "const": "privacy_budget_ledger/v1"
+    },
+    "ts_utc": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "policy_version": {
+      "type": "string"
+    },
+    "job_id": {
+      "type": ["string", "null"]
+    },
+    "correlation_id": {
+      "type": ["string", "null"]
+    },
+    "caller": {
+      "type": "string"
+    },
+    "window": {
+      "type": "object"
+    },
+    "bucket": {
+      "type": ["object", "string", "null"]
+    },
+    "value_mode": {
+      "type": ["string", "null"]
+    },
+    "threshold_k": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "query_fingerprint": {
+      "type": ["string", "null"]
+    },
+    "query_payload_sha256": {
+      "type": "string"
+    },
+    "decision": {
+      "enum": ["allow", "deny"]
+    },
+    "reason_code": {
+      "type": "string"
+    },
+    "reason": {
+      "type": "string"
+    },
+    "abuse_signal": {
+      "type": ["string", "null"],
+      "enum": [
+        "exact_duplicate",
+        "near_duplicate_or_differencing",
+        "budget_exhausted",
+        null
+      ]
+    },
+    "matched_prior_fingerprint": {
+      "type": ["string", "null"]
+    },
+    "matched_prior_job_id": {
+      "type": ["string", "null"]
+    },
+    "matched_prior_relation": {
+      "type": ["string", "null"],
+      "enum": [
+        "same",
+        "contains",
+        "contained_by",
+        "overlaps",
+        "disjoint",
+        "unknown",
+        null
+      ]
+    },
+    "budget": {
+      "type": "object",
+      "required": ["limit", "cost", "used_before", "used_after", "consumed"],
+      "properties": {
+        "limit": {
+          "type": ["number", "null"],
+          "minimum": 0
+        },
+        "cost": {
+          "type": ["number", "null"],
+          "exclusiveMinimum": 0
+        },
+        "used_before": {
+          "type": ["number", "null"],
+          "minimum": 0
+        },
+        "used_after": {
+          "type": ["number", "null"],
+          "minimum": 0
+        },
+        "consumed": {
+          "type": "boolean"
+        }
+      },
+      "additionalProperties": false
+    },
+    "parsed_metrics": {
+      "type": "object"
+    },
+    "public_report_sha256": {
+      "type": ["string", "null"]
+    }
+  },
+  "additionalProperties": false
+}

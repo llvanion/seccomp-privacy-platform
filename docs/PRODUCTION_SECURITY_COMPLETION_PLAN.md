@@ -129,6 +129,22 @@ repo-side 已交付：
 
 ### S3. 隐私预算与抗差分查询
 
+状态（2026-05-14）：repo-side 第一版已落地，仍是 `partial`，不标记为三人联合认证完成。
+
+repo-side 已交付：
+
+1. `policy_release.py` 新增可选 `--privacy-budget-ledger`、`--privacy-budget-limit`、`--privacy-budget-cost`。默认不启用，不改变既有 demo / pipeline 行为；显式启用后，release 前会计算不含 `job_id` 的预算查询 fingerprint。
+2. 新增 `privacy_budget_ledger/v1` JSONL 证据：首次合法 release 消耗 budget；exact repeated fingerprint、同 caller/bucket 的重叠/包含窗口、预算耗尽都会在 release 前拒绝，并记录 `abuse_signal`、匹配的 prior job/fingerprint、budget used/cost/limit。
+3. `policy_audit/v1` 新增可选 `privacy_budget` block，记录同一裁决摘要；`public_report.json` 仍只暴露 release/deny 结果和 reason，不公开 ledger 路径或已用预算。
+4. 默认 contract smoke 新增三段断言：首次 release 通过、重复查询被 `privacy_budget_duplicate_query` 拒绝、disjoint window 在 budget limit=1 时被 `privacy_budget_exhausted` 拒绝，并校验 ledger schema。
+
+仍需后续完成：
+
+1. metadata sidecar 的 budget ledger read model / operator 查询入口。
+2. tenant / dataset / purpose 维度的预算配置源，而不是当前 caller-local CLI 参数。
+3. near-duplicate 策略的人工审批分支，以及更丰富的集合包含 / 窗口差分样例。
+4. Person 1 / Person 2 / Person 3 联合认证。
+
 目标：结果发布不只依赖 `k-threshold`、rate limit 和 exact duplicate deny，而是由隐私预算系统统一裁决。
 
 最终状态：

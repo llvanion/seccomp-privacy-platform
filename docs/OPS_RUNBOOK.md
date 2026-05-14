@@ -488,6 +488,33 @@ python3 scripts/check_platform_health.py \
 The probe verifies the expected files exist and parses `a_psi_run/public_report.json` plus `audit_chain.json` when present.
 For completed runs it now also reports whether `audit_chain.json` embeds `mainline_contract_check/v1`, whether that owner-scope contract check is `status=ok`, whether managed server/client handoff artifacts ended in `removed` / `cleaned` state, and a compact `service_audit_consistency` summary that tells you whether the per-role `server` / `client` recovery-service audit path is `ok`, `fail`, or `not_applicable` relative to the matching SSE export audit records for scope fields, join/value fields, filter hashes, record-store path/hash, and output path/hash/row counts.
 
+### Privacy Budget Release Gate
+
+Policy release can optionally write and enforce a local privacy-budget ledger. This is the S3 repo-side first gate; it is disabled unless `--privacy-budget-ledger` is passed.
+
+```bash
+python3 a-psi/moduleA_psi/scripts/policy_release.py \
+  --input tmp/a_psi_run/attribution_result.json \
+  --job-meta tmp/bridge_job/job_meta.json \
+  --out tmp/a_psi_run/public_report.json \
+  --audit-log tmp/a_psi_run/audit_log.jsonl \
+  --caller commerce_ops_demo \
+  --threshold-k 20 \
+  --max-queries 5 \
+  --privacy-budget-ledger tmp/privacy_budget_ledger.jsonl \
+  --privacy-budget-limit 5
+```
+
+When enabled, the gate computes a budget fingerprint that excludes `job_id`, so re-submitting the same query under a new job ID is still treated as the same privacy query. It denies exact repeats, overlapping or containing windows for the same caller/bucket, and exhausted budget before writing an allowed public report. Validate evidence with:
+
+```bash
+python3 scripts/validate_json_contract.py \
+  --schema schemas/privacy_budget_ledger.schema.json \
+  --jsonl tmp/privacy_budget_ledger.jsonl
+```
+
+The policy audit record also carries a `privacy_budget` summary. The public report intentionally does not expose ledger path, budget used, or prior-query identifiers.
+
 ### Bridge Handoff Exposure Assessment
 
 Every completed pipeline run embeds a `handoff_exposure_assessment` object in `mainline_contract_check.json`. Read it to determine whether plaintext bridge-ready rows ever touched disk:

@@ -25,6 +25,8 @@ Production-readiness E follow-up now also records RS256/JWKS OIDC mapping and Op
 
 Production-readiness Category E is now complete as repo-side adapter/deployment artifacts: `docker-compose.authority.yml` starts local Keycloak/OpenFGA/Vault, `config/keycloak_realm_seccomp_privacy.json` imports the Keycloak realm, `scripts/request_oidc_client_credentials.py` provides optional live client-credentials token retrieval, `config/openfga_authorization_model.json` plus `scripts/setup_openfga_model.py` cover OpenFGA model setup, `vault_http_client.py` supports token/AppRole auth through `vault_http_client_config/v1`, `scripts/issue_mtls_certs.py` covers Vault PKI with mock fallback, and `scripts/cloud_kms_adapter.py` plus `secret_ref.kind=aws_kms` provide the cloud-KMS baseline. Default smoke remains offline/dry-run; live validation is explicitly operator-provided.
 
+Production-security S3 now has a repo-side first privacy-budget release gate: `policy_release.py --privacy-budget-ledger` writes `privacy_budget_ledger/v1` JSONL evidence and, when explicitly enabled, denies exact repeated budget fingerprints, same caller/bucket overlapping or containing query windows, and caller-local budget exhaustion before release. The default pipeline remains unchanged unless the ledger flag is passed; `policy_audit/v1` carries an optional `privacy_budget` summary, while `public_report/v2` does not expose ledger paths or prior-query identifiers. Contract smoke covers first release allowed, duplicate query denied, and budget exhausted denial. This is still partial S3 work until metadata read models, tenant/dataset/purpose budgets, approval flow, and three-person certification are completed.
+
 ## Current Security Boundary
 
 Implemented:
@@ -220,6 +222,7 @@ Later competition backlog:
 - Vault HTTP client (E3-a/b): `scripts/vault_http_client.py`; config schema: `schemas/vault_http_client_config.schema.json`; result schema: `schemas/vault_http_client_result.schema.json`; example: `config/vault_http_client.example.json`
 - Vault PKI / mTLS cert issuer (E3-c): `scripts/issue_mtls_certs.py`; config example: `config/vault_pki.example.json`; schema: `schemas/mtls_cert_issue_report.schema.json`
 - Cloud KMS adapter (E3-d): `scripts/cloud_kms_adapter.py`; schema: `schemas/cloud_kms_adapter_result.schema.json`
+- Privacy-budget release gate (S3 partial): `a-psi/moduleA_psi/scripts/policy_release.py --privacy-budget-ledger`; schema: `schemas/privacy_budget_ledger.schema.json`; audit extension: `schemas/policy_audit.schema.json`
 - Local authority stack (E1-a/E2/E3): `docker-compose.authority.yml` (Keycloak/OpenFGA/Vault); Keycloak realm: `config/keycloak_realm_seccomp_privacy.json`
 - PostgreSQL driver layer (F1-a): `scripts/metadata_db.py` — `connect_db(dsn=…)`, `is_postgres`, `placeholder`, `adapt_sql`, `row_to_dict`, `connect_db_with_retry`; `init/import/query/manage/metadata API --db-dsn`, query/audit/platform-health API `--metadata-db-dsn`, `benchmark_read_adapters.py --db-dsn`
 - PostgreSQL HA topology (F2-a repo-side): `scripts/render_postgres_ha_topology.py`; schema: `schemas/postgres_ha_topology_report.schema.json`; checked-in example dir: `config/postgres-ha/`
