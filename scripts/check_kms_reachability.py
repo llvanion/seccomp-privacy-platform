@@ -88,7 +88,8 @@ def _check_http_endpoint(name: str, url: str, kind: str, *, timeout: int = 5) ->
     t0 = time.monotonic()
     try:
         req = urllib.request.Request(url, method="GET")
-        with urllib.request.urlopen(req, timeout=timeout) as resp:
+        opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+        with opener.open(req, timeout=timeout) as resp:
             _ = resp.read()
             return {
                 "backend_name": name,
@@ -161,7 +162,7 @@ def _check_external_kms(path: str) -> dict[str, Any]:
                 "latency_ms": None,
                 "checked_ref": path,
             }
-        base_url = str(config.get("base_url") or "").rstrip("/")
+        base_url = str(config.get("base_url") or config.get("endpoint_url") or "").rstrip("/")
         if not base_url:
             return {
                 "backend_name": path,
@@ -235,6 +236,126 @@ def _check_vault_http(config_path: str) -> dict[str, Any]:
         }
 
 
+PRODUCTION_KEYRING_BACKEND_KINDS = {"vault_http", "aws_kms"}
+PRODUCTION_REACHABLE_BACKEND_KINDS = {"vault_http", "external_kms_http"}
+
+
+def _evaluate_production_findings(
+    args: argparse.Namespace,
+    checks: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """S2 production gate: secret material must be sourced from a real KMS backend.
+
+    Constraints enforced when --production-mode is set:
+      P1 — at least one live KMS/Vault HTTP reachability check must succeed.
+           env_var, vault_kv_file, keyring-only, and skipped HTTP configs are
+           local fixtures or references, not production reachability evidence.
+      P2 — every keyring file passed via --keyring must reference at least one
+           live-capable secret backend (vault_http / aws_kms) for its active
+           key version. A keyring whose every active version still
+           resolves to `secret_ref.kind=env` is a development fixture.
+    """
+    findings: list[dict[str, Any]] = []
+    reachable_real_backend = [
+        check
+        for check in checks
+        if check.get("backend_kind") in PRODUCTION_REACHABLE_BACKEND_KINDS
+        and check.get("reachable") is True
+    ]
+    if not reachable_real_backend:
+        findings.append(
+            {
+                "kind": "production_no_reachable_real_kms_backend",
+                "message": (
+                    "production-mode requires at least one reachable live KMS/Vault HTTP backend; "
+                    "env_var, vault_kv_file, keyring-only, and skipped HTTP configs are local "
+                    "fixtures or references"
+                ),
+                "ref": None,
+            }
+        )
+
+    for check in checks:
+        if (
+            check.get("backend_kind") in PRODUCTION_REACHABLE_BACKEND_KINDS
+            and check.get("status") == "skipped"
+        ):
+            findings.append(
+                {
+                    "kind": "production_real_kms_config_skipped",
+                    "message": (
+                        f"production-mode cannot accept skipped {check.get('backend_kind')} "
+                        f"config: {check.get('detail')}"
+                    ),
+                    "ref": check.get("checked_ref"),
+                }
+            )
+
+    for keyring_path in (args.keyring or []):
+        try:
+            payload = json.loads(Path(keyring_path).read_text(encoding="utf-8"))
+        except FileNotFoundError:
+            findings.append(
+                {
+                    "kind": "production_keyring_unreadable",
+                    "message": f"production-mode could not read keyring at {keyring_path}",
+                    "ref": keyring_path,
+                }
+            )
+            continue
+        except Exception as exc:
+            findings.append(
+                {
+                    "kind": "production_keyring_unreadable",
+                    "message": f"production-mode could not parse keyring at {keyring_path}: {exc}",
+                    "ref": keyring_path,
+                }
+            )
+            continue
+
+        keys = payload.get("keys") or {}
+        if not isinstance(keys, dict) or not keys:
+            findings.append(
+                {
+                    "kind": "production_keyring_no_real_kms_backed_key",
+                    "message": f"production-mode keyring {keyring_path} has no keys",
+                    "ref": keyring_path,
+                }
+            )
+            continue
+
+        real_backed = []
+        for key_name, key_entry in keys.items():
+            if not isinstance(key_entry, dict):
+                continue
+            active_version = key_entry.get("active_version")
+            versions = key_entry.get("versions") or {}
+            if not isinstance(versions, dict):
+                continue
+            version_entry = versions.get(active_version) if active_version else None
+            if not isinstance(version_entry, dict):
+                continue
+            secret_ref = version_entry.get("secret_ref") or {}
+            if not isinstance(secret_ref, dict):
+                continue
+            if secret_ref.get("kind") in PRODUCTION_KEYRING_BACKEND_KINDS:
+                real_backed.append(key_name)
+
+        if not real_backed:
+            findings.append(
+                {
+                    "kind": "production_keyring_no_real_kms_backed_key",
+                    "message": (
+                        f"production-mode keyring {keyring_path} has no active key version "
+                        f"with secret_ref.kind in {sorted(PRODUCTION_KEYRING_BACKEND_KINDS)}"
+                    ),
+                    "ref": keyring_path,
+                }
+            )
+
+    return findings
+
+
 def run_checks(args: argparse.Namespace) -> dict[str, Any]:
     checks: list[dict[str, Any]] = []
 
@@ -266,7 +387,13 @@ def run_checks(args: argparse.Namespace) -> dict[str, Any]:
     else:
         overall = "error"
 
-    return {
+    production_findings: list[dict[str, Any]] = []
+    if args.production_mode:
+        production_findings = _evaluate_production_findings(args, checks)
+        if production_findings:
+            overall = "error"
+
+    report: dict[str, Any] = {
         "schema": REPORT_SCHEMA,
         "generated_at_utc": _utc_now(),
         "overall_status": overall,
@@ -275,6 +402,10 @@ def run_checks(args: argparse.Namespace) -> dict[str, Any]:
         "unreachable_count": unreachable,
         "checks": checks,
     }
+    if args.production_mode:
+        report["production_mode"] = True
+        report["production_findings"] = production_findings
+    return report
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -291,6 +422,16 @@ def build_parser() -> argparse.ArgumentParser:
                     help="Environment variable name that must be non-empty (can repeat)")
     ap.add_argument("--output", default="", help="Write JSON report to this path (default: stdout)")
     ap.add_argument("--assert-ok", action="store_true", help="Exit non-zero if overall_status is not ok")
+    ap.add_argument(
+        "--production-mode",
+        action="store_true",
+        help=(
+            "S2 production gate: require a reachable live-capable KMS/Vault HTTP backend. "
+            "Adds production_findings and forces overall_status=error on any production "
+            "constraint violation (env/local-only fixtures, skipped HTTP configs, or keyrings "
+            "whose active versions do not reference vault_http/aws_kms)."
+        ),
+    )
     return ap
 
 

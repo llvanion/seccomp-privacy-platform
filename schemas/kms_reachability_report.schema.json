@@ -32,6 +32,28 @@
         },
         "additionalProperties": false
       }
+    },
+    "production_mode": { "type": "boolean" },
+    "production_findings": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["kind", "message"],
+        "properties": {
+          "kind": {
+            "enum": [
+              "production_only_env_var_backends",
+              "production_no_reachable_real_kms_backend",
+              "production_real_kms_config_skipped",
+              "production_keyring_no_real_kms_backed_key",
+              "production_keyring_unreadable"
+            ]
+          },
+          "message": { "type": "string", "minLength": 1 },
+          "ref": { "type": ["string", "null"] }
+        },
+        "additionalProperties": false
+      }
     }
   },
   "additionalProperties": false

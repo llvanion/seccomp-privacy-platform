@@ -40,6 +40,23 @@ SSE candidate export -> controlled record recovery -> Rust bridge tokenization -
 
 ### S1. 消除明文 handoff 落盘
 
+状态（2026-05-14）：repo-side 闭环已完成，等待跨机环境的 Person 2 / Person 3 联合认证。
+
+repo-side 已交付：
+
+1. `scripts/check_mainline_contract.py` 新增 `--production-mode` 闸门：当 `handoff_exposure_assessment.plaintext_exposure_risk == "elevated"` 时直接产生 `production_handoff_plaintext_elevated` finding，`status=fail`，且在生产模式下 `--allow-retained-managed-handoff` 不再生效（`effective_allow_retained = allow and not production_mode`）。
+2. `mainline_contract_check.json` 顶层新增 `production_mode: bool` 字段并写入 `schemas/mainline_contract_check.schema.json` 与 `config/schema_backcompat_baseline.json` 的 `stable_properties`，向后兼容。
+3. `scripts/run_sse_bridge_pipeline.sh` 的 `--production-mode`：原已禁止 `--token-secret`，新增禁止 `--keep-sse-export-handoff-files`（参数校验阶段直接 `die`），并自动透传 `--production-mode` 给 mainline contract checker。
+4. `scripts/verify_production_handoff_gate.sh` 提供三条断言：FIFO/removed bundle 通过、file/retained bundle 被生产闸门拒绝（含 `production_handoff_plaintext_elevated`）、pipeline 入口在 production-mode 下连配置都拒绝。
+5. evidence：`tmp/production_handoff_gate_evidence/{positive,negative}_contract_check.json` + `negative_arg_pipeline.log`。
+6. 文档：本文件、`docs/BRIDGE_HANDOFF_HARDENING_PLAN.md` Phase 3、`docs/OPS_RUNBOOK.md` 已同步。
+
+仍需 operator-side：
+
+1. 真实跨机 / 服务身份传输（对齐 Phase 4 / S7）。
+2. 落盘加密 artifact 的 KEK 路径（对齐 S2 与 KMS 完整闭环）。
+3. 三人联合认证签字（按下方表格）。
+
 目标：`record recovery -> bridge -> PJC` 之间不再依赖长期存在的 `server.csv` / `client.csv` 明文中间文件。
 
 最终状态：
@@ -74,6 +91,8 @@ SSE candidate export -> controlled record recovery -> Rust bridge tokenization -
 | Person 3 | 明文 retained 反例被拒绝，审计证据完整 |
 
 ### S2. 正式 KMS 与密钥生命周期
+
+状态（2026-05-14）：repo-side 生产闸门已收紧。`check_kms_reachability.py --production-mode` 不再把 keyring 文件、`vault_kv` 本地 fixture 或缺少 endpoint 的 skipped config 当成生产证据；必须至少有一个 `vault_http` 或 `external_kms_http` 探活结果真实可达，且 keyring active 版本只能引用 `vault_http` / `aws_kms` 这类 live-capable 后端。`scripts/verify_production_kms_gate.sh` 覆盖 reachable positive、env-only、env-keyring、skipped HTTP config 和 `vault_kv` fixture keyring 反例。
 
 目标：生产路径不再依赖本地环境变量作为 token secret、record encryption key 或 audit seal key 的可信根。
 
@@ -214,6 +233,8 @@ SSE candidate export -> controlled record recovery -> Rust bridge tokenization -
 | Person 3 | 普通 caller 无法获得细粒度规模侧信道 |
 
 ### S6. 外部不可篡改审计
+
+状态（2026-05-14）：repo-side 生产闸门已修正为先拒绝再写入。`publish_external_audit_anchor.py --production-mode --sink-kind file_ledger` 会在本地 ledger append 前产生 `production_file_ledger_not_external`，`summary.status=fail`，并保持 disallowed local sink 不被创建或追加；`scripts/verify_external_audit_anchor_gate.sh` 已加入“生产 file_ledger 不落本地账本”的反例断言。
 
 目标：audit chain 不只在本地可验证，还能被外部不可变存储或透明日志验证。
 

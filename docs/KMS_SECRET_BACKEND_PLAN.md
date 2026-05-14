@@ -362,8 +362,8 @@ KMS 不负责：
 
 1. 将 secret material 从本地 env 挪到 Vault 或真实 KMS
 2. resolver 不再依赖本地 state file 存真实 secret source
-3. `--production-mode` 下禁止裸 `--token-secret` 作为完成路径
-4. key access、rotation、revocation、disabled-version refusal 必须进入审计证据包
+3. `--production-mode` 下禁止裸 `--token-secret` 作为完成路径 ✓ repo-side（2026-05-14）：`scripts/run_sse_bridge_pipeline.sh --production-mode` 在参数校验阶段 `die`；`scripts/check_kms_reachability.py --production-mode` 现在要求至少一个 `vault_http` 或 `external_kms_http` 探活结果真实可达。只有本地 env、`vault_kv_file`、keyring-only、缺少 endpoint 的 skipped HTTP config，或 active `secret_ref.kind=vault_kv` 的本地 fixture keyring 都会返回 `overall_status=error` 与 `production_findings`。
+4. key access、rotation、revocation、disabled-version refusal 必须进入审计证据包 ⏳ repo-side：`schemas/key_access_audit.schema.json` 已扩展 optional `tenant_id` / `dataset_id`，`resolve_key_access.py` 直接写入；revocation/disabled-version refusal 的 e2e 反例仍归 operator-side。
 
 目标：
 
@@ -371,6 +371,14 @@ KMS 不负责：
 2. access audit 可集中留存
 3. 更适合多实例服务部署
 4. 生产报告只引用 `--token-secret-key-name` + real KMS/Vault/cloud KMS 证据，不引用裸 env 作为生产证明
+
+repo-side 闸门（2026-05-14）：
+
+1. `scripts/check_kms_reachability.py --production-mode` 强制至少一个 live-capable HTTP 后端探活成功（`vault_http` 或 `external_kms_http`），并且 keyring active 版本只能把 `{vault_http, aws_kms}` 作为生产 KMS 引用；`vault_kv` 明确是本地 compatibility fixture，不能作为生产后端。否则 `production_findings` 非空、`overall_status=error`、`--assert-ok` 非零。
+2. `config/keyring.production.example.json` 是生产引用示例（`vault_http` + `aws_kms`）；通过闸门时仍必须同时提供真实可达的 `--vault-http-config` 或 `--external-kms-config` 证据。
+3. `scripts/verify_production_kms_gate.sh` 维护五条断言（生产 keyring + reachable HTTP 后端通过、env-only 拒绝、env-keyring 拒绝、skipped HTTP config 拒绝、active `vault_kv` keyring fixture 拒绝），证据写入 `tmp/production_kms_gate_evidence/`。
+
+`S2` 完整完成仍需要：真实 Vault / AWS KMS 凭据下的 live reachability drill、disabled-key-version 反例的 e2e 拒绝证据，以及三人联合认证签字。
 
 ### Phase 4：评估 remote tokenization
 

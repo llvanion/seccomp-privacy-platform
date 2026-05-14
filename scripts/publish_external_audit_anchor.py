@@ -447,6 +447,16 @@ def main() -> int:
             "the transparency log). Without --execute, both paths stay in planned status."
         ),
     )
+    ap.add_argument(
+        "--production-mode",
+        action="store_true",
+        help=(
+            "S6 production gate: file_ledger sinks are rejected as the sole anchor target, "
+            "--execute must be set, and s3_worm/rekor sinks must finish in 'uploaded' status. "
+            "Adds production_mode/production_findings to the report and forces summary.status=fail "
+            "on any production constraint violation."
+        ),
+    )
     args = ap.parse_args()
 
     tenant_id: str | None = None
@@ -492,9 +502,41 @@ def main() -> int:
         "path": sink_path_display,
         "tenant_id": tenant_id,
     }
+    production_findings: list[dict[str, Any]] = []
+    if args.production_mode:
+        if args.sink_kind == "file_ledger":
+            production_findings.append(
+                {
+                    "kind": "production_file_ledger_not_external",
+                    "message": (
+                        "production-mode rejects file_ledger as the sole anchor sink; "
+                        "use --sink-kind s3_worm or --sink-kind rekor for external immutability"
+                    ),
+                    "ref": sink_path_display,
+                }
+            )
+        if args.dry_run:
+            production_findings.append(
+                {
+                    "kind": "production_dry_run_not_allowed",
+                    "message": "production-mode rejects --dry-run; the anchor must actually publish",
+                    "ref": None,
+                }
+            )
+        if not args.execute and args.sink_kind in ("s3_worm", "rekor"):
+            production_findings.append(
+                {
+                    "kind": "production_execute_required",
+                    "message": (
+                        f"production-mode requires --execute for sink_kind={args.sink_kind}; "
+                        "planned status cannot satisfy production gate"
+                    ),
+                    "ref": None,
+                }
+            )
 
     if args.sink_kind == "file_ledger":
-        if not args.dry_run and records and ledger_path is not None:
+        if not args.production_mode and not args.dry_run and records and ledger_path is not None:
             published_count = append_external_ledger(ledger_path, records, tenant_id=tenant_id)
     elif args.sink_kind == "s3_worm":
         retain_until_dt = _dt.datetime.now(_dt.timezone.utc) + _dt.timedelta(days=args.retain_days)
@@ -607,6 +649,37 @@ def main() -> int:
         rekor_status = sink_block.get("rekor_transparency_log", {}).get("status")
         if rekor_status == "error":
             status = "fail"
+
+    if args.production_mode:
+        if args.sink_kind == "s3_worm":
+            s3_status = sink_block.get("s3_object_lock", {}).get("status")
+            if s3_status != "uploaded":
+                production_findings.append(
+                    {
+                        "kind": "production_external_anchor_not_uploaded",
+                        "message": (
+                            f"production-mode requires s3_object_lock.status='uploaded'; got "
+                            f"status={s3_status!r}"
+                        ),
+                        "ref": sink_path_display,
+                    }
+                )
+        elif args.sink_kind == "rekor":
+            rekor_status = sink_block.get("rekor_transparency_log", {}).get("status")
+            if rekor_status != "uploaded":
+                production_findings.append(
+                    {
+                        "kind": "production_external_anchor_not_uploaded",
+                        "message": (
+                            f"production-mode requires rekor_transparency_log.status='uploaded'; got "
+                            f"status={rekor_status!r}"
+                        ),
+                        "ref": sink_path_display,
+                    }
+                )
+        if production_findings:
+            status = "fail"
+
     summary = {
         "status": status,
         "anchor_record_count": len(records),
@@ -616,7 +689,7 @@ def main() -> int:
         "last_entry_sha256": records[-1]["entry_sha256"] if records else None,
         "tenant_id": tenant_id,
     }
-    report = {
+    report: dict[str, Any] = {
         "schema": SCHEMA_ID,
         "generated_at_utc": utc_now_iso(),
         "source_anchor_file": str(anchor_path),
@@ -626,6 +699,9 @@ def main() -> int:
         "summary": summary,
         "records": records,
     }
+    if args.production_mode:
+        report["production_mode"] = True
+        report["production_findings"] = production_findings
     text = json.dumps(report, ensure_ascii=False, indent=2)
     if args.output:
         output_path = Path(args.output)
