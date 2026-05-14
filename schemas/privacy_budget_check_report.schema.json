@@ -1,0 +1,136 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "privacy_budget_check_report/v1",
+  "title": "Privacy budget ledger check report",
+  "type": "object",
+  "required": [
+    "schema",
+    "generated_at_utc",
+    "ledger_path",
+    "status",
+    "summary",
+    "errors"
+  ],
+  "properties": {
+    "schema": {
+      "const": "privacy_budget_check_report/v1"
+    },
+    "generated_at_utc": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "ledger_path": {
+      "type": "string"
+    },
+    "caller_filter": {
+      "type": ["string", "null"]
+    },
+    "status": {
+      "enum": ["ok", "error"]
+    },
+    "summary": {
+      "type": "object",
+      "required": [
+        "total_records",
+        "decision_counts",
+        "reason_code_counts",
+        "abuse_signal_counts",
+        "caller_count",
+        "callers",
+        "finding_count",
+        "findings"
+      ],
+      "properties": {
+        "total_records": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "decision_counts": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "integer",
+            "minimum": 0
+          }
+        },
+        "reason_code_counts": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "integer",
+            "minimum": 0
+          }
+        },
+        "abuse_signal_counts": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "integer",
+            "minimum": 0
+          }
+        },
+        "caller_count": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "callers": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "object",
+            "required": [
+              "record_count",
+              "allow_count",
+              "deny_count",
+              "consumed_count",
+              "budget_cost_total",
+              "latest_used_after"
+            ],
+            "properties": {
+              "record_count": {"type": "integer", "minimum": 0},
+              "allow_count": {"type": "integer", "minimum": 0},
+              "deny_count": {"type": "integer", "minimum": 0},
+              "consumed_count": {"type": "integer", "minimum": 0},
+              "budget_cost_total": {"type": "number", "minimum": 0},
+              "latest_used_after": {"type": ["number", "null"], "minimum": 0}
+            },
+            "additionalProperties": false
+          }
+        },
+        "finding_count": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "findings": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "job_id",
+              "caller",
+              "decision",
+              "reason_code",
+              "abuse_signal",
+              "matched_prior_job_id",
+              "matched_prior_relation"
+            ],
+            "properties": {
+              "job_id": {"type": ["string", "null"]},
+              "caller": {"type": ["string", "null"]},
+              "decision": {"type": ["string", "null"]},
+              "reason_code": {"type": ["string", "null"]},
+              "abuse_signal": {"type": ["string", "null"]},
+              "matched_prior_job_id": {"type": ["string", "null"]},
+              "matched_prior_relation": {"type": ["string", "null"]}
+            },
+            "additionalProperties": false
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "errors": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    }
+  },
+  "additionalProperties": false
+}

@@ -60,6 +60,7 @@ SCHEMAS=(
   "$REPO_ROOT/schemas/public_report.schema.json"
   "$REPO_ROOT/schemas/policy_audit.schema.json"
   "$REPO_ROOT/schemas/privacy_budget_ledger.schema.json"
+  "$REPO_ROOT/schemas/privacy_budget_check_report.schema.json"
   "$REPO_ROOT/schemas/audit_chain.schema.json"
   "$REPO_ROOT/schemas/audit_archive_index.schema.json"
   "$REPO_ROOT/schemas/audit_archive_anchor.schema.json"
@@ -814,8 +815,17 @@ python3 "$VALIDATOR" --schema "$REPO_ROOT/schemas/public_report.schema.json" --j
 python3 "$VALIDATOR" --schema "$REPO_ROOT/schemas/public_report.schema.json" --json "$tmp/privacy_budget_report_3.json"
 python3 "$VALIDATOR" --schema "$REPO_ROOT/schemas/policy_audit.schema.json" --jsonl "$tmp/privacy_budget_policy_audit.jsonl"
 python3 "$VALIDATOR" --schema "$REPO_ROOT/schemas/privacy_budget_ledger.schema.json" --jsonl "$tmp/privacy_budget_ledger.jsonl"
+python3 "$REPO_ROOT/scripts/check_privacy_budget.py" \
+  --ledger "$tmp/privacy_budget_ledger.jsonl" \
+  --expect-consumed-min 1 \
+  --expect-deny-reason privacy_budget_duplicate_query \
+  --expect-deny-reason privacy_budget_exhausted \
+  --output "$tmp/privacy_budget_check_report.json" \
+  > /dev/null
+python3 "$VALIDATOR" --schema "$REPO_ROOT/schemas/privacy_budget_check_report.schema.json" --json "$tmp/privacy_budget_check_report.json"
 python3 -c 'import json, sys; reports=[json.load(open(p, "r", encoding="utf-8")) for p in sys.argv[1:4]]; assert reports[0]["released"] is True, reports[0]; assert reports[1]["released"] is False and reports[1]["reason_code"] == "privacy_budget_duplicate_query", reports[1]; assert reports[2]["released"] is False and reports[2]["reason_code"] == "privacy_budget_exhausted", reports[2]' "$tmp/privacy_budget_report_1.json" "$tmp/privacy_budget_report_2.json" "$tmp/privacy_budget_report_3.json"
 python3 -c 'import json, sys; rows=[json.loads(line) for line in open(sys.argv[1], "r", encoding="utf-8") if line.strip()]; assert len(rows) == 3, rows; assert rows[0]["budget"]["consumed"] is True, rows; assert rows[1]["abuse_signal"] == "exact_duplicate" and rows[1]["budget"]["consumed"] is False, rows[1]; assert rows[2]["abuse_signal"] == "budget_exhausted" and rows[2]["budget"]["consumed"] is False, rows[2]' "$tmp/privacy_budget_ledger.jsonl"
+python3 -c 'import json, sys; payload=json.load(open(sys.argv[1], "r", encoding="utf-8")); summary=payload["summary"]; assert payload["status"] == "ok", payload; assert summary["total_records"] == 3, summary; assert summary["decision_counts"]["allow"] == 1 and summary["decision_counts"]["deny"] == 2, summary; assert summary["reason_code_counts"]["privacy_budget_duplicate_query"] == 1, summary; assert summary["reason_code_counts"]["privacy_budget_exhausted"] == 1, summary; assert summary["callers"]["privacy_budget_demo"]["consumed_count"] == 1, summary' "$tmp/privacy_budget_check_report.json"
 python3 "$VALIDATOR" --schema "$REPO_ROOT/schemas/key_access_audit.schema.json" --jsonl "$tmp/key_access_audit.jsonl"
 python3 "$VALIDATOR" --schema "$REPO_ROOT/schemas/key_access_audit.schema.json" --jsonl "$tmp/external_key_access_audit.jsonl"
 python3 "$VALIDATOR" --schema "$REPO_ROOT/schemas/key_access_audit.schema.json" --jsonl "$tmp/key_agent_vault_access_audit.jsonl"

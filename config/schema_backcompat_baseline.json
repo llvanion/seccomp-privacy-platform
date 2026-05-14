@@ -127,6 +127,27 @@
       ]
     },
     {
+      "path": "schemas/privacy_budget_check_report.schema.json",
+      "schema_id": "privacy_budget_check_report/v1",
+      "required": [
+        "schema",
+        "generated_at_utc",
+        "ledger_path",
+        "status",
+        "summary",
+        "errors"
+      ],
+      "stable_properties": [
+        "schema",
+        "generated_at_utc",
+        "ledger_path",
+        "caller_filter",
+        "status",
+        "summary",
+        "errors"
+      ]
+    },
+    {
       "path": "schemas/pipeline_observability.schema.json",
       "schema_id": "pipeline_observability/v1",
       "required": [

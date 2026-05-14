@@ -513,6 +513,17 @@ python3 scripts/validate_json_contract.py \
   --jsonl tmp/privacy_budget_ledger.jsonl
 ```
 
+Summarize the ledger and assert expected deny paths with:
+
+```bash
+python3 scripts/check_privacy_budget.py \
+  --ledger tmp/privacy_budget_ledger.jsonl \
+  --expect-consumed-min 1 \
+  --expect-deny-reason privacy_budget_duplicate_query \
+  --expect-deny-reason privacy_budget_exhausted \
+  --output tmp/privacy_budget_check_report.json
+```
+
 The policy audit record also carries a `privacy_budget` summary. The public report intentionally does not expose ledger path, budget used, or prior-query identifiers.
 
 ### Bridge Handoff Exposure Assessment

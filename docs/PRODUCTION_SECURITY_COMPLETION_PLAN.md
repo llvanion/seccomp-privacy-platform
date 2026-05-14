@@ -136,7 +136,8 @@ repo-side 已交付：
 1. `policy_release.py` 新增可选 `--privacy-budget-ledger`、`--privacy-budget-limit`、`--privacy-budget-cost`。默认不启用，不改变既有 demo / pipeline 行为；显式启用后，release 前会计算不含 `job_id` 的预算查询 fingerprint。
 2. 新增 `privacy_budget_ledger/v1` JSONL 证据：首次合法 release 消耗 budget；exact repeated fingerprint、同 caller/bucket 的重叠/包含窗口、预算耗尽都会在 release 前拒绝，并记录 `abuse_signal`、匹配的 prior job/fingerprint、budget used/cost/limit。
 3. `policy_audit/v1` 新增可选 `privacy_budget` block，记录同一裁决摘要；`public_report.json` 仍只暴露 release/deny 结果和 reason，不公开 ledger 路径或已用预算。
-4. 默认 contract smoke 新增三段断言：首次 release 通过、重复查询被 `privacy_budget_duplicate_query` 拒绝、disjoint window 在 budget limit=1 时被 `privacy_budget_exhausted` 拒绝，并校验 ledger schema。
+4. `scripts/check_privacy_budget.py` 输出 `privacy_budget_check_report/v1`，用于只读汇总 ledger、按 caller 查看 consumed/deny 计数，并断言 expected deny reason。
+5. 默认 contract smoke 新增三段断言：首次 release 通过、重复查询被 `privacy_budget_duplicate_query` 拒绝、disjoint window 在 budget limit=1 时被 `privacy_budget_exhausted` 拒绝，并校验 ledger 和 check-report schema。
 
 仍需后续完成：
 

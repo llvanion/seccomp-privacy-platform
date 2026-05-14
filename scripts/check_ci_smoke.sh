@@ -92,6 +92,7 @@ python3 -m py_compile \
   scripts/write_pjc_audit.py \
   scripts/check_malformed_input_gate.py \
   scripts/check_pre_release_gate.py \
+  scripts/check_privacy_budget.py \
   scripts/check_authority_governance.py \
   scripts/check_operator_readiness.py \
   scripts/api_identity.py \
