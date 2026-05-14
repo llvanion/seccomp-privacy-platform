@@ -578,7 +578,7 @@ python3 scripts/build_observability_dashboard.py \
 当前实现边界：
 
 1. 这是 `phase-1 local baseline`，不是最终的 operator product shell
-2. Job Setup 仍然是 request-file centric，而不是字段级 query builder
+2. Job Setup 已新增字段级 query builder，会从 source/join/value/filter/token/scope/threshold/handoff 控件组装 inline `query_workflow_request/v1`；request-file 模式仍保留给 durable relaunch 和手工 fixture
 3. live stage 进度当前主要依赖 live sidecar / artifact presence heuristic；更强的 durable workflow 与 telemetry 仍在 `B12-B14`
 
 本轮验证：

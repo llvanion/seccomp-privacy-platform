@@ -57,6 +57,11 @@ def _get(url: str, *, timeout: float = 10.0) -> dict[str, Any]:
         return json.loads(r.read().decode())
 
 
+def _get_text(url: str, *, timeout: float = 10.0) -> str:
+    with _opener().open(url, timeout=timeout) as r:
+        return r.read().decode()
+
+
 def _post(url: str, body: dict[str, Any], *, timeout: float = 10.0) -> tuple[int, dict[str, Any]]:
     data = json.dumps(body, ensure_ascii=False).encode()
     req = Request(url, data=data, method="POST", headers={"Content-Type": "application/json"})
@@ -155,8 +160,16 @@ def run_regression(*, out_dir: Path, output_path: str) -> dict[str, Any]:
             health = _get(f"{base_url}/healthz")
             _assert(checks, "dashboard_server_starts", health.get("status") == "ok",
                     f"status={health.get('status')}")
+            html = _get_text(f"{base_url}/", timeout=5.0)
+            _assert(
+                checks,
+                "job_setup_field_builder_present",
+                "builder_server_source" in html and "buildInlineQueryRequest" in html and "request_mode" in html,
+                "field-builder controls found" if "builder_server_source" in html else "field-builder controls missing",
+            )
         except Exception as exc:
             _check(checks, "dashboard_server_starts", status="fail", detail=str(exc))
+            _check(checks, "job_setup_field_builder_present", status="skip", detail="dashboard unavailable")
             return _build_report(checks, job_id=job_id, out_base=out_base, port=dashboard_port, t0=t0)
 
         # ── Check 2: POST /v1/jobs/start ─────────────────────────────────────

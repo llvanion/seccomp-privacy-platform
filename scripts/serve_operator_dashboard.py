@@ -171,8 +171,12 @@ tr:last-child td{border-bottom:none}
 .job-form{display:grid;gap:10px}
 .field{display:grid;gap:4px}
 .field label{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.5px}
-.field input{width:100%;background:#0a1118;border:1px solid var(--line);color:var(--text);
+.field input,.field select{width:100%;background:#0a1118;border:1px solid var(--line);color:var(--text);
   border-radius:10px;padding:10px 12px;font:12px/1.4 var(--mono)}
+.builder-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+@media(max-width:700px){.builder-grid{grid-template-columns:1fr}}
+.check-field{display:flex;gap:8px;align-items:center;color:var(--muted);font-size:11px}
+.check-field input{accent-color:var(--acc)}
 .actions{display:flex;gap:8px;flex-wrap:wrap}
 .btn{background:linear-gradient(135deg, var(--acc), var(--acc2));color:#06111f;border:none;
   border-radius:10px;padding:10px 14px;font:12px/1 var(--font);font-weight:800;cursor:pointer;
@@ -439,6 +443,13 @@ function renderJobSetup(job){
     <div class="subtle" style="margin-bottom:10px">Admin launch path. This X-UI shell still reuses the frozen <code>query_workflow_request/v1</code> contract instead of inventing a second control plane.</div>
     <div class="job-form">
       <div class="field">
+        <label for="request_mode">Start Mode</label>
+        <select id="request_mode" onchange="toggleRequestMode()">
+          <option value="builder">Field Builder</option>
+          <option value="file">Request File</option>
+        </select>
+      </div>
+      <div class="field">
         <label for="request_file">Request File</label>
         <input id="request_file" value="docs/examples/query_request.json" spellcheck="false">
       </div>
@@ -450,6 +461,99 @@ function renderJobSetup(job){
         <label for="out_base_override">Out Base Override</label>
         <input id="out_base_override" value="${outBase}" spellcheck="false" placeholder="/abs/path/or/repo-relative">
       </div>
+      <div id="builder_fields" class="builder-grid">
+        <div class="field">
+          <label for="builder_server_source">Server Source</label>
+          <input id="builder_server_source" value="sse/examples/bridge_server_records.jsonl" spellcheck="false">
+        </div>
+        <div class="field">
+          <label for="builder_client_source">Client Source</label>
+          <input id="builder_client_source" value="sse/examples/bridge_client_records.jsonl" spellcheck="false">
+        </div>
+        <div class="field">
+          <label for="builder_server_join_key">Server Join Key</label>
+          <input id="builder_server_join_key" value="email" spellcheck="false">
+        </div>
+        <div class="field">
+          <label for="builder_client_join_key">Client Join Key</label>
+          <input id="builder_client_join_key" value="email" spellcheck="false">
+        </div>
+        <div class="field">
+          <label for="builder_client_value_field">Client Value Field</label>
+          <input id="builder_client_value_field" value="amount" spellcheck="false">
+        </div>
+        <div class="field">
+          <label for="builder_client_value_mode">Client Value Mode</label>
+          <select id="builder_client_value_mode">
+            <option value="raw-int">raw-int</option>
+          </select>
+        </div>
+        <div class="field">
+          <label for="builder_server_normalizer">Server Normalizer</label>
+          <select id="builder_server_normalizer">
+            <option value="email">email</option>
+          </select>
+        </div>
+        <div class="field">
+          <label for="builder_client_normalizer">Client Normalizer</label>
+          <select id="builder_client_normalizer">
+            <option value="email">email</option>
+          </select>
+        </div>
+        <div class="field">
+          <label for="builder_server_filters">Server Filters</label>
+          <input id="builder_server_filters" value="campaign=demo" spellcheck="false">
+        </div>
+        <div class="field">
+          <label for="builder_client_filters">Client Filters</label>
+          <input id="builder_client_filters" value="campaign=demo" spellcheck="false">
+        </div>
+        <div class="field">
+          <label for="builder_token_scope">Token Scope</label>
+          <input id="builder_token_scope" value="query-demo-scope" spellcheck="false">
+        </div>
+        <div class="field">
+          <label for="builder_token_secret">Token Secret</label>
+          <input id="builder_token_secret" value="local-dev-secret" spellcheck="false">
+        </div>
+        <div class="field">
+          <label for="builder_caller">Caller</label>
+          <input id="builder_caller" value="auto_demo" spellcheck="false">
+        </div>
+        <div class="field">
+          <label for="builder_tenant_id">Tenant ID</label>
+          <input id="builder_tenant_id" value="demo_tenant" spellcheck="false">
+        </div>
+        <div class="field">
+          <label for="builder_dataset_id">Dataset ID</label>
+          <input id="builder_dataset_id" value="bridge_demo_dataset" spellcheck="false">
+        </div>
+        <div class="field">
+          <label for="builder_policy_config">Export Policy</label>
+          <input id="builder_policy_config" value="sse/config/export_policy.example.json" spellcheck="false">
+        </div>
+        <div class="field">
+          <label for="builder_k">K Threshold</label>
+          <input id="builder_k" value="1" inputmode="numeric" spellcheck="false">
+        </div>
+        <div class="field">
+          <label for="builder_n">N Value</label>
+          <input id="builder_n" value="5" inputmode="numeric" spellcheck="false">
+        </div>
+        <div class="field">
+          <label for="builder_handoff_mode">Handoff Mode</label>
+          <select id="builder_handoff_mode">
+            <option value="fifo">fifo</option>
+            <option value="file">file</option>
+          </select>
+        </div>
+        <div class="field">
+          <label for="builder_token_secret_env">Token Secret Env</label>
+          <input id="builder_token_secret_env" value="" spellcheck="false">
+        </div>
+        <label class="check-field"><input id="builder_cleanup_handoff" type="checkbox" checked> cleanup handoff after bridge</label>
+        <label class="check-field"><input id="builder_deny_duplicate" type="checkbox"> deny duplicate query</label>
+      </div>
       <div class="actions">
         <button class="btn" onclick="startJob()">▶ Start Job</button>
         <button class="btn secondary" onclick="prefillExample()">Use Example</button>
@@ -459,10 +563,108 @@ function renderJobSetup(job){
 }
 
 function prefillExample(){
+  const modeInput = document.getElementById("request_mode");
   const requestInput = document.getElementById("request_file");
   const jobInput = document.getElementById("job_id_override");
+  if(modeInput) modeInput.value = "builder";
   if(requestInput) requestInput.value = "docs/examples/query_request.json";
   if(jobInput && !jobInput.value) jobInput.value = newJobId();
+  setValue("builder_server_source", "sse/examples/bridge_server_records.jsonl");
+  setValue("builder_client_source", "sse/examples/bridge_client_records.jsonl");
+  setValue("builder_server_join_key", "email");
+  setValue("builder_client_join_key", "email");
+  setValue("builder_client_value_field", "amount");
+  setValue("builder_server_filters", "campaign=demo");
+  setValue("builder_client_filters", "campaign=demo");
+  setValue("builder_token_scope", "query-demo-scope");
+  setValue("builder_token_secret", "local-dev-secret");
+  setValue("builder_token_secret_env", "");
+  setValue("builder_caller", "auto_demo");
+  setValue("builder_tenant_id", "demo_tenant");
+  setValue("builder_dataset_id", "bridge_demo_dataset");
+  setValue("builder_policy_config", "sse/config/export_policy.example.json");
+  setValue("builder_k", "1");
+  setValue("builder_n", "5");
+  setValue("builder_handoff_mode", "fifo");
+  const cleanup = document.getElementById("builder_cleanup_handoff");
+  const denyDup = document.getElementById("builder_deny_duplicate");
+  if(cleanup) cleanup.checked = true;
+  if(denyDup) denyDup.checked = false;
+  toggleRequestMode();
+}
+
+function setValue(id, value){
+  const el = document.getElementById(id);
+  if(el) el.value = value;
+}
+
+function getValue(id){
+  return document.getElementById(id)?.value?.trim() || "";
+}
+
+function getBool(id){
+  return !!document.getElementById(id)?.checked;
+}
+
+function parseList(value){
+  return String(value||"")
+    .split(/[\n,]+/)
+    .map(v=>v.trim())
+    .filter(Boolean);
+}
+
+function parsePositiveInt(id, fallback){
+  const n = Number.parseInt(getValue(id), 10);
+  return Number.isFinite(n) && n > 0 ? n : fallback;
+}
+
+function toggleRequestMode(){
+  const mode = getValue("request_mode") || "builder";
+  const requestFile = document.getElementById("request_file")?.closest(".field");
+  const builder = document.getElementById("builder_fields");
+  if(requestFile) requestFile.style.display = mode === "file" ? "grid" : "none";
+  if(builder) builder.style.display = mode === "builder" ? "grid" : "none";
+}
+
+function buildInlineQueryRequest(){
+  const jobId = getValue("job_id_override") || newJobId();
+  const outBase = getValue("out_base_override");
+  const request = {
+    schema: "query_workflow_request/v1",
+    query_type: "cross_party_match",
+    server_source: getValue("builder_server_source"),
+    client_source: getValue("builder_client_source"),
+    server_join_key_field: getValue("builder_server_join_key"),
+    client_join_key_field: getValue("builder_client_join_key"),
+    client_value_field: getValue("builder_client_value_field"),
+    server_normalizer: getValue("builder_server_normalizer") || "email",
+    client_normalizer: getValue("builder_client_normalizer") || "email",
+    client_value_mode: getValue("builder_client_value_mode") || "raw-int",
+    server_filters: parseList(getValue("builder_server_filters")),
+    client_filters: parseList(getValue("builder_client_filters")),
+    token_scope: getValue("builder_token_scope"),
+    job_id: jobId,
+    caller: getValue("builder_caller"),
+    tenant_id: getValue("builder_tenant_id"),
+    dataset_id: getValue("builder_dataset_id"),
+    k: parsePositiveInt("builder_k", 1),
+    n: parsePositiveInt("builder_n", 5),
+    sse_export_policy_config: getValue("builder_policy_config"),
+    sse_export_handoff_mode: getValue("builder_handoff_mode") || "fifo",
+    cleanup_sse_export_handoff_files_after_bridge: getBool("builder_cleanup_handoff"),
+    deny_duplicate_query: getBool("builder_deny_duplicate")
+  };
+  const tokenSecret = getValue("builder_token_secret");
+  const tokenSecretEnv = getValue("builder_token_secret_env");
+  if(tokenSecret){
+    request.token_secret = tokenSecret;
+  }else if(tokenSecretEnv){
+    request.token_secret_env = tokenSecretEnv;
+  }
+  if(outBase){
+    request.out_base = outBase;
+  }
+  return request;
 }
 
 function renderLiveProgress(job){
@@ -661,6 +863,7 @@ function render(data){
   }
   blocks.push(`<section id="history"><div class="section-title">Run Analytics</div>${historyBlocks.join("") || `<div class="card"><div class="empty">Historical analytics are hidden while a live run is active.</div></div>`}</section>`);
   document.getElementById("main").innerHTML = blocks.filter(Boolean).join("\n");
+  toggleRequestMode();
   if(job && job.job_id && job.state === "running"){
     ensureJobPolling(job.job_id);
   }else{
@@ -710,16 +913,22 @@ function showSetup(){
 }
 
 async function startJob(){
+  const mode = getValue("request_mode") || "builder";
   const requestFile = document.getElementById("request_file")?.value?.trim();
   const jobId = document.getElementById("job_id_override")?.value?.trim();
   const outBase = document.getElementById("out_base_override")?.value?.trim();
-  const body = {
-    request_file: requestFile,
-    overrides: {
-      job_id: jobId || undefined,
-      out_base: outBase || undefined
-    }
-  };
+  const body = mode === "builder"
+    ? {
+        request: buildInlineQueryRequest(),
+        request_base_dir: "."
+      }
+    : {
+        request_file: requestFile,
+        overrides: {
+          job_id: jobId || undefined,
+          out_base: outBase || undefined
+        }
+      };
   try{
     const resp = await fetch("/v1/jobs/start", {
       method: "POST",

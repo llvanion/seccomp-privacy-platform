@@ -308,7 +308,7 @@ Phase-1 implementation status (`2026-05-05`):
 
 Current limitation:
 
-1. the first implementation is request-file centric and does not yet provide a rich field-by-field operator request builder
+1. the field-level Job Setup builder now covers the local cross-party-match path by constructing inline `query_workflow_request/v1`; deeper cross-machine TLS presets and final product-grade request authoring remain future UI work.
 
 ### Q6: Durable Workflow Wrapper
 

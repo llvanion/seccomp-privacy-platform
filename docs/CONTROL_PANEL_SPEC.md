@@ -6,11 +6,13 @@ This spec is the concrete design target for post-baseline operator work in [POST
 2. `B10`：live progress read path
 3. `B11`：Web control shell baseline
 
-Phase-1 implementation status (`2026-05-05`):
+Implementation status (`2026-05-14`):
 
 1. `scripts/serve_operator_dashboard.py` now exposes `POST /v1/jobs/start`, `GET /v1/jobs/{job_id}`, `GET /v1/jobs/{job_id}/result`
 2. the embedded HTML now swaps `Job Setup` / `Live Progress` / `Result` by UI state and hides historical blocks during `running`
-3. the first implementation is request-file centric: `POST /v1/jobs/start` currently accepts either an inline `query_workflow_request/v1` payload or a `request_file` + `overrides` body, instead of a fully expanded field-by-field CSV/TLS form
+3. the Job Setup block now has two launch modes:
+   - field builder: builds an inline `query_workflow_request/v1` from source paths, join/value fields, filters, token settings, caller/scope, threshold, and handoff controls
+   - request file: keeps the existing `request_file` + `overrides` compatibility path
 4. the UI is now explicitly presented as **`PJC X-UI`** rather than a generic dashboard: it is an admin-only loopback shell for PJC control and audit
 5. the audit center now integrates SSE export audit, SSE recovery-service audit when present, wrapper sidecars, PJC/policy artifacts, and compact `mainline_contract_summary`
 6. the shell now also exposes a first multi-run admin view:
@@ -22,7 +24,7 @@ Phase-1 implementation status (`2026-05-05`):
    - action is constrained by `workflow_retry_eligibility/v1`
    - current phase only supports request-file-backed runs, not `<inline>` submissions
 
-That means this spec is now half design target, half implementation reference: the live transport and UI state machine exist, while the richer field-by-field setup form can still evolve later.
+That means this spec is now half design target, half implementation reference: the live transport, UI state machine, and first field-level setup builder exist. Deeper TLS/cross-machine presets can still evolve later without changing `query_workflow_request/v1`.
 
 > **Scope note (2026-05-08, Track-E3).** This document owns the PJC X-UI control shell layout: the UI state machine, four operator blocks, and the in-shell HTML structure. The broader operator-console-as-product surface — the section/endpoint inventory across the whole platform, the role-gate matrix, the workflow/approval lifecycle, and the admin surfaces — lives in [`docs/OPERATOR_CONSOLE_PRODUCT_PLAN.md`](/home/llvanion/Desktop/seccomp-privacy-platform/docs/OPERATOR_CONSOLE_PRODUCT_PLAN.md). The two documents do not overlap: this one freezes the *shell*, Track-E3 freezes the *manifest*. When Track-E3 evolves the section list, this spec only needs to react if the X-UI shell itself changes.
 
