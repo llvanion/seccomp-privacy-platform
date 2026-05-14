@@ -7,10 +7,39 @@ REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 VALIDATOR="$REPO_ROOT/scripts/validate_json_contract.py"
 TABULAR_VALIDATOR="$REPO_ROOT/scripts/validate_tabular_contract.py"
 RUNTIME_SERVICE_HELPERS="$REPO_ROOT/scripts/runtime_service_helpers.py"
-SSE_PY="$REPO_ROOT/sse/.venv/bin/python"
-if [[ ! -x "$SSE_PY" ]]; then
-  SSE_PY="python3"
-fi
+
+python_has_sse_deps() {
+  "$1" - <<'PY' >/dev/null 2>&1
+import anyio  # noqa: F401
+import asyncclick  # noqa: F401
+import cryptography  # noqa: F401
+import websockets  # noqa: F401
+PY
+}
+
+select_sse_python() {
+  local candidates=(
+    "$REPO_ROOT/sse/.venv/bin/python"
+    "$REPO_ROOT/.venv/bin/python"
+  )
+  local candidate
+  for candidate in "${candidates[@]}"; do
+    if [[ -x "$candidate" ]] && python_has_sse_deps "$candidate"; then
+      printf '%s\n' "$candidate"
+      return 0
+    fi
+  done
+  for candidate in python3 python; do
+    if command -v "$candidate" >/dev/null 2>&1 && python_has_sse_deps "$candidate"; then
+      command -v "$candidate"
+      return 0
+    fi
+  done
+  echo "[ERROR] no Python interpreter with SSE dependencies from sse/requirements.txt found; create sse/.venv or .venv with those requirements installed" >&2
+  return 1
+}
+
+SSE_PY="$(select_sse_python)"
 
 SCHEMAS=(
   "$REPO_ROOT/schemas/sse_export_policy.schema.json"
