@@ -1057,7 +1057,7 @@ python3 "$REPO_ROOT/scripts/check_http_malformed_input_gate.py" \
 python3 "$VALIDATOR" \
   --schema "$REPO_ROOT/schemas/http_malformed_input_gate.schema.json" \
   --json "$tmp/http_malformed_input_gate.json"
-python3 -c 'import json,sys; p=json.load(open(sys.argv[1])); s=p["summary"]; assert s["status"]=="ok", p; assert s["total"]>=8 and s["missed"]==0 and s["detected"]==s["total"], p; names={r["scenario"] for r in p["scenarios"]}; required={"missing_request_signature","expired_request_timestamp","future_request_timestamp","sql_injection_strings","bad_json_payload","non_object_json_payload","missing_required_field","wrong_http_method","unknown_path","oversized_body"}; assert required.issubset(names), names' "$tmp/http_malformed_input_gate.json"
+python3 -c 'import json,sys; p=json.load(open(sys.argv[1])); s=p["summary"]; assert s["status"]=="ok", p; assert s["total"]>=8 and s["missed"]==0 and s["detected"]==s["total"], p; names={r["scenario"] for r in p["scenarios"]}; required={"missing_request_signature","expired_request_timestamp","future_request_timestamp","sql_injection_strings","payload_hash_tamper","bad_json_payload","non_object_json_payload","missing_required_field","wrong_http_method","unknown_path","oversized_body"}; assert required.issubset(names), names' "$tmp/http_malformed_input_gate.json"
 python3 "$REPO_ROOT/scripts/benchmark_mtls_overhead.py" \
   --iterations 5 \
   --output "$tmp/recovery_mtls_benchmark.json" > /dev/null

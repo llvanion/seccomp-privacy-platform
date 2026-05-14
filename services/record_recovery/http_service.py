@@ -280,6 +280,9 @@ class RecordRecoveryHttpHandler(BaseHTTPRequestHandler):
             header_sig = self.headers.get("X-Request-Signature", "").strip()
             if header_sig and not payload.get("request_signature"):
                 payload["request_signature"] = header_sig
+            header_payload_hash = self.headers.get("X-Request-Payload-SHA256", "").strip()
+            if header_payload_hash and not payload.get("request_payload_sha256"):
+                payload["request_payload_sha256"] = header_payload_hash
             header_sig_algo = self.headers.get("X-Request-Signature-Algorithm", "").strip()
             if header_sig_algo and not payload.get("signature_algorithm"):
                 payload["signature_algorithm"] = header_sig_algo

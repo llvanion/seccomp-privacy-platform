@@ -31,7 +31,7 @@ def validate_request_timestamp(ts_str, *, max_skew_sec=30):
     # Present but wrong → rejected
 ```
 
-The 30-second window is tighter than typical API implementations (often 5 minutes). This limits replay attack windows. Requests without a timestamp are accepted for backward compatibility with older clients, but the client (`client.py`) always injects `request_timestamp_utc` for new requests.
+The 30-second window is tighter than typical API implementations (often 5 minutes). This limits replay attack windows. Requests without a timestamp are accepted by the timestamp helper for backward compatibility, but authenticated `recover` requests now require the timestamp as signature metadata. The client (`client.py`) always injects `request_timestamp_utc` for new requests.
 
 **Observation:** The backward-compatibility path (missing timestamp → accepted) means the timestamp anti-replay check is opt-in. Any client that omits the timestamp is not protected. In practice, the provided client always sends the timestamp, but this could be a gap if a third-party client is used.
 
@@ -39,9 +39,9 @@ The 30-second window is tighter than typical API implementations (often 5 minute
 
 ```python
 def _canonical_request_message(request_id, request_timestamp_utc, op):
-    return f"{request_id}:{request_timestamp_utc}:{op}"
+    return f"{request_id}:{request_timestamp_utc}:{op}:{request_payload_sha256}"
 
-def sign_request(auth_token, *, request_id, request_timestamp_utc, op):
+def sign_request(auth_token, *, request_id, request_timestamp_utc, op, request_payload_sha256):
     msg = _canonical_request_message(...)
     return hmac.new(auth_token.encode(), msg.encode(), sha256).hexdigest()
 
@@ -50,14 +50,13 @@ def verify_request_signature(auth_token, *, request_id, ..., provided_sig):
     return hmac.compare_digest(expected, provided_sig)  # constant-time
 ```
 
-The canonical message binds three fields:
+The canonical message binds four fields:
 - `request_id` (UUID4): prevents reuse of a valid signature for a different request.
 - `request_timestamp_utc`: prevents replays of old signed requests.
 - `op`: prevents cross-operation misuse (e.g. using a `recover` signature for a different op).
+- `request_payload_sha256`: prevents post-signature mutation of request contents such as candidate IDs, paths, and bounds.
 
 The comparison uses `hmac.compare_digest` (constant-time), correctly avoiding timing oracle attacks.
-
-**Note:** The signature covers `op` but not the payload contents (candidate IDs, record store path). A more conservative approach would sign over the full request payload hash. For the current scope this is adequate.
 
 ---
 
@@ -227,7 +226,7 @@ The HTTP adapter exposes:
 - `GET /health` — authenticated health check (returns `sse_record_recovery_health/v1`).
 - `POST /recover` — authenticated recovery operation.
 
-Authentication via `Authorization: Bearer <token>` header or `auth_token` in JSON body. Request signature via `X-Request-Signature` and `X-Request-Signature-Algorithm` headers.
+Authentication via `Authorization: Bearer <token>` header or `auth_token` in JSON body. Request signature metadata via `X-Request-Signature`, `X-Request-Payload-SHA256`, and `X-Request-Signature-Algorithm` headers.
 
 Proxy bypass: The client (`client.py`) implements `_should_bypass_proxy` to detect loopback and private IP addresses and disable HTTP proxy for those, preventing proxy misconfiguration from routing internal recovery traffic to an external proxy.
 
@@ -239,8 +238,8 @@ The client is the single point of contact for both Unix-socket and HTTP transpor
 
 1. Generates a UUID4 `request_id` per request.
 2. Injects `request_timestamp_utc` (current UTC ISO8601).
-3. Computes and attaches `request_signature` (HMAC-SHA256 of canonical message).
-4. For HTTP: sets `X-Request-Signature` and `X-Request-Timestamp` headers.
+3. Computes `request_payload_sha256` over the canonical payload, then attaches `request_signature` (HMAC-SHA256 of canonical message).
+4. For HTTP: sets `X-Request-Signature`, `X-Request-Payload-SHA256`, and `X-Request-Timestamp` headers.
 5. Routes to `_send_unix_request` or `_send_http_request` based on which transport config is provided.
 
 The `_http_operation_url` helper correctly maps `op` to paths (`/health`, `/recover`) on the base `endpoint_url`, preventing accidental posting to the root URL.
@@ -346,7 +345,7 @@ The `EnvironmentFile=` directive receives a generated env-template listing the e
 | Item | Severity | Note |
 |---|---|---|
 | Missing timestamp → accepted (backward compat) | Medium | The anti-replay check is opt-in; only the provided client enforces it |
-| Signature covers op but not payload hash | Low | Adequate for prototype; production should bind the full request payload |
+| Payload-bound request signing | Closed | HMAC now includes `request_payload_sha256`; the service rejects hash/signature mismatch |
 | Unix socket `ThreadingMixIn` can saturate thread pool | Low | No connection limit or thread pool ceiling configured |
 | `_path_within_roots` allows symlinks in `allowed_output_roots` | Low | `Path.resolve()` follows symlinks; an operator could misconfigure the root |
 | Rate limiting per-service not per-tenant | Informational | `max_rows_per_request` caps per-request rows, not per-caller |
@@ -489,9 +488,12 @@ if header_ts and not payload.get("request_timestamp_utc"):
 header_sig = self.headers.get("X-Request-Signature", "").strip()
 if header_sig and not payload.get("request_signature"):
     payload["request_signature"] = header_sig
+header_payload_hash = self.headers.get("X-Request-Payload-SHA256", "").strip()
+if header_payload_hash and not payload.get("request_payload_sha256"):
+    payload["request_payload_sha256"] = header_payload_hash
 ```
 
-This means the timestamp and signature can be sent either in headers (preferred for HTTP) or in the JSON body (legacy/JSON-only clients). The payload field takes precedence if both are present. The common handler then validates them identically regardless of which channel they arrived through.
+This means the timestamp, payload hash, and signature can be sent either in headers (preferred for HTTP) or in the JSON body (legacy/JSON-only clients). The payload field takes precedence if both are present. The common handler then validates them identically regardless of which channel they arrived through.
 
 ---
 

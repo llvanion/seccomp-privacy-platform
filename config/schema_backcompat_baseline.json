@@ -1828,6 +1828,8 @@
         "candidate_count",
         "filters",
         "request_timestamp_utc",
+        "request_payload_sha256",
+        "request_payload_sha256_verified",
         "request_signature_verified",
         "signature_algorithm",
         "input_rows",

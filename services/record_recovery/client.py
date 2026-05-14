@@ -15,6 +15,7 @@ from services.record_recovery.common import (
     HEALTH_SCHEMA,
     REQUEST_SIGNATURE_ALGORITHM,
     RESULT_SCHEMA,
+    canonical_request_payload_sha256,
     sign_request,
     utc_now_iso,
 )
@@ -123,6 +124,9 @@ def _send_http_request(*, endpoint_url: str, payload: dict, auth_token: str, ide
     sig = str(payload.get("request_signature", "") or "").strip()
     if sig:
         headers["X-Request-Signature"] = sig
+    payload_hash = str(payload.get("request_payload_sha256", "") or "").strip()
+    if payload_hash:
+        headers["X-Request-Payload-SHA256"] = payload_hash
     sig_algo = str(payload.get("signature_algorithm", "") or "").strip()
     if sig_algo:
         headers["X-Request-Signature-Algorithm"] = sig_algo
@@ -233,11 +237,13 @@ def request_record_recovery(
     identity_bearer_token = identity_bearer_token or _identity_token_from_env(identity_auth_env)
     if auth_token:
         payload["auth_token"] = auth_token
+        payload["request_payload_sha256"] = canonical_request_payload_sha256(payload)
         sig = sign_request(
             auth_token,
             request_id=request_id,
             request_timestamp_utc=request_ts,
             op="recover",
+            request_payload_sha256=payload["request_payload_sha256"],
         )
         payload["request_signature"] = sig
         payload["signature_algorithm"] = REQUEST_SIGNATURE_ALGORITHM

@@ -19,8 +19,6 @@ deny payload). Emits http_malformed_input_gate/v1 with each scenario's outcome.
 from __future__ import annotations
 
 import argparse
-import hmac
-import hashlib
 import json
 import os
 import sys
@@ -47,6 +45,11 @@ from services.record_recovery.http_service import (  # noqa: E402
     RecordRecoveryHttpServer,
 )
 from services.record_recovery.runtime import build_service_state  # noqa: E402
+from services.record_recovery.common import (  # noqa: E402
+    REQUEST_SIGNATURE_ALGORITHM,
+    canonical_request_payload_sha256,
+    sign_request,
+)
 
 SCHEMA_ID = "http_malformed_input_gate/v1"
 NO_PROXY_OPENER = urllib.request.build_opener(urllib.request.ProxyHandler({}))
@@ -99,16 +102,35 @@ def http_request(
 # --- scenarios ---------------------------------------------------------------
 
 
-def hmac_signature(token: str, request_id: str, ts: str, op: str) -> str:
-    payload = f"{request_id}:{ts}:{op}".encode("utf-8")
-    return hmac.new(token.encode("utf-8"), payload, hashlib.sha256).hexdigest()
+def attach_request_signature(payload: dict[str, Any], auth_token: str) -> None:
+    payload["request_payload_sha256"] = canonical_request_payload_sha256(payload)
+    payload["request_signature"] = sign_request(
+        auth_token,
+        request_id=str(payload.get("request_id", "")),
+        request_timestamp_utc=str(payload.get("request_timestamp_utc", "")),
+        op=str(payload.get("op", "")),
+        request_payload_sha256=payload["request_payload_sha256"],
+    )
+    payload["signature_algorithm"] = REQUEST_SIGNATURE_ALGORITHM
+
+
+def signed_request_headers(payload: dict[str, Any], auth_token: str | None) -> dict[str, str]:
+    headers = {"Content-Type": "application/json"}
+    if not auth_token:
+        return headers
+    headers["Authorization"] = f"Bearer {auth_token}"
+    headers["X-Request-Timestamp"] = str(payload.get("request_timestamp_utc", ""))
+    headers["X-Request-Payload-SHA256"] = str(payload.get("request_payload_sha256", ""))
+    headers["X-Request-Signature"] = str(payload.get("request_signature", ""))
+    headers["X-Request-Signature-Algorithm"] = str(payload.get("signature_algorithm", ""))
+    return headers
 
 
 def base_recover_payload(
     *,
     caller: str = "benchmark-caller",
-    tenant_id: str = "benchmark-tenant",
-    dataset_id: str = "benchmark-dataset",
+    tenant_id: str = "http-malformed-input-tenant",
+    dataset_id: str = "http-malformed-input-dataset",
     job_id: str = "benchmark-job",
 ) -> dict[str, Any]:
     return {
@@ -124,7 +146,8 @@ def base_recover_payload(
         "candidate_ids": ["a", "b", "c"],
         "record_store_path": "/tmp/no-such-record-store.bin",
         "record_store_key_env": "BENCHMARK_RECORD_STORE_KEY",
-        "output_path": "/tmp/no-such-output.csv",
+        "out_path": "/tmp/no-such-output.csv",
+        "join_key_field": "record_id",
     }
 
 
@@ -171,17 +194,9 @@ def scenario_expired_timestamp(*, base_url: str, timeout_sec: float, auth_token:
     far_past = (datetime.now(timezone.utc) - timedelta(minutes=10)).isoformat().replace("+00:00", "Z")
     payload["request_timestamp_utc"] = far_past
     if auth_token:
-        payload["request_signature"] = hmac_signature(
-            auth_token, payload["request_id"], far_past, payload["op"]
-        )
+        attach_request_signature(payload, auth_token)
     body = json.dumps(payload).encode("utf-8")
-    headers = {
-        "Content-Type": "application/json",
-        "X-Request-Timestamp": far_past,
-    }
-    if auth_token:
-        headers["Authorization"] = f"Bearer {auth_token}"
-        headers["X-Request-Signature"] = payload["request_signature"]
+    headers = signed_request_headers(payload, auth_token)
     res = http_request(
         url=f"{base_url}/recover",
         method="POST",
@@ -202,14 +217,9 @@ def scenario_far_future_timestamp(*, base_url: str, timeout_sec: float, auth_tok
     far_future = (datetime.now(timezone.utc) + timedelta(minutes=10)).isoformat().replace("+00:00", "Z")
     payload["request_timestamp_utc"] = far_future
     if auth_token:
-        payload["request_signature"] = hmac_signature(
-            auth_token, payload["request_id"], far_future, payload["op"]
-        )
+        attach_request_signature(payload, auth_token)
     body = json.dumps(payload).encode("utf-8")
-    headers = {"Content-Type": "application/json", "X-Request-Timestamp": far_future}
-    if auth_token:
-        headers["Authorization"] = f"Bearer {auth_token}"
-        headers["X-Request-Signature"] = payload["request_signature"]
+    headers = signed_request_headers(payload, auth_token)
     res = http_request(
         url=f"{base_url}/recover",
         method="POST",
@@ -233,15 +243,9 @@ def scenario_sql_injection_strings(*, base_url: str, timeout_sec: float, auth_to
         job_id="benchmark'\";--",
     )
     if auth_token:
-        payload["request_signature"] = hmac_signature(
-            auth_token, payload["request_id"], payload["request_timestamp_utc"], payload["op"]
-        )
+        attach_request_signature(payload, auth_token)
     body = json.dumps(payload).encode("utf-8")
-    headers = {"Content-Type": "application/json"}
-    if auth_token:
-        headers["Authorization"] = f"Bearer {auth_token}"
-        headers["X-Request-Timestamp"] = payload["request_timestamp_utc"]
-        headers["X-Request-Signature"] = payload["request_signature"]
+    headers = signed_request_headers(payload, auth_token)
     res = http_request(
         url=f"{base_url}/recover",
         method="POST",
@@ -300,10 +304,10 @@ def scenario_non_object_payload(*, base_url: str, timeout_sec: float, auth_token
 def scenario_oversized_body(*, base_url: str, timeout_sec: float, auth_token: str | None, body_size_bytes: int) -> dict[str, Any]:
     payload = base_recover_payload()
     payload["candidate_ids"] = [f"junk-{i:08d}" for i in range(max(1, body_size_bytes // 12))]
-    body = json.dumps(payload).encode("utf-8")
-    headers = {"Content-Type": "application/json"}
     if auth_token:
-        headers["Authorization"] = f"Bearer {auth_token}"
+        attach_request_signature(payload, auth_token)
+    body = json.dumps(payload).encode("utf-8")
+    headers = signed_request_headers(payload, auth_token)
     res = http_request(
         url=f"{base_url}/recover",
         method="POST",
@@ -323,10 +327,10 @@ def scenario_oversized_body(*, base_url: str, timeout_sec: float, auth_token: st
 def scenario_missing_required_field(*, base_url: str, timeout_sec: float, auth_token: str | None) -> dict[str, Any]:
     payload = base_recover_payload()
     payload.pop("candidate_ids", None)
-    body = json.dumps(payload).encode("utf-8")
-    headers = {"Content-Type": "application/json"}
     if auth_token:
-        headers["Authorization"] = f"Bearer {auth_token}"
+        attach_request_signature(payload, auth_token)
+    body = json.dumps(payload).encode("utf-8")
+    headers = signed_request_headers(payload, auth_token)
     res = http_request(
         url=f"{base_url}/recover",
         method="POST",
@@ -339,6 +343,28 @@ def scenario_missing_required_field(*, base_url: str, timeout_sec: float, auth_t
         "description": "POST /recover without candidate_ids in payload.",
         "result": res,
         "assertion": assert_rejected(res, allowed_statuses=(400, 403, 404)),
+    }
+
+
+def scenario_payload_hash_tamper(*, base_url: str, timeout_sec: float, auth_token: str | None) -> dict[str, Any]:
+    payload = base_recover_payload()
+    if auth_token:
+        attach_request_signature(payload, auth_token)
+        payload["candidate_ids"].append("tampered-after-signature")
+    body = json.dumps(payload).encode("utf-8")
+    headers = signed_request_headers(payload, auth_token)
+    res = http_request(
+        url=f"{base_url}/recover",
+        method="POST",
+        body=body,
+        headers=headers,
+        timeout_sec=timeout_sec,
+    )
+    return {
+        "scenario": "payload_hash_tamper",
+        "description": "POST /recover after changing candidate_ids without recomputing request_payload_sha256 or request_signature.",
+        "result": res,
+        "assertion": assert_rejected(res, allowed_statuses=(400, 401, 403)),
     }
 
 
@@ -385,6 +411,7 @@ SCENARIOS: list[Callable[..., dict[str, Any]]] = [
     scenario_expired_timestamp,
     scenario_far_future_timestamp,
     scenario_sql_injection_strings,
+    scenario_payload_hash_tamper,
     scenario_bad_json,
     scenario_non_object_payload,
     scenario_missing_required_field,
@@ -441,8 +468,11 @@ def spawn_in_process_http_service(
     deadline = time.monotonic() + 5.0
     while time.monotonic() < deadline:
         try:
-            urllib.request.Request(base_url + "/health")
-            urllib.request.urlopen(base_url + "/health", timeout=1.0).read()
+            req = urllib.request.Request(
+                base_url + "/healthz",
+                headers={"Authorization": f"Bearer {auth_token_value}"},
+            )
+            urllib.request.urlopen(req, timeout=1.0).read()
             break
         except Exception:
             time.sleep(0.05)

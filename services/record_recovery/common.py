@@ -14,6 +14,14 @@ HEALTH_SCHEMA = "sse_record_recovery_health/v1"
 
 REQUEST_TIMESTAMP_MAX_SKEW_SEC = 30
 REQUEST_SIGNATURE_ALGORITHM = "hmac-sha256"
+REQUEST_PAYLOAD_HASH_ALGORITHM = "sha256"
+REQUEST_PAYLOAD_HASH_EXCLUDED_FIELDS = {
+    "auth_token",
+    "identity_bearer_token",
+    "request_payload_sha256",
+    "request_signature",
+    "signature_algorithm",
+}
 
 
 def utc_now_iso() -> str:
@@ -53,16 +61,46 @@ def validate_request_timestamp(
     return True, "ok", "timestamp ok"
 
 
-def _canonical_request_message(request_id: str, request_timestamp_utc: str, op: str) -> str:
+def _canonical_payload_for_hash(value: Any) -> Any:
+    if isinstance(value, dict):
+        return {
+            str(k): _canonical_payload_for_hash(v)
+            for k, v in sorted(value.items(), key=lambda item: str(item[0]))
+            if str(k) not in REQUEST_PAYLOAD_HASH_EXCLUDED_FIELDS and not str(k).startswith("_")
+        }
+    if isinstance(value, list):
+        return [_canonical_payload_for_hash(item) for item in value]
+    return value
+
+
+def canonical_request_payload_sha256(payload: dict[str, Any]) -> str:
+    """Return a stable SHA-256 over the signed request payload fields."""
+    canonical_payload = _canonical_payload_for_hash(payload)
+    encoded = json.dumps(
+        canonical_payload,
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode("utf-8")
+    return hashlib.sha256(encoded).hexdigest()
+
+
+def _canonical_request_message(
+    request_id: str,
+    request_timestamp_utc: str,
+    op: str,
+    request_payload_sha256: str,
+) -> str:
     """Produce the canonical string that is HMAC-signed per request.
 
-    Format: "{request_id}:{request_timestamp_utc}:{op}"
-    Tying the signature to all three fields prevents:
+    Format: "{request_id}:{request_timestamp_utc}:{op}:{request_payload_sha256}"
+    Tying the signature to these fields prevents:
     - Reuse of a valid signature for a different request (request_id)
     - Replay of old requests (request_timestamp_utc)
     - Cross-operation misuse (op)
+    - Payload tampering after the client signs the request (request_payload_sha256)
     """
-    return f"{request_id}:{request_timestamp_utc}:{op}"
+    return f"{request_id}:{request_timestamp_utc}:{op}:{request_payload_sha256}"
 
 
 def sign_request(
@@ -71,9 +109,10 @@ def sign_request(
     request_id: str,
     request_timestamp_utc: str,
     op: str,
+    request_payload_sha256: str,
 ) -> str:
     """Return HMAC-SHA256 hex signature for a recovery service request."""
-    msg = _canonical_request_message(request_id, request_timestamp_utc, op)
+    msg = _canonical_request_message(request_id, request_timestamp_utc, op, request_payload_sha256)
     return hmac.new(
         auth_token.encode("utf-8"),
         msg.encode("utf-8"),
@@ -87,6 +126,7 @@ def verify_request_signature(
     request_id: str,
     request_timestamp_utc: str,
     op: str,
+    request_payload_sha256: str,
     provided_sig: str,
 ) -> bool:
     """Constant-time verify of an HMAC-SHA256 request signature."""
@@ -95,6 +135,7 @@ def verify_request_signature(
         request_id=request_id,
         request_timestamp_utc=request_timestamp_utc,
         op=op,
+        request_payload_sha256=request_payload_sha256,
     )
     return hmac.compare_digest(expected, provided_sig)
 

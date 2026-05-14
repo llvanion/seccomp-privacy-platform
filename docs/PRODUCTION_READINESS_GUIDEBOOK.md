@@ -2044,7 +2044,7 @@ python3 scripts/check_malformed_input_gate.py \
 ```
 
 The gate should test:
-1. Requests with missing `X-Request-Signature` header (should return 400 with `request_signature_missing`).
+1. Requests with missing `X-Request-Signature` / `X-Request-Payload-SHA256` metadata (should return 400 with signature metadata missing).
 2. Requests with expired `request_timestamp_utc` (should return 400 with `request_expired`).
 3. Payloads with SQL injection patterns in `caller`, `job_id`, `tenant_id` (all should be treated as opaque strings, not query parameters).
 4. Oversized request bodies (`Content-Length: 100000000`).
@@ -2059,7 +2059,7 @@ Implemented:
 - `scripts/verify_audit_tamper_resistance.py` flips one byte at up to six offsets across the chain (inside `correlation_id`, inside `job_id`, midfile) and seal (inside `artifact_sha256`, inside `job_id`, optionally inside `signature` when an HMAC seal is present). The script asserts that `verify_audit_bundle.verify_audit_bundle(...)` raises an exception each time, restores the original bytes after every mutation, and runs a post-restore baseline check that re-hashes both files and re-verifies the bundle.
 - `schemas/audit_tamper_resistance.schema.json` freezes `audit_tamper_resistance/v1` (status, scenarios with offset/byte/detected/error metadata, summary, post-restore check); `config/schema_backcompat_baseline.json` registers it as a stable contract.
 - `scripts/check_json_contracts.sh` invokes the new script after sealing the contract-smoke audit chain and asserts `status=ok`, `summary.detected==summary.total>=4`, and `post_restore_check.*=true`. `scripts/check_ci_smoke.sh` adds the new script to the py_compile list.
-- `scripts/check_http_malformed_input_gate.py` spawns the record-recovery HTTP service in-process on loopback and asserts that the service rejects 10 attack scenarios: missing `X-Request-Signature` / `request_signature`, expired `request_timestamp_utc`, far-future timestamp, SQL-injection-pattern `caller`/`tenant_id`/`job_id`, malformed JSON body, non-object JSON body, missing required `candidate_ids`, wrong HTTP method (`DELETE`), unknown path, and an oversized body. Each scenario records HTTP status, transport error (if any), and the response error/reason fields.
+- `scripts/check_http_malformed_input_gate.py` spawns the record-recovery HTTP service in-process on loopback and asserts that the service rejects 11 attack scenarios: missing `X-Request-Signature` / `request_signature`, expired `request_timestamp_utc`, far-future timestamp, post-signature payload tampering, SQL-injection-pattern `caller`/`tenant_id`/`job_id`, malformed JSON body, non-object JSON body, missing required `candidate_ids`, wrong HTTP method (`DELETE`), unknown path, and an oversized body. Each scenario records HTTP status, transport error (if any), and the response error/reason fields.
 - `schemas/http_malformed_input_gate.schema.json` freezes `http_malformed_input_gate/v1` (configuration, summary with `total/detected/missed/status`, per-scenario assertion fields). `config/schema_backcompat_baseline.json` registers it as a stable contract.
 - Default contract smoke runs the gate end-to-end via the in-process spawn and asserts `summary.status=ok`, `summary.detected==summary.total>=8`, and that the required scenario name set is covered.
 

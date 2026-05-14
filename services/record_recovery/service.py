@@ -14,6 +14,7 @@ from pathlib import Path
 from services.record_recovery.bootstrap import ensure_repo_paths
 from services.record_recovery.common import (
     REQUEST_SIGNATURE_ALGORITHM,
+    canonical_request_payload_sha256,
     validate_request_timestamp,
     verify_request_signature,
 )
@@ -286,23 +287,36 @@ def handle_record_recovery_service_payload(
     if not ts_valid:
         raise PermissionError(f"record recovery request rejected: {ts_reason}")
 
+    request_signature_required = bool(service_state.auth_token and identity is None)
+    payload["_request_signature_required"] = request_signature_required
     provided_sig = str(payload.get("request_signature", "") or "").strip()
-    if service_state.auth_token and provided_sig:
+    if request_signature_required:
+        if not provided_sig:
+            raise PermissionError("record recovery request signature missing")
         request_id = str(payload.get("request_id", "") or "").strip()
         request_ts = str(payload.get("request_timestamp_utc", "") or "").strip()
+        provided_payload_hash = str(payload.get("request_payload_sha256", "") or "").strip()
+        if not request_id or not request_ts or not provided_payload_hash:
+            raise PermissionError("record recovery request signature metadata missing")
         sig_algo = str(payload.get("signature_algorithm", "") or "").strip()
         if sig_algo and sig_algo != REQUEST_SIGNATURE_ALGORITHM:
             raise PermissionError(
                 f"unsupported request signature algorithm: {sig_algo!r}"
             )
+        expected_payload_hash = canonical_request_payload_sha256(payload)
+        if not hmac.compare_digest(expected_payload_hash, provided_payload_hash):
+            raise PermissionError("record recovery request payload hash verification failed")
         if not verify_request_signature(
             service_state.auth_token,
             request_id=request_id,
             request_timestamp_utc=request_ts,
             op="recover",
+            request_payload_sha256=provided_payload_hash,
             provided_sig=provided_sig,
         ):
             raise PermissionError("record recovery request signature verification failed")
+        payload["_request_payload_sha256_verified"] = True
+        payload["_request_signature_verified"] = True
 
     caller, tenant_id, dataset_id, service_id = _apply_authenticated_identity(payload, service_state, identity)
     if service_state.allowed_callers and caller not in service_state.allowed_callers:
@@ -504,7 +518,13 @@ def append_record_recovery_service_audit(
             if isinstance(item, list) and len(item) == 2
         ],
         "request_timestamp_utc": str(payload.get("request_timestamp_utc", "")) or None,
-        "request_signature_verified": bool(str(payload.get("request_signature", "") or "").strip()) if service_state.auth_token else None,
+        "request_payload_sha256": str(payload.get("request_payload_sha256", "") or "") or None,
+        "request_payload_sha256_verified": bool(payload.get("_request_payload_sha256_verified"))
+        if payload.get("_request_signature_required")
+        else None,
+        "request_signature_verified": bool(payload.get("_request_signature_verified"))
+        if payload.get("_request_signature_required")
+        else None,
         "signature_algorithm": str(payload.get("signature_algorithm", "") or "") or None,
         "input_rows": result.get("input_rows") if result is not None else None,
         "output_rows": result.get("output_rows") if result is not None else None,

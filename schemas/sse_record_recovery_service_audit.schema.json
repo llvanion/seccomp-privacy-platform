@@ -124,6 +124,12 @@
       "type": ["string", "null"],
       "format": "date-time"
     },
+    "request_payload_sha256": {
+      "type": ["string", "null"]
+    },
+    "request_payload_sha256_verified": {
+      "type": ["boolean", "null"]
+    },
     "request_signature_verified": {
       "type": ["boolean", "null"]
     },
