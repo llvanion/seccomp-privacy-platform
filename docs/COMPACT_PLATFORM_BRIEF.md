@@ -11,6 +11,10 @@
 
 如果只想快速建立上下文，优先读这份。
 
+如果当前任务是三人协作、环境准备、pre 汇报或结题报告，请同时读 [TEAM_COLLABORATION_AND_REPORTING_PLAN.md](/home/llvanion/Desktop/seccomp-privacy-platform/docs/team/TEAM_COLLABORATION_AND_REPORTING_PLAN.md)。它是当前协作分工、Ubuntu/设备建议、测试证据包和报告呈现方式的统一口径。
+
+如果当前任务是“安全问题要完整解决，不要只缓解”，请同时读 [PRODUCTION_SECURITY_COMPLETION_PLAN.md](/home/llvanion/Desktop/seccomp-privacy-platform/docs/PRODUCTION_SECURITY_COMPLETION_PLAN.md)。它固定 S1-S8 生产级安全任务包、完整任务闭环规则和三人联合认证标准。
+
 ## 1. 项目是什么
 
 这个仓库当前是一个面向电商隐私数据场景的比赛版平台基线。
@@ -57,8 +61,8 @@ SSE candidate export
 3. durable workflow / 真实 SPA 壳：Track-E3 已落 `console_manifest/v1` 契约 + 静态占位页 + 渲染/校验脚本；I3-a/I3-b repo-side 已实现 `POST /v1/request/submit`、`GET /v1/requests`、`GET /v1/requests/{submission_id}`、approve/reject endpoints、`workflow_submissions` pending/approved/rejected queue、`operator_request_submission/v1` 和 `operator_request_submission_list/v1`；完整 SPA 仍属后续产品工作
 4. SQL sidecar 更深的 Postgres 迁移与 importer repair
 5. caller 画像仍然主要停留在"平台操作者 / 查询发起者"层级，但 Track-E2 已经把买家、商家店员、客服、快递员、地推这五类业务身份作为 `business_identities` 注解层落基线；详见 [ECOMMERCE_ACCESS_MODEL.md](/home/llvanion/Desktop/seccomp-privacy-platform/docs/ECOMMERCE_ACCESS_MODEL.md) §业务身份扩展
-6. ~~SQL sidecar 当前保存的是 control-plane metadata / audit / policy / permission，而不是完整电商业务事实表~~ → Track-E1 已落 `orders / order_items / order_attribution / order_payment / order_fulfillment / customer_service_interactions` 六张事实表（`migrations/metadata/010_*.sql`，Postgres DDL 同步），当前限制是仍需要 operator 提供真实/脱敏数据导入；详见 [ECOMMERCE_FACT_LAYER_PLAN.md](/home/llvanion/Desktop/seccomp-privacy-platform/docs/ECOMMERCE_FACT_LAYER_PLAN.md)
-7. ~~面向真实电商订单分析的一整套 SQL 事实层还没落地~~ → Track-E1 fact-layer 基线已完成（同上）
+6. SQL sidecar 仍然不是完整电商数仓，但 Track-E1 已落 `orders / order_items / order_attribution / order_payment / order_fulfillment / customer_service_interactions` 六张事实表（`migrations/metadata/010_*.sql`，Postgres DDL 同步），当前限制是仍需要 operator 提供真实/脱敏数据导入；详见 [ECOMMERCE_FACT_LAYER_PLAN.md](/home/llvanion/Desktop/seccomp-privacy-platform/docs/ECOMMERCE_FACT_LAYER_PLAN.md)
+7. 面向真实电商订单分析的事实层当前是窄口径基线，不覆盖 customer 360、完整商品/库存/物流轨迹或实时数仓。
 
 剩余估算以 [PLATFORM_LEVEL_REMAINING_ESTIMATE.md](/home/llvanion/Desktop/seccomp-privacy-platform/docs/PLATFORM_LEVEL_REMAINING_ESTIMATE.md) 为准。
 

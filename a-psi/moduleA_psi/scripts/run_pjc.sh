@@ -27,6 +27,7 @@ CLIENT_CSV="${CLIENT_CSV:-/tmp/client.csv}"
 # SERVER_ADDR format: host:port
 SERVER_ADDR="${SERVER_ADDR:-127.0.0.1:10501}"
 GRPC_MAX_MESSAGE_MB="${GRPC_MAX_MESSAGE_MB:-512}"
+PJC_GRPC_STREAM_CHUNK_ELEMENTS="${PJC_GRPC_STREAM_CHUNK_ELEMENTS:-4096}"
 
 # If 1, build server/client before running (useful in CI or fresh env)
 PJC_BUILD="${PJC_BUILD:-0}"
@@ -72,6 +73,7 @@ echo "[info] SERVER_CSV=$SERVER_CSV"
 echo "[info] CLIENT_CSV=$CLIENT_CSV"
 echo "[info] SERVER_ADDR=$SERVER_ADDR"
 echo "[info] GRPC_MAX_MESSAGE_MB=$GRPC_MAX_MESSAGE_MB"
+echo "[info] PJC_GRPC_STREAM_CHUNK_ELEMENTS=$PJC_GRPC_STREAM_CHUNK_ELEMENTS"
 
 if [[ -n "$PJC_BIN_DIR" ]]; then
   cd "$(dirname "$(resolve_path "$PJC_BIN_DIR")")"
@@ -109,6 +111,7 @@ echo "[info] starting server..."
 "$SERVER_BIN" \
   --server_data_file="$SERVER_CSV" \
   --grpc_max_message_mb="$GRPC_MAX_MESSAGE_MB" \
+  --grpc_stream_chunk_elements="$PJC_GRPC_STREAM_CHUNK_ELEMENTS" \
   --port="$SERVER_ADDR" \
   >"$SERVER_LOG" 2>&1 &
 SERVER_PID=$!
@@ -131,6 +134,7 @@ set +e
   --client_data_file="$CLIENT_CSV" \
   --port="$SERVER_ADDR" \
   --grpc_max_message_mb="$GRPC_MAX_MESSAGE_MB" \
+  --grpc_stream_chunk_elements="$PJC_GRPC_STREAM_CHUNK_ELEMENTS" \
   >"$CLIENT_LOG" 2>&1
 CLIENT_RC=$?
 set -e
@@ -160,6 +164,7 @@ cat > "$RESULT_JSON" <<JSON
   "server_csv": "$SERVER_CSV",
   "client_csv": "$CLIENT_CSV",
   "grpc_max_message_mb": $GRPC_MAX_MESSAGE_MB,
+  "grpc_stream_chunk_elements": $PJC_GRPC_STREAM_CHUNK_ELEMENTS,
   "intersection_size": $INTERSECTION_SIZE,
   "intersection_sum": $INTERSECTION_SUM
 }

@@ -37,6 +37,8 @@ This file is the quick map of the repository layout. Keep it synchronized with [
 - [README.md](/home/llvanion/Desktop/seccomp-privacy-platform/README.md): workspace overview and integrated quick start.
 - [review.md](/home/llvanion/Desktop/seccomp-privacy-platform/review.md): detailed implementation/review history and remaining gaps.
 - [CODEX_CONTEXT.md](/home/llvanion/Desktop/seccomp-privacy-platform/CODEX_CONTEXT.md): compact working snapshot for coding sessions.
+- [docs/team/TEAM_COLLABORATION_AND_REPORTING_PLAN.md](/home/llvanion/Desktop/seccomp-privacy-platform/docs/team/TEAM_COLLABORATION_AND_REPORTING_PLAN.md): three-person collaboration plan, Ubuntu/environment guidance, evidence packaging, and pre/final report structure.
+- [docs/PRODUCTION_SECURITY_COMPLETION_PLAN.md](/home/llvanion/Desktop/seccomp-privacy-platform/docs/PRODUCTION_SECURITY_COMPLETION_PLAN.md): production-security complete task packages, whole-task completion rule, and three-person joint certification standard.
 - [scripts/run_sse_bridge_pipeline.sh](/home/llvanion/Desktop/seccomp-privacy-platform/scripts/run_sse_bridge_pipeline.sh): end-to-end orchestration, including effective recovery-service runtime config materialization.
 - [scripts/run_live_sse_bridge_demo.sh](/home/llvanion/Desktop/seccomp-privacy-platform/scripts/run_live_sse_bridge_demo.sh): one-command live SSE bootstrap plus full pipeline verification.
 - [scripts/run_record_recovery_service.py](/home/llvanion/Desktop/seccomp-privacy-platform/scripts/run_record_recovery_service.py): standalone record-recovery service launcher decoupled from the SSE CLI.

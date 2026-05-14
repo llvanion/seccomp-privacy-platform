@@ -10,6 +10,8 @@
 2. 把 secret source 从“直接命令行传值”逐步收敛到受控解析路径。
 3. 为后续接 Vault 或真实外部 KMS 预留兼容接口。
 
+生产级目标态以 [PRODUCTION_SECURITY_COMPLETION_PLAN.md](/home/llvanion/Desktop/seccomp-privacy-platform/docs/PRODUCTION_SECURITY_COMPLETION_PLAN.md) 的 `S2` 为准：Vault / AWS KMS / Cloud KMS 是生产唯一可信密钥源，裸 `--token-secret`、本地 env secret 和 file-backed fixture 只能作为本地 smoke 或兼容路径，不能作为生产完成能力宣称。
+
 ## 2. 当前实现基线
 
 当前仓库已经有三条 secret sourcing 路径：
@@ -180,6 +182,8 @@ KMS 不负责：
 ## 5. 风险与缺口
 
 当前实现已经比直接 `--token-secret` 更好，但仍有明显缺口：
+
+这些缺口在生产计划中不再按“缓解”处理，而是作为 `S2 正式 KMS 与密钥生命周期` 的完整任务收口。`S2` 只有在实现、验证、审计、文档和三人联合认证全部完成后，才能在 pre/结题报告中写成 `completed`。
 
 ### 5.1 secret 仍可回落到本地 env
 
@@ -358,12 +362,15 @@ KMS 不负责：
 
 1. 将 secret material 从本地 env 挪到 Vault 或真实 KMS
 2. resolver 不再依赖本地 state file 存真实 secret source
+3. `--production-mode` 下禁止裸 `--token-secret` 作为完成路径
+4. key access、rotation、revocation、disabled-version refusal 必须进入审计证据包
 
 目标：
 
 1. rotation 可集中管理
 2. access audit 可集中留存
 3. 更适合多实例服务部署
+4. 生产报告只引用 `--token-secret-key-name` + real KMS/Vault/cloud KMS 证据，不引用裸 env 作为生产证明
 
 ### Phase 4：评估 remote tokenization
 
@@ -390,6 +397,8 @@ KMS 不负责：
 2. `--token-secret-key-name` + `--keyring`
 3. `--token-secret-env`
 4. `--token-secret`
+
+其中第 3、4 项只适合本地开发、兼容 smoke 或教学演示；生产级任务认证必须使用第 1 项或真实 KMS/Vault 支撑的等价路径。
 
 ### `scripts/run_live_sse_bridge_demo.sh`
 

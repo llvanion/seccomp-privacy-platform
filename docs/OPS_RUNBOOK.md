@@ -288,7 +288,7 @@ python3 scripts/benchmark_pjc.py --mode generated_scale_csv \
   --output tmp/pjc_benchmark_1m.json --timeout-sec 7200 --allow-failures
 ```
 
-Acceptance: per-iteration `intersection_size` and `intersection_sum` constant across 10k iterations; `peak_rss_kb` does not grow across 10k iterations; 1M `peak_rss_kb` and failure mode are documented. The 2026-05-12 1M rerun wrote `tmp/pjc_benchmark_1m.json` with `duration_ms=1963428.32`, `peak_rss_kb=2248648`, `exit_code=1`, `timed_out=false`, and null intersection metrics, confirming the current single-machine gRPC message-size ceiling rather than a timeout.
+Acceptance: per-iteration `intersection_size` and `intersection_sum` constant across 10k iterations; `peak_rss_kb` does not grow across 10k iterations; 1M `peak_rss_kb` and failure mode are documented. The 2026-05-12 1M rerun wrote `tmp/pjc_benchmark_1m.json` with `duration_ms=1963428.32`, `peak_rss_kb=2248648`, `exit_code=1`, `timed_out=false`, and null intersection metrics, confirming the old unary single-machine gRPC message-size ceiling rather than a timeout. The 2026-05-14 streaming transport rerun wrote `tmp/pjc_streaming_1m_benchmark.json` with `duration_ms=2045196.066`, `peak_rss_kb=2204740`, `exit_code=0`, `intersection_size=200000`, and `intersection_sum=20020100000`.
 
 **G5 — End-to-end pipeline SLO at 10k**
 

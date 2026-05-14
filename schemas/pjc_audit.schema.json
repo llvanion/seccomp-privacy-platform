@@ -79,6 +79,10 @@
       "type": ["integer", "null"],
       "minimum": 0
     },
+    "grpc_stream_chunk_elements": {
+      "type": ["integer", "null"],
+      "minimum": 0
+    },
     "decision": {
       "enum": ["allow", "deny"]
     },

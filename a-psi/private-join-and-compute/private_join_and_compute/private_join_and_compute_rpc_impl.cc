@@ -15,6 +15,8 @@
 
 #include "private_join_and_compute/private_join_and_compute_rpc_impl.h"
 
+#include <algorithm>
+
 #include "private_join_and_compute/util/status.inc"
 
 namespace private_join_and_compute {
@@ -60,6 +62,76 @@ class SingleMessageSink : public MessageSink<ServerMessage> {
   bool message_sent_ = false;
 };
 
+void AppendClientRoundOneFrameToMessage(
+    const ClientRoundOneFrame& frame, ClientMessage* client_message) {
+  auto* round_one = client_message->mutable_private_intersection_sum_client_message()
+                        ->mutable_client_round_one();
+  if (!frame.public_key().empty()) {
+    *round_one->mutable_public_key() = frame.public_key();
+  }
+  for (const EncryptedElement& element : frame.encrypted_set_elements()) {
+    *round_one->mutable_encrypted_set()->add_elements() = element;
+  }
+  for (const EncryptedElement& element : frame.reencrypted_set_elements()) {
+    *round_one->mutable_reencrypted_set()->add_elements() = element;
+  }
+}
+
+class StreamingServerMessageSink : public MessageSink<ServerMessage> {
+ public:
+  StreamingServerMessageSink(
+      ::grpc::ServerReaderWriter<ServerMessageFrame, ClientMessageFrame>* stream,
+      int32_t stream_chunk_elements)
+      : stream_(stream),
+        stream_chunk_elements_(
+            stream_chunk_elements > 0 ? stream_chunk_elements : 4096) {}
+
+  ~StreamingServerMessageSink() override = default;
+
+  Status Send(const ServerMessage& server_message) override {
+    if (!server_message.has_private_intersection_sum_server_message() ||
+        !server_message.private_intersection_sum_server_message()
+             .has_server_round_one()) {
+      ServerMessageFrame frame;
+      *frame.mutable_complete_message() = server_message;
+      return stream_->Write(frame) ? OkStatus()
+                                   : InternalError("Failed to write stream.");
+    }
+
+    const auto& elements =
+        server_message.private_intersection_sum_server_message()
+            .server_round_one()
+            .encrypted_set()
+            .elements();
+    const int total = elements.size();
+    if (total == 0) {
+      ServerMessageFrame frame;
+      frame.mutable_server_round_one_frame()->set_end_of_message(true);
+      return stream_->Write(frame) ? OkStatus()
+                                   : InternalError("Failed to write stream.");
+    }
+
+    for (int offset = 0; offset < total; offset += stream_chunk_elements_) {
+      ServerMessageFrame frame;
+      auto* round_one_frame = frame.mutable_server_round_one_frame();
+      const int end = std::min(offset + stream_chunk_elements_, total);
+      for (int i = offset; i < end; ++i) {
+        *round_one_frame->add_encrypted_set_elements() = elements.Get(i);
+      }
+      round_one_frame->set_end_of_message(end == total);
+      if (!stream_->Write(frame)) {
+        return InternalError("Failed to write stream.");
+      }
+    }
+    return OkStatus();
+  }
+
+ private:
+  ::grpc::ServerReaderWriter<ServerMessageFrame, ClientMessageFrame>* stream_ =
+      nullptr;
+  int32_t stream_chunk_elements_;
+};
+
 }  // namespace
 
 ::grpc::Status PrivateJoinAndComputeRpcImpl::Handle(
@@ -68,6 +140,55 @@ class SingleMessageSink : public MessageSink<ServerMessage> {
   SingleMessageSink message_sink(response);
   auto status = protocol_server_impl_->Handle(*request, &message_sink);
   return ConvertStatus(status);
+}
+
+::grpc::Status PrivateJoinAndComputeRpcImpl::HandleStream(
+    ::grpc::ServerContext* context,
+    ::grpc::ServerReaderWriter<ServerMessageFrame, ClientMessageFrame>*
+        stream) {
+  ClientMessageFrame frame;
+  ClientMessage pending_client_message;
+  bool pending_client_round_one = false;
+
+  while (stream->Read(&frame)) {
+    if (frame.has_complete_message()) {
+      StreamingServerMessageSink message_sink(stream, stream_chunk_elements_);
+      auto status =
+          protocol_server_impl_->Handle(frame.complete_message(), &message_sink);
+      if (!status.ok()) {
+        return ConvertStatus(status);
+      }
+      continue;
+    }
+
+    if (frame.has_client_round_one_frame()) {
+      pending_client_round_one = true;
+      AppendClientRoundOneFrameToMessage(frame.client_round_one_frame(),
+                                         &pending_client_message);
+      if (!frame.client_round_one_frame().end_of_message()) {
+        continue;
+      }
+
+      StreamingServerMessageSink message_sink(stream, stream_chunk_elements_);
+      auto status =
+          protocol_server_impl_->Handle(pending_client_message, &message_sink);
+      if (!status.ok()) {
+        return ConvertStatus(status);
+      }
+      pending_client_message.Clear();
+      pending_client_round_one = false;
+      continue;
+    }
+
+    return ::grpc::Status(::grpc::StatusCode::INVALID_ARGUMENT,
+                          "Received an empty stream frame.");
+  }
+
+  if (pending_client_round_one) {
+    return ::grpc::Status(::grpc::StatusCode::INVALID_ARGUMENT,
+                          "Client stream closed mid ClientRoundOne message.");
+  }
+  return ::grpc::Status::OK;
 }
 
 }  // namespace private_join_and_compute

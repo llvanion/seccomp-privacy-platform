@@ -15,6 +15,8 @@ Goal:
 - Prepare a stable staging target for Person 3's external/security testing.
 - Collect final evidence from Person 2 and Person 3 into one handoff packet.
 
+Use [docs/team/TEAM_COLLABORATION_AND_REPORTING_PLAN.md](/home/llvanion/Desktop/seccomp-privacy-platform/docs/team/TEAM_COLLABORATION_AND_REPORTING_PLAN.md) as the shared three-person plan for environment requirements, evidence packaging, and pre/final report structure.
+
 This pack intentionally excludes completed scale and local-only work.
 
 ## Unfinished Multi-Person Tasks

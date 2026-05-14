@@ -24,6 +24,7 @@ PJC_DIR="${PJC_DIR:-$PWD/private-join-and-compute}"
 RUN_PJC_SH="${RUN_PJC_SH:-./run_pjc_patched.sh}"          # path to patched run_pjc
 MERGE_PY="${MERGE_PY:-./merge_bucket_results.py}"         # path to merge script
 GRPC_MAX_MESSAGE_MB="${GRPC_MAX_MESSAGE_MB:-512}"
+PJC_GRPC_STREAM_CHUNK_ELEMENTS="${PJC_GRPC_STREAM_CHUNK_ELEMENTS:-4096}"
 
 # Parallel controls
 PARALLEL="${PARALLEL:-0}"          # 0/1
@@ -41,6 +42,7 @@ Env:
   RUN_PJC_SH            path to run_pjc_patched.sh
   MERGE_PY              path to merge_bucket_results.py
   GRPC_MAX_MESSAGE_MB   grpc limit (default 512)
+  PJC_GRPC_STREAM_CHUNK_ELEMENTS encrypted elements per streaming frame (default 4096; 0=legacy unary)
   PARALLEL              0/1 (default 0)
   MAX_JOBS              parallel workers (default 4)
   BASE_PORT             base port (default 10501)
@@ -91,6 +93,7 @@ run_one_bucket() {
   export CLIENT_CSV="$sub/client.csv"
   export SERVER_ADDR="127.0.0.1:$port"
   export GRPC_MAX_MESSAGE_MB="$GRPC_MAX_MESSAGE_MB"
+  export PJC_GRPC_STREAM_CHUNK_ELEMENTS="$PJC_GRPC_STREAM_CHUNK_ELEMENTS"
   bash "$RUN_PJC_SH"
 }
 

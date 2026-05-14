@@ -25,9 +25,12 @@ If you need the fastest repo context with the lowest token cost, start here inst
 - [docs/COMPACT_PLATFORM_BRIEF.md](/home/llvanion/Desktop/seccomp-privacy-platform/docs/COMPACT_PLATFORM_BRIEF.md)
 - [docs/PLATFORM_LEVEL_REMAINING_ESTIMATE.md](/home/llvanion/Desktop/seccomp-privacy-platform/docs/PLATFORM_LEVEL_REMAINING_ESTIMATE.md)
 - [docs/NEXT_SESSION_READING_GUIDE.md](/home/llvanion/Desktop/seccomp-privacy-platform/docs/NEXT_SESSION_READING_GUIDE.md)
+- [docs/team/TEAM_COLLABORATION_AND_REPORTING_PLAN.md](/home/llvanion/Desktop/seccomp-privacy-platform/docs/team/TEAM_COLLABORATION_AND_REPORTING_PLAN.md) for the three-person handoff, Ubuntu/environment guidance, evidence capture, and pre/final report structure
+- [docs/PRODUCTION_SECURITY_COMPLETION_PLAN.md](/home/llvanion/Desktop/seccomp-privacy-platform/docs/PRODUCTION_SECURITY_COMPLETION_PLAN.md) for the complete production-security task packages, whole-task completion rule, and three-person joint certification standard
 
 The current control-plane baseline now includes caller-scoped tenant/dataset/service authorization in `sse/config/export_policy.example.json`, and the recovery-service runtime contract now binds `service_id`, `tenant_id`, and `dataset_id` so the SSE export path, the long-running recovery service, and the integrated pipeline all resolve the same scope.
 The first SQL control-plane sidecar step now also exists as a separate SQLite metadata layer under `migrations/metadata/` and `scripts/{init,import,query}_metadata.py`. It imports existing run artifacts into a durable jobs/audits/services catalog without making the main SSE -> bridge -> A-PSI pipeline depend on a database.
+The sidecar also includes the Track-E1 e-commerce fact-layer baseline (`orders`, `order_items`, `order_attribution`, `order_payment`, `order_fulfillment`, and `customer_service_interactions`) under `migrations/metadata/010_add_ecommerce_fact_tables.sql`; this supports the e-commerce privacy-query story but is still not a full production data warehouse.
 
 Latest verified outcomes:
 

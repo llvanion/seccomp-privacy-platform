@@ -29,6 +29,7 @@ SHARD_SALT="pjc-shard-v1"
 MAX_JOBS=4
 BASE_PORT=11001
 GRPC_MAX_MESSAGE_MB="${GRPC_MAX_MESSAGE_MB:-512}"
+PJC_GRPC_STREAM_CHUNK_ELEMENTS="${PJC_GRPC_STREAM_CHUNK_ELEMENTS:-4096}"
 
 K_THRESHOLD="20"
 RATE_N="5"
@@ -51,6 +52,7 @@ Options:
   --shard-salt <str>         (default: pjc-shard-v1)
   --max-jobs <int>           (default: 4)
   --base-port <int>          (default: 11001)
+  PJC_GRPC_STREAM_CHUNK_ELEMENTS env controls streaming frame size (default: 4096; 0=legacy unary)
 
   --k <int>                  (default: 20)
   --n <int>                  (default: 5)
@@ -123,6 +125,7 @@ if [[ "$NUM_SHARDS" -le 1 ]]; then
   export SERVER_CSV="$OUT_DIR/server.csv"
   export CLIENT_CSV="$OUT_DIR/client.csv"
   export GRPC_MAX_MESSAGE_MB="$GRPC_MAX_MESSAGE_MB"
+  export PJC_GRPC_STREAM_CHUNK_ELEMENTS="$PJC_GRPC_STREAM_CHUNK_ELEMENTS"
   bash "$RUN_PJC_SH"
 else
   [[ -f "$SHARD_PY" ]] || die "missing shard_pjc_inputs.py: $SHARD_PY"
@@ -130,7 +133,7 @@ else
   log "Stage2: hash sharding into $NUM_SHARDS shard(s)"
   python3 "$SHARD_PY" --job-dir "$OUT_DIR" --num-shards "$NUM_SHARDS" --salt "$SHARD_SALT"
   log "Stage3: parallel PJC over shards"
-  JOB_DIR="$OUT_DIR" RUN_PJC_SH="$RUN_PJC_SH" BASE_PORT="$BASE_PORT" MAX_JOBS="$MAX_JOBS" bash "$RUN_SHARDED_SH"
+  JOB_DIR="$OUT_DIR" RUN_PJC_SH="$RUN_PJC_SH" BASE_PORT="$BASE_PORT" MAX_JOBS="$MAX_JOBS" PJC_GRPC_STREAM_CHUNK_ELEMENTS="$PJC_GRPC_STREAM_CHUNK_ELEMENTS" bash "$RUN_SHARDED_SH"
 fi
 
 [[ -f "$OUT_DIR/attribution_result.json" ]] || die "missing $OUT_DIR/attribution_result.json"

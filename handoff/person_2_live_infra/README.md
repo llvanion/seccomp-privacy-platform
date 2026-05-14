@@ -15,6 +15,8 @@ Goal:
 - Support Person 3 during K3 external/security testing.
 - Record infrastructure evidence and blockers under `tmp/team_evidence/person_2/`.
 
+Use [docs/team/TEAM_COLLABORATION_AND_REPORTING_PLAN.md](/home/llvanion/Desktop/seccomp-privacy-platform/docs/team/TEAM_COLLABORATION_AND_REPORTING_PLAN.md) as the shared three-person plan for Ubuntu/environment requirements, evidence packaging, and pre/final report structure.
+
 This pack excludes completed repo-side and local-only work unless needed as support evidence. Focus on live targets that Person 3 can test.
 
 ## Unfinished Multi-Person Tasks

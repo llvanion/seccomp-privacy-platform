@@ -18,6 +18,7 @@ syntax = "proto3";
 package private_join_and_compute;
 
 import "private_join_and_compute/private_intersection_sum.proto";
+import "private_join_and_compute/match.proto";
 
 option optimize_for = LITE_RUNTIME;
 
@@ -35,8 +36,45 @@ message ServerMessage {
   }
 }
 
+// Chunked transport frames for large protocol messages.
+//
+// The cryptographic protocol messages remain unchanged. These frames only
+// split repeated encrypted-element payloads so one logical protocol round does
+// not have to fit into a single gRPC message.
+message ClientRoundOneFrame {
+  bytes public_key = 1;
+  repeated EncryptedElement encrypted_set_elements = 2;
+  repeated EncryptedElement reencrypted_set_elements = 3;
+  bool end_of_message = 4;
+}
+
+message ServerRoundOneFrame {
+  repeated EncryptedElement encrypted_set_elements = 1;
+  bool end_of_message = 2;
+}
+
+message ClientMessageFrame {
+  oneof client_frame_oneof {
+    ClientMessage complete_message = 1;
+    ClientRoundOneFrame client_round_one_frame = 2;
+  }
+}
+
+message ServerMessageFrame {
+  oneof server_frame_oneof {
+    ServerMessage complete_message = 1;
+    ServerRoundOneFrame server_round_one_frame = 2;
+  }
+}
+
 // gRPC interface for Private Join and Compute.
 service PrivateJoinAndComputeRpc {
   // Handles a single protocol round.
   rpc Handle(ClientMessage) returns (ServerMessage) {}
+
+  // Handles protocol rounds over a bidirectional stream.
+  //
+  // This transport keeps each gRPC frame bounded while preserving the existing
+  // Private Join and Compute protocol state machine.
+  rpc HandleStream(stream ClientMessageFrame) returns (stream ServerMessageFrame) {}
 }

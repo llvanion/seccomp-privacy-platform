@@ -13,6 +13,7 @@ OUT_DIR="${OUT_DIR:-$MODULE_ROOT/runs/$JOB_ID}"
 SERVER_CSV="${SERVER_CSV:-/tmp/server.csv}"
 SERVER_ADDR="${SERVER_ADDR:-0.0.0.0:10501}"
 GRPC_MAX_MESSAGE_MB="${GRPC_MAX_MESSAGE_MB:-512}"
+PJC_GRPC_STREAM_CHUNK_ELEMENTS="${PJC_GRPC_STREAM_CHUNK_ELEMENTS:-4096}"
 PJC_BUILD="${PJC_BUILD:-0}"
 
 resolve_path() {
@@ -49,6 +50,7 @@ echo "[info] PJC_BIN_DIR=${PJC_BIN_DIR:-<via bazel>}"
 echo "[info] SERVER_CSV=$SERVER_CSV"
 echo "[info] SERVER_ADDR=$SERVER_ADDR"
 echo "[info] GRPC_MAX_MESSAGE_MB=$GRPC_MAX_MESSAGE_MB"
+echo "[info] PJC_GRPC_STREAM_CHUNK_ELEMENTS=$PJC_GRPC_STREAM_CHUNK_ELEMENTS"
 
 if [[ -n "$PJC_BIN_DIR" ]]; then
   cd "$(dirname "$(resolve_path "$PJC_BIN_DIR")")"
@@ -77,5 +79,6 @@ echo "[info] log file: $SERVER_LOG"
 "$SERVER_BIN" \
   --server_data_file="$SERVER_CSV" \
   --grpc_max_message_mb="$GRPC_MAX_MESSAGE_MB" \
+  --grpc_stream_chunk_elements="$PJC_GRPC_STREAM_CHUNK_ELEMENTS" \
   --port="$SERVER_ADDR" \
   2>&1 | tee "$SERVER_LOG"

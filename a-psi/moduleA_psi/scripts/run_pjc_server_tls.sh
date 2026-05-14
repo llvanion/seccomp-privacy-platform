@@ -13,7 +13,8 @@ set -euo pipefail
 #   BIND_ADDR     external bind address (default 0.0.0.0)
 #
 # Other env vars pass through to run_pjc_server.sh:
-#   PJC_DIR, PJC_BIN_DIR, JOB_ID, OUT_DIR, GRPC_MAX_MESSAGE_MB, PJC_BUILD
+#   PJC_DIR, PJC_BIN_DIR, JOB_ID, OUT_DIR, GRPC_MAX_MESSAGE_MB,
+#   PJC_GRPC_STREAM_CHUNK_ELEMENTS, PJC_BUILD
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 MODULE_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
@@ -25,6 +26,7 @@ BIND_ADDR="${BIND_ADDR:-0.0.0.0}"
 JOB_ID="${JOB_ID:-$(date +%Y%m%d-%H%M%S)}"
 OUT_DIR="${OUT_DIR:-$MODULE_ROOT/runs/$JOB_ID}"
 GRPC_MAX_MESSAGE_MB="${GRPC_MAX_MESSAGE_MB:-512}"
+PJC_GRPC_STREAM_CHUNK_ELEMENTS="${PJC_GRPC_STREAM_CHUNK_ELEMENTS:-4096}"
 
 # ── Pre-flight ────────────────────────────────────────────────────────────────
 _require() {
@@ -77,6 +79,7 @@ echo "[info] starting PJC server on 127.0.0.1:${PJC_LOCAL_PORT}..."
 "$SERVER_BIN" \
   --server_data_file="$SERVER_CSV" \
   --grpc_max_message_mb="$GRPC_MAX_MESSAGE_MB" \
+  --grpc_stream_chunk_elements="$PJC_GRPC_STREAM_CHUNK_ELEMENTS" \
   --port="127.0.0.1:${PJC_LOCAL_PORT}" \
   >"$SERVER_LOG" 2>&1 &
 PJC_PID=$!

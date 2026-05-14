@@ -306,6 +306,23 @@ Current highest residual risks:
 5. duplicate-query denial does not yet cover near-duplicate or differencing attacks
 6. metadata and audit read adapters are read-only, but their access control is still local-token based
 
+### 8.1 Complete Solution Tracks
+
+For production planning, these items are no longer tracked only as residual risks. They map to complete task packages in [PRODUCTION_SECURITY_COMPLETION_PLAN.md](/home/llvanion/Desktop/seccomp-privacy-platform/docs/PRODUCTION_SECURITY_COMPLETION_PLAN.md), and each package must close implementation, tests, evidence, audit, documentation, and three-person certification in one pass.
+
+| Risk | Complete solution track |
+| --- | --- |
+| bridge-ready plaintext handoff | `S1` eliminates retained plaintext handoff in production mode |
+| env/local secret trusted root | `S2` makes real KMS/Vault/cloud KMS the production key source |
+| differencing and near-duplicate queries | `S3` adds privacy budget and query-abuse ledger controls |
+| PJC resource exhaustion or local-only runner | `S4` adds service/worker execution, preflight, limits, and streaming gRPC audit |
+| public metadata leakage | `S5` separates public report fields from operator-only metrics |
+| local-only audit trust | `S6` requires externally anchored audit evidence for production release |
+| loopback-only cross-party validation | `S7` requires two-machine mTLS validation and peer identity checks |
+| semi-honest PJC assumptions | `S8` adds input commitments and a path toward malicious-secure PSI-SUM |
+
+Until a track is completed and jointly certified, report it as `planned`, `partial`, or `repo-side complete`; do not present it as a solved production guarantee.
+
 ## 9. Operational Expectations
 
 Until stronger deployment isolation exists, treat the following as mandatory operator discipline:

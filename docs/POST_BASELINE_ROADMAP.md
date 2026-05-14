@@ -42,6 +42,23 @@
 1. 核心下一阶段：`21 blocks / 105h`
 2. 这不含完整生产级 HA、多机房、SRE 值班、百万级压测、正式前端产品发布
 
+### 3.1 新增 Tranche E：生产级安全完整解决方案
+
+如果目标从“比赛版平台基线”升级为“完整生产级安全方案”，不要再把工作写成零散风险缓解项。新增 tranche 以 [PRODUCTION_SECURITY_COMPLETION_PLAN.md](/home/llvanion/Desktop/seccomp-privacy-platform/docs/PRODUCTION_SECURITY_COMPLETION_PLAN.md) 为准，按完整任务包推进：
+
+| 任务 | 目标 | 报告状态要求 |
+| --- | --- | --- |
+| S1 | 消除明文 handoff 落盘 | 只有生产 gate、审计和反例都通过，才能写 `completed` |
+| S2 | 正式 KMS 与密钥生命周期 | 生产路径不能依赖裸 env/CLI secret |
+| S3 | 隐私预算与抗差分查询 | 不能只靠 exact duplicate deny |
+| S4 | PJC 服务化、资源隔离与 DoS 防护 | streaming gRPC、资源上限、preflight 和 audit 一起交付 |
+| S5 | Metadata leakage 控制 | public/operator metadata 分层 |
+| S6 | 外部不可篡改审计 | 外部 anchor 失败不能静默发布 |
+| S7 | 两机 mTLS 联合验证 | 需要跨机证书、peer identity 和双方 audit |
+| S8 | 抗恶意 PJC / Commit-and-Prove | 输入、结果和策略必须可绑定验证 |
+
+Tranche E 的每个任务都必须按“需求边界、实现、验证命令、证据、审计、文档、三人联合认证”一次性闭环。只完成其中一部分时，状态只能写 `partial`、`repo-side complete` 或 `operator-side skipped`，不能写成已完成。
+
 ## 4. Tranche A：权威身份、授权与密钥来源
 
 这条线的目标不是再补一层 mock，而是把当前已经存在的本地 compatibility contract，接到真实 authority source。

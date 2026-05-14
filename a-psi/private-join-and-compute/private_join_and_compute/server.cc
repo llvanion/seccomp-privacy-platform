@@ -37,6 +37,8 @@
 
 ABSL_FLAG(int32_t, grpc_max_message_mb, 512,
           "Maximum gRPC send/receive message size in MB.");
+ABSL_FLAG(int32_t, grpc_stream_chunk_elements, 4096,
+          "Encrypted elements per gRPC streaming frame.");
 ABSL_FLAG(std::string, port, "0.0.0.0:10501", "Port on which to listen");
 ABSL_FLAG(std::string, server_data_file, "",
           "The file from which to read the server database.");
@@ -58,7 +60,7 @@ int RunServer() {
           ::private_join_and_compute::PrivateIntersectionSumProtocolServerImpl>(
           &context, std::move(maybe_server_identifiers.value()));
   ::private_join_and_compute::PrivateJoinAndComputeRpcImpl service(
-      std::move(server));
+      std::move(server), absl::GetFlag(FLAGS_grpc_stream_chunk_elements));
 
   ::grpc::ServerBuilder builder;
   const int max_message_bytes =
@@ -72,6 +74,11 @@ int RunServer() {
                                grpc_local_connect_type::LOCAL_TCP));
   builder.RegisterService(&service);
   std::unique_ptr<::grpc::Server> grpc_server(builder.BuildAndStart());
+  if (grpc_server == nullptr) {
+    std::cerr << "Server: failed to listen on " << absl::GetFlag(FLAGS_port)
+              << std::endl;
+    return 1;
+  }
 
   // Run the server on a background thread.
   std::thread grpc_server_thread(

@@ -33,6 +33,7 @@ grpc_proto_library(
     name = "private_join_and_compute_proto",
     srcs = ["private_join_and_compute.proto"],
     deps = [
+        ":match_proto",
         ":private_intersection_sum_proto",
     ],
 )

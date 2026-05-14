@@ -13,7 +13,8 @@ set -euo pipefail
 #   LOCAL_PROXY_PORT local loopback port socat listens on (default 10503)
 #
 # Other env vars pass through to run_pjc_client.sh:
-#   JOB_ID, OUT_DIR, GRPC_MAX_MESSAGE_MB, PJC_DIR, PJC_BIN_DIR, PJC_BUILD
+#   JOB_ID, OUT_DIR, GRPC_MAX_MESSAGE_MB, PJC_GRPC_STREAM_CHUNK_ELEMENTS,
+#   PJC_DIR, PJC_BIN_DIR, PJC_BUILD
 #   SERVER_CONNECT_RETRIES, SERVER_CONNECT_DELAY_SEC
 #   RESULT_CALLBACK_URL, RESULT_CALLBACK_TOKEN, SHARED_RESULT_DIR
 
@@ -28,6 +29,7 @@ JOB_ID="${JOB_ID:-$(date +%Y%m%d-%H%M%S)}"
 OUT_DIR="${OUT_DIR:-$MODULE_ROOT/runs/$JOB_ID}"
 CLIENT_CSV="${CLIENT_CSV:-/tmp/client.csv}"
 GRPC_MAX_MESSAGE_MB="${GRPC_MAX_MESSAGE_MB:-512}"
+PJC_GRPC_STREAM_CHUNK_ELEMENTS="${PJC_GRPC_STREAM_CHUNK_ELEMENTS:-4096}"
 SERVER_CONNECT_RETRIES="${SERVER_CONNECT_RETRIES:-10}"
 SERVER_CONNECT_DELAY_SEC="${SERVER_CONNECT_DELAY_SEC:-2}"
 RESULT_CALLBACK_URL="${RESULT_CALLBACK_URL:-}"
@@ -122,6 +124,7 @@ while [[ "$attempt" -le "$SERVER_CONNECT_RETRIES" ]]; do
     --client_data_file="$CLIENT_CSV" \
     --port="127.0.0.1:${LOCAL_PROXY_PORT}" \
     --grpc_max_message_mb="$GRPC_MAX_MESSAGE_MB" \
+    --grpc_stream_chunk_elements="$PJC_GRPC_STREAM_CHUNK_ELEMENTS" \
     >"$CLIENT_LOG" 2>&1
   CLIENT_RC=$?
   set -e
@@ -153,6 +156,7 @@ cat > "$RESULT_JSON" <<JSON
   "tls": true,
   "client_csv": "$CLIENT_CSV",
   "grpc_max_message_mb": $GRPC_MAX_MESSAGE_MB,
+  "grpc_stream_chunk_elements": $PJC_GRPC_STREAM_CHUNK_ELEMENTS,
   "intersection_size": $INTERSECTION_SIZE,
   "intersection_sum": $INTERSECTION_SUM
 }

@@ -12,6 +12,7 @@ RUN_PJC_SERVER_SH="${RUN_PJC_SERVER_SH:-$SCRIPT_DIR/run_pjc_server.sh}"
 SERVER_ADDR="${SERVER_ADDR:-0.0.0.0:10501}"
 PJC_DIR="${PJC_DIR:-$REPO_ROOT/private-join-and-compute}"
 GRPC_MAX_MESSAGE_MB="${GRPC_MAX_MESSAGE_MB:-512}"
+PJC_GRPC_STREAM_CHUNK_ELEMENTS="${PJC_GRPC_STREAM_CHUNK_ELEMENTS:-4096}"
 PJC_BUILD="${PJC_BUILD:-0}"
 
 [[ -n "$JOB_DIR" ]] || die "JOB_DIR is required"
@@ -30,6 +31,7 @@ for bucket in "${INFO[@]:1}"; do
   log "serving bucket=$bucket from $sub"
   export PJC_DIR JOB_ID="$(basename "$JOB_DIR")" OUT_DIR="$sub"
   export SERVER_CSV="$sub/server.csv" SERVER_ADDR GRPC_MAX_MESSAGE_MB PJC_BUILD
+  export PJC_GRPC_STREAM_CHUNK_ELEMENTS
   bash "$RUN_PJC_SERVER_SH"
 done
 

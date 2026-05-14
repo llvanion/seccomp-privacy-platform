@@ -21,6 +21,7 @@
 
 #include "include/grpcpp/grpcpp.h"
 #include "include/grpcpp/server_context.h"
+#include "include/grpcpp/support/sync_stream.h"
 #include "include/grpcpp/support/status.h"
 #include "private_join_and_compute/private_join_and_compute.grpc.pb.h"
 #include "private_join_and_compute/private_join_and_compute.pb.h"
@@ -40,13 +41,21 @@ class PrivateJoinAndComputeRpcImpl : public PrivateJoinAndComputeRpc::Service {
   // protocol_server_impls' Handle methods should therefore Send at most one
   // message to the server_message_sink.
   explicit PrivateJoinAndComputeRpcImpl(
-      std::unique_ptr<ProtocolServer> protocol_server_impl)
-      : protocol_server_impl_(std::move(protocol_server_impl)) {}
+      std::unique_ptr<ProtocolServer> protocol_server_impl,
+      int32_t stream_chunk_elements = 4096)
+      : protocol_server_impl_(std::move(protocol_server_impl)),
+        stream_chunk_elements_(stream_chunk_elements) {}
 
   // Executes a round of the protocol.
   ::grpc::Status Handle(::grpc::ServerContext* context,
                         const ClientMessage* request,
                         ServerMessage* response) override;
+
+  // Executes protocol rounds over a chunked bidirectional stream.
+  ::grpc::Status HandleStream(
+      ::grpc::ServerContext* context,
+      ::grpc::ServerReaderWriter<ServerMessageFrame, ClientMessageFrame>*
+          stream) override;
 
   bool protocol_finished() {
     return protocol_server_impl_->protocol_finished();
@@ -54,6 +63,7 @@ class PrivateJoinAndComputeRpcImpl : public PrivateJoinAndComputeRpc::Service {
 
  private:
   std::unique_ptr<ProtocolServer> protocol_server_impl_;
+  int32_t stream_chunk_elements_;
 };
 
 }  // namespace private_join_and_compute

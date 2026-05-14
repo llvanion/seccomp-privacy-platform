@@ -21,6 +21,13 @@
 3. 平台基线之后下一阶段先做什么
 4. 主链路边界和冻结语义是什么
 
+如果接手的是三人协作、pre 汇报、结题报告或生产级安全完整方案，请再读：
+
+5. [TEAM_COLLABORATION_AND_REPORTING_PLAN.md](/home/llvanion/Desktop/seccomp-privacy-platform/docs/team/TEAM_COLLABORATION_AND_REPORTING_PLAN.md)
+6. [PRODUCTION_SECURITY_COMPLETION_PLAN.md](/home/llvanion/Desktop/seccomp-privacy-platform/docs/PRODUCTION_SECURITY_COMPLETION_PLAN.md)
+
+这两份文档固定三个人的任务边界、Ubuntu/设备建议、测试证据目录、pre/结题报告呈现方式，以及“每次直接解决一个完整任务包”和三人联合认证规则。
+
 ## 2. 按角色读
 
 ### 2.1 如果你接 owner / 主链路
@@ -79,6 +86,12 @@
 
 6. “平台基线做完之后，下一阶段怎么排？”
    [POST_BASELINE_ROADMAP.md](/home/llvanion/Desktop/seccomp-privacy-platform/docs/POST_BASELINE_ROADMAP.md)
+
+7. “三个人怎么分工、测试证据怎么收、pre/结题报告怎么写？”
+   [TEAM_COLLABORATION_AND_REPORTING_PLAN.md](/home/llvanion/Desktop/seccomp-privacy-platform/docs/team/TEAM_COLLABORATION_AND_REPORTING_PLAN.md)
+
+8. “安全问题不要缓解，要完整解决，任务怎么拆？”
+   [PRODUCTION_SECURITY_COMPLETION_PLAN.md](/home/llvanion/Desktop/seccomp-privacy-platform/docs/PRODUCTION_SECURITY_COMPLETION_PLAN.md)
 
 ## 4. 建议
 

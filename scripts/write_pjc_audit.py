@@ -34,7 +34,7 @@ def append_jsonl(path: str, record: Dict[str, Any]) -> None:
 
 
 def build_record(args: argparse.Namespace) -> Dict[str, Any]:
-    return {
+    record = {
         "schema": "pjc_audit/v1",
         "ts_utc": utc_now_iso(),
         "event": "pjc_run",
@@ -57,6 +57,9 @@ def build_record(args: argparse.Namespace) -> Dict[str, Any]:
         "reason": args.reason,
         "exit_code": args.exit_code,
     }
+    if args.grpc_stream_chunk_elements is not None:
+        record["grpc_stream_chunk_elements"] = args.grpc_stream_chunk_elements
+    return record
 
 
 def main() -> int:
@@ -74,6 +77,7 @@ def main() -> int:
     ap.add_argument("--reason-code", required=True)
     ap.add_argument("--reason", required=True)
     ap.add_argument("--exit-code", type=int, default=None)
+    ap.add_argument("--grpc-stream-chunk-elements", type=int, default=None)
     args = ap.parse_args()
 
     record = build_record(args)

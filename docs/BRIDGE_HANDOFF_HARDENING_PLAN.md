@@ -8,9 +8,9 @@
 record recovery -> bridge-ready plaintext handoff -> bridge
 ```
 
-当前系统已经把风险降下来了，但还没有完全收口。
+当前系统已经把风险降下来了，但生产级目标不是“风险缓解”，而是彻底消除 retained plaintext handoff 作为默认路径。
 
-目标不是立刻重写主链路，而是把 handoff 的收紧方向固定下来，避免后续实现又把明文暴露面放大。
+目标不是立刻重写主链路，而是把 handoff 的完整解决方向固定下来，避免后续实现又把明文暴露面放大。生产级完整任务以 [PRODUCTION_SECURITY_COMPLETION_PLAN.md](/home/llvanion/Desktop/seccomp-privacy-platform/docs/PRODUCTION_SECURITY_COMPLETION_PLAN.md) 的 `S1` 为准。
 
 ## 2. 当前状态
 
@@ -150,17 +150,21 @@ record recovery -> bridge-ready plaintext handoff -> bridge
    - `scripts/check_pipeline_artifact_smoke_reports.py` 在 observability smoke 中新增对 `handoff_exposure_assessment` 三个事件（overall + 每角色）以及 catalog_lineage `handoff_mode`/`handoff_exposure` 的正向断言；`scripts/benchmark_derived_views.py` 的 `EXPECTED_STAGES` 加入 `handoff_exposure_assessment`。
    - `bash scripts/check_ci_smoke.sh` 在两种 handoff 模式（file 与 FIFO）下均在归档索引中正确写出 `handoff_mode` 与 `handoff_exposure`，回放与归档链全绿。
 
-### Phase 3：加密 at-rest handoff
+### Phase 3：生产默认取消明文 at-rest handoff
 
-方向：
+目标态：
 
-1. 如果必须落盘，则优先演进到加密 handoff artifact
-2. bridge 前增加受控解密或最小可见恢复步骤
+1. 生产路径默认使用 FIFO 或 streaming handoff。
+2. retained file handoff 在 production gate 下直接失败。
+3. 如果必须落盘，只能落加密 artifact。
+4. 每个 job 使用独立 data encryption key。
+5. 临时明文只允许存在于进程内存、pipe 或受限 tmpfs。
 
 注意：
 
-1. 这属于新 contract 设计，不是简单实现细节
-2. 必须先走 `docs/change_requests/`
+1. 这属于 `S1` 完整任务，不是只补一个清理脚本。
+2. 必须同时交付 production gate、反例验证、audit 字段、runbook 和三人联合认证。
+3. 如果改动 contract，必须先走 `docs/change_requests/`。
 
 ### Phase 4：服务间认证传输
 
@@ -168,8 +172,10 @@ record recovery -> bridge-ready plaintext handoff -> bridge
 
 1. recovery boundary 与 downstream consumer 之间具备明确服务身份
 2. handoff 不再默认等价于“同机文件或 pipe”
+3. 两机或跨服务传输必须绑定 mTLS/service identity/job_id
+4. 传输模式、peer identity、cert fingerprint 和 handoff exposure 必须进入审计
 
-这一步已经超出当前 demo 范围，但必须作为 owner 方向固定下来。
+这一步已经超出当前 demo 范围，但必须作为 owner 方向固定下来；跨机验证对齐 `S7` 两机 mTLS 联合验证。
 
 ## 6. 当前允许的实现方向
 
@@ -203,3 +209,4 @@ owner 线在 handoff 问题上的阶段性完成标准：
 2. [docs/THREAT_MODEL_AND_LEAKAGE_MODEL.md](/home/llvanion/Desktop/seccomp-privacy-platform/docs/THREAT_MODEL_AND_LEAKAGE_MODEL.md)
 3. [docs/SSE_BRIDGE_APSI_PIPELINE.md](/home/llvanion/Desktop/seccomp-privacy-platform/docs/SSE_BRIDGE_APSI_PIPELINE.md)
 4. [docs/INTERFACE_FREEZE_AND_CHANGE_PROCESS.md](/home/llvanion/Desktop/seccomp-privacy-platform/docs/INTERFACE_FREEZE_AND_CHANGE_PROCESS.md)
+5. [docs/PRODUCTION_SECURITY_COMPLETION_PLAN.md](/home/llvanion/Desktop/seccomp-privacy-platform/docs/PRODUCTION_SECURITY_COMPLETION_PLAN.md)

@@ -51,6 +51,7 @@ RUN_RECORD_RECOVERY_SERVICE_PY="${RUN_RECORD_RECOVERY_SERVICE_PY:-$REPO_ROOT/scr
 SEAL_AUDIT_ARTIFACT_PY="${SEAL_AUDIT_ARTIFACT_PY:-$REPO_ROOT/scripts/seal_audit_artifact.py}"
 RUNTIME_SERVICE_HELPERS_PY="${RUNTIME_SERVICE_HELPERS_PY:-$REPO_ROOT/scripts/runtime_service_helpers.py}"
 PJC_BIN_DIR="${PJC_BIN_DIR:-$APSI_DIR/private-join-and-compute/bazel-bin}"
+PJC_GRPC_STREAM_CHUNK_ELEMENTS="${PJC_GRPC_STREAM_CHUNK_ELEMENTS:-4096}"
 
 SERVER_SOURCE=""
 CLIENT_SOURCE=""
@@ -194,6 +195,7 @@ Options:
   --audit-seal-key-env <env>       optional env var used to HMAC-seal audit_chain.json
   --audit-archive-dir <dir>        optional local archive dir; resolved --tenant-id writes under <dir>/<tenant-id>
   --pjc-audit-log <path>           default: <out-base>/a_psi_run/pjc_audit.jsonl
+  PJC_GRPC_STREAM_CHUNK_ELEMENTS env controls PJC streaming frame size; default: 4096; 0=legacy unary
   --sse-export-policy-config <path> SSE export policy config
   --sse-export-audit-log <path>     default: <out-base>/sse_exports/export_audit.jsonl
   --sse-export-handoff-mode file|fifo default: file; fifo streams plaintext handoff through named pipes
@@ -1469,6 +1471,7 @@ PJC_RC=0
   SERVER_CSV="$BRIDGE_JOB_DIR/server.csv" \
   CLIENT_CSV="$BRIDGE_JOB_DIR/client.csv" \
   PJC_BIN_DIR="$PJC_BIN_DIR" \
+  PJC_GRPC_STREAM_CHUNK_ELEMENTS="$PJC_GRPC_STREAM_CHUNK_ELEMENTS" \
   bash "$RUN_PJC_SH"
 ) || PJC_RC=$?
 PJC_ENDED_MS="$(date +%s%3N)"
@@ -1485,6 +1488,7 @@ PJC_AUDIT_CMD=(
   --client-log "$APSI_JOB_DIR/client.log"
   --result-file "$APSI_JOB_DIR/attribution_result.json"
   --duration-ms "$PJC_DURATION_MS"
+  --grpc-stream-chunk-elements "$PJC_GRPC_STREAM_CHUNK_ELEMENTS"
 )
 if [[ "$PJC_RC" -eq 0 ]]; then
   "${PJC_AUDIT_CMD[@]}" \

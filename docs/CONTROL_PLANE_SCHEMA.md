@@ -16,24 +16,29 @@
 2. `migrations/metadata/002_add_stage_duration_columns.sql`
 3. `migrations/metadata/004_add_key_registry.sql`
 4. `migrations/metadata/009_add_control_plane_deepening.sql`
-5. `scripts/init_metadata_db.py`
-6. `scripts/import_run_metadata.py`
-7. `scripts/materialize_control_plane_deepening.py`
-8. `scripts/query_metadata.py`
-9. `scripts/serve_metadata_api.py`
-10. `scripts/manage_metadata_db.py`
-11. `scripts/check_metadata_schema_portability.py`
+5. `migrations/metadata/010_add_ecommerce_fact_tables.sql`
+6. `migrations/metadata/011_add_business_identities.sql`
+7. `migrations/metadata/012_add_workflow_submissions.sql`
+8. `scripts/init_metadata_db.py`
+9. `scripts/import_run_metadata.py`
+10. `scripts/materialize_control_plane_deepening.py`
+11. `scripts/query_metadata.py`
+12. `scripts/serve_metadata_api.py`
+13. `scripts/manage_metadata_db.py`
+14. `scripts/check_metadata_schema_portability.py`
 
 先明确一个容易误解的边界：
 
 1. 这里的 SQL sidecar 不是完整电商业务库。
-2. 它当前不以保存“买了什么商品”“在哪个平台购买”“从哪个广告或页面点击进来”“物流流转到了哪里”为目标。
+2. 它的主职责仍然是控制面、运行面和审计面的元数据，不是完整 customer 360 或企业级电商数仓。
 3. 它保存的是控制面、运行面和审计面的元数据，用来解释一条隐私查询是怎么被授权、执行、审计和回放的。
-4. 截至当前版本，下面这套“每订单业务事实层”仍然没有正式落地到 migration 或 importer 中，只能视为后续应该补齐的业务数仓 / 事实库设计目标。
+4. Track-E1 已经补入一套窄口径电商事实层基线，用于支撑隐私查询 demo 的业务叙事和后续导入目标；这仍然不是完整电商数仓。
 
-## 1.1 尚未落地的订单事实层
+## 1.1 已落地的订单事实层基线
 
-如果未来要让 SQL 层真的能回答：
+Track-E1 已通过 [`migrations/metadata/010_add_ecommerce_fact_tables.sql`](/home/llvanion/Desktop/seccomp-privacy-platform/migrations/metadata/010_add_ecommerce_fact_tables.sql) 落地 6 张订单中心事实表，并在 [`docs/ECOMMERCE_FACT_LAYER_PLAN.md`](/home/llvanion/Desktop/seccomp-privacy-platform/docs/ECOMMERCE_FACT_LAYER_PLAN.md) 中冻结设计口径。
+
+这层的目标是让隐私计算链路可以讲清楚：
 
 1. 用户买了什么商品
 2. 在哪个平台成交
@@ -42,236 +47,48 @@
 5. 货从哪里发、物流走到了哪里
 6. 客服或售后是否介入
 
-那么至少需要补下面这些业务表。当前仓库里这些表**都还没做成正式 schema**。
+但它仍然只是一套可供隐私 pipeline 对接的事实层基线，不是完整电商数仓。当前正式落地的表是：
 
-### `orders`
+1. `orders`
+2. `order_items`
+3. `order_attribution`
+4. `order_payment`
+5. `order_fulfillment`
+6. `customer_service_interactions`
 
-一笔订单一行，保存订单头信息。建议至少包括：
+这些表共享 `tenant_id` / `dataset_id` / `service_id` scope，和 `sse_export_policy/v1` 对齐。`orders.buyer_email` 是当前 bridge join key，`orders.total_amount_cents` 是 `--client-value-mode raw-int` 的金额字段。除 join key 和必要 value 外，其他事实字段不穿过 bridge / PJC 边界。
 
-1. `order_id`
-2. `parent_order_id`
-3. `tenant_id`
-4. `merchant_id`
-5. `store_id`
-6. `platform_name`
-7. `platform_order_id`
-8. `order_status`
-9. `order_created_at`
-10. `order_paid_at`
-11. `order_completed_at`
-12. `order_cancelled_at`
-13. `currency`
-14. `total_amount`
-15. `item_amount`
-16. `shipping_amount`
-17. `discount_amount`
-18. `coupon_amount`
-19. `refund_amount`
-20. `payable_amount`
-21. `payment_status`
-22. `fulfillment_status`
-23. `refund_status`
-24. `buyer_id`
-25. `buyer_hash_id`
-26. `region_code`
-27. `source_system`
-28. `etl_batch_id`
-29. `data_version`
+当前没有落地、也不应该在现阶段混入这份 control-plane schema 的内容包括：
 
-### `order_items`
+1. 完整买家个人画像和地址明文。
+2. 详细物流轨迹事件表。
+3. 商品主数据、库存、商家主数据。
+4. 实时事件流、Kafka/Debezium 这类生产数据管道。
+5. 客服会话全文或任何 PII 明文字段。
 
-一笔订单对应的商品行。建议至少包括：
+下面保留字段说明，作为已落地 6 表的 schema 摘要，而不是“尚未实现清单”。
 
-1. `order_item_id`
-2. `order_id`
-3. `sku_id`
-4. `spu_id`
-5. `product_id`
-6. `product_name_snapshot`
-7. `brand_id`
-8. `category_lv1`
-9. `category_lv2`
-10. `category_lv3`
-11. `sku_attrs_snapshot`
-12. `quantity`
-13. `list_price`
-14. `sale_price`
-15. `discount_amount`
-16. `item_total_amount`
-17. `cost_amount`
-18. `is_gift`
-19. `is_preorder`
-20. `item_status`
+### 已落地表摘要
 
-### `order_attribution`
+| 表 | 当前用途 | 关键字段 |
+| --- | --- | --- |
+| `orders` | 订单头表；当前隐私 join/value 的主要来源 | `order_id`, `tenant_id`, `dataset_id`, `service_id`, `buyer_email`, `campaign_id`, `total_amount_cents`, `placed_at_utc`, `status` |
+| `order_items` | 订单商品行，支撑后续 SKU/类目方向的隐私聚合 | `order_id`, `tenant_id`, `dataset_id`, `sku_id`, `category_id`, `quantity`, `line_total_cents` |
+| `order_attribution` | 营销归因表，支撑 campaign/channel 查询叙事 | `order_id`, `tenant_id`, `dataset_id`, `attribution_type`, `channel`, `campaign_id`, `creative_id`, `attribution_weight` |
+| `order_payment` | 支付与争议基础字段，支撑风控/支付场景 | `order_id`, `tenant_id`, `dataset_id`, `payment_method`, `provider_id`, `paid_amount_cents`, `risk_score`, `is_disputed` |
+| `order_fulfillment` | 履约与物流头字段，不保存快递员或地址 PII | `order_id`, `tenant_id`, `dataset_id`, `carrier_id`, `warehouse_id`, `status`, `delivery_latency_minutes` |
+| `customer_service_interactions` | 客服接触元数据，不保存会话全文 | `order_id`, `tenant_id`, `dataset_id`, `interaction_type`, `channel`, `agent_id`, `resolution_status` |
 
-回答“从哪里点击进来”和“在哪个平台转化”的归因表。建议至少包括：
+### 仍属后续范围的事实层能力
 
-1. `order_id`
-2. `session_id`
-3. `visit_id`
-4. `traffic_source`
-5. `traffic_medium`
-6. `campaign_id`
-7. `campaign_name`
-8. `ad_group_id`
-9. `creative_id`
-10. `channel_platform`
-11. `landing_page`
-12. `referrer_url`
-13. `referrer_domain`
-14. `entry_page_type`
-15. `click_id`
-16. `impression_id`
-17. `conversion_path`
-18. `is_first_touch`
-19. `is_last_touch`
-20. `attribution_model`
-21. `attributed_at`
+以下内容曾在早期设计里作为建议字段出现，但当前不属于已冻结 migration：
 
-### `order_payment`
+1. `shipment_events` 级别的逐节点物流轨迹。
+2. `buyer_identity_snapshot` / `order_address_snapshot` 级别的买家画像或地址快照。
+3. `sales_after_service` / `order_risk_events` 等更宽业务域。
+4. `join_key_hash`、`consent_status`、`data_retention_class` 等更完整的数据治理字段。
 
-支付与支付失败信息。建议至少包括：
-
-1. `payment_id`
-2. `order_id`
-3. `payment_channel`
-4. `payment_method`
-5. `payment_provider_txn_id`
-6. `payment_status`
-7. `paid_amount`
-8. `paid_at`
-9. `payment_fail_reason`
-10. `installment_flag`
-11. `risk_review_result`
-
-### `order_fulfillment`
-
-履约与物流头信息。建议至少包括：
-
-1. `fulfillment_id`
-2. `order_id`
-3. `warehouse_id`
-4. `fulfillment_mode`
-5. `shipment_id`
-6. `carrier_name`
-7. `tracking_no_hash`
-8. `shipped_at`
-9. `delivered_at`
-10. `delivery_status`
-11. `delivery_region_code`
-12. `pickup_flag`
-13. `sign_status`
-14. `return_requested_at`
-15. `return_completed_at`
-
-### `shipment_events`
-
-更细的物流轨迹节点。建议至少包括：
-
-1. `shipment_id`
-2. `event_time`
-3. `event_type`
-4. `event_city`
-5. `event_station`
-6. `event_desc`
-
-### `buyer_identity_snapshot`
-
-订单关联的买家身份快照。建议至少包括：
-
-1. `buyer_id`
-2. `buyer_hash_id`
-3. `platform_buyer_id`
-4. `phone_hash`
-5. `email_hash`
-6. `device_hash`
-7. `name_tokenized`
-8. `default_region_code`
-9. `registration_channel`
-10. `member_level`
-11. `is_new_customer`
-12. `risk_segment`
-
-### `order_address_snapshot`
-
-收货信息快照。建议至少包括：
-
-1. `order_id`
-2. `receiver_name_tokenized`
-3. `receiver_phone_hash`
-4. `province_code`
-5. `city_code`
-6. `district_code`
-7. `street_tokenized`
-8. `postal_code`
-9. `geo_hash_approx`
-
-### `sales_after_service`
-
-售后工单。建议至少包括：
-
-1. `service_ticket_id`
-2. `order_id`
-3. `ticket_type`
-4. `ticket_status`
-5. `opened_at`
-6. `closed_at`
-7. `reason_code`
-8. `responsible_team`
-
-### `customer_service_interactions`
-
-客服接触记录。建议至少包括：
-
-1. `interaction_id`
-2. `order_id`
-3. `buyer_id`
-4. `channel`
-5. `agent_id`
-6. `opened_at`
-7. `closed_at`
-8. `intent_label`
-9. `resolution_label`
-10. `satisfaction_score`
-
-### `order_risk_events`
-
-风控和拒付信息。建议至少包括：
-
-1. `order_id`
-2. `risk_case_id`
-3. `risk_score`
-4. `risk_tags`
-5. `device_hash`
-6. `ip_hash`
-7. `geo_risk_level`
-8. `payment_risk_level`
-9. `chargeback_flag`
-10. `chargeback_amount`
-11. `manual_review_flag`
-12. `manual_review_result`
-
-### 对当前隐私平台特别重要的补充字段
-
-为了让这套事实层真正接到当前 `dataset_id / service_id / caller / policy` 模型上，还需要预留：
-
-1. `join_key_type`
-2. `join_key_normalized`
-3. `join_key_hash`
-4. `consent_status`
-5. `consent_version`
-6. `data_retention_class`
-7. `data_sensitivity_level`
-8. `allowed_query_profile`
-9. `dataset_id`
-10. `service_id`
-
-其中高敏字段不应该在普通查询路径里以明文广泛铺开，更适合：
-
-1. 用 hash / token / normalized join key 保存联结标识
-2. 用 snapshot 保存订单时点信息
-3. 把真实明文限制在更小的恢复边界或专门服务里
+这些能力要作为后续 tranche 单独设计。引入时必须继续遵守两条约束：不把 PII 明文扩散到普通 sidecar 查询面，不改变 `SSE -> record recovery -> bridge -> PJC -> policy release` 主链路 contract。
 
 ## 2. 设计约束
 
