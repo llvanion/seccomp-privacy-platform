@@ -38,6 +38,9 @@
         "fail"
       ]
     },
+    "production_mode": {
+      "type": "boolean"
+    },
     "canonical_scope": {
       "type": "object",
       "required": [

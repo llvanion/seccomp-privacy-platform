@@ -1207,6 +1207,7 @@
         "handoff_mode",
         "job_id",
         "out_base",
+        "production_mode",
         "repo_root",
         "schema",
         "status",

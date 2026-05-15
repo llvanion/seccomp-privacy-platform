@@ -1,0 +1,53 @@
+{
+  "schema": "keyring/v1",
+  "keys": {
+    "bridge-token": {
+      "purpose": "bridge_token",
+      "active_version": "prod-v1",
+      "allowed_callers": ["bridge_demo", "auto_demo"],
+      "versions": {
+        "prod-v1": {
+          "enabled": true,
+          "status": "active",
+          "created_at_utc": "2026-05-14T00:00:00Z",
+          "secret_ref": {
+            "kind": "vault_http",
+            "name": "secret/data/seccomp-privacy/bridge-token",
+            "version": "1",
+            "field": "value"
+          }
+        },
+        "legacy-v0": {
+          "enabled": false,
+          "status": "retired",
+          "created_at_utc": "2026-04-01T00:00:00Z",
+          "secret_ref": {
+            "kind": "vault_http",
+            "name": "secret/data/seccomp-privacy/bridge-token",
+            "version": "0",
+            "field": "value"
+          }
+        }
+      }
+    },
+    "audit-integrity": {
+      "purpose": "audit_integrity",
+      "active_version": "prod-v1",
+      "allowed_callers": ["bridge_demo", "auto_demo"],
+      "versions": {
+        "prod-v1": {
+          "enabled": true,
+          "status": "active",
+          "created_at_utc": "2026-05-14T00:00:00Z",
+          "secret_ref": {
+            "kind": "aws_kms",
+            "name": "audit-seal/prod-v1",
+            "region": "us-east-1",
+            "key_id": "arn:aws:kms:us-east-1:000000000000:key/00000000-0000-0000-0000-000000000000",
+            "ciphertext_b64": "REPLACE_WITH_SOPS_OR_KMS_ENCRYPTED_CIPHERTEXT"
+          }
+        }
+      }
+    }
+  }
+}

@@ -243,7 +243,9 @@ python3 scripts/verify_audit_tamper_resistance.py \
    - 非授权 caller / tenant / dataset / service。
    - 大请求体。
 
-5. 如果有外部凭证，执行 S3 WORM 或 Rekor live drill；没有凭证则生成 planned report，并在结题中标记为 operator-side。
+5. 如果有外部凭证，执行 S6 WORM 或 Rekor live drill；没有凭证则用 `bash scripts/verify_external_audit_anchor_gate.sh` 跑 repo-side 五条断言（生产闸门 + tamper 检测 + 三种拒绝路径），把生成的 `tmp/external_audit_anchor_evidence/*.json` 与 stderr 一并归档，并在结题中明确 live drill 标记为 operator-side。
+
+6. S7 两机 mTLS 闸门复验：在拿到对方 cert 后（无论是否做了真实跨机 1M streaming），都要为本方接收的 peer cert 跑一次 `python3 scripts/check_pjc_tls_identity.py --cert ... --ca-cert ... --expected-fingerprint-sha256 <out-of-band fp> --expected-peer-identity job-<id>.party*.example --output tmp/team_evidence/person_3/pjc_tls_identity_<job_id>.json --assert-allow`。如果只有单机环境，直接跑 `bash scripts/verify_pjc_tls_identity_gate.sh` 生成 7 条断言证据（含 expired / wrong-fingerprint / wrong-SAN / foreign-CA 反例），归档 `tmp/pjc_tls_identity_evidence/case{1..6}.json` 到本人 `team_evidence` 目录。两侧报告由 Person 1 在结题证据合并时一并打包。
 
 Person 3 的交付物：
 
@@ -252,6 +254,8 @@ Person 3 的交付物：
 | 安全测试范围 | `tmp/team_evidence/person_3/SECURITY_TEST_SCOPE.md` | 外部测试前置审批 |
 | malformed input gate | `tmp/team_evidence/person_3/http_malformed_input_gate.json` | 展示 HTTP 输入边界 |
 | tamper resistance report | `tmp/team_evidence/person_3/audit_tamper_resistance.json` | 展示审计防篡改 |
+| external audit anchor gate | `tmp/team_evidence/person_3/external_audit_anchor_*.json` | S6 production gate + tamper 反例 |
+| pjc mTLS identity gate | `tmp/team_evidence/person_3/pjc_tls_identity_*.json` | S7 cert 身份/有效期/CA 反例 |
 | finding list | `tmp/team_evidence/person_3/FINDINGS.md` | 结题安全章节 |
 
 ## 4. 协作流程

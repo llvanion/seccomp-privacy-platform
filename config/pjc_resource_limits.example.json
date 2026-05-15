@@ -1,0 +1,31 @@
+{
+  "schema": "pjc_resource_limits/v1",
+  "default": {
+    "max_input_rows": 0,
+    "max_input_bytes": 0,
+    "max_estimated_memory_mb": 0,
+    "max_frame_count": 0,
+    "timeout_sec": 0,
+    "estimated_bytes_per_row": 192,
+    "estimated_memory_factor": 4.0
+  },
+  "scopes": [
+    {
+      "match": {
+        "caller": "auto_demo",
+        "tenant_id": "*",
+        "dataset_id": "*",
+        "purpose": "*"
+      },
+      "limits": {
+        "max_input_rows": 2000000,
+        "max_input_bytes": 536870912,
+        "max_estimated_memory_mb": 2048,
+        "max_frame_count": 4096,
+        "timeout_sec": 1800,
+        "estimated_bytes_per_row": 192,
+        "estimated_memory_factor": 4.0
+      }
+    }
+  ]
+}

@@ -37,6 +37,12 @@
     "correlation_id": {
       "type": ["string", "null"]
     },
+    "tenant_id": {
+      "type": ["string", "null"]
+    },
+    "dataset_id": {
+      "type": ["string", "null"]
+    },
     "key_id": {
       "type": "string"
     },

@@ -200,6 +200,7 @@ def build_result(
     handoff_exposure_assessment: dict[str, Any],
     findings: list[dict[str, Any]],
     checks_run: int,
+    production_mode: bool,
 ) -> dict[str, Any]:
     return {
         "schema": "mainline_contract_check/v1",
@@ -208,6 +209,7 @@ def build_result(
         "out_base": str(out_base),
         "job_id": job_id,
         "status": "ok" if not findings else "fail",
+        "production_mode": production_mode,
         "canonical_scope": canonical_scope,
         "handoff_mode": handoff_mode,
         "handoff_exposure_assessment": handoff_exposure_assessment,
@@ -331,6 +333,14 @@ def main() -> int:
         "--retained-managed-handoff-reason",
         default="",
         help="Explicit justification recorded when retained managed file-mode SSE handoff artifacts are allowed.",
+    )
+    ap.add_argument(
+        "--production-mode",
+        action="store_true",
+        help=(
+            "Enforce S1 production gate: any plaintext_exposure_risk == 'elevated' is rejected, "
+            "and --allow-retained-managed-handoff is not honored under this mode."
+        ),
     )
     args = ap.parse_args()
 
@@ -763,12 +773,13 @@ def main() -> int:
                         actual=bridge_record.get(bridge_sha_key),
                     )
 
+    effective_allow_retained = args.allow_retained_managed_handoff and not args.production_mode
     server_handoff_cleanup, cleanup_checks = summarize_handoff_cleanup(
         out_base=out_base,
         role_name="server",
         export_record=server_export,
         findings=findings,
-        allow_retained_managed_handoff=args.allow_retained_managed_handoff,
+        allow_retained_managed_handoff=effective_allow_retained,
         retained_managed_handoff_reason=retained_managed_handoff_reason,
     )
     checks_run += cleanup_checks
@@ -777,7 +788,7 @@ def main() -> int:
         role_name="client",
         export_record=client_export,
         findings=findings,
-        allow_retained_managed_handoff=args.allow_retained_managed_handoff,
+        allow_retained_managed_handoff=effective_allow_retained,
         retained_managed_handoff_reason=retained_managed_handoff_reason,
     )
     checks_run += cleanup_checks
@@ -797,6 +808,25 @@ def main() -> int:
         client_cleanup=client_handoff_cleanup,
     )
 
+    if args.production_mode:
+        checks_run += 1
+        if handoff_exposure_assessment.get("plaintext_exposure_risk") == "elevated":
+            add_finding(
+                findings,
+                kind="production_handoff_plaintext_elevated",
+                message=(
+                    "production-mode forbids retained file-mode SSE plaintext handoff; "
+                    "use FIFO handoff or remove --keep-sse-export-handoff-files"
+                ),
+                path="mainline_contract_check.json:handoff_exposure_assessment",
+                expected={"plaintext_exposure_risk": ["none", "low"]},
+                actual={
+                    "plaintext_exposure_risk": handoff_exposure_assessment.get("plaintext_exposure_risk"),
+                    "server_exposure": handoff_exposure_assessment.get("server_exposure"),
+                    "client_exposure": handoff_exposure_assessment.get("client_exposure"),
+                },
+            )
+
     result = build_result(
         out_base=out_base,
         job_id=job_id,
@@ -806,6 +836,7 @@ def main() -> int:
         handoff_exposure_assessment=handoff_exposure_assessment,
         findings=findings,
         checks_run=checks_run,
+        production_mode=bool(args.production_mode),
     )
     payload = json.dumps(result, ensure_ascii=False, indent=2) + "\n"
     if args.output:

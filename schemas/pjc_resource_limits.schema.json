@@ -1,0 +1,58 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "pjc_resource_limits/v1",
+  "title": "PJC per-job resource limit configuration",
+  "type": "object",
+  "required": ["schema", "default"],
+  "properties": {
+    "schema": { "const": "pjc_resource_limits/v1" },
+    "default": {
+      "$ref": "#/$defs/limit_set"
+    },
+    "scopes": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["match", "limits"],
+        "properties": {
+          "match": {
+            "type": "object",
+            "required": ["caller"],
+            "properties": {
+              "caller": { "type": "string", "minLength": 1 },
+              "tenant_id": { "type": ["string", "null"] },
+              "dataset_id": { "type": ["string", "null"] },
+              "purpose": { "type": ["string", "null"] }
+            },
+            "additionalProperties": false
+          },
+          "limits": { "$ref": "#/$defs/limit_set" }
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  "additionalProperties": false,
+  "$defs": {
+    "limit_set": {
+      "type": "object",
+      "required": [
+        "max_input_rows",
+        "max_input_bytes",
+        "max_estimated_memory_mb",
+        "max_frame_count",
+        "timeout_sec"
+      ],
+      "properties": {
+        "max_input_rows": { "type": "integer", "minimum": 0 },
+        "max_input_bytes": { "type": "integer", "minimum": 0 },
+        "max_estimated_memory_mb": { "type": "integer", "minimum": 0 },
+        "max_frame_count": { "type": "integer", "minimum": 0 },
+        "timeout_sec": { "type": "integer", "minimum": 0 },
+        "estimated_bytes_per_row": { "type": "integer", "minimum": 1 },
+        "estimated_memory_factor": { "type": "number", "minimum": 1.0 }
+      },
+      "additionalProperties": false
+    }
+  }
+}

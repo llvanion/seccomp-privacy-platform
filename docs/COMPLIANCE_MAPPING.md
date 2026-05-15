@@ -65,7 +65,7 @@ It is intentionally narrow: it documents what the platform *does today*, not wha
 | Mechanism | Evidence |
 |-----------|----------|
 | Every stage emits a typed audit record: `sse_bridge_export_audit/v1`, `sse_record_recovery_service_audit/v1`, `bridge_audit/v1`, `pjc_audit/v1`, `policy_audit/v1`, `key_access_audit/v1`. The audit chain (`audit_chain/v1`) correlates them by `job_id` + `correlation_id`. | `schemas/*audit*.schema.json`, `scripts/build_audit_chain.py`. |
-| Local archive ledger (`audit_archive_anchor/v1`) is append-only and HMAC-signed; the external publisher (`publish_external_audit_anchor.py`) writes per-tenant ledger entries (`external_audit_anchor_ledger/v1`). The current external sink is a local file ledger. | `scripts/archive_audit_bundle.py`, `scripts/publish_external_audit_anchor.py`, `schemas/external_audit_anchor_report.schema.json`. |
+| Local archive ledger (`audit_archive_anchor/v1`) is append-only and HMAC-signed; the external publisher (`publish_external_audit_anchor.py`) writes per-tenant ledger entries (`external_audit_anchor_ledger/v1`). For production, `--production-mode` (S6, 2026-05-14) rejects `file_ledger` as the sole sink, requires `--execute`, and forces `summary.status=fail` unless the s3_worm/rekor sink finishes in `uploaded` status; the rejection set is recorded as `production_findings[]` in `external_audit_anchor_report/v1`. Tamper of the anchor JSONL is detected before the sink is touched (`payload_sha256` / `entry_sha256` recomputation). | `scripts/archive_audit_bundle.py`, `scripts/publish_external_audit_anchor.py`, `scripts/verify_external_audit_anchor_gate.sh`, `schemas/external_audit_anchor_report.schema.json`. |
 | Control-plane mutations (`control_plane_mutations` table; migration 005) record who changed which policy/permission/binding and when. | `migrations/metadata/005_add_control_plane_mutation_log.sql`. |
 | OTel bridge (`scripts/export_otel_events.py`) emits structured spans/events from the audit chain so an observability backend can correlate the same accountability evidence. | `scripts/export_otel_events.py`, `schemas/otel_export_report.schema.json`. |
 
@@ -100,7 +100,9 @@ The seal's integrity check covers `artifact_sha256` (which re-hashes the entire 
 
 ### 3.3 External audit anchor is local-file by default
 
-`publish_external_audit_anchor.py` writes to a local append-only ledger (`external_audit_anchor_ledger/v1`). For real immutable storage, an operator must connect this sink to a write-once medium (object lock, transparency log, blockchain). K1-a / K1-b cover that integration.
+`publish_external_audit_anchor.py` writes to a local append-only ledger (`external_audit_anchor_ledger/v1`) by default. For real immutable storage, an operator must connect this sink to a write-once medium (object lock, transparency log, blockchain). K1-a / K1-b cover that integration.
+
+S6 production gate (2026-05-14): `--production-mode` enforces the upgrade — `file_ledger` is rejected as the sole sink, `--execute` is required, and any final s3_worm/rekor status other than `uploaded` raises `summary.status=fail` plus a typed `production_findings[]` entry. Tamper of the anchor JSONL is rejected before the external sink is touched. Local self-test: `bash scripts/verify_external_audit_anchor_gate.sh` (five assertions, evidence under `tmp/external_audit_anchor_evidence/`). Live K1-a / K1-b drills still require operator-supplied AWS or Sigstore credentials and are tracked in [`docs/PRODUCTION_SECURITY_COMPLETION_PLAN.md`](/home/llvanion/Desktop/seccomp-privacy-platform/docs/PRODUCTION_SECURITY_COMPLETION_PLAN.md) under `S6`.
 
 ### 3.4 Live identity / authz adapters are operator-environment work
 

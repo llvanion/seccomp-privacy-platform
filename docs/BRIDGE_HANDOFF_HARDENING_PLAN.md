@@ -150,15 +150,23 @@ record recovery -> bridge-ready plaintext handoff -> bridge
    - `scripts/check_pipeline_artifact_smoke_reports.py` 在 observability smoke 中新增对 `handoff_exposure_assessment` 三个事件（overall + 每角色）以及 catalog_lineage `handoff_mode`/`handoff_exposure` 的正向断言；`scripts/benchmark_derived_views.py` 的 `EXPECTED_STAGES` 加入 `handoff_exposure_assessment`。
    - `bash scripts/check_ci_smoke.sh` 在两种 handoff 模式（file 与 FIFO）下均在归档索引中正确写出 `handoff_mode` 与 `handoff_exposure`，回放与归档链全绿。
 
-### Phase 3：生产默认取消明文 at-rest handoff
+### Phase 3：生产默认取消明文 at-rest handoff ✓ repo-side（2026-05-14）
 
-目标态：
+目标态（生产闸门部分已落地）：
 
-1. 生产路径默认使用 FIFO 或 streaming handoff。
-2. retained file handoff 在 production gate 下直接失败。
-3. 如果必须落盘，只能落加密 artifact。
-4. 每个 job 使用独立 data encryption key。
-5. 临时明文只允许存在于进程内存、pipe 或受限 tmpfs。
+1. 生产路径默认使用 FIFO 或 streaming handoff。✓ pipeline `--production-mode` 拒绝 `--keep-sse-export-handoff-files`。
+2. retained file handoff 在 production gate 下直接失败。✓ `check_mainline_contract.py --production-mode` 在 `plaintext_exposure_risk == "elevated"` 时返回 `status=fail` 与 `production_handoff_plaintext_elevated` finding，且生产模式下 `--allow-retained-managed-handoff` 不再生效。
+3. 如果必须落盘，只能落加密 artifact。⏳ S1 完整闭环的剩余部分（KEK 派发、加密 artifact 文件格式）随 S2 KMS 落地。
+4. 每个 job 使用独立 data encryption key。⏳ 同上，待 S2。
+5. 临时明文只允许存在于进程内存、pipe 或受限 tmpfs。✓ 当前 FIFO 路径已满足；落盘加密 artifact 路径仍待 S2。
+
+repo-side 已交付：
+
+1. `scripts/check_mainline_contract.py`：新增 `--production-mode` 闸门，在生产模式下忽略 `--allow-retained-managed-handoff` 并基于 `handoff_exposure_assessment.plaintext_exposure_risk` 直接判定。
+2. `mainline_contract_check.json` 顶层新增 `production_mode: bool` 字段；schema 与 backcompat baseline 同步更新（`schemas/mainline_contract_check.schema.json`、`config/schema_backcompat_baseline.json:stable_properties`）。
+3. `scripts/run_sse_bridge_pipeline.sh --production-mode`：除原已禁止 `--token-secret`，新增禁止 `--keep-sse-export-handoff-files`，并自动把 `--production-mode` 透传给 contract checker。
+4. `scripts/verify_production_handoff_gate.sh`：三条断言（FIFO 通过 / file+retained 被拒 / pipeline 入口直接拒绝），无需 PJC 真实运行即可重复验证。
+5. evidence：`tmp/production_handoff_gate_evidence/`。
 
 注意：
 

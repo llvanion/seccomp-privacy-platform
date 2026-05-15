@@ -244,6 +244,48 @@ CERT_DIR=a-psi/moduleA_psi/config/tls \
 
 The old CA cert is not trusted after rotation — Party B must replace their cert bundle.
 
+## S7 Production Identity Gate (2026-05-14)
+
+Out-of-band fingerprint verification (Step 2 above) is necessary but not sufficient: the production PJC wrapper must also assert, programmatically and on every run, that the peer cert it actually received over the wire matches the expected `job_id`-bound identity, fingerprint, validity window, and CA. Run `scripts/check_pjc_tls_identity.py` against the peer cert before handing control to the gRPC layer:
+
+```bash
+python3 scripts/check_pjc_tls_identity.py \
+  --cert ~/pjc_certs/server.crt \
+  --ca-cert ~/pjc_certs/ca.crt \
+  --role server \
+  --job-id <job_id> \
+  --expected-fingerprint-sha256 "<hex sha256, captured out-of-band in Step 2>" \
+  --expected-peer-identity "job-<job_id>.partyA.example" \
+  --output tmp/pjc_tls_identity_<job_id>.json \
+  --assert-allow
+```
+
+The report (`pjc_tls_identity_check/v1`) records `decision`, `reason_code`, the actual SHA-256 fingerprint, subject/issuer, every DNS SAN, the notBefore/notAfter window, and a typed `findings[]` array. Decisions:
+
+| Decision / reason_code | Why it fires | Action |
+| ---------------------- | ------------ | ------ |
+| `allow` / `ok` | every check passed | proceed to start the PJC TLS endpoint |
+| `deny` / `cert_unreadable` | PEM did not parse | regenerate or transport again |
+| `deny` / `cert_not_yet_valid` | now < notBefore | check clock skew or wait |
+| `deny` / `cert_expired` | now > notAfter | rotate certs (see "Cert Rotation" above) |
+| `deny` / `fingerprint_mismatch` | actual SHA-256 ≠ expected | the cert on the wire does not match the one verified out-of-band — abort and investigate |
+| `deny` / `peer_identity_mismatch` | expected identity not in CN or DNS SANs | the cert is for a different job/peer; do not proceed |
+| `deny` / `ca_mismatch` | cert signature does not verify against the supplied CA | wrong CA bundle, or the cert was issued by a foreign CA |
+
+Naming convention: encode the bound `job_id` into the SAN, e.g. `job-<job_id>.partyA.example` for Party A's server cert and `job-<job_id>.partyB.example` for Party B's client cert. Each side passes the *other* side's expected identity to the gate. Both reports — Party A on its inbound client cert, Party B on its inbound server cert — should be saved alongside the PJC audit and merged by Person 1 into the graduation evidence package.
+
+Wrapper integration: when the PJC wrapper writes `pjc_audit/v1`, fill the new optional `tls` block with `transport=mtls`, `peer_role`, `peer_identity` (actual SAN observed), `cert_fingerprint_sha256`, `ca_fingerprint_sha256`, and `identity_check_decision` (decision + reason_code + report path). This lets the audit chain link the runtime mTLS handshake to the typed gate decision.
+
+Re-verify the gate without a real two-machine setup:
+
+```bash
+bash scripts/verify_pjc_tls_identity_gate.sh
+```
+
+The verifier issues a fresh CA + leaf certs (valid / expired / not-yet-valid / wrong-SAN / wrong-fingerprint / foreign-CA-signed) and asserts the gate returns the expected `reason_code` for each. Evidence under `tmp/pjc_tls_identity_evidence/case{1..6}.json` when run with `--keep-out-dir`. Each report validates against `schemas/pjc_tls_identity_check.schema.json`.
+
+The full S7 closure (real two-machine 1M streaming run, both parties saving and merging audit) requires two Ubuntu hosts with PJC binaries that support `--grpc_stream_chunk_elements` (shares the S4 operator-side prerequisite) and is tracked in [`docs/PRODUCTION_SECURITY_COMPLETION_PLAN.md`](/home/llvanion/Desktop/seccomp-privacy-platform/docs/PRODUCTION_SECURITY_COMPLETION_PLAN.md) under `S7`.
+
 ## What Is Not Provided
 
 This TLS layer protects the transport channel. It does not provide:

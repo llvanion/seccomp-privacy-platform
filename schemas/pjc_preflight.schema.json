@@ -1,0 +1,122 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "pjc_preflight/v1",
+  "title": "PJC per-job preflight decision report",
+  "type": "object",
+  "required": [
+    "schema",
+    "generated_at_utc",
+    "job_id",
+    "decision",
+    "reason_code",
+    "scope",
+    "transport",
+    "estimates",
+    "limits",
+    "findings"
+  ],
+  "properties": {
+    "schema": { "const": "pjc_preflight/v1" },
+    "generated_at_utc": { "type": "string", "format": "date-time" },
+    "job_id": { "type": "string", "minLength": 1 },
+    "decision": { "enum": ["allow", "deny"] },
+    "reason_code": {
+      "enum": [
+        "ok",
+        "input_rows_over_limit",
+        "input_bytes_over_limit",
+        "estimated_memory_over_limit",
+        "estimated_frame_count_over_limit",
+        "missing_input_file",
+        "missing_resource_scope",
+        "config_error"
+      ]
+    },
+    "reason": { "type": ["string", "null"] },
+    "scope": {
+      "type": "object",
+      "required": ["caller"],
+      "properties": {
+        "caller": { "type": "string", "minLength": 1 },
+        "tenant_id": { "type": ["string", "null"] },
+        "dataset_id": { "type": ["string", "null"] },
+        "purpose": { "type": ["string", "null"] }
+      },
+      "additionalProperties": false
+    },
+    "transport": {
+      "type": "object",
+      "required": ["mode", "chunk_size_elements"],
+      "properties": {
+        "mode": { "enum": ["streaming_grpc", "unary_grpc"] },
+        "chunk_size_elements": { "type": "integer", "minimum": 0 }
+      },
+      "additionalProperties": false
+    },
+    "estimates": {
+      "type": "object",
+      "required": [
+        "server_input_rows",
+        "client_input_rows",
+        "server_input_bytes",
+        "client_input_bytes",
+        "estimated_memory_mb",
+        "estimated_frame_count"
+      ],
+      "properties": {
+        "server_input_rows": { "type": "integer", "minimum": 0 },
+        "client_input_rows": { "type": "integer", "minimum": 0 },
+        "server_input_bytes": { "type": "integer", "minimum": 0 },
+        "client_input_bytes": { "type": "integer", "minimum": 0 },
+        "estimated_memory_mb": { "type": "number", "minimum": 0 },
+        "estimated_frame_count": { "type": "integer", "minimum": 0 }
+      },
+      "additionalProperties": false
+    },
+    "limits": {
+      "type": "object",
+      "required": [
+        "max_input_rows",
+        "max_input_bytes",
+        "max_estimated_memory_mb",
+        "max_frame_count",
+        "timeout_sec",
+        "matched_scope_index"
+      ],
+      "properties": {
+        "max_input_rows": { "type": "integer", "minimum": 0 },
+        "max_input_bytes": { "type": "integer", "minimum": 0 },
+        "max_estimated_memory_mb": { "type": "integer", "minimum": 0 },
+        "max_frame_count": { "type": "integer", "minimum": 0 },
+        "timeout_sec": { "type": "integer", "minimum": 0 },
+        "matched_scope_index": { "type": ["integer", "null"], "minimum": 0 }
+      },
+      "additionalProperties": false
+    },
+    "findings": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["kind", "message"],
+        "properties": {
+          "kind": {
+            "enum": [
+              "input_rows_over_limit",
+              "input_bytes_over_limit",
+              "estimated_memory_over_limit",
+              "estimated_frame_count_over_limit",
+              "missing_input_file",
+              "missing_resource_scope",
+              "config_error"
+            ]
+          },
+          "message": { "type": "string", "minLength": 1 },
+          "expected": {},
+          "actual": {}
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  "additionalProperties": false
+}

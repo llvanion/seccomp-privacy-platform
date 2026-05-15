@@ -203,7 +203,7 @@ Options:
   --keep-sse-export-handoff-files keep file-mode SSE plaintext handoff files after bridge prepare-job
   --handoff-retention-reason <text> required with --keep-sse-export-handoff-files; records why plaintext handoff retention is explicitly allowed
   --unsafe-allow-no-sse-export-policy allow ad-hoc export without policy config
-  --production-mode                 forbid command-line token secrets in bridge
+  --production-mode                 forbid command-line token secrets and retained file-mode SSE plaintext handoff (S1 production gate)
   --caller <id>                      policy caller, default: bridge_demo
   --tenant-id <id>                   optional tenant scope aligned with policy and service config
   --dataset-id <id>                  optional dataset scope aligned with policy and service config
@@ -388,6 +388,9 @@ if [[ "$SECRET_METHODS" -eq 0 ]]; then
 fi
 if [[ "$PRODUCTION_MODE" == "1" && -n "$TOKEN_SECRET" ]]; then
   die "--token-secret is forbidden in --production-mode; use --token-secret-env"
+fi
+if [[ "$PRODUCTION_MODE" == "1" && "$CLEANUP_SSE_EXPORT_HANDOFF_FILES_AFTER_BRIDGE" != "1" ]]; then
+  die "--keep-sse-export-handoff-files is forbidden in --production-mode (S1: retained plaintext SSE handoff is rejected)"
 fi
 
 if [[ -n "$SSE_EXPORT_POLICY_CONFIG" ]]; then
@@ -1551,6 +1554,9 @@ MAINLINE_CONTRACT_CMD=(
 if [[ "$CLEANUP_SSE_EXPORT_HANDOFF_FILES_AFTER_BRIDGE" != "1" ]]; then
   MAINLINE_CONTRACT_CMD+=(--allow-retained-managed-handoff)
   MAINLINE_CONTRACT_CMD+=(--retained-managed-handoff-reason "$HANDOFF_RETENTION_REASON")
+fi
+if [[ "$PRODUCTION_MODE" == "1" ]]; then
+  MAINLINE_CONTRACT_CMD+=(--production-mode)
 fi
 "${MAINLINE_CONTRACT_CMD[@]}"
 

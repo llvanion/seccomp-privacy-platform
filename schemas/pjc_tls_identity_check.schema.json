@@ -1,0 +1,100 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "pjc_tls_identity_check/v1",
+  "title": "PJC mTLS peer identity / fingerprint / validity check",
+  "type": "object",
+  "required": [
+    "schema",
+    "generated_at_utc",
+    "decision",
+    "reason_code",
+    "role",
+    "job_id",
+    "cert_path",
+    "fingerprint_sha256",
+    "subject",
+    "san_dns_names",
+    "validity",
+    "checks",
+    "findings"
+  ],
+  "properties": {
+    "schema": { "const": "pjc_tls_identity_check/v1" },
+    "generated_at_utc": { "type": "string", "format": "date-time" },
+    "decision": { "enum": ["allow", "deny"] },
+    "reason_code": {
+      "enum": [
+        "ok",
+        "cert_unreadable",
+        "cert_not_yet_valid",
+        "cert_expired",
+        "fingerprint_mismatch",
+        "peer_identity_mismatch",
+        "ca_mismatch"
+      ]
+    },
+    "reason": { "type": ["string", "null"] },
+    "role": { "enum": ["server", "client", "peer"] },
+    "job_id": { "type": "string", "minLength": 1 },
+    "cert_path": { "type": "string", "minLength": 1 },
+    "ca_path": { "type": ["string", "null"] },
+    "fingerprint_sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "subject": { "type": "string" },
+    "issuer": { "type": ["string", "null"] },
+    "san_dns_names": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 }
+    },
+    "validity": {
+      "type": "object",
+      "required": ["not_before_utc", "not_after_utc", "now_utc"],
+      "properties": {
+        "not_before_utc": { "type": "string", "format": "date-time" },
+        "not_after_utc": { "type": "string", "format": "date-time" },
+        "now_utc": { "type": "string", "format": "date-time" }
+      },
+      "additionalProperties": false
+    },
+    "checks": {
+      "type": "object",
+      "required": [
+        "validity_window_ok",
+        "fingerprint_ok",
+        "peer_identity_ok"
+      ],
+      "properties": {
+        "validity_window_ok": { "type": "boolean" },
+        "fingerprint_ok": { "type": ["boolean", "null"] },
+        "peer_identity_ok": { "type": ["boolean", "null"] },
+        "ca_signed_ok": { "type": ["boolean", "null"] },
+        "expected_fingerprint_sha256": { "type": ["string", "null"] },
+        "expected_peer_identity": { "type": ["string", "null"] }
+      },
+      "additionalProperties": false
+    },
+    "findings": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["kind", "message"],
+        "properties": {
+          "kind": {
+            "enum": [
+              "cert_unreadable",
+              "cert_not_yet_valid",
+              "cert_expired",
+              "fingerprint_mismatch",
+              "peer_identity_mismatch",
+              "ca_mismatch"
+            ]
+          },
+          "message": { "type": "string", "minLength": 1 },
+          "expected": {},
+          "actual": {}
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  "additionalProperties": false
+}

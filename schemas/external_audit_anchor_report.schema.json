@@ -28,6 +28,29 @@
         "null"
       ]
     },
+    "production_mode": {
+      "type": "boolean"
+    },
+    "production_findings": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["kind", "message"],
+        "properties": {
+          "kind": {
+            "enum": [
+              "production_file_ledger_not_external",
+              "production_dry_run_not_allowed",
+              "production_execute_required",
+              "production_external_anchor_not_uploaded"
+            ]
+          },
+          "message": { "type": "string", "minLength": 1 },
+          "ref": { "type": ["string", "null"] }
+        }
+      }
+    },
     "external_sink": {
       "type": "object",
       "additionalProperties": false,

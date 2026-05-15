@@ -71,6 +71,8 @@ def main() -> int:
     ap.add_argument("--purpose", required=True)
     ap.add_argument("--caller", required=True)
     ap.add_argument("--job-id", default="")
+    ap.add_argument("--tenant-id", default="")
+    ap.add_argument("--dataset-id", default="")
     ap.add_argument("--audit-log", required=True)
     args = ap.parse_args()
 
@@ -90,6 +92,8 @@ def main() -> int:
         "caller": args.caller,
         "job_id": args.job_id or None,
         "correlation_id": args.job_id or None,
+        "tenant_id": args.tenant_id or None,
+        "dataset_id": args.dataset_id or None,
         "key_id": args.key_id,
         "key_version": result["key_version"],
         "purpose": args.purpose,
