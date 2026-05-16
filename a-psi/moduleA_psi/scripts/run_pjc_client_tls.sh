@@ -55,6 +55,10 @@ _require "$CERT_DIR/client.key"
 
 mkdir -p "$OUT_DIR"
 
+unset http_proxy https_proxy all_proxy HTTP_PROXY HTTPS_PROXY ALL_PROXY || true
+export no_proxy="localhost,127.0.0.1,0.0.0.0"
+export NO_PROXY="$no_proxy"
+
 echo "[info] JOB_ID=$JOB_ID"
 echo "[info] CERT_DIR=$CERT_DIR"
 echo "[info] PJC binary → 127.0.0.1:${LOCAL_PROXY_PORT} (socat) → TLS → ${SERVER_HOST}:${TLS_PORT}"
