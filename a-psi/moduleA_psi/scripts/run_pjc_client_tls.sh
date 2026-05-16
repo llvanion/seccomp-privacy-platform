@@ -114,18 +114,28 @@ echo "[ok] socat TLS proxy ready on 127.0.0.1:${LOCAL_PROXY_PORT}"
 
 # ── Run PJC client ────────────────────────────────────────────────────────────
 CLIENT_LOG="$OUT_DIR/client.log"
+PJC_EFFECTIVE_GRPC_STREAM_CHUNK_ELEMENTS="$PJC_GRPC_STREAM_CHUNK_ELEMENTS"
+CLIENT_ARGS=(
+  --client_data_file="$CLIENT_CSV"
+  --port="127.0.0.1:${LOCAL_PROXY_PORT}"
+  --grpc_max_message_mb="$GRPC_MAX_MESSAGE_MB"
+)
+if [[ "$PJC_GRPC_STREAM_CHUNK_ELEMENTS" != "0" ]]; then
+  if "$CLIENT_BIN" --help 2>&1 | grep -q -- "--grpc_stream_chunk_elements"; then
+    CLIENT_ARGS+=(--grpc_stream_chunk_elements="$PJC_GRPC_STREAM_CHUNK_ELEMENTS")
+  else
+    echo "[warn] PJC client binary does not support --grpc_stream_chunk_elements; using legacy unary mode" >&2
+    PJC_EFFECTIVE_GRPC_STREAM_CHUNK_ELEMENTS=0
+  fi
+fi
+echo "[info] PJC_EFFECTIVE_GRPC_STREAM_CHUNK_ELEMENTS=$PJC_EFFECTIVE_GRPC_STREAM_CHUNK_ELEMENTS"
 echo "[info] running PJC client against local proxy..."
 
 attempt=1
 CLIENT_RC=1
 while [[ "$attempt" -le "$SERVER_CONNECT_RETRIES" ]]; do
   set +e
-  "$CLIENT_BIN" \
-    --client_data_file="$CLIENT_CSV" \
-    --port="127.0.0.1:${LOCAL_PROXY_PORT}" \
-    --grpc_max_message_mb="$GRPC_MAX_MESSAGE_MB" \
-    --grpc_stream_chunk_elements="$PJC_GRPC_STREAM_CHUNK_ELEMENTS" \
-    >"$CLIENT_LOG" 2>&1
+  "$CLIENT_BIN" "${CLIENT_ARGS[@]}" >"$CLIENT_LOG" 2>&1
   CLIENT_RC=$?
   set -e
   [[ $CLIENT_RC -eq 0 ]] && break
@@ -156,7 +166,7 @@ cat > "$RESULT_JSON" <<JSON
   "tls": true,
   "client_csv": "$CLIENT_CSV",
   "grpc_max_message_mb": $GRPC_MAX_MESSAGE_MB,
-  "grpc_stream_chunk_elements": $PJC_GRPC_STREAM_CHUNK_ELEMENTS,
+  "grpc_stream_chunk_elements": $PJC_EFFECTIVE_GRPC_STREAM_CHUNK_ELEMENTS,
   "intersection_size": $INTERSECTION_SIZE,
   "intersection_sum": $INTERSECTION_SUM
 }

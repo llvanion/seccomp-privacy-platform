@@ -75,13 +75,23 @@ SERVER_BIN="$BIN_DIR/private_join_and_compute/server"
 
 # ── Start PJC server on loopback ──────────────────────────────────────────────
 SERVER_LOG="$OUT_DIR/server.log"
+PJC_EFFECTIVE_GRPC_STREAM_CHUNK_ELEMENTS="$PJC_GRPC_STREAM_CHUNK_ELEMENTS"
+SERVER_ARGS=(
+  --server_data_file="$SERVER_CSV"
+  --grpc_max_message_mb="$GRPC_MAX_MESSAGE_MB"
+  --port="127.0.0.1:${PJC_LOCAL_PORT}"
+)
+if [[ "$PJC_GRPC_STREAM_CHUNK_ELEMENTS" != "0" ]]; then
+  if "$SERVER_BIN" --help 2>&1 | grep -q -- "--grpc_stream_chunk_elements"; then
+    SERVER_ARGS+=(--grpc_stream_chunk_elements="$PJC_GRPC_STREAM_CHUNK_ELEMENTS")
+  else
+    echo "[warn] PJC server binary does not support --grpc_stream_chunk_elements; using legacy unary mode" >&2
+    PJC_EFFECTIVE_GRPC_STREAM_CHUNK_ELEMENTS=0
+  fi
+fi
+echo "[info] PJC_EFFECTIVE_GRPC_STREAM_CHUNK_ELEMENTS=$PJC_EFFECTIVE_GRPC_STREAM_CHUNK_ELEMENTS"
 echo "[info] starting PJC server on 127.0.0.1:${PJC_LOCAL_PORT}..."
-"$SERVER_BIN" \
-  --server_data_file="$SERVER_CSV" \
-  --grpc_max_message_mb="$GRPC_MAX_MESSAGE_MB" \
-  --grpc_stream_chunk_elements="$PJC_GRPC_STREAM_CHUNK_ELEMENTS" \
-  --port="127.0.0.1:${PJC_LOCAL_PORT}" \
-  >"$SERVER_LOG" 2>&1 &
+"$SERVER_BIN" "${SERVER_ARGS[@]}" >"$SERVER_LOG" 2>&1 &
 PJC_PID=$!
 
 # Wait for PJC server to be listening

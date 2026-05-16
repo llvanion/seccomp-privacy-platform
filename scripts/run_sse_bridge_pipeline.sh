@@ -1465,6 +1465,18 @@ python3 "$VALIDATE_TABULAR_CONTRACT_PY" \
 
 log "Stage3 a-psi run"
 cp "$BRIDGE_JOB_DIR/job_meta.json" "$APSI_JOB_DIR/job_meta.json"
+PJC_EFFECTIVE_GRPC_STREAM_CHUNK_ELEMENTS="$PJC_GRPC_STREAM_CHUNK_ELEMENTS"
+if [[ "$PJC_GRPC_STREAM_CHUNK_ELEMENTS" != "0" ]]; then
+  PJC_SERVER_BIN="$PJC_BIN_DIR/private_join_and_compute/server"
+  PJC_CLIENT_BIN="$PJC_BIN_DIR/private_join_and_compute/client"
+  if [[ -x "$PJC_SERVER_BIN" && -x "$PJC_CLIENT_BIN" ]]; then
+    if ! "$PJC_SERVER_BIN" --help 2>&1 | grep -q -- "--grpc_stream_chunk_elements" || \
+       ! "$PJC_CLIENT_BIN" --help 2>&1 | grep -q -- "--grpc_stream_chunk_elements"; then
+      log "PJC binaries do not support --grpc_stream_chunk_elements; using legacy unary mode"
+      PJC_EFFECTIVE_GRPC_STREAM_CHUNK_ELEMENTS=0
+    fi
+  fi
+fi
 PJC_STARTED_MS="$(date +%s%3N)"
 PJC_RC=0
 (
@@ -1474,7 +1486,7 @@ PJC_RC=0
   SERVER_CSV="$BRIDGE_JOB_DIR/server.csv" \
   CLIENT_CSV="$BRIDGE_JOB_DIR/client.csv" \
   PJC_BIN_DIR="$PJC_BIN_DIR" \
-  PJC_GRPC_STREAM_CHUNK_ELEMENTS="$PJC_GRPC_STREAM_CHUNK_ELEMENTS" \
+  PJC_GRPC_STREAM_CHUNK_ELEMENTS="$PJC_EFFECTIVE_GRPC_STREAM_CHUNK_ELEMENTS" \
   bash "$RUN_PJC_SH"
 ) || PJC_RC=$?
 PJC_ENDED_MS="$(date +%s%3N)"
@@ -1491,7 +1503,7 @@ PJC_AUDIT_CMD=(
   --client-log "$APSI_JOB_DIR/client.log"
   --result-file "$APSI_JOB_DIR/attribution_result.json"
   --duration-ms "$PJC_DURATION_MS"
-  --grpc-stream-chunk-elements "$PJC_GRPC_STREAM_CHUNK_ELEMENTS"
+  --grpc-stream-chunk-elements "$PJC_EFFECTIVE_GRPC_STREAM_CHUNK_ELEMENTS"
 )
 if [[ "$PJC_RC" -eq 0 ]]; then
   "${PJC_AUDIT_CMD[@]}" \

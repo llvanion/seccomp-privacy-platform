@@ -107,13 +107,34 @@ CLIENT_BIN="$BIN_DIR/private_join_and_compute/client"
 [[ -x "$SERVER_BIN" ]] || { echo "[error] server binary not found/executable: $SERVER_BIN" >&2; exit 1; }
 [[ -x "$CLIENT_BIN" ]] || { echo "[error] client binary not found/executable: $CLIENT_BIN" >&2; exit 1; }
 
+supports_stream_chunk_flag() {
+  "$1" --help 2>&1 | grep -q -- "--grpc_stream_chunk_elements"
+}
+
+PJC_EFFECTIVE_GRPC_STREAM_CHUNK_ELEMENTS="$PJC_GRPC_STREAM_CHUNK_ELEMENTS"
+SERVER_ARGS=(
+  --server_data_file="$SERVER_CSV"
+  --grpc_max_message_mb="$GRPC_MAX_MESSAGE_MB"
+  --port="$SERVER_ADDR"
+)
+CLIENT_ARGS=(
+  --client_data_file="$CLIENT_CSV"
+  --port="$SERVER_ADDR"
+  --grpc_max_message_mb="$GRPC_MAX_MESSAGE_MB"
+)
+if [[ "$PJC_GRPC_STREAM_CHUNK_ELEMENTS" != "0" ]]; then
+  if supports_stream_chunk_flag "$SERVER_BIN" && supports_stream_chunk_flag "$CLIENT_BIN"; then
+    SERVER_ARGS+=(--grpc_stream_chunk_elements="$PJC_GRPC_STREAM_CHUNK_ELEMENTS")
+    CLIENT_ARGS+=(--grpc_stream_chunk_elements="$PJC_GRPC_STREAM_CHUNK_ELEMENTS")
+  else
+    echo "[warn] PJC binaries do not support --grpc_stream_chunk_elements; using legacy unary mode" >&2
+    PJC_EFFECTIVE_GRPC_STREAM_CHUNK_ELEMENTS=0
+  fi
+fi
+echo "[info] PJC_EFFECTIVE_GRPC_STREAM_CHUNK_ELEMENTS=$PJC_EFFECTIVE_GRPC_STREAM_CHUNK_ELEMENTS"
+
 echo "[info] starting server..."
-"$SERVER_BIN" \
-  --server_data_file="$SERVER_CSV" \
-  --grpc_max_message_mb="$GRPC_MAX_MESSAGE_MB" \
-  --grpc_stream_chunk_elements="$PJC_GRPC_STREAM_CHUNK_ELEMENTS" \
-  --port="$SERVER_ADDR" \
-  >"$SERVER_LOG" 2>&1 &
+"$SERVER_BIN" "${SERVER_ARGS[@]}" >"$SERVER_LOG" 2>&1 &
 SERVER_PID=$!
 
 echo "[info] waiting for server to listen on port $SERVER_PORT..."
@@ -130,12 +151,7 @@ fi
 
 echo "[info] running client..."
 set +e
-"$CLIENT_BIN" \
-  --client_data_file="$CLIENT_CSV" \
-  --port="$SERVER_ADDR" \
-  --grpc_max_message_mb="$GRPC_MAX_MESSAGE_MB" \
-  --grpc_stream_chunk_elements="$PJC_GRPC_STREAM_CHUNK_ELEMENTS" \
-  >"$CLIENT_LOG" 2>&1
+"$CLIENT_BIN" "${CLIENT_ARGS[@]}" >"$CLIENT_LOG" 2>&1
 CLIENT_RC=$?
 set -e
 
@@ -164,7 +180,7 @@ cat > "$RESULT_JSON" <<JSON
   "server_csv": "$SERVER_CSV",
   "client_csv": "$CLIENT_CSV",
   "grpc_max_message_mb": $GRPC_MAX_MESSAGE_MB,
-  "grpc_stream_chunk_elements": $PJC_GRPC_STREAM_CHUNK_ELEMENTS,
+  "grpc_stream_chunk_elements": $PJC_EFFECTIVE_GRPC_STREAM_CHUNK_ELEMENTS,
   "intersection_size": $INTERSECTION_SIZE,
   "intersection_sum": $INTERSECTION_SUM
 }
