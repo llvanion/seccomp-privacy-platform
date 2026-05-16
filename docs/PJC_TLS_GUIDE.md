@@ -47,6 +47,56 @@ Or use the pure-Python fallback (`pjc_tls_proxy.py`) — no installation needed.
 
 ## Step-by-Step Setup
 
+## Fast Reusable Setup
+
+If the two parties already trust SSH between the machines, use the reusable helpers instead of manually copying certificate files each time.
+
+Party A prepares or reuses one long-lived job-test CA and stages the Party B bundle:
+
+```bash
+cd ~/Desktop/seccomp-privacy-platform
+
+bash a-psi/moduleA_psi/scripts/prepare_pjc_mtls_party_a.sh
+```
+
+This creates:
+
+```text
+tmp/pjc_mtls_shared/certs/              # Party A runtime CERT_DIR
+tmp/pjc_mtls_shared/party_b_bundle/     # ca.crt + client.crt + client.key for Party B
+```
+
+Party B fetches the bundle over SSH once:
+
+```bash
+cd ~/Desktop/seccomp-privacy-platform
+
+SERVER_HOST=<PartyA public IP, hostname, or VPN IP> \
+PARTY_A_SSH=<ssh-user>@<PartyA public IP, hostname, or VPN IP> \
+bash a-psi/moduleA_psi/scripts/fetch_pjc_mtls_party_b.sh
+```
+
+After that, Party B can run future jobs by changing only `SERVER_HOST`, `CLIENT_CSV`, and `JOB_ID`:
+
+```bash
+SERVER_HOST=<PartyA public IP, hostname, or VPN IP> \
+CLIENT_CSV="$HOME/client.csv" \
+JOB_ID=cross-internet-job-001 \
+bash a-psi/moduleA_psi/scripts/run_pjc_client_tls_auto.sh
+```
+
+For first-time runs, `run_pjc_client_tls_auto.sh` can also fetch automatically when `PARTY_A_SSH` is provided:
+
+```bash
+SERVER_HOST=<PartyA public IP, hostname, or VPN IP> \
+PARTY_A_SSH=<ssh-user>@<PartyA public IP, hostname, or VPN IP> \
+CLIENT_CSV="$HOME/client.csv" \
+JOB_ID=cross-internet-job-001 \
+bash a-psi/moduleA_psi/scripts/run_pjc_client_tls_auto.sh
+```
+
+The SSH connection is the trust bootstrap. Verify the printed CA fingerprint over a separate channel before treating the run as production evidence.
+
 ### Step 1 — Party A generates certificates (once)
 
 ```bash
