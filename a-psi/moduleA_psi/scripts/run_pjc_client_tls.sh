@@ -25,6 +25,7 @@ SERVER_HOST="${SERVER_HOST:-}"
 CERT_DIR="${CERT_DIR:-$MODULE_ROOT/config/tls}"
 TLS_PORT="${TLS_PORT:-10502}"
 LOCAL_PROXY_PORT="${LOCAL_PROXY_PORT:-10503}"
+TLS_SERVER_COMMON_NAME="${TLS_SERVER_COMMON_NAME:-pjc-server}"
 JOB_ID="${JOB_ID:-$(date +%Y%m%d-%H%M%S)}"
 OUT_DIR="${OUT_DIR:-$MODULE_ROOT/runs/$JOB_ID}"
 CLIENT_CSV="${CLIENT_CSV:-/tmp/client.csv}"
@@ -62,6 +63,7 @@ export NO_PROXY="$no_proxy"
 echo "[info] JOB_ID=$JOB_ID"
 echo "[info] CERT_DIR=$CERT_DIR"
 echo "[info] PJC binary → 127.0.0.1:${LOCAL_PROXY_PORT} (socat) → TLS → ${SERVER_HOST}:${TLS_PORT}"
+echo "[info] TLS_SERVER_COMMON_NAME=$TLS_SERVER_COMMON_NAME"
 echo "[info] OUT_DIR=$OUT_DIR"
 
 # ── Resolve PJC binary ────────────────────────────────────────────────────────
@@ -99,7 +101,7 @@ trap cleanup EXIT INT TERM
 echo "[info] starting socat TLS client proxy on 127.0.0.1:${LOCAL_PROXY_PORT}..."
 socat \
   "TCP-LISTEN:${LOCAL_PROXY_PORT},bind=127.0.0.1,reuseaddr,fork" \
-  "OPENSSL:${SERVER_HOST}:${TLS_PORT},cert=${CERT_DIR}/client.crt,key=${CERT_DIR}/client.key,cafile=${CERT_DIR}/ca.crt,verify=1" \
+  "OPENSSL:${SERVER_HOST}:${TLS_PORT},cert=${CERT_DIR}/client.crt,key=${CERT_DIR}/client.key,cafile=${CERT_DIR}/ca.crt,verify=1,commonname=${TLS_SERVER_COMMON_NAME}" \
   &
 SOCAT_PID=$!
 
