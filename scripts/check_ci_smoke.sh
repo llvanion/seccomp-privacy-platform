@@ -89,6 +89,16 @@ python3 -m py_compile \
   scripts/run_chaos_test.py \
   scripts/test_metadata_db_failover.py \
   scripts/check_alert_webhook_smoke.py \
+  scripts/check_bucket_dp_smoke.py \
+  scripts/check_min_rows_side_channel_smoke.py \
+  scripts/check_enrollment_only_mode_smoke.py \
+  scripts/check_pjc_two_party_smoke.py \
+  scripts/check_pjc_tls_diagnostic_smoke.py \
+  scripts/check_release_policy_gate.py \
+  scripts/check_release_policy_gate_smoke.py \
+  scripts/check_spiffe_envoy_templates.py \
+  scripts/check_bucketed_scale_test_async_smoke.py \
+  scripts/check_metadata_api_rate_limit_smoke.py \
   scripts/write_pjc_audit.py \
   scripts/check_malformed_input_gate.py \
   scripts/check_pre_release_gate.py \

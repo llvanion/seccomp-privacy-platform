@@ -1,0 +1,91 @@
+# Envoy listener template for Party A. The PJC server binary stays bound to
+# 127.0.0.1:10501; Envoy is the only listener on the public data-plane port
+# (default 10502) and requires a matching peer SPIFFE ID before forwarding.
+node:
+  id: pjc-party-a
+  cluster: pjc-cluster
+
+admin:
+  address:
+    socket_address:
+      address: 127.0.0.1
+      port_value: 19000
+
+static_resources:
+  listeners:
+    - name: pjc_party_a_listener
+      address:
+        socket_address:
+          address: 0.0.0.0
+          port_value: 10502
+      filter_chains:
+        - transport_socket:
+            name: envoy.transport_sockets.tls
+            typed_config:
+              "@type": type.googleapis.com/envoy.extensions.transport_sockets.tls.v3.DownstreamTlsContext
+              require_client_certificate: true
+              common_tls_context:
+                tls_params:
+                  tls_minimum_protocol_version: TLSv1_3
+                tls_certificate_sds_secret_configs:
+                  - name: spiffe://example.org/pjc-server
+                    sds_config:
+                      api_config_source:
+                        api_type: GRPC
+                        grpc_services:
+                          - envoy_grpc:
+                              cluster_name: spire_agent
+                validation_context_sds_secret_config:
+                  name: spiffe_validation_context
+                  sds_config:
+                    api_config_source:
+                      api_type: GRPC
+                      grpc_services:
+                        - envoy_grpc:
+                            cluster_name: spire_agent
+          filters:
+            - name: envoy.filters.network.rbac
+              typed_config:
+                "@type": type.googleapis.com/envoy.extensions.filters.network.rbac.v3.RBAC
+                stat_prefix: pjc_peer_allow
+                rules:
+                  action: ALLOW
+                  policies:
+                    pjc_peer_allow:
+                      permissions:
+                        - any: true
+                      principals:
+                        - authenticated:
+                            principal_name:
+                              exact: spiffe://example.org/pjc-client
+            - name: envoy.filters.network.tcp_proxy
+              typed_config:
+                "@type": type.googleapis.com/envoy.extensions.filters.network.tcp_proxy.v3.TcpProxy
+                stat_prefix: pjc_party_a_tcp
+                cluster: pjc_loopback_a
+
+  clusters:
+    - name: pjc_loopback_a
+      type: STATIC
+      connect_timeout: 5s
+      load_assignment:
+        cluster_name: pjc_loopback_a
+        endpoints:
+          - lb_endpoints:
+              - endpoint:
+                  address:
+                    socket_address:
+                      address: 127.0.0.1
+                      port_value: 10501
+    - name: spire_agent
+      type: STATIC
+      connect_timeout: 1s
+      http2_protocol_options: {}
+      load_assignment:
+        cluster_name: spire_agent
+        endpoints:
+          - lb_endpoints:
+              - endpoint:
+                  address:
+                    pipe:
+                      path: /run/spire/agent/sockets/spire-agent.sock

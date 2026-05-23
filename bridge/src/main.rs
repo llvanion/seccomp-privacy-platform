@@ -974,6 +974,7 @@ fn normalize_join_key(raw: &str, normalizer: Normalizer) -> Option<String> {
 }
 
 fn normalize_phone(raw: &str) -> Option<String> {
+    // Step 1: digits + first-position '+' only.
     let mut out = String::new();
     for (idx, ch) in raw.chars().enumerate() {
         if ch.is_ascii_digit() {
@@ -987,12 +988,27 @@ fn normalize_phone(raw: &str) -> Option<String> {
         return None;
     }
 
+    // Step 2: 00<digits> -> +<digits> (international dialing prefix).
     if out.starts_with("00") {
-        return Some(format!("+{}", &out[2..]));
+        out = format!("+{}", &out[2..]);
     }
 
-    if out.starts_with('+') {
-        return Some(out);
+    // Step 3: E.164 length sanity. After an optional leading '+', E.164
+    // permits 1..=15 digits (ITU-T E.164 §6.2.1). We reject longer/shorter
+    // strings because those tokens could never match another party's
+    // canonical form anyway; the bridge would have silently produced
+    // unmatchable tokens for them under the old normalizer.
+    let digits = if let Some(stripped) = out.strip_prefix('+') {
+        stripped
+    } else {
+        out.as_str()
+    };
+    if digits.is_empty() || digits.len() > 15 {
+        return None;
+    }
+    // Step 4: with a leading '+' the country code must not start with 0.
+    if out.starts_with('+') && digits.starts_with('0') {
+        return None;
     }
 
     Some(out)
@@ -1090,6 +1106,41 @@ mod tests {
     fn phone_normalizer_strips_separators() {
         let out = normalize_join_key(" +86 138-0013-8000 ", Normalizer::Phone);
         assert_eq!(out.as_deref(), Some("+8613800138000"));
+    }
+
+    #[test]
+    fn phone_normalizer_rewrites_00_prefix_to_plus() {
+        let out = normalize_join_key("0086 138 0013 8000", Normalizer::Phone);
+        assert_eq!(out.as_deref(), Some("+8613800138000"));
+    }
+
+    #[test]
+    fn phone_normalizer_rejects_too_long_for_e164() {
+        // 16 digits — exceeds E.164 maximum of 15.
+        let out = normalize_join_key("+12345678901234567", Normalizer::Phone);
+        assert!(out.is_none());
+    }
+
+    #[test]
+    fn phone_normalizer_rejects_bare_plus() {
+        let out = normalize_join_key("+", Normalizer::Phone);
+        assert!(out.is_none());
+    }
+
+    #[test]
+    fn phone_normalizer_rejects_country_code_starting_with_zero() {
+        // E.164 country codes never start with 0.
+        let out = normalize_join_key("+0123456789", Normalizer::Phone);
+        assert!(out.is_none());
+    }
+
+    #[test]
+    fn phone_normalizer_ignores_embedded_plus() {
+        // A '+' that isn't at position 0 is dropped (no canonical "two-plus" form).
+        let out = normalize_join_key("8613+80013800", Normalizer::Phone);
+        // First-position char is '8', not '+', so no leading '+' on the output;
+        // only digits remain and they come straight through.
+        assert_eq!(out.as_deref(), Some("861380013800"));
     }
 
     #[test]

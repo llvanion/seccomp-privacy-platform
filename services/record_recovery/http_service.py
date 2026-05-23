@@ -1,5 +1,6 @@
 # -*- coding:utf-8 _*-
 import argparse
+import hmac
 import json
 import os
 import signal
@@ -109,6 +110,7 @@ class RecordRecoveryHttpServer(ThreadingHTTPServer):
         service_state: RecordRecoveryServiceState,
         rate_limit_per_caller: float = 0.0,
         rate_limit_burst: int = 0,
+        max_request_body_bytes: int = 0,
     ) -> None:
         self.service_state = service_state
         self._rate_limit_per_caller = rate_limit_per_caller
@@ -116,6 +118,7 @@ class RecordRecoveryHttpServer(ThreadingHTTPServer):
         self._rate_buckets: dict[str, TokenBucket] = {}
         self._rate_lock = threading.Lock()
         self.metrics = ServiceMetrics()
+        self.max_request_body_bytes = max(0, int(max_request_body_bytes or 0))
         super().__init__(server_address, handler_class)
 
     def check_rate_limit(self, caller: str) -> bool:
@@ -232,6 +235,27 @@ class RecordRecoveryHttpHandler(BaseHTTPRequestHandler):
             length = int(self.headers.get("Content-Length", "0"))
         except ValueError:
             length = 0
+        max_body = self.server.max_request_body_bytes
+        if max_body > 0 and length > max_body:
+            self._write_json(
+                413,
+                {
+                    "schema": "sse_record_recovery_error/v1",
+                    "error": f"request body {length} bytes exceeds limit {max_body}",
+                },
+                request_id=request_id,
+            )
+            self._log_request(
+                request_id=request_id,
+                method="POST",
+                path=self.path,
+                op=op,
+                status_code=413,
+                decision="deny",
+                reason_code="request_body_too_large",
+                started_at=started_at,
+            )
+            return
         raw = self.rfile.read(length) if length > 0 else b"{}"
         try:
             payload = json.loads(raw.decode("utf-8"))
@@ -352,7 +376,7 @@ class RecordRecoveryHttpHandler(BaseHTTPRequestHandler):
         if not token:
             return
         service_state = self.server.service_state
-        if service_state.auth_token and token == service_state.auth_token:
+        if service_state.auth_token and hmac.compare_digest(token, service_state.auth_token):
             if not payload.get("auth_token"):
                 payload["auth_token"] = token
             return
@@ -452,6 +476,19 @@ def main() -> int:
     ap.add_argument("--tls-require-client-cert", action="store_true")
     ap.add_argument("--max-rows-per-request", type=int, default=0,
                     help="Hard cap on rows returned per recovery request (0 = unlimited)")
+    ap.add_argument("--max-candidate-ids", type=int,
+                    default=int(os.environ.get("RECORD_RECOVERY_MAX_CANDIDATE_IDS", "0") or "0"),
+                    help="Hard cap on inbound candidate_ids length per request (0 = unlimited)")
+    ap.add_argument("--suppress-min-rows-side-channel", action="store_true",
+                    default=(os.environ.get("RECORD_RECOVERY_SUPPRESS_MIN_ROWS_SIDE_CHANNEL", "0") == "1"),
+                    help=(
+                        "Close the zero-rows vs below-min-rows side channel by collapsing "
+                        "below-min results into a uniform zero-row success response. The "
+                        "audit still records the distinction for the operator."
+                    ))
+    ap.add_argument("--max-request-body-bytes", type=int,
+                    default=int(os.environ.get("RECORD_RECOVERY_MAX_BODY_BYTES", "0") or "0"),
+                    help="Hard cap on HTTP request body size in bytes (0 = unlimited)")
     ap.add_argument("--rate-limit-per-caller", type=float, default=0.0,
                     help="Max requests/second per caller (0 = disabled)")
     ap.add_argument("--rate-limit-burst", type=int, default=0,
@@ -485,6 +522,8 @@ def main() -> int:
         socket_path=None,
         endpoint_url=endpoint_url,
         max_rows_per_request=args.max_rows_per_request,
+        max_candidate_ids=args.max_candidate_ids,
+        suppress_min_rows_side_channel=bool(args.suppress_min_rows_side_channel),
     )
     burst = args.rate_limit_burst or max(1, int(args.rate_limit_per_caller)) if args.rate_limit_per_caller > 0 else 0
     server = RecordRecoveryHttpServer(
@@ -493,6 +532,7 @@ def main() -> int:
         service_state=service_state,
         rate_limit_per_caller=args.rate_limit_per_caller,
         rate_limit_burst=burst,
+        max_request_body_bytes=args.max_request_body_bytes,
     )
     if tls_enabled:
         server.socket = _build_server_ssl_context(
@@ -502,6 +542,18 @@ def main() -> int:
             require_client_cert=args.tls_require_client_cert,
         ).wrap_socket(server.socket, server_side=True)
     signal.signal(signal.SIGTERM, _raise_keyboard_interrupt)
+
+    def _reload_on_sighup(_sig: int, _frame) -> None:
+        result = service_state.reload_authz_policy()
+        emit_structured_service_log(
+            "record_recovery_service_authz_reload",
+            service_state,
+            authz_reload_status=result.get("status"),
+            authz_reload_path=result.get("path"),
+            authz_reload_error=result.get("error"),
+        )
+
+    signal.signal(signal.SIGHUP, _reload_on_sighup)
     write_text_file(pid_file, f"{os.getpid()}\n")
     write_text_file(ready_file, endpoint_url + "\n")
     emit_structured_service_log(

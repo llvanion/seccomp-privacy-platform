@@ -6,7 +6,7 @@ This spec is the concrete design target for post-baseline operator work in [POST
 2. `B10`：live progress read path
 3. `B11`：Web control shell baseline
 
-Implementation status (`2026-05-14`):
+Implementation status (`2026-05-17`):
 
 1. `scripts/serve_operator_dashboard.py` now exposes `POST /v1/jobs/start`, `GET /v1/jobs/{job_id}`, `GET /v1/jobs/{job_id}/result`
 2. the embedded HTML now swaps `Job Setup` / `Live Progress` / `Result` by UI state and hides historical blocks during `running`
@@ -23,8 +23,105 @@ Implementation status (`2026-05-14`):
    - `POST /v1/jobs/{job_id}/relaunch`
    - action is constrained by `workflow_retry_eligibility/v1`
    - current phase only supports request-file-backed runs, not `<inline>` submissions
+8. the shell now exposes a first cross-machine mTLS certificate bootstrap:
+   - `POST /v1/pjc-mtls/party-a/prepare`
+   - `POST /v1/pjc-mtls/enroll`
+   - `POST /v1/pjc-mtls/party-b/enroll`
+   - Party B generates `client.key` locally and sends only a CSR to Party A
+9. the shell now exposes a first business-bucket scale-test action:
+   - `POST /v1/bucketed-scale-test/run`
+   - generates synthetic bucketed PJC inputs
+   - runs local bucketed PJC
+   - writes total and per-bucket k-threshold / DP protected reports
 
-That means this spec is now half design target, half implementation reference: the live transport, UI state machine, and first field-level setup builder exist. Deeper TLS/cross-machine presets can still evolve later without changing `query_workflow_request/v1`.
+That means this spec is now half design target, half implementation reference: the live transport, UI state machine, first field-level setup builder, and first CSR-based mTLS enrollment path exist. Deeper cross-machine job presets can still evolve later without changing `query_workflow_request/v1`.
+
+## 0. Final Target: Secure Two-Party Out-of-Box Flow
+
+The required product target is **not** "closer to out-of-box." It is a one-shot,
+fail-closed two-party workflow where Party A and Party B exchange only a
+bootstrap invitation, verify identities automatically, run the PJC job, and
+produce a merged evidence bundle without manual certificate copying, ad-hoc
+firewall debugging, or unaudited shell state.
+
+The dashboard must therefore grow from a local operator shell into a guided
+two-role control surface with these production invariants:
+
+1. Party A creates a job-bound invite from the UI. The invite contains the
+   enrollment URL, one-time pairing token, CA fingerprint pin, TTL, expected
+   job id, expected peer role, and expected data-plane port.
+2. Party B pastes the invite into the UI. Party B generates its private key
+   locally, submits only a CSR, verifies the returned CA fingerprint, and stores
+   the signed client certificate with `0700` directory / `0600` key permissions.
+3. If Party B also fills explicit fields, the backend compares them against the
+   invite and rejects conflicts. Conflicting host, token, or CA fingerprint is
+   treated as an attack or operator error.
+4. The enrollment service is exposed only in enrollment-only mode. It must serve
+   only `GET /healthz` and `POST /v1/pjc-mtls/enroll`, auto-stop after TTL,
+   idle timeout, or max enrollment count, and write `enrollment_audit.jsonl`.
+5. Before a PJC run starts, both sides run a preflight: Git commit match,
+   helper-script version match, PJC binary presence, TCP reachability, TLS
+   handshake, peer identity check, local CSV hash, bucket manifest hash,
+   resource limits, and expected output directory writability.
+6. The data-plane PJC binary remains loopback-only. Production deployments put
+   Envoy / service mesh in front of it and get short-lived workload identity
+   from SPIFFE/SPIRE. The current `pjc-mtls://enroll` path is the controlled
+   bare-host fallback, not the long-term maximum-security architecture.
+7. Job execution is role-aware: Party A UI can export/start the server role;
+   Party B UI can import/start the client role. Both write typed status and log
+   hashes. The evidence merge step refuses to graduate a run unless both
+   parties' audits agree on `job_id`, commit, manifests, peer identity, TLS
+   fingerprints, and final PJC result hash.
+8. The same UI must expose negative-case tests: wrong token, expired token,
+   wrong CA fingerprint, wrong peer identity, closed port, mismatched commit,
+   modified input CSV, and below-k privacy denial. Passing only the positive run
+   is insufficient.
+
+### Required UI Blocks
+
+| Block | Party | Required controls | Required backend |
+| ----- | ----- | ----------------- | ---------------- |
+| Secure Invite | A | server host, enrollment port, TTL, max enrollments, force regenerate, create invite | `POST /v1/pjc-mtls/party-a/prepare` returns `bootstrap_uri`, token metadata, CA fingerprint |
+| Enrollment | B | paste `pjc-mtls://enroll?...`, cert dir, enroll | `POST /v1/pjc-mtls/party-b/enroll` parses invite, rejects conflicts, stores certs locally |
+| Network Preflight | A+B | run reachability/TLS/identity checks | implemented `POST /v1/pjc-mtls/preflight` wrapper over TCP probe, TLS probe, `check_pjc_tls_identity.py` |
+| Role Package | A+B | export/import job package | implemented `POST /v1/pjc/role-package/export`, `POST /v1/pjc/role-package/import` around split bucketed job directories |
+| Cross-Host Run | A+B | start/stop role, show live state | implemented `POST /v1/pjc/roles/{server,client}/start`, `GET /v1/pjc/roles/{role}/status`, cancellation endpoint |
+| Evidence Merge | A+B | import peer evidence, verify | implemented `POST /v1/pjc/evidence/verify-merge` validating both audit bundles and result hash |
+| Negative Tests | A+B | run required failure cases | implemented `POST /v1/pjc-mtls/negative-cases/run` and typed evidence summary |
+
+### Current Status Against That Target
+
+The repository is now **repo-side implemented for the S9 control-plane
+contracts**, but it is still not fully certified as two-party out-of-box until
+the same flow passes on two real machines. Current repo-side coverage includes
+local job launch, CSR-based certificate enrollment, one-time pairing tokens,
+enrollment-only mode, bootstrap URI support, local bucketed scale tests, role
+split scripts, preflight API, role package import/export API, cross-host role
+lifecycle API, evidence merge gate, automated negative-case runner, five JSON
+schemas, and `scripts/check_pjc_two_party_smoke.py`.
+
+Remaining blockers before claiming production "out-of-box ready":
+
+1. Run the full flow on two real hosts and archive both parties'
+   `pjc_two_party_*` evidence.
+2. Resolve or conclusively diagnose the VPS public `10502` TLS EOF case;
+   `POST /v1/pjc-mtls/tls-diagnostic` now collects the typed evidence
+   needed to drive that triage from the wizard's Run step.
+
+The previously-listed gaps for "guided wizard" and "SPIFFE/SPIRE + Envoy
+templates" are now implemented repo-side:
+
+- The in-page **Two-Party Out-of-Box Wizard** chains
+  `Invite → Enroll → Preflight → Run → Verify → Negative cases → Archive`
+  against the existing backend endpoints. It blocks each step until the
+  prior endpoint returns `decision=allow` (or the appropriate `status=ok`),
+  surfaces typed reports inline, and exposes copyable `bootstrap_uri`,
+  cert paths, and evidence paths. See `scripts/serve_operator_dashboard.py`
+  (`renderS9Wizard`, `wizInvite`, `wizPreflight`, …).
+- `deploy/spiffe_envoy/` ships SPIRE Server / Agent, Envoy Party A / Party B,
+  peer SPIFFE allowlist, and rotation notes. `scripts/check_spiffe_envoy_templates.py`
+  lints them structurally; the report is wired into
+  `scripts/check_json_contracts.sh` and into `scripts/check_ci_smoke.sh`.
 
 > **Scope note (2026-05-08, Track-E3).** This document owns the PJC X-UI control shell layout: the UI state machine, four operator blocks, and the in-shell HTML structure. The broader operator-console-as-product surface — the section/endpoint inventory across the whole platform, the role-gate matrix, the workflow/approval lifecycle, and the admin surfaces — lives in [`docs/OPERATOR_CONSOLE_PRODUCT_PLAN.md`](/home/llvanion/Desktop/seccomp-privacy-platform/docs/OPERATOR_CONSOLE_PRODUCT_PLAN.md). The two documents do not overlap: this one freezes the *shell*, Track-E3 freezes the *manifest*. When Track-E3 evolves the section list, this spec only needs to react if the X-UI shell itself changes.
 

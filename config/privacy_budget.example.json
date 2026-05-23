@@ -1,0 +1,23 @@
+{
+  "schema": "privacy_budget_config/v1",
+  "default": {
+    "max_queries": 0,
+    "near_duplicate_window_seconds": 0,
+    "near_duplicate_window_round_seconds": 3600,
+    "near_duplicate_threshold_round_step": 5
+  },
+  "scopes": [
+    {
+      "match": {
+        "caller": "auto_demo",
+        "tenant_id": "*",
+        "dataset_id": "*",
+        "purpose": "*"
+      },
+      "max_queries": 3,
+      "near_duplicate_window_seconds": 86400,
+      "near_duplicate_window_round_seconds": 3600,
+      "near_duplicate_threshold_round_step": 5
+    }
+  ]
+}

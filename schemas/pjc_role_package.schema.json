@@ -1,0 +1,100 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "pjc_role_package/v1",
+  "title": "PJC role package manifest",
+  "type": "object",
+  "required": [
+    "schema",
+    "generated_at_utc",
+    "job_id",
+    "role",
+    "package_path",
+    "package_sha256",
+    "files",
+    "peer",
+    "ports",
+    "policy"
+  ],
+  "properties": {
+    "schema": { "const": "pjc_role_package/v1" },
+    "generated_at_utc": { "type": "string", "format": "date-time" },
+    "job_id": { "type": "string", "minLength": 1 },
+    "role": { "enum": ["server", "client"] },
+    "package_path": { "type": "string", "minLength": 1 },
+    "package_sha256": { "type": "string", "minLength": 64, "maxLength": 64 },
+    "source_dir": { "type": ["string", "null"] },
+    "exported_dir": { "type": ["string", "null"] },
+    "imported_dir": { "type": ["string", "null"] },
+    "operator_notes": { "type": ["string", "null"] },
+    "files": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["path", "sha256", "size_bytes"],
+        "properties": {
+          "path": { "type": "string", "minLength": 1 },
+          "sha256": { "type": "string", "minLength": 64, "maxLength": 64 },
+          "size_bytes": { "type": "integer", "minimum": 0 }
+        },
+        "additionalProperties": false
+      }
+    },
+    "peer": {
+      "type": "object",
+      "required": ["expected_role"],
+      "properties": {
+        "expected_role": { "enum": ["server", "client"] },
+        "expected_identity": { "type": ["string", "null"] },
+        "expected_ca_fingerprint_sha256": { "type": ["string", "null"] },
+        "expected_host": { "type": ["string", "null"] }
+      },
+      "additionalProperties": false
+    },
+    "ports": {
+      "type": "object",
+      "required": ["dataplane_port"],
+      "properties": {
+        "dataplane_port": { "type": "integer", "minimum": 1, "maximum": 65535 },
+        "loopback_port": { "type": ["integer", "null"], "minimum": 1, "maximum": 65535 },
+        "client_proxy_port": { "type": ["integer", "null"], "minimum": 1, "maximum": 65535 }
+      },
+      "additionalProperties": false
+    },
+    "policy": {
+      "type": "object",
+      "required": ["k_threshold", "dp_epsilon"],
+      "properties": {
+        "k_threshold": { "type": ["integer", "null"], "minimum": 0 },
+        "dp_epsilon": { "type": ["number", "null"], "minimum": 0 },
+        "dp_sensitivity": { "type": ["number", "null"], "minimum": 0 },
+        "require_dp": { "type": ["boolean", "null"] },
+        "redact_operator_fields": { "type": ["boolean", "null"] }
+      },
+      "additionalProperties": false
+    },
+    "validation": {
+      "type": "object",
+      "properties": {
+        "decision": { "enum": ["allow", "deny"] },
+        "reason_code": { "type": "string" },
+        "findings": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["kind", "message"],
+            "properties": {
+              "kind": { "type": "string" },
+              "message": { "type": "string" },
+              "expected": {},
+              "actual": {}
+            },
+            "additionalProperties": false
+          }
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false
+}

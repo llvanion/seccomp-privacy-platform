@@ -298,14 +298,30 @@ Implemented mitigations:
 
 ## 8. Residual Risks
 
+> **2026-05-17 update:** several items below have either moved to closed or
+> gained much stronger repo-side controls. See
+> [`CONTROL_PLANE_HARDENING_LOG.md`](/home/llvanion/Desktop/seccomp-privacy-platform/docs/CONTROL_PLANE_HARDENING_LOG.md)
+> for the audit-ID index, and item 7 below for the new entries.
+
 Current highest residual risks:
 
-1. bridge-ready plaintext still exists by design in file handoff mode
+1. bridge-ready plaintext still exists by design in file handoff mode (Owner-track S1)
 2. standalone recovery service is still a local process boundary, not a separate production deployment boundary
-3. secret refs are still env-backed in the local prototype
-4. audit storage now has a local append-only anchor log, but it is not yet externally anchored or off-host tamper-evident
-5. duplicate-query denial now has an optional privacy-budget ledger gate for near-duplicate or differencing attempts. Repo-side coverage exists through `policy_release.py --privacy-budget-ledger` and `scripts/check_privacy_budget.py`, which verify allow/duplicate/near_duplicate/budget_exhausted behavior against an append-only `privacy_budget_ledger/v1` plus `privacy_budget_check_report/v1`. It is not yet a mandatory production control with metadata read models and three-person certification.
-6. metadata and audit read adapters are read-only, but their access control is still local-token based
+3. secret refs are still env-backed in the local prototype — repo-side `vault_http` and `aws_kms` adapters are complete; **live Vault drill is operator-side (A.2)**
+4. audit storage has a local append-only anchor log and repo-side scaffolds for `s3_worm` and `rekor` external sinks; **`--execute` against live AWS Object Lock / Sigstore Rekor is operator-side (A.12)**
+5. duplicate-query denial has a privacy-budget ledger gate for near-duplicate or differencing attempts. Repo-side coverage exists through `policy_release.py --privacy-budget-ledger` and `scripts/check_privacy_budget.py`. **New (2026-05-17):** `--require-dp` fail-closed on both `policy_release.py` and `policy_postprocess_buckets.py` (A.11) plus the `scripts/check_bucket_dp_smoke.py` regression smoke close the "DP silently skipped" failure mode. **New (2026-05-20):** local production-style S3 privacy-budget closure is implemented through `policy_release.py --privacy-budget-required --privacy-budget-config`, with caller / tenant / dataset / purpose scoped ledger records and missing-scope denial. Evidence: `scripts/run_s3_privacy_budget_production_evidence.sh` and `tmp/s3_privacy_budget_production_evidence/verification_summary.json`. Metadata-read-model integration, operator query submission wiring, VPS/public deployment evidence, and joint certification are still pending.
+6. metadata and audit read adapters are read-only, but their access control is still local-token based — **timing-safe (A.3/A.6)** since the 2026-05-17 round and per-caller rate-limited on the metadata API (A.15).
+7. **New cross-cutting controls landed 2026-05-17** that this document didn't previously track:
+   - **A.4 / A.6 / A.7 / A.8** — keyring `allowed_callers=[]` rejected, `hmac.compare_digest` on every bearer/key-agent compare, atomic keyring write, SIGHUP authz reload on the recovery service.
+   - **A.9** — `--max-candidate-ids` and `--max-request-body-bytes` cap recovery-service input before set materialization (DoS hardening).
+   - **A.10** — recovery service `--suppress-min-rows-side-channel` collapses below-min into a uniform zero-row success that is indistinguishable from a real no-match; the audit still records `min_rows_suppressed=true` for the operator.
+   - **A.13** — operator dashboard `--mtls-enrollment-only-mode` restricts the HTTP surface to `/healthz` + `POST /v1/pjc-mtls/enroll` during PJC Party A enrollment so the rest of the dashboard is never exposed on the bind host.
+   - **A.14** — `POST /v1/bucketed-scale-test/run` is async-by-default; long jobs no longer pin an HTTP worker.
+   - **A.16 / A.17** — sidecar import now atomic with explicit rollback; `available_port` sets `SO_REUSEADDR` and a `reserve_available_port` helper exists for true reservation.
+   - **A.18** — phone normalizer rejects non-E.164 inputs without changing tokens for any previously-valid input.
+   - **PJC mTLS rounds 1-4** — `EXPECTED_CA_FINGERPRINT` required at Party B, pairing-token TTL + max-uses + audit JSONL, server auto-shutdown after exhaustion / TTL expiry / idle.
+   - **S5 (field-redaction half)** — `policy_release.py --public-report-redact-operator-fields` strips operator-only keys from `public_report.json` and routes them into `operator_release_report/v1`; same flag on `policy_postprocess_buckets.py` skips the `debug.per_bucket_results` block; `run_bucketed_scale_test.sh` passes both by default.
+   - Each item has at least one permanent regression smoke wired into `scripts/check_json_contracts.sh` and `scripts/check_ci_smoke.sh`.
 
 ### 8.1 Complete Solution Tracks
 
@@ -315,9 +331,9 @@ For production planning, these items are no longer tracked only as residual risk
 | --- | --- |
 | bridge-ready plaintext handoff | `S1` eliminates retained plaintext handoff in production mode |
 | env/local secret trusted root | `S2` makes real KMS/Vault/cloud KMS the production key source |
-| differencing and near-duplicate queries | `S3` adds privacy budget and query-abuse ledger controls; repo-side gate exists via `policy_release.py --privacy-budget-ledger`, `scripts/check_privacy_budget.py`, `privacy_budget_ledger/v1`, and `privacy_budget_check_report/v1`, and is verified by `scripts/verify_privacy_budget_ledger.sh`, but it remains partial and optional until metadata-read-model integration and joint sign-off are complete |
+| differencing and near-duplicate queries | `S3` adds privacy budget and query-abuse ledger controls; repo-side gate exists via `policy_release.py --privacy-budget-ledger`, `scripts/check_privacy_budget.py`, `privacy_budget_ledger/v1`, and `privacy_budget_check_report/v1`, and is verified by `scripts/verify_privacy_budget_ledger.sh`; **2026-05-20:** local production-style required mode is verified by `scripts/run_s3_privacy_budget_production_evidence.sh` (`required_without_ledger`, `exact_duplicate`, `overlap_near_duplicate`, `budget_exhausted`, `missing_scope`), but live production closure still requires metadata-read-model integration, operator query submission wiring, VPS/public deployment evidence, and joint sign-off |
 | PJC resource exhaustion or local-only runner | `S4` adds service/worker execution, preflight, limits, and streaming gRPC audit |
-| public metadata leakage | `S5` separates public report fields from operator-only metrics |
+| public metadata leakage | `S5` — **field-redaction half closed 2026-05-17** via `--public-report-redact-operator-fields` on `policy_release.py` + `policy_postprocess_buckets.py`; small-shard auto-merge / padding still Owner / Engineer B work |
 | local-only audit trust | `S6` requires externally anchored audit evidence for production release |
 | loopback-only cross-party validation | `S7` requires two-machine mTLS validation and peer identity checks |
 | semi-honest PJC assumptions | `S8` adds input commitments and a path toward malicious-secure PSI-SUM |

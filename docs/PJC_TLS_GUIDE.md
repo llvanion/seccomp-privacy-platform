@@ -47,7 +47,397 @@ Or use the pure-Python fallback (`pjc_tls_proxy.py`) — no installation needed.
 
 ## Step-by-Step Setup
 
-## Fast Reusable Setup
+## Trust Bootstrap Choices
+
+Do **not** treat "Party A and Party B know an IP address and port" as a secure
+certificate-exchange protocol. IP/port reachability only proves that something
+is listening at that network location. It does not prove that the listener is
+the intended Party A. If Party B accepts a CA certificate from that endpoint
+without any independent authentication, an active network attacker can run a
+fake enrollment service, sign Party B's CSR with an attacker-controlled CA, and
+make the later mTLS connection authenticate the wrong peer.
+
+Use one of these bootstrap modes:
+
+| Mode | Status | When to use |
+| --- | --- | --- |
+| `pjc-mtls://enroll?...` bootstrap URI | Recommended for two-host demos | Party A prints one URI containing the enrollment URL, one-time pairing token, and CA fingerprint pin. Party B pastes it into `PJC_MTLS_BOOTSTRAP=...`; the script still verifies the returned CA fingerprint. |
+| Separate `SERVER_HOST` + `PJC_MTLS_PAIRING_TOKEN` + `EXPECTED_CA_FINGERPRINT` | Recommended explicit form | Same security properties as the bootstrap URI, easier to audit field by field. |
+| WireGuard / Tailscale / SSH trusted channel plus fingerprint check | Stronger operator bootstrap | Use a private authenticated channel for the enrollment endpoint or for transmitting the bootstrap URI. |
+| SPIFFE/SPIRE + Envoy, Istio/Linkerd, Vault PKI, step-ca, or cert-manager | Production direction | Replace ad-hoc enrollment with workload identity and managed certificate lifecycle. |
+| IP/port only with `ALLOW_UNVERIFIED_CA=1` | Unsafe lab mode only | TOFU. Do not use for public-network evidence or production claims. |
+
+The repository implements the first two modes. The client private key is still
+generated on Party B and never leaves Party B; Party A receives only a CSR.
+
+## Most Secure Production Target
+
+The required production flow is **not** automatic certificate exchange over a
+bare IP address. The production target is pre-established workload identity plus
+automatic mTLS that still feels out-of-box to both operators:
+
+```text
+Party A worker ── loopback ── Envoy sidecar ── mTLS ── Envoy sidecar ── loopback ── Party B worker
+                         ▲                         ▲
+                         │                         │
+                    SPIRE Agent               SPIRE Agent
+                         ▲                         ▲
+                         └────── SPIRE Server / trust domain ──────┘
+```
+
+Implementation plan:
+
+1. Put Party A and Party B on a controlled network first: WireGuard, Tailscale,
+   private VPC, or equivalent. Do not expose the enrollment service or PJC
+   data-plane listener to the whole internet.
+2. Run SPIRE Server as the trust-domain authority and one SPIRE Agent per host.
+   Define workload selectors for the Party A and Party B PJC workers.
+3. Give each worker an X.509 SVID with short TTL. Envoy obtains SVIDs through
+   SDS / workload API and terminates mTLS for the local PJC binary.
+4. Configure Envoy authorization so Party A only accepts the expected Party B
+   SPIFFE ID, and Party B only accepts the expected Party A SPIFFE ID.
+5. Keep the PJC binary bound to loopback. Only Envoy listens on the controlled
+   network interface.
+6. Record the runtime identity evidence for every job:
+   - trust domain
+   - peer SPIFFE ID
+   - SVID / leaf certificate fingerprint
+   - trust-bundle fingerprint
+   - notBefore / notAfter
+   - Envoy peer-auth decision
+   - PJC result hash and server/client log hashes
+7. Keep the existing `pjc-mtls://enroll` CSR flow only as a two-host demo /
+   fallback path. It is acceptable for controlled evidence when paired with a
+   CA fingerprint pin and one-time token, but it is not the most secure
+   production target.
+
+Recommended open-source stack:
+
+| Layer | Preferred option | Role |
+| --- | --- | --- |
+| Network isolation | WireGuard or Tailscale | Keeps PJC ports off the open internet. |
+| Workload identity | SPIFFE/SPIRE | Issues short-lived X.509 SVIDs to Party A/B workers. |
+| mTLS proxy | Envoy | Performs mTLS, peer verification, and policy enforcement. |
+| Kubernetes alternative | Istio or Linkerd | Provides service-mesh mTLS and workload policy when deployed on K8s. |
+| Certificate authority fallback | Vault PKI, step-ca, cert-manager | Managed PKI when SPIFFE/SPIRE is not available. |
+
+Completion criteria for this target:
+
+1. Positive run: Party A and Party B complete PJC over Envoy/SPIRE mTLS.
+2. Wrong peer negative run: a workload with the wrong SPIFFE ID is rejected
+   before reaching the PJC binary.
+3. Expired / wrong trust-bundle negative run: TLS fails closed.
+4. Evidence bundle includes both parties' Envoy/SPIRE identity material and PJC
+   result/audit artifacts.
+
+## One-Step Two-Party Flow
+
+The final operator experience must be:
+
+```text
+Party A: Create secure invite -> run preflight -> start server role
+Party B: Paste invite -> enroll -> run preflight -> start client role
+Both:    Merge evidence -> verify result -> archive release package
+```
+
+This is "out-of-box" only if every step above is implemented in the control
+plane and fails closed. Manual scp of certs, unaudited firewall guesses, or
+trusting an IP/port by itself does not meet the bar.
+
+### Secure Invite Format
+
+The bare-host fallback invite is:
+
+```text
+pjc-mtls://enroll?url=<https-or-http-enrollment-url>&token=<one-time-token>&ca_sha256=<ca-fingerprint>&ttl=<seconds>
+```
+
+Implementation requirements:
+
+1. Party A emits the URI from both
+   `serve_pjc_mtls_enrollment_party_a.sh` and the X-UI
+   `POST /v1/pjc-mtls/party-a/prepare` endpoint.
+2. The token is random, one-time by default, TTL-bound, and deleted after use or
+   expiry.
+3. Party B may provide only the URI. If Party B also provides explicit URL,
+   token, or fingerprint fields, the backend must compare them to the URI and
+   reject conflicts.
+4. Party B generates `client.key` locally and never sends it over the network.
+5. Party B stores `client.key` with mode `0600` and verifies both the returned
+   CA fingerprint and the fingerprint of the saved `ca.crt`.
+6. The enrollment service runs in enrollment-only mode and exposes only
+   `/healthz` plus `/v1/pjc-mtls/enroll`.
+
+This fallback is acceptable for a two-host demo only when the invite is
+transmitted over a trusted channel and the fingerprint pin is preserved. The
+production target remains SPIFFE/SPIRE + Envoy/service mesh.
+
+### Preflight Gate
+
+Before either side can press "Run", the UI must call a preflight that records:
+
+| Check | Failure action |
+| ----- | -------------- |
+| repo commit and helper-script version match | reject run |
+| PJC binaries exist and report expected flags | reject run |
+| Party A data-plane port reachable from Party B | reject run |
+| TLS handshake succeeds with mTLS | reject run |
+| peer certificate identity/fingerprint matches job policy | reject run |
+| input CSV hash equals role manifest hash | reject run |
+| bucket count, row count, byte size, and chunk size within limits | reject run |
+| output directory writable and evidence paths unique | reject run |
+
+The evidence file for this gate should be `pjc_two_party_preflight/v1` and must
+be archived by both parties.
+
+### Role Lifecycle
+
+The scripts already separate Party A and Party B role directories. The
+out-of-box product must expose them through stable UI/API calls:
+
+| Endpoint | Responsibility |
+| -------- | -------------- |
+| `POST /v1/pjc/role-package/export` | create a Party A or Party B package with manifests, hashes, expected ports, and redacted operator notes |
+| `POST /v1/pjc/role-package/import` | validate package schema and hashes before writing it locally |
+| `POST /v1/pjc/roles/server/start` | start Party A loopback PJC server plus TLS/service-mesh listener |
+| `POST /v1/pjc/roles/client/start` | start Party B client through local TLS/service-mesh proxy |
+| `GET /v1/pjc/roles/{role}/status` | return running PID, port, peer, logs, and last audit hash |
+| `POST /v1/pjc/roles/{role}/cancel` | terminate child process and proxy, write cancellation audit |
+| `POST /v1/pjc/evidence/verify-merge` | verify both parties' manifests, TLS identity, logs, and final result hash |
+
+### Negative Cases Required for Graduation
+
+A run is not "一步到位" until the UI can execute and archive these negative
+cases:
+
+1. wrong pairing token rejected
+2. expired token rejected and token state deleted
+3. wrong CA fingerprint rejected before writing certs
+4. wrong peer identity rejected before PJC starts
+5. closed or filtered data-plane port rejected by preflight
+6. mismatched repo commit or helper version rejected
+7. modified input CSV rejected by manifest hash
+8. below-k / exhausted privacy budget denied by release policy
+
+### Repo-Side Control-Plane Status
+
+As of 2026-05-23, the S9 control-plane contracts are implemented repo-side in
+`scripts/serve_operator_dashboard.py`:
+
+| Contract | Endpoint / schema | Local coverage |
+| -------- | ----------------- | -------------- |
+| Preflight | `POST /v1/pjc-mtls/preflight`, `pjc_two_party_preflight/v1` | helper smoke validates allow and deny paths |
+| Role package | `POST /v1/pjc/role-package/export`, `POST /v1/pjc/role-package/import`, `pjc_role_package/v1` | round-trip and tamper detection |
+| Role lifecycle | `POST /v1/pjc/roles/{server,client}/start`, `GET /v1/pjc/roles/{role}/status`, `POST /v1/pjc/roles/{role}/cancel`, `pjc_role_status/v1` | surrogate subprocess start/status/cancel |
+| Evidence merge | `POST /v1/pjc/evidence/verify-merge`, `pjc_two_party_evidence_merge/v1` | agreement and mismatch paths |
+| Negative cases | `POST /v1/pjc-mtls/negative-cases/run`, `pjc_two_party_negative_cases/v1` | all eight expected denials |
+
+The regression entry point is `scripts/check_pjc_two_party_smoke.py`; the five
+new schemas are included in `scripts/check_json_contracts.sh`, and the smoke is
+listed in `scripts/check_ci_smoke.sh`.
+
+The control-plane gained four additional helpers on 2026-05-23 that close the
+gaps previously called out in this section. All of them have a focused smoke
+that runs in CI without needing two real hosts:
+
+| Contract | Endpoint / schema | Local smoke |
+| -------- | ----------------- | ----------- |
+| Live TLS diagnostic | `POST /v1/pjc-mtls/tls-diagnostic`, `pjc_tls_diagnostic/v1` | `scripts/check_pjc_tls_diagnostic_smoke.py` — closed-port deny, TCP-accepts-then-closes (`tls_eof`), missing-cert hint |
+| Server-side release gate | `POST /v1/release/policy-gate`, `release_policy_gate/v1` + `release_policy_gate_config/v1` | `scripts/check_release_policy_gate_smoke.py` — missing ledger / low-k / missing DP / allowed / duplicate-query leak |
+| SPIFFE/SPIRE + Envoy templates | `deploy/spiffe_envoy/*`, `spiffe_envoy_peer_allowlist/v1`, `spiffe_envoy_template_check/v1` | `scripts/check_spiffe_envoy_templates.py --assert-allow` |
+| Guided two-party wizard | `renderS9Wizard` in `scripts/serve_operator_dashboard.py` (frontend only) | wired against the existing backend smokes; navigates the dashboard at `#s9-wizard` |
+
+This is still not the same as production certification. The remaining
+evidence gap is a real two-host run where Party A and Party B each archive
+their preflight, role status, evidence merge, negative-case, and
+(once a release is produced) `release_policy_gate/v1` reports. The known VPS
+public `10502` TLS EOF case can now be triaged from the wizard's Run step via
+the new diagnostic, but the underlying network/operator action is still owed.
+
+## Web-UI CSR Enrollment Setup
+
+The existing PJC X-UI can bootstrap mTLS without SSH and without sending
+certificate files by hand. The script-first flow is:
+
+1. Party A runs one script that prepares the CA and starts the enrollment endpoint.
+2. Party A sends the printed Party B command to Party B.
+3. Party B runs that command.
+4. Party B's script generates `client.key` locally, sends only a CSR to Party A, and
+   receives `ca.crt` + `client.crt`.
+
+`client.key` never leaves Party B. `ca.key`, `server.crt`, and `server.key`
+never leave Party A.
+
+Use the same dashboard port you already use for `serve_operator_dashboard.py`;
+this flow does not change the PJC ports:
+
+| Purpose | Default |
+| ------- | ------- |
+| PJC server loopback | `127.0.0.1:10501` |
+| External mTLS PJC port | `10502` |
+| PJC client loopback proxy | `127.0.0.1:10503` |
+
+Party A starts the existing web UI enrollment service on an address Party B can
+reach:
+
+```bash
+cd ~/Desktop/seccomp-privacy-platform
+
+SERVER_HOST=<PartyA public IP, hostname, or VPN IP> \
+bash a-psi/moduleA_psi/scripts/serve_pjc_mtls_enrollment_party_a.sh
+```
+
+The script prints the enroll URL, pairing token, CA fingerprint, and the exact
+Party B command. Keep this terminal running while Party B enrolls.
+
+The script also prints a one-line bootstrap URI:
+
+```text
+pjc-mtls://enroll?url=...&token=...&ca_sha256=...
+```
+
+Party B can paste that one value instead of setting three separate variables:
+
+```bash
+cd ~/Desktop/seccomp-privacy-platform
+
+PJC_MTLS_BOOTSTRAP='<pjc-mtls://enroll?... printed by Party A>' \
+bash a-psi/moduleA_psi/scripts/enroll_pjc_mtls_party_b.sh
+```
+
+Treat the bootstrap URI like a short-lived secret. It contains the one-time
+pairing token and the CA fingerprint pin. Send it over an authenticated and
+confidential channel when possible, and keep the default token TTL /
+max-enrollment limits enabled.
+
+Party B runs the printed command:
+
+```bash
+cd ~/Desktop/seccomp-privacy-platform
+
+SERVER_HOST=<PartyA public IP, hostname, or VPN IP> \
+PJC_MTLS_PAIRING_TOKEN=<token printed by Party A> \
+bash a-psi/moduleA_psi/scripts/enroll_pjc_mtls_party_b.sh
+```
+
+After enrollment, Party B can run:
+
+```bash
+export JOB_ID=cross-internet-job-001
+export CERT_DIR="$HOME/pjc_certs_shared"
+export SERVER_HOST=<PartyA public IP, hostname, or VPN IP>
+export TLS_PORT=10502
+export CLIENT_CSV="$PWD/bridge/out/sse_demo_job/client.csv"
+export PJC_BIN_DIR="$PWD/a-psi/private-join-and-compute/bazel-bin"
+export OUT_DIR="$PWD/tmp/pjc_mtls_$JOB_ID/party_b_client"
+
+bash a-psi/moduleA_psi/scripts/run_pjc_client_tls.sh
+```
+
+Or combine first-time enrollment with the client wrapper:
+
+```bash
+export JOB_ID=cross-internet-job-001
+export SERVER_HOST=<PartyA public IP, hostname, or VPN IP>
+export PJC_MTLS_PAIRING_TOKEN=<token printed by Party A>
+export CLIENT_CSV="$PWD/bridge/out/sse_demo_job/client.csv"
+export PJC_BIN_DIR="$PWD/a-psi/private-join-and-compute/bazel-bin"
+export OUT_DIR="$PWD/tmp/pjc_mtls_$JOB_ID/party_b_client"
+
+bash a-psi/moduleA_psi/scripts/run_pjc_client_tls_auto.sh
+```
+
+The pairing token is the trust bootstrap. For production-grade evidence,
+verify the displayed CA fingerprint out-of-band before Party B accepts the
+certificate.
+
+Do not use `ALLOW_UNVERIFIED_CA=1` for public-network evidence. That flag is
+only for isolated lab debugging where TOFU is acceptable.
+
+## 1k Business-Bucket Scale Test
+
+For a local end-to-end test with generated business buckets:
+
+```bash
+cd ~/Desktop/seccomp-privacy-platform
+
+JOB_ID=bucketed-scale-1k \
+RECORDS=1000 \
+BUCKETS=8 \
+BUCKET_FIELD=campaign_id \
+K_THRESHOLD=20 \
+DP_EPSILON=1.0 \
+DP_SENSITIVITY=10000 \
+BASE_PORT=10621 \
+PJC_BIN_DIR="$PWD/a-psi/private-join-and-compute/bazel-bin" \
+bash a-psi/moduleA_psi/scripts/run_bucketed_scale_test.sh
+```
+
+Outputs:
+
+```text
+tmp/pjc_bucketed_scale_<JOB_ID>/job_meta.json
+tmp/pjc_bucketed_scale_<JOB_ID>/expected_result.json
+tmp/pjc_bucketed_scale_<JOB_ID>/attribution_result.json
+tmp/pjc_bucketed_scale_<JOB_ID>/public_report.json
+tmp/pjc_bucketed_scale_<JOB_ID>/bucket_public_report.json
+tmp/pjc_bucketed_scale_<JOB_ID>/audit_log.jsonl
+tmp/pjc_bucketed_scale_<JOB_ID>/party_a_job/
+tmp/pjc_bucketed_scale_<JOB_ID>/party_b_job/
+```
+
+The generated PJC CSVs contain only HMAC tokens. If `PJC_BUCKET_HMAC_SECRET`
+is set, the generator uses that shared secret. If it is not set, the test
+creates a local `0600` secret file under the output directory for demo use.
+The secret material is not written to `job_meta.json`.
+
+The existing web UI exposes the same flow in **Business Bucket Scale Test**.
+
+## Public Bucketed mTLS Run
+
+After Party B has enrolled or otherwise has a cert bundle, the same bucketed
+job can run across two machines over mTLS. Use the split role directories from
+the scale test: Party A gets only `party_a_job/`, Party B gets only
+`party_b_job/`. Keep the default PJC TLS data-plane port unless it is already
+in use.
+
+Party A:
+
+```bash
+cd /root/seccomp-privacy-platform
+
+export JOB_DIR="$PWD/tmp/pjc_bucketed_scale_bucketed-scale-1k/party_a_job"
+export CERT_DIR="$PWD/tmp/pjc_mtls_shared/certs"
+export PJC_BIN_DIR="$PWD/a-psi/private-join-and-compute/bazel-bin"
+export TLS_PORT=10502
+export PJC_LOCAL_PORT=10501
+export BIND_ADDR=0.0.0.0
+export PJC_GRPC_STREAM_CHUNK_ELEMENTS=0
+
+bash a-psi/moduleA_psi/scripts/run_pjc_bucketed_tls_server.sh
+```
+
+Party B:
+
+```bash
+cd ~/Desktop/seccomp-privacy-platform
+
+export JOB_DIR="$PWD/tmp/pjc_bucketed_scale_bucketed-scale-1k/party_b_job"
+export CERT_DIR="$HOME/pjc_certs_shared"
+export SERVER_HOST=<PartyA public IP, hostname, or VPN IP>
+export PJC_BIN_DIR="$PWD/a-psi/private-join-and-compute/bazel-bin"
+export TLS_PORT=10502
+export LOCAL_PROXY_PORT=10503
+export PJC_GRPC_STREAM_CHUNK_ELEMENTS=0
+
+bash a-psi/moduleA_psi/scripts/run_pjc_bucketed_tls_client.sh
+```
+
+Party B writes and merges `attribution_result.json`, then can run
+`policy_release.py` and `policy_postprocess_buckets.py` as in the local scale
+test.
+
+## SSH Fallback Setup
 
 If the two parties already trust SSH between the machines, use the reusable helpers instead of manually copying certificate files each time.
 

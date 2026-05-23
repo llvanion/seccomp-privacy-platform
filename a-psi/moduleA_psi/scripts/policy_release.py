@@ -13,6 +13,8 @@ from decimal import Decimal, ROUND_HALF_UP
 from time import perf_counter
 from typing import Any, Dict, List, Optional, Tuple
 
+_DP_RNG = _random.SystemRandom()
+
 
 # ---------- basic utils ----------
 
@@ -109,7 +111,7 @@ def deliver_signed_result(
 def _laplace_noise(scale: float) -> float:
     # Inverse-CDF method: no numpy dependency required.
     # scale = sensitivity / epsilon
-    u = _random.uniform(-0.5 + 1e-10, 0.5 - 1e-10)
+    u = _DP_RNG.uniform(-0.5 + 1e-10, 0.5 - 1e-10)
     return -scale * math.copysign(1.0, u) * math.log(1.0 - 2.0 * abs(u))
 
 
@@ -288,6 +290,22 @@ def extract_value_mode(job_meta: Dict[str, Any]) -> Optional[str]:
     return None
 
 
+def extract_privacy_scope(
+    job_meta: Dict[str, Any],
+    *,
+    caller: str,
+    tenant_id_arg: Optional[str],
+    dataset_id_arg: Optional[str],
+    purpose_arg: Optional[str],
+) -> Dict[str, Optional[str]]:
+    return {
+        "caller": caller,
+        "tenant_id": tenant_id_arg or try_get(job_meta, "tenant_id", "tenant", default=None),
+        "dataset_id": dataset_id_arg or try_get(job_meta, "dataset_id", "dataset", default=None),
+        "purpose": purpose_arg or try_get(job_meta, "purpose", "release_purpose", default=None),
+    }
+
+
 def canonical_query_payload(
     caller: str,
     job_id: Optional[str],
@@ -315,6 +333,9 @@ def canonical_query_signature(payload: Dict[str, Any]) -> str:
 def canonical_privacy_budget_payload(
     *,
     caller: str,
+    tenant_id: Optional[str],
+    dataset_id: Optional[str],
+    purpose: Optional[str],
     window: Dict[str, Optional[str]],
     bucket: Optional[str],
     value_mode: Optional[str],
@@ -323,6 +344,9 @@ def canonical_privacy_budget_payload(
 ) -> Dict[str, Any]:
     return {
         "caller": caller,
+        "tenant_id": tenant_id,
+        "dataset_id": dataset_id,
+        "purpose": purpose,
         "window_start": window.get("start"),
         "window_end": window.get("end"),
         "bucket": bucket,
@@ -354,7 +378,20 @@ def privacy_budget_default() -> Dict[str, Any]:
     }
 
 
-def _load_privacy_budget_records(ledger_path: str, caller: str) -> List[Dict[str, Any]]:
+def _scope_value_matches(record_value: Any, expected: Optional[str]) -> bool:
+    if expected is None:
+        return record_value is None
+    return record_value == expected
+
+
+def _load_privacy_budget_records(
+    ledger_path: str,
+    *,
+    caller: str,
+    tenant_id: Optional[str],
+    dataset_id: Optional[str],
+    purpose: Optional[str],
+) -> List[Dict[str, Any]]:
     if not os.path.exists(ledger_path):
         return []
     records = []
@@ -367,9 +404,81 @@ def _load_privacy_budget_records(ledger_path: str, caller: str) -> List[Dict[str
                 rec = json.loads(line)
             except Exception:
                 continue
-            if rec.get("schema") == "privacy_budget_ledger/v1" and rec.get("caller") == caller:
+            if (
+                rec.get("schema") == "privacy_budget_ledger/v1"
+                and rec.get("caller") == caller
+                and _scope_value_matches(rec.get("tenant_id"), tenant_id)
+                and _scope_value_matches(rec.get("dataset_id"), dataset_id)
+                and _scope_value_matches(rec.get("purpose"), purpose)
+            ):
                 records.append(rec)
     return records
+
+
+def _load_privacy_budget_config(path: Optional[str]) -> Dict[str, Any]:
+    if not path:
+        return {}
+    config = load_json(path)
+    if config.get("schema") != "privacy_budget_config/v1":
+        raise ValueError(f"privacy budget config must use schema privacy_budget_config/v1: {path}")
+    return config
+
+
+def _budget_scope_match(rule: Dict[str, Any], scope: Dict[str, Optional[str]]) -> bool:
+    match = rule.get("match")
+    if not isinstance(match, dict):
+        return False
+    if str(match.get("caller") or "") != scope["caller"]:
+        return False
+    for field in ("tenant_id", "dataset_id", "purpose"):
+        configured = match.get(field)
+        if configured is None or configured == "*":
+            continue
+        if configured != scope.get(field):
+            return False
+    return True
+
+
+def resolve_privacy_budget_scope(
+    *,
+    config: Dict[str, Any],
+    scope: Dict[str, Optional[str]],
+) -> Dict[str, Any]:
+    if not config:
+        return {
+            "matched_scope_index": None,
+            "max_queries": None,
+            "near_duplicate_window_seconds": None,
+            "reason_code": "privacy_budget_config_missing",
+            "reason": "privacy budget config was not provided",
+        }
+    default = config.get("default") if isinstance(config.get("default"), dict) else {}
+    resolved = {
+        "matched_scope_index": None,
+        "max_queries": int(default.get("max_queries", 0)),
+        "near_duplicate_window_seconds": int(default.get("near_duplicate_window_seconds", 0)),
+        "near_duplicate_window_round_seconds": int(default.get("near_duplicate_window_round_seconds", 3600)),
+        "near_duplicate_threshold_round_step": int(default.get("near_duplicate_threshold_round_step", 1)),
+        "reason_code": "ok",
+        "reason": None,
+    }
+    scopes = config.get("scopes") if isinstance(config.get("scopes"), list) else []
+    for idx, rule in enumerate(scopes):
+        if not isinstance(rule, dict):
+            continue
+        if _budget_scope_match(rule, scope):
+            resolved.update({
+                "matched_scope_index": idx,
+                "max_queries": int(rule.get("max_queries", resolved["max_queries"])),
+                "near_duplicate_window_seconds": int(rule.get("near_duplicate_window_seconds", resolved["near_duplicate_window_seconds"])),
+                "near_duplicate_window_round_seconds": int(rule.get("near_duplicate_window_round_seconds", resolved["near_duplicate_window_round_seconds"])),
+                "near_duplicate_threshold_round_step": int(rule.get("near_duplicate_threshold_round_step", resolved["near_duplicate_threshold_round_step"])),
+            })
+            return resolved
+    if resolved["max_queries"] == 0:
+        resolved["reason_code"] = "privacy_budget_missing_scope"
+        resolved["reason"] = "no privacy budget scope matched and default max_queries=0"
+    return resolved
 
 
 def _parse_window_dt(window: Dict[str, Optional[str]]) -> Tuple[Optional[datetime], Optional[datetime]]:
@@ -401,6 +510,9 @@ def evaluate_privacy_budget(
     *,
     ledger_path: Optional[str],
     caller: str,
+    tenant_id: Optional[str],
+    dataset_id: Optional[str],
+    purpose: Optional[str],
     job_id: Optional[str],
     window: Dict[str, Optional[str]],
     bucket: Optional[str],
@@ -409,16 +521,22 @@ def evaluate_privacy_budget(
     bridge_meta: Dict[str, Any],
     budget_limit: Optional[float],
     budget_cost: float,
+    scope_resolution: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
     if not ledger_path:
         return privacy_budget_default()
     if budget_cost <= 0:
         raise ValueError("--privacy-budget-cost must be positive")
+    if scope_resolution and budget_limit is None and scope_resolution.get("max_queries") is not None:
+        budget_limit = float(scope_resolution["max_queries"])
     if budget_limit is not None and budget_limit < 0:
         raise ValueError("--privacy-budget-limit must be non-negative")
 
     payload = canonical_privacy_budget_payload(
         caller=caller,
+        tenant_id=tenant_id,
+        dataset_id=dataset_id,
+        purpose=purpose,
         window=window,
         bucket=bucket,
         value_mode=value_mode,
@@ -426,7 +544,13 @@ def evaluate_privacy_budget(
         bridge_meta=bridge_meta,
     )
     query_fingerprint = canonical_query_signature(payload)
-    prior_records = _load_privacy_budget_records(ledger_path, caller)
+    prior_records = _load_privacy_budget_records(
+        ledger_path,
+        caller=caller,
+        tenant_id=tenant_id,
+        dataset_id=dataset_id,
+        purpose=purpose,
+    )
     consumed_records = [
         rec for rec in prior_records
         if rec.get("budget", {}).get("consumed") is True and rec.get("decision") == "allow"
@@ -436,6 +560,13 @@ def evaluate_privacy_budget(
     base = {
         "enabled": True,
         "ledger_path": os.path.abspath(ledger_path),
+        "scope": {
+            "caller": caller,
+            "tenant_id": tenant_id,
+            "dataset_id": dataset_id,
+            "purpose": purpose,
+            "matched_scope_index": scope_resolution.get("matched_scope_index") if scope_resolution else None,
+        },
         "budget_limit": budget_limit,
         "budget_cost": budget_cost,
         "budget_used_before": used_before,
@@ -447,6 +578,14 @@ def evaluate_privacy_budget(
         "matched_prior_job_id": None,
         "matched_prior_relation": None,
     }
+
+    if scope_resolution and scope_resolution.get("reason_code") != "ok":
+        return {
+            **base,
+            "decision": "deny",
+            "reason_code": scope_resolution["reason_code"],
+            "reason": scope_resolution["reason"] or "privacy budget scope resolution failed",
+        }
 
     for prior in consumed_records:
         prior_fingerprint = prior.get("query_fingerprint")
@@ -501,6 +640,9 @@ def append_privacy_budget_ledger_record(
     policy_version: str,
     job_id: Optional[str],
     caller: str,
+    tenant_id: Optional[str],
+    dataset_id: Optional[str],
+    purpose: Optional[str],
     window: Dict[str, Optional[str]],
     bucket: Optional[str],
     value_mode: Optional[str],
@@ -520,6 +662,9 @@ def append_privacy_budget_ledger_record(
         "job_id": job_id,
         "correlation_id": job_id,
         "caller": caller,
+        "tenant_id": tenant_id,
+        "dataset_id": dataset_id,
+        "purpose": purpose,
         "window": window,
         "bucket": bucket,
         "value_mode": value_mode,
@@ -800,6 +945,19 @@ def decorate_released_value(released: Optional[Dict[str, Any]], value_mode: Opti
     return out
 
 
+# Operator-only fields (S5). When --public-report-redact-operator-fields is on,
+# these keys are stripped from public_report.json and routed to the operator
+# report instead. Listed here once so the redaction layer + a future contract
+# smoke can stay in sync without re-stating the set.
+PUBLIC_REPORT_OPERATOR_ONLY_FIELDS = (
+    "input_sizes",      # raw row counts per role — direct frame-count leak
+    "rate_limit_used",  # internal accounting
+    "rate_limit_max",   # internal accounting
+    "bridge",           # bridge metadata: normalizer version, token scope, etc.
+    "details",          # full released decoration including raw cents
+)
+
+
 def build_public_report(
     *,
     policy_version: str,
@@ -814,6 +972,7 @@ def build_public_report(
     rate_limit_out: Dict[str, Any],
     policy_out: Dict[str, Any],
     bucket_size: bool = False,
+    redact_operator_fields: bool = False,
 ) -> Dict[str, Any]:
     released = decorate_released_value(policy_out.get("released"), value_mode)
 
@@ -864,11 +1023,15 @@ def build_public_report(
         "details": released,
     }
 
-    # allow: return full report
+    # allow: return full report (with optional operator-only redaction).
     if full_report["released"]:
+        if redact_operator_fields:
+            redacted = {k: v for k, v in full_report.items() if k not in PUBLIC_REPORT_OPERATOR_ONLY_FIELDS}
+            redacted["operator_fields_redacted"] = True
+            return redacted
         return full_report
 
-    # deny: return slim public report
+    # deny: return slim public report (already excludes operator-only fields by construction)
     return {
         "schema": full_report["schema"],
         "generated_at_utc": full_report["generated_at_utc"],
@@ -882,6 +1045,61 @@ def build_public_report(
         "window": full_report["window"],   # 可选；如果你想更保守，可以删掉这一行
         "k_threshold": full_report["k_threshold"],
     }
+
+
+def _maybe_write_operator_report(
+    *,
+    args,
+    out_path: str,
+    policy_version: str,
+    job_id: Optional[str],
+    caller: str,
+    window: Dict[str, Optional[str]],
+    bucket: Optional[str],
+    value_mode: Optional[str],
+    bridge_meta: Dict[str, Any],
+    input_sizes: Dict[str, Optional[int]],
+    threshold_k: int,
+    rate_limit_out: Dict[str, Any],
+    policy_out: Dict[str, Any],
+    bucket_size: bool = False,
+) -> None:
+    """Write the operator-grade copy of the release report (S5).
+
+    Always emitted when ``--public-report-redact-operator-fields`` is on
+    (so the operator can still see what the caller cannot). Also emitted
+    when ``--operator-report-path`` is explicitly set, even if the public
+    report is unredacted. Otherwise no-ops to keep the legacy behavior.
+    """
+    redacted = bool(args.public_report_redact_operator_fields)
+    explicit = bool(args.operator_report_path)
+    if not redacted and not explicit:
+        return
+    if args.operator_report_path:
+        op_path = args.operator_report_path
+    else:
+        base, _ = os.path.splitext(out_path)
+        op_path = base + ".operator.json"
+    full_report = build_public_report(
+        policy_version=policy_version,
+        job_id=job_id,
+        caller=caller,
+        window=window,
+        bucket=bucket,
+        value_mode=value_mode,
+        bridge_meta=bridge_meta,
+        input_sizes=input_sizes,
+        threshold_k=threshold_k,
+        rate_limit_out=rate_limit_out,
+        policy_out=policy_out,
+        bucket_size=bucket_size,
+        redact_operator_fields=False,  # operator copy always carries the full set
+    )
+    full_report["schema"] = "operator_release_report/v1"
+    full_report["public_report_was_redacted"] = redacted
+    ensure_dir(os.path.dirname(op_path) or ".")
+    with open(op_path, "w", encoding="utf-8") as f:
+        json.dump(full_report, f, ensure_ascii=False, indent=2)
 
 
 def build_audit_record(
@@ -968,6 +1186,9 @@ def main() -> None:
     ap.add_argument("--caller", default=None, help="Caller identity; in HMAC mode this must match auth config")
     ap.add_argument("--job-id", default=None, help="Optional job id for audit/report")
     ap.add_argument("--policy-version", default="w2-hmac-v1", help="Policy version label")
+    ap.add_argument("--tenant-id", default=None, help="Privacy-budget tenant scope override")
+    ap.add_argument("--dataset-id", default=None, help="Privacy-budget dataset scope override")
+    ap.add_argument("--purpose", default=None, help="Privacy-budget release purpose override")
 
     ap.add_argument("--threshold-k", "--k", dest="threshold_k", type=int, default=20)
     ap.add_argument("--max-queries", "--n", dest="max_queries", type=int, default=5)
@@ -975,6 +1196,10 @@ def main() -> None:
     ap.add_argument("--deny-duplicate-query", action="store_true", help="Deny an exact repeated canonical query signature for the caller")
     ap.add_argument("--privacy-budget-ledger", default=None,
                     help="Optional JSONL privacy_budget_ledger/v1 path. Enables budget, duplicate, and overlapping-window checks before release.")
+    ap.add_argument("--privacy-budget-config", default=None,
+                    help="Optional privacy_budget_config/v1 JSON path. In production mode it selects caller/tenant/dataset/purpose budget scopes.")
+    ap.add_argument("--privacy-budget-required", action="store_true",
+                    help="Fail closed unless a privacy-budget ledger is configured; deny releases when no configured budget scope matches.")
     ap.add_argument("--privacy-budget-limit", type=float, default=None,
                     help="Maximum cumulative privacy budget units for this caller in --privacy-budget-ledger.")
     ap.add_argument("--privacy-budget-cost", type=float, default=1.0,
@@ -995,6 +1220,26 @@ def main() -> None:
                          "Required when --dp-epsilon is set.")
     ap.add_argument("--bucket-intersection-size", action="store_true",
                     help="Replace exact intersection_size in public_report with a bucket label (<10, 10-49, 50-199, 200+).")
+    ap.add_argument("--require-dp", action="store_true",
+                    help=(
+                        "Fail-closed if --dp-epsilon and --dp-sensitivity are not both set "
+                        "with positive values. Recommended for any public release path, and "
+                        "required when bucket-level reports are generated (compare "
+                        "policy_postprocess_buckets.py --require-dp)."
+                    ))
+    ap.add_argument("--public-report-redact-operator-fields", action="store_true",
+                    help=(
+                        "S5: drop operator-only metadata (input_sizes, rate_limit_used/max, "
+                        "bridge, details) from public_report.json. The fields are still "
+                        "available to operators via --operator-report-path."
+                    ))
+    ap.add_argument("--operator-report-path", default=None,
+                    help=(
+                        "Path to write an operator-grade copy of the release report (always "
+                        "includes input_sizes / bridge / details / rate_limit_*). When "
+                        "--public-report-redact-operator-fields is set, this is where the "
+                        "redacted fields land. Defaults to <out>.operator.json sibling."
+                    ))
 
     # optional HMAC authn/authz
     ap.add_argument("--auth-config", default=None, help="JSON file: {key_id: {caller, secret, enabled}}")
@@ -1008,6 +1253,24 @@ def main() -> None:
 
     args = ap.parse_args()
     started_at = perf_counter()
+
+    # Fail-closed DP enforcement (A.11). If the operator asked for DP-enforced
+    # mode, refuse to run unless both knobs are present and positive. We do
+    # this before any IO so a misconfigured release never touches the audit
+    # log or the public_report path.
+    if args.require_dp:
+        missing = []
+        if args.dp_epsilon is None or float(args.dp_epsilon) <= 0:
+            missing.append("--dp-epsilon")
+        if args.dp_sensitivity is None or int(args.dp_sensitivity) <= 0:
+            missing.append("--dp-sensitivity")
+        if missing:
+            raise SystemExit(
+                "policy_release: --require-dp set but missing/non-positive: "
+                + ", ".join(missing)
+            )
+    if args.privacy_budget_required and not args.privacy_budget_ledger:
+        raise SystemExit("policy_release: --privacy-budget-required set but --privacy-budget-ledger is missing")
 
     paths = resolve_paths(args)
     input_path = paths["input"]
@@ -1090,10 +1353,26 @@ def main() -> None:
             threshold_k=args.threshold_k,
             rate_limit_out={"used": 0, "max": args.max_queries},
             policy_out=deny_out,
+            redact_operator_fields=bool(args.public_report_redact_operator_fields),
         )
         ensure_dir(os.path.dirname(out_path) or ".")
         with open(out_path, "w", encoding="utf-8") as f:
             json.dump(report, f, ensure_ascii=False, indent=2)
+        _maybe_write_operator_report(
+            args=args,
+            out_path=out_path,
+            policy_version=args.policy_version,
+            job_id=job_id,
+            caller=caller_for_audit,
+            window=window,
+            bucket=bucket,
+            value_mode=value_mode,
+            bridge_meta=bridge_meta,
+            input_sizes=input_sizes,
+            threshold_k=args.threshold_k,
+            rate_limit_out={"used": 0, "max": args.max_queries},
+            policy_out=deny_out,
+        )
 
         audit_record = build_audit_record(
             policy_version=args.policy_version,
@@ -1124,6 +1403,28 @@ def main() -> None:
         raise SystemExit(2)
 
     caller = auth_result.caller or args.caller or "local_demo"
+    privacy_scope = extract_privacy_scope(
+        job_meta,
+        caller=caller,
+        tenant_id_arg=args.tenant_id,
+        dataset_id_arg=args.dataset_id,
+        purpose_arg=args.purpose,
+    )
+    privacy_budget_config = _load_privacy_budget_config(args.privacy_budget_config)
+    privacy_budget_scope_resolution = None
+    if privacy_budget_config or args.privacy_budget_required:
+        privacy_budget_scope_resolution = resolve_privacy_budget_scope(
+            config=privacy_budget_config,
+            scope=privacy_scope,
+        )
+    effective_privacy_budget_limit = args.privacy_budget_limit
+    if (
+        effective_privacy_budget_limit is None
+        and privacy_budget_scope_resolution
+        and privacy_budget_scope_resolution.get("max_queries") is not None
+    ):
+        effective_privacy_budget_limit = float(privacy_budget_scope_resolution["max_queries"])
+
     rate_limit_out = apply_rate_limit(audit_log_path, caller, window, args.max_queries)
     privacy_budget_out = privacy_budget_default()
 
@@ -1145,14 +1446,18 @@ def main() -> None:
         privacy_budget_out = evaluate_privacy_budget(
             ledger_path=args.privacy_budget_ledger,
             caller=caller,
+            tenant_id=privacy_scope["tenant_id"],
+            dataset_id=privacy_scope["dataset_id"],
+            purpose=privacy_scope["purpose"],
             job_id=job_id,
             window=window,
             bucket=bucket,
             value_mode=value_mode,
             threshold_k=args.threshold_k,
             bridge_meta=bridge_meta,
-            budget_limit=args.privacy_budget_limit,
+            budget_limit=effective_privacy_budget_limit,
             budget_cost=args.privacy_budget_cost,
+            scope_resolution=privacy_budget_scope_resolution,
         )
         if privacy_budget_out.get("decision") == "deny":
             policy_out = {
@@ -1181,17 +1486,38 @@ def main() -> None:
         rate_limit_out=rate_limit_out,
         policy_out=policy_out,
         bucket_size=args.bucket_intersection_size,
+        redact_operator_fields=bool(args.public_report_redact_operator_fields),
     )
 
     ensure_dir(os.path.dirname(out_path) or ".")
     with open(out_path, "w", encoding="utf-8") as f:
         json.dump(report, f, ensure_ascii=False, indent=2)
 
+    _maybe_write_operator_report(
+        args=args,
+        out_path=out_path,
+        policy_version=args.policy_version,
+        job_id=job_id,
+        caller=caller,
+        window=window,
+        bucket=bucket,
+        value_mode=value_mode,
+        bridge_meta=bridge_meta,
+        input_sizes=input_sizes,
+        threshold_k=args.threshold_k,
+        rate_limit_out=rate_limit_out,
+        policy_out=policy_out,
+        bucket_size=args.bucket_intersection_size,
+    )
+
     append_privacy_budget_ledger_record(
         ledger_path=args.privacy_budget_ledger,
         policy_version=args.policy_version,
         job_id=job_id,
         caller=caller,
+        tenant_id=privacy_scope["tenant_id"],
+        dataset_id=privacy_scope["dataset_id"],
+        purpose=privacy_scope["purpose"],
         window=window,
         bucket=bucket,
         value_mode=value_mode,

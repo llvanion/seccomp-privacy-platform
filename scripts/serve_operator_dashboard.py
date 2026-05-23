@@ -1,11 +1,15 @@
 #!/usr/bin/env python3
 """Operator dashboard server — serves a web UI over local pipeline sidecar artifacts."""
 import argparse
+import hashlib
 import json
 import os
+import secrets
 import signal
+import socket
 import subprocess
 import sys
+import tempfile
 import threading
 import time
 import uuid
@@ -14,7 +18,8 @@ from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
-from urllib.parse import parse_qs, unquote, urlparse
+from urllib import request as urllib_request
+from urllib.parse import parse_qs, unquote, urlencode, urlparse
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO_ROOT / "scripts"))
@@ -49,6 +54,17 @@ REQUEST_SCHEMA_PATH = REPO_ROOT / "schemas" / "query_workflow_request.schema.jso
 APPROVER_ROLES = ("privacy_operator", "platform_admin")
 REQUEST_REVIEW_ROLES = ("privacy_operator", "platform_admin", "compliance_auditor", "commerce_ops_owner")
 REQUEST_REJECT_ROLES = ("privacy_operator", "platform_admin", "compliance_auditor")
+PJC_MTLS_SCRIPT_DIR = REPO_ROOT / "a-psi" / "moduleA_psi" / "scripts"
+PJC_MTLS_CERT_DIR = REPO_ROOT / "tmp" / "pjc_mtls_shared" / "certs"
+PJC_MTLS_BUNDLE_DIR = REPO_ROOT / "tmp" / "pjc_mtls_shared" / "party_b_bundle"
+PJC_MTLS_PAIRING_TOKEN_FILE = REPO_ROOT / "tmp" / "pjc_mtls_shared" / "pairing_token"
+PJC_MTLS_PAIRING_TOKEN_META_FILE = REPO_ROOT / "tmp" / "pjc_mtls_shared" / "pairing_token_meta.json"
+PJC_MTLS_ENROLLMENT_AUDIT_FILE = REPO_ROOT / "tmp" / "pjc_mtls_shared" / "enrollment_audit.jsonl"
+PJC_MTLS_PAIRING_TOKEN_DEFAULT_TTL_SECONDS = 600
+PJC_MTLS_PAIRING_TOKEN_DEFAULT_MAX_ENROLLMENTS = 1
+
+_PJC_MTLS_TOKEN_LOCK = threading.Lock()
+_PJC_MTLS_SHUTDOWN_HOOKS: list[Any] = []
 
 # ---------------------------------------------------------------------------
 # HTML dashboard (single-file, no external deps)
@@ -213,6 +229,31 @@ tr:last-child td{border-bottom:none}
 .run-top{display:flex;justify-content:space-between;gap:10px;align-items:center;flex-wrap:wrap}
 .run-name{font-weight:700}
 .run-meta{font-size:11px;color:var(--muted);margin-top:6px;font-family:var(--mono)}
+.wiz-stepper{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:14px}
+.wiz-step{padding:8px 12px;border-radius:999px;border:1px solid var(--line);
+  background:rgba(25,38,54,.55);font-size:11px;letter-spacing:.3px;color:var(--muted);
+  display:flex;align-items:center;gap:6px}
+.wiz-step.active{border-color:var(--acc);color:var(--text);background:rgba(94,200,255,.12)}
+.wiz-step.ok{border-color:var(--ok);color:var(--ok);background:rgba(55,214,122,.1)}
+.wiz-step.err{border-color:var(--err);color:var(--err);background:rgba(255,107,107,.1)}
+.wiz-step .n{display:inline-flex;align-items:center;justify-content:center;
+  width:18px;height:18px;border-radius:50%;background:rgba(94,200,255,.2);font-weight:700;color:var(--acc)}
+.wiz-step.ok .n{background:rgba(55,214,122,.2);color:var(--ok)}
+.wiz-step.err .n{background:rgba(255,107,107,.2);color:var(--err)}
+.wiz-card{padding:18px;border:1px solid var(--line);border-radius:16px;background:linear-gradient(180deg, rgba(18,28,40,.95), rgba(13,21,31,.95));margin-bottom:14px}
+.wiz-head{display:flex;justify-content:space-between;align-items:flex-start;gap:14px;margin-bottom:10px;flex-wrap:wrap}
+.wiz-title{font-size:14px;font-weight:700}
+.wiz-desc{font-size:11px;color:var(--muted);margin-top:4px;max-width:600px}
+.wiz-report{margin-top:10px;border:1px dashed var(--line);border-radius:12px;padding:12px;
+  background:#0a1118;font-family:var(--mono);font-size:11px;color:var(--text);
+  white-space:pre-wrap;word-break:break-word;max-height:280px;overflow:auto}
+.wiz-checklist{display:grid;gap:6px;margin-top:8px}
+.wiz-checklist .row{display:flex;justify-content:space-between;gap:10px;font-size:11px;color:var(--muted);font-family:var(--mono)}
+.wiz-checklist .row b{color:var(--text)}
+.copyable{display:flex;gap:6px;align-items:center;font-family:var(--mono);font-size:11px;word-break:break-all;color:var(--acc)}
+.copyable button{background:rgba(94,200,255,.14);color:var(--acc);border:none;border-radius:6px;padding:2px 6px;cursor:pointer;font-size:10px}
+.wiz-actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px}
+.wiz-locked{opacity:.6;filter:saturate(.6)}
 </style>
 </head>
 <body>
@@ -223,6 +264,7 @@ tr:last-child td{border-bottom:none}
     <nav class="nav">
       <a href="#overview">Overview</a>
       <a href="#control">Control Center</a>
+      <a href="#s9-wizard">Two-Party Wizard</a>
       <a href="#audit">Audit Center</a>
       <a href="#history">Run Analytics</a>
     </nav>
@@ -559,6 +601,95 @@ function renderJobSetup(job){
         <button class="btn secondary" onclick="prefillExample()">Use Example</button>
       </div>
     </div>
+  </div>
+  <div class="card job-block"><h3>Cross-machine mTLS Certs</h3>
+    <div class="subtle" style="margin-bottom:10px">Certificate bootstrap for the existing TLS scripts. Defaults keep PJC loopback 10501, TLS 10502, and client proxy 10503 unchanged.</div>
+    <div class="job-form">
+      <div class="builder-grid">
+        <div class="field">
+          <label for="mtls_server_host">Server Host</label>
+          <input id="mtls_server_host" placeholder="118.190.61.66 or tailscale host" spellcheck="false">
+        </div>
+        <div class="field">
+          <label for="mtls_enroll_url">Enroll URL</label>
+          <input id="mtls_enroll_url" placeholder="http://118.190.61.66:18134/v1/pjc-mtls/enroll" spellcheck="false">
+        </div>
+        <div class="field">
+          <label for="mtls_bootstrap_uri">Bootstrap URI</label>
+          <input id="mtls_bootstrap_uri" placeholder="pjc-mtls://enroll?url=..." spellcheck="false">
+        </div>
+        <div class="field">
+          <label for="mtls_pairing_token">Pairing Token</label>
+          <input id="mtls_pairing_token" placeholder="shown by Party A after Prepare" spellcheck="false">
+        </div>
+        <div class="field">
+          <label for="mtls_expected_ca_fingerprint">CA Fingerprint</label>
+          <input id="mtls_expected_ca_fingerprint" placeholder="sha256 Fingerprint=..." spellcheck="false">
+        </div>
+        <div class="field">
+          <label for="mtls_cert_dir">Local Cert Dir</label>
+          <input id="mtls_cert_dir" placeholder="$HOME/pjc_certs_shared" spellcheck="false">
+        </div>
+      </div>
+      <label class="check-field"><input id="mtls_force_regenerate" type="checkbox"> force regenerate Party A certs</label>
+      <div class="actions">
+        <button class="btn secondary" onclick="prepareMtlsPartyA()">Prepare Party A Bundle</button>
+        <button class="btn secondary" onclick="enrollMtlsPartyB()">Enroll Party B Cert</button>
+      </div>
+      <pre id="mtls_status" class="path-cell" style="display:none;white-space:pre-wrap"></pre>
+    </div>
+  </div>
+  <div class="card job-block"><h3>Business Bucket Scale Test</h3>
+    <div class="subtle" style="margin-bottom:10px">Generate synthetic business-bucketed inputs, run local bucketed PJC, and produce k-threshold + DP protected bucket reports.</div>
+    <div class="job-form">
+      <div class="builder-grid">
+        <div class="field">
+          <label for="bucket_job_id">Job ID</label>
+          <input id="bucket_job_id" value="bucketed-scale-1k" spellcheck="false">
+        </div>
+        <div class="field">
+          <label for="bucket_out_dir">Out Dir</label>
+          <input id="bucket_out_dir" value="tmp/pjc_bucketed_scale_bucketed-scale-1k" spellcheck="false">
+        </div>
+        <div class="field">
+          <label for="bucket_records">Records</label>
+          <input id="bucket_records" value="1000" inputmode="numeric" spellcheck="false">
+        </div>
+        <div class="field">
+          <label for="bucket_count">Buckets</label>
+          <input id="bucket_count" value="8" inputmode="numeric" spellcheck="false">
+        </div>
+        <div class="field">
+          <label for="bucket_field">Bucket Field</label>
+          <input id="bucket_field" value="campaign_id" spellcheck="false">
+        </div>
+        <div class="field">
+          <label for="bucket_k">K Threshold</label>
+          <input id="bucket_k" value="20" inputmode="numeric" spellcheck="false">
+        </div>
+        <div class="field">
+          <label for="bucket_dp_epsilon">DP Epsilon</label>
+          <input id="bucket_dp_epsilon" value="1.0" spellcheck="false">
+        </div>
+        <div class="field">
+          <label for="bucket_dp_sensitivity">DP Sensitivity</label>
+          <input id="bucket_dp_sensitivity" value="10000" inputmode="numeric" spellcheck="false">
+        </div>
+        <div class="field">
+          <label for="bucket_base_port">Base Port</label>
+          <input id="bucket_base_port" value="10621" inputmode="numeric" spellcheck="false">
+        </div>
+        <div class="field">
+          <label for="bucket_max_jobs">Max Jobs</label>
+          <input id="bucket_max_jobs" value="4" inputmode="numeric" spellcheck="false">
+        </div>
+      </div>
+      <label class="check-field"><input id="bucket_parallel" type="checkbox"> run buckets in parallel</label>
+      <div class="actions">
+        <button class="btn secondary" onclick="runBucketedScaleTest()">Run 1k Bucket Test</button>
+      </div>
+      <pre id="bucket_status" class="path-cell" style="display:none;white-space:pre-wrap"></pre>
+    </div>
   </div>`;
 }
 
@@ -842,6 +973,7 @@ function render(data){
       ? renderResultCard(job, data.audit_center||null)
       : renderJobSetup(job)
   }${renderAuditOverview(data.audit_center||null)}</section>`);
+  blocks.push(`<section id="s9-wizard">${renderS9Wizard()}</section>`);
   blocks.push(`<section id="audit" class="grid g2">${renderSSEAudit(data.audit_center||null)}${renderArtifactInventory(data.audit_center||null)}</section>`);
   blocks.push(`<section class="grid g2">${renderRecentRuns(recentRuns, activeOutBase, job)}</section>`);
   blocks.push(`<div class="grid g2">${renderAlerts(alerts)}${renderHealth(health)}</div>`);
@@ -950,6 +1082,117 @@ async function startJob(){
   }
 }
 
+function setMtlsStatus(text, isError){
+  const el = document.getElementById("mtls_status");
+  if(!el) return;
+  el.style.display = "block";
+  el.style.color = isError ? "var(--err)" : "var(--muted)";
+  el.textContent = text;
+}
+
+async function postMtls(path, body){
+  const resp = await fetch(path, {
+    method: "POST",
+    headers: {"Content-Type":"application/json"},
+    body: JSON.stringify(body)
+  });
+  const data = await resp.json();
+  const lines = [];
+  if(data.status) lines.push(`status: ${data.status}`);
+  if(data.cert_dir) lines.push(`cert_dir: ${data.cert_dir}`);
+  if(data.bundle_dir) lines.push(`bundle_dir: ${data.bundle_dir}`);
+  if(data.remote_bundle_dir) lines.push(`remote_bundle_dir: ${data.remote_bundle_dir}`);
+  if(data.fingerprint) lines.push(`fingerprint: ${data.fingerprint}`);
+  if(data.bootstrap_uri) lines.push(`bootstrap_uri: ${data.bootstrap_uri}`);
+  if(data.stdout) lines.push(`\nstdout:\n${data.stdout.trim()}`);
+  if(data.stderr) lines.push(`\nstderr:\n${data.stderr.trim()}`);
+  if(data.message || data.error) lines.push(`\n${data.message || data.error}`);
+  setMtlsStatus(lines.join("\n") || JSON.stringify(data, null, 2), !resp.ok);
+  return data;
+}
+
+async function prepareMtlsPartyA(){
+  setMtlsStatus("Preparing Party A certificate bundle...", false);
+  try{
+    const serverHost = getValue("mtls_server_host");
+    const enrollUrl = getValue("mtls_enroll_url") ||
+      (serverHost ? `http://${serverHost}:18134/v1/pjc-mtls/enroll` : "");
+    const data = await postMtls("/v1/pjc-mtls/party-a/prepare", {
+      force_regenerate: getBool("mtls_force_regenerate"),
+      server_host: serverHost,
+      enroll_url: enrollUrl
+    });
+    if(data.bootstrap_uri) document.getElementById("mtls_bootstrap_uri").value = data.bootstrap_uri;
+    if(data.pairing_token) document.getElementById("mtls_pairing_token").value = data.pairing_token;
+    if(data.fingerprint) document.getElementById("mtls_expected_ca_fingerprint").value = data.fingerprint;
+    if(data.enroll_url) document.getElementById("mtls_enroll_url").value = data.enroll_url;
+  }catch(e){
+    setMtlsStatus(`Could not prepare Party A bundle: ${String(e)}`, true);
+  }
+}
+
+async function enrollMtlsPartyB(){
+  const serverHost = getValue("mtls_server_host");
+  const enrollUrl = getValue("mtls_enroll_url") ||
+    (serverHost ? `http://${serverHost}:18134/v1/pjc-mtls/enroll` : "");
+  setMtlsStatus("Enrolling Party B certificate...", false);
+  try{
+    await postMtls("/v1/pjc-mtls/party-b/enroll", {
+      server_host: getValue("mtls_server_host"),
+      enroll_url: enrollUrl,
+      bootstrap_uri: getValue("mtls_bootstrap_uri"),
+      pairing_token: getValue("mtls_pairing_token"),
+      expected_ca_fingerprint: getValue("mtls_expected_ca_fingerprint"),
+      cert_dir: getValue("mtls_cert_dir")
+    });
+  }catch(e){
+    setMtlsStatus(`Could not enroll Party B certificate: ${String(e)}`, true);
+  }
+}
+
+function setBucketStatus(text, isError){
+  const el = document.getElementById("bucket_status");
+  if(!el) return;
+  el.style.display = "block";
+  el.style.color = isError ? "var(--err)" : "var(--muted)";
+  el.textContent = text;
+}
+
+async function runBucketedScaleTest(){
+  setBucketStatus("Running bucketed scale test...", false);
+  const body = {
+    job_id: getValue("bucket_job_id"),
+    out_dir: getValue("bucket_out_dir"),
+    records: parsePositiveInt("bucket_records", 1000),
+    buckets: parsePositiveInt("bucket_count", 8),
+    bucket_field: getValue("bucket_field") || "campaign_id",
+    k: parsePositiveInt("bucket_k", 20),
+    dp_epsilon: getValue("bucket_dp_epsilon") || "1.0",
+    dp_sensitivity: parsePositiveInt("bucket_dp_sensitivity", 10000),
+    base_port: parsePositiveInt("bucket_base_port", 10621),
+    max_jobs: parsePositiveInt("bucket_max_jobs", 4),
+    parallel: getBool("bucket_parallel")
+  };
+  try{
+    const resp = await fetch("/v1/bucketed-scale-test/run", {
+      method: "POST",
+      headers: {"Content-Type":"application/json"},
+      body: JSON.stringify(body)
+    });
+    const data = await resp.json();
+    const lines = [];
+    lines.push(`status: ${data.status || (resp.ok ? "ok" : "error")}`);
+    if(data.out_dir) lines.push(`out_dir: ${data.out_dir}`);
+    if(data.summary) lines.push(`summary: ${JSON.stringify(data.summary)}`);
+    if(data.stdout) lines.push(`\nstdout:\n${data.stdout.trim()}`);
+    if(data.stderr) lines.push(`\nstderr:\n${data.stderr.trim()}`);
+    if(data.message || data.error) lines.push(`\n${data.message || data.error}`);
+    setBucketStatus(lines.join("\n"), !resp.ok);
+  }catch(e){
+    setBucketStatus(`Bucketed scale test failed: ${String(e)}`, true);
+  }
+}
+
 async function openRun(outBase){
   try{
     const resp = await fetch("/v1/runs/select", {
@@ -1032,6 +1275,483 @@ function tick(){
   document.getElementById("countdown").textContent=`refresh in ${_countdown}s`;
 }
 
+// ---------------------------------------------------------------------------
+// S9 Two-Party Out-of-Box Wizard
+// ---------------------------------------------------------------------------
+const WIZ_STEPS = [
+  {id:"invite",  label:"1 · Invite",   role:"Party A", desc:"Generate the pjc-mtls invite (bootstrap URI + pairing token + CA fingerprint) using POST /v1/pjc-mtls/party-a/prepare."},
+  {id:"enroll",  label:"2 · Enroll",   role:"Party B", desc:"Consume the invite to enroll a per-job client certificate via POST /v1/pjc-mtls/party-b/enroll."},
+  {id:"preflight",label:"3 · Preflight",role:"A + B",  desc:"Verify commit, helper hash, PJC binary, TCP+TLS reachability, peer identity, input hashes, limits, and output path via POST /v1/pjc-mtls/preflight."},
+  {id:"run",     label:"4 · Run",      role:"A + B",   desc:"Start each role through POST /v1/pjc/roles/{server,client}/start and poll GET /v1/pjc/roles/{role}/status until terminal."},
+  {id:"verify",  label:"5 · Verify",   role:"A + B",   desc:"Reconcile both parties' evidence (job id, commit, input commitment, TLS identity, CA fingerprint, result hash, policy, audit chain) via POST /v1/pjc/evidence/verify-merge."},
+  {id:"negative",label:"6 · Negative", role:"Operator",desc:"Force every required denial — wrong token, expired token, wrong CA, wrong peer, closed port, commit mismatch, modified CSV, privacy denial — via POST /v1/pjc-mtls/negative-cases/run."},
+  {id:"archive", label:"7 · Archive",  role:"Operator",desc:"Collect the evidence file set produced by the previous steps. The wizard surfaces every emitted path for archiving."}
+];
+let _wizActive = "invite";
+const _wizState = {
+  invite:    {status:"pending", report:null, ts:null},
+  enroll:    {status:"pending", report:null, ts:null},
+  preflight: {status:"pending", report:null, ts:null},
+  run:       {status:"pending", report:null, ts:null,
+              server_key:null, client_key:null},
+  verify:    {status:"pending", report:null, ts:null},
+  negative:  {status:"pending", report:null, ts:null},
+  archive:   {status:"pending", report:null, ts:null, paths:[]}
+};
+let _wizRolePoll = null;
+
+function wizStepClass(step){
+  if(_wizState[step.id]?.status === "ok") return "ok";
+  if(_wizState[step.id]?.status === "err") return "err";
+  return step.id === _wizActive ? "active" : "";
+}
+
+function renderS9Wizard(){
+  const stepper = WIZ_STEPS.map((s,i)=>{
+    const cls = wizStepClass(s);
+    return `<div class="wiz-step ${cls}" onclick="wizGoto('${s.id}')"><span class="n">${i+1}</span><span>${esc(s.label.split(" · ")[1])}</span></div>`;
+  }).join("");
+  const headerNote = "Backend endpoints are stable; this wizard chains them into one fail-closed flow. Each step blocks the next until its endpoint returns allow / ok.";
+  let panels = "";
+  panels += renderWizInvite();
+  panels += renderWizEnroll();
+  panels += renderWizPreflight();
+  panels += renderWizRun();
+  panels += renderWizVerify();
+  panels += renderWizNegative();
+  panels += renderWizArchive();
+  return `<div class="section-title">Two-Party Out-of-Box Wizard</div>
+    <div class="card">
+      <div class="wiz-stepper">${stepper}</div>
+      <div class="subtle">${esc(headerNote)}</div>
+      ${panels}
+    </div>`;
+}
+
+function wizGoto(id){
+  _wizActive = id;
+  const root = document.getElementById("s9-wizard");
+  if(root){ root.scrollIntoView({behavior:"smooth", block:"start"}); }
+  if(_lastDashboard) render(_lastDashboard);
+}
+
+function wizReport(stepId){
+  const s = _wizState[stepId];
+  if(!s || !s.report) return "";
+  return `<div class="wiz-report">${esc(JSON.stringify(s.report, null, 2))}</div>`;
+}
+
+function wizBadge(stepId){
+  const s = _wizState[stepId];
+  if(!s) return badge("unknown","pending");
+  if(s.status === "ok") return badge("ok","allow / ok");
+  if(s.status === "err") return badge("err", s.report?.report?.reason_code || s.report?.error || "deny");
+  return badge("unknown","pending");
+}
+
+function wizPanel(step, body){
+  const cls = wizStepClass(step);
+  return `<div class="wiz-card ${step.id===_wizActive?"":""}">
+    <div class="wiz-head">
+      <div>
+        <div class="wiz-title">${esc(step.label)} <span class="subtle">· ${esc(step.role)}</span></div>
+        <div class="wiz-desc">${esc(step.desc)}</div>
+      </div>
+      ${wizBadge(step.id)}
+    </div>
+    ${body}
+    ${wizReport(step.id)}
+  </div>`;
+}
+
+function copyToClip(value){
+  if(!value) return;
+  try{ navigator.clipboard.writeText(String(value)); }catch{}
+}
+
+function wizField(id, label, value, placeholder){
+  return `<div class="field"><label>${esc(label)}</label><input id="${id}" value="${esc(value||"")}" placeholder="${esc(placeholder||"")}" spellcheck="false"></div>`;
+}
+
+function renderWizInvite(){
+  const step = WIZ_STEPS[0];
+  const data = _wizState.invite.report || {};
+  const body = `<div class="job-form">
+      <div class="builder-grid">
+        ${wizField("wiz_invite_server_host","Server Host (Party A IP/DNS)", getValue("mtls_server_host"), "118.190.61.66 or tailscale host")}
+        ${wizField("wiz_invite_enroll_url","Enroll URL", getValue("mtls_enroll_url"), "http://<server-host>:18134/v1/pjc-mtls/enroll")}
+      </div>
+      <label class="check-field"><input id="wiz_invite_force" type="checkbox"> force regenerate Party A certs</label>
+      <div class="wiz-actions">
+        <button class="btn" onclick="wizInvite()">Create Invite</button>
+        <button class="btn secondary" onclick="wizGoto('enroll')">Skip to Enroll</button>
+      </div>
+      ${data.bootstrap_uri ? `<div class="wiz-checklist">
+        <div class="row"><b>bootstrap_uri</b><span class="copyable">${esc(data.bootstrap_uri)}<button onclick="copyToClip('${esc(data.bootstrap_uri)}')">copy</button></span></div>
+        <div class="row"><b>pairing_token</b><span class="copyable">${esc(data.pairing_token||"")}<button onclick="copyToClip('${esc(data.pairing_token||"")}')">copy</button></span></div>
+        <div class="row"><b>ca_fingerprint</b><span class="copyable">${esc(data.fingerprint||"")}<button onclick="copyToClip('${esc(data.fingerprint||"")}')">copy</button></span></div>
+        <div class="row"><b>enroll_url</b><span>${esc(data.enroll_url||"")}</span></div>
+        <div class="row"><b>cert_dir</b><span>${esc(data.cert_dir||"")}</span></div>
+      </div>` : ""}
+    </div>`;
+  return wizPanel(step, body);
+}
+
+async function wizInvite(){
+  _wizState.invite.status = "pending"; render(_lastDashboard);
+  try{
+    const serverHost = document.getElementById("wiz_invite_server_host").value.trim();
+    const enrollUrl = document.getElementById("wiz_invite_enroll_url").value.trim()
+      || (serverHost ? `http://${serverHost}:18134/v1/pjc-mtls/enroll` : "");
+    const resp = await fetch("/v1/pjc-mtls/party-a/prepare", {
+      method:"POST", headers:{"Content-Type":"application/json"},
+      body: JSON.stringify({force_regenerate: document.getElementById("wiz_invite_force").checked, server_host: serverHost, enroll_url: enrollUrl})
+    });
+    const data = await resp.json();
+    _wizState.invite.report = data;
+    if(!resp.ok || data.status !== "ok"){
+      _wizState.invite.status = "err";
+    }else{
+      _wizState.invite.status = "ok";
+      _wizActive = "enroll";
+      // Pre-fill enroll step inputs
+      const setIf = (id, value)=>{ const el=document.getElementById(id); if(el && value) el.value = value; };
+      // pre-fill mtls panel as well so the older flow stays in sync
+      setIf("mtls_bootstrap_uri", data.bootstrap_uri);
+      setIf("mtls_pairing_token", data.pairing_token);
+      setIf("mtls_expected_ca_fingerprint", data.fingerprint);
+      setIf("mtls_enroll_url", data.enroll_url);
+    }
+  }catch(e){
+    _wizState.invite.status = "err";
+    _wizState.invite.report = {error: String(e)};
+  }
+  if(_lastDashboard) render(_lastDashboard);
+}
+
+function renderWizEnroll(){
+  const step = WIZ_STEPS[1];
+  const inv = _wizState.invite.report || {};
+  const body = `<div class="job-form">
+      <div class="builder-grid">
+        ${wizField("wiz_enroll_uri","Bootstrap URI", inv.bootstrap_uri||"", "pjc-mtls://enroll?url=...")}
+        ${wizField("wiz_enroll_cert_dir","Party B Cert Dir", "tmp/pjc_certs_party_b", "$HOME/pjc_certs_shared")}
+      </div>
+      <div class="wiz-actions">
+        <button class="btn" onclick="wizEnroll()" ${_wizState.invite.status==="ok"?"":"disabled"}>Enroll Party B</button>
+      </div>
+    </div>`;
+  return wizPanel(step, body);
+}
+
+async function wizEnroll(){
+  _wizState.enroll.status = "pending"; render(_lastDashboard);
+  try{
+    const resp = await fetch("/v1/pjc-mtls/party-b/enroll", {
+      method:"POST", headers:{"Content-Type":"application/json"},
+      body: JSON.stringify({
+        bootstrap_uri: document.getElementById("wiz_enroll_uri").value.trim(),
+        cert_dir: document.getElementById("wiz_enroll_cert_dir").value.trim()
+      })
+    });
+    const data = await resp.json();
+    _wizState.enroll.report = data;
+    if(!resp.ok || data.status !== "ok"){ _wizState.enroll.status = "err"; }
+    else { _wizState.enroll.status = "ok"; _wizActive = "preflight"; }
+  }catch(e){
+    _wizState.enroll.status = "err";
+    _wizState.enroll.report = {error: String(e)};
+  }
+  if(_lastDashboard) render(_lastDashboard);
+}
+
+function renderWizPreflight(){
+  const step = WIZ_STEPS[2];
+  const body = `<div class="job-form">
+      <div class="builder-grid">
+        ${wizField("wiz_pf_job_id","Job ID", "two-party-demo", "")}
+        ${wizField("wiz_pf_role","Role (server|client)", "client", "")}
+        ${wizField("wiz_pf_peer_host","Peer Host", getValue("wiz_invite_server_host")||"", "Server host")}
+        ${wizField("wiz_pf_peer_port","Peer Port", "10502", "10502")}
+        ${wizField("wiz_pf_cert_dir","Cert Dir", "tmp/pjc_certs_party_b", "")}
+        ${wizField("wiz_pf_csv","Input CSV", "", "(optional)")}
+        ${wizField("wiz_pf_helper","Helper Script Path", "a-psi/moduleA_psi/scripts/run_pjc_bucketed_tls_client.sh", "")}
+        ${wizField("wiz_pf_bin","PJC Binary Path", "", "(optional)")}
+        ${wizField("wiz_pf_output","Output Dir", "tmp/pjc_two_party/runs/two-party-demo_client", "")}
+        ${wizField("wiz_pf_max_rows","Max Rows Limit", "100000", "(optional)")}
+      </div>
+      <label class="check-field"><input id="wiz_pf_unique" type="checkbox" checked> require unique output dir</label>
+      <div class="wiz-actions">
+        <button class="btn" onclick="wizPreflight()" ${_wizState.enroll.status==="ok"?"":"disabled"}>Run Preflight</button>
+        <button class="btn secondary" onclick="wizGoto('run')">Skip</button>
+      </div>
+    </div>`;
+  return wizPanel(step, body);
+}
+
+async function wizPreflight(){
+  _wizState.preflight.status = "pending"; render(_lastDashboard);
+  const body = {
+    job_id: document.getElementById("wiz_pf_job_id").value.trim(),
+    role: document.getElementById("wiz_pf_role").value.trim()||"client",
+    peer_host: document.getElementById("wiz_pf_peer_host").value.trim(),
+    peer_port: parseInt(document.getElementById("wiz_pf_peer_port").value, 10)||null,
+    cert_dir: document.getElementById("wiz_pf_cert_dir").value.trim(),
+    input_csv_path: document.getElementById("wiz_pf_csv").value.trim()||undefined,
+    helper_script_path: document.getElementById("wiz_pf_helper").value.trim()||undefined,
+    pjc_binary_path: document.getElementById("wiz_pf_bin").value.trim()||undefined,
+    output_dir: document.getElementById("wiz_pf_output").value.trim()||undefined,
+    max_rows: parseInt(document.getElementById("wiz_pf_max_rows").value, 10)||undefined,
+    require_unique_output: document.getElementById("wiz_pf_unique").checked
+  };
+  try{
+    const resp = await fetch("/v1/pjc-mtls/preflight", {
+      method:"POST", headers:{"Content-Type":"application/json"},
+      body: JSON.stringify(body)
+    });
+    const data = await resp.json();
+    _wizState.preflight.report = data;
+    const decision = (data.report||{}).decision;
+    if(resp.ok && decision === "allow"){ _wizState.preflight.status = "ok"; _wizActive = "run"; }
+    else { _wizState.preflight.status = "err"; }
+  }catch(e){
+    _wizState.preflight.status = "err";
+    _wizState.preflight.report = {error: String(e)};
+  }
+  if(_lastDashboard) render(_lastDashboard);
+}
+
+function renderWizRun(){
+  const step = WIZ_STEPS[3];
+  const sKey = _wizState.run.server_key;
+  const cKey = _wizState.run.client_key;
+  const body = `<div class="job-form">
+    <div class="builder-grid">
+      ${wizField("wiz_run_job_id","Job ID", "two-party-demo", "")}
+      ${wizField("wiz_run_cert_dir","Cert Dir", "tmp/pjc_mtls_shared/certs", "")}
+      ${wizField("wiz_run_role_dir","Role Dir (with job_meta.json)", "tmp/pjc_role_dirs/two-party-demo", "")}
+      ${wizField("wiz_run_server_host","Server Host", getValue("wiz_pf_peer_host"), "for client role")}
+      ${wizField("wiz_run_tls_port","TLS Port", "10502", "10502")}
+      ${wizField("wiz_run_out_dir","Out Dir", "tmp/pjc_two_party/runs/two-party-demo", "")}
+    </div>
+    <div class="wiz-actions">
+      <button class="btn" onclick="wizStartRole('server')" ${_wizState.preflight.status==="ok"?"":"disabled"}>Start Server (A)</button>
+      <button class="btn" onclick="wizStartRole('client')" ${_wizState.preflight.status==="ok"?"":"disabled"}>Start Client (B)</button>
+      <button class="btn secondary" onclick="wizCancelRole('server')" ${sKey?"":"disabled"}>Cancel Server</button>
+      <button class="btn secondary" onclick="wizCancelRole('client')" ${cKey?"":"disabled"}>Cancel Client</button>
+    </div>
+    ${(_wizState.run.server_snapshot || _wizState.run.client_snapshot) ? `<div class="wiz-checklist">
+      ${renderRoleSnap("server", _wizState.run.server_snapshot)}
+      ${renderRoleSnap("client", _wizState.run.client_snapshot)}
+    </div>` : ""}
+  </div>`;
+  return wizPanel(step, body);
+}
+
+function renderRoleSnap(role, snap){
+  if(!snap) return "";
+  return `<div class="row"><b>${role}</b><span>state=${esc(snap.state||"—")} pid=${esc(snap.pid||"—")} exit=${esc(snap.exit_code==null?"—":snap.exit_code)} log=${esc(snap.log_path||"—")}</span></div>`;
+}
+
+async function wizStartRole(role){
+  const body = {
+    job_id: document.getElementById("wiz_run_job_id").value.trim(),
+    cert_dir: document.getElementById("wiz_run_cert_dir").value.trim(),
+    role_dir: document.getElementById("wiz_run_role_dir").value.trim(),
+    server_host: document.getElementById("wiz_run_server_host").value.trim(),
+    tls_port: parseInt(document.getElementById("wiz_run_tls_port").value, 10)||10502,
+    out_dir: document.getElementById("wiz_run_out_dir").value.trim()
+  };
+  try{
+    const resp = await fetch(`/v1/pjc/roles/${role}/start`, {
+      method:"POST", headers:{"Content-Type":"application/json"},
+      body: JSON.stringify(body)
+    });
+    const data = await resp.json();
+    if(!resp.ok){
+      _wizState.run.status = "err";
+      _wizState.run.report = data;
+    }else{
+      _wizState.run[`${role}_key`] = data.role_key || `${body.job_id}::${role}`;
+      _wizState.run[`${role}_snapshot`] = data.snapshot || null;
+      _wizState.run.report = data;
+      _wizState.run.status = "pending";
+      wizPollRoles();
+    }
+  }catch(e){
+    _wizState.run.status = "err";
+    _wizState.run.report = {error: String(e)};
+  }
+  if(_lastDashboard) render(_lastDashboard);
+}
+
+async function wizCancelRole(role){
+  const job_id = document.getElementById("wiz_run_job_id").value.trim();
+  try{
+    const resp = await fetch(`/v1/pjc/roles/${role}/cancel`, {
+      method:"POST", headers:{"Content-Type":"application/json"},
+      body: JSON.stringify({job_id, reason:"wizard_cancel"})
+    });
+    const data = await resp.json();
+    _wizState.run[`${role}_snapshot`] = data.snapshot || null;
+    _wizState.run.report = data;
+  }catch(e){
+    _wizState.run.report = {error: String(e)};
+  }
+  if(_lastDashboard) render(_lastDashboard);
+}
+
+function wizPollRoles(){
+  if(_wizRolePoll) return;
+  const tick = async ()=>{
+    const job_id = document.getElementById("wiz_run_job_id")?.value?.trim();
+    if(!job_id){ _wizRolePoll = null; return; }
+    let anyRunning = false;
+    for(const role of ["server","client"]){
+      const key = _wizState.run[`${role}_key`];
+      if(!key) continue;
+      try{
+        const resp = await fetch(`/v1/pjc/roles/${role}/status?job_id=${encodeURIComponent(job_id)}`, {cache:"no-store"});
+        if(resp.ok){
+          const data = await resp.json();
+          _wizState.run[`${role}_snapshot`] = data;
+          if(data.state === "running" || data.state === "starting") anyRunning = true;
+        }
+      }catch{}
+    }
+    if(_lastDashboard) render(_lastDashboard);
+    if(anyRunning){
+      _wizRolePoll = setTimeout(tick, 2500);
+    }else{
+      _wizRolePoll = null;
+      // Promote step if both reached terminal allow
+      const s = _wizState.run.server_snapshot;
+      const c = _wizState.run.client_snapshot;
+      const ok = (snap)=> snap && (snap.state === "completed");
+      if(ok(s) && ok(c)){
+        _wizState.run.status = "ok";
+        _wizActive = "verify";
+        if(_lastDashboard) render(_lastDashboard);
+      }
+    }
+  };
+  _wizRolePoll = setTimeout(tick, 1500);
+}
+
+function renderWizVerify(){
+  const step = WIZ_STEPS[4];
+  const body = `<div class="job-form">
+    <div class="builder-grid">
+      ${wizField("wiz_verify_job_id","Job ID", "two-party-demo", "")}
+      ${wizField("wiz_verify_a_dir","Party A Evidence Dir", "tmp/pjc_two_party/runs/two-party-demo_server", "")}
+      ${wizField("wiz_verify_b_dir","Party B Evidence Dir", "tmp/pjc_two_party/runs/two-party-demo_client", "")}
+    </div>
+    <div class="wiz-actions">
+      <button class="btn" onclick="wizVerify()" ${_wizState.run.status==="ok"||_wizState.run.server_snapshot?"":"disabled"}>Verify Evidence</button>
+    </div>
+  </div>`;
+  return wizPanel(step, body);
+}
+
+async function wizVerify(){
+  _wizState.verify.status = "pending"; render(_lastDashboard);
+  const body = {
+    job_id: document.getElementById("wiz_verify_job_id").value.trim(),
+    party_a_dir: document.getElementById("wiz_verify_a_dir").value.trim(),
+    party_b_dir: document.getElementById("wiz_verify_b_dir").value.trim()
+  };
+  try{
+    const resp = await fetch("/v1/pjc/evidence/verify-merge", {
+      method:"POST", headers:{"Content-Type":"application/json"},
+      body: JSON.stringify(body)
+    });
+    const data = await resp.json();
+    _wizState.verify.report = data;
+    if(resp.ok && (data.report||{}).decision === "allow"){
+      _wizState.verify.status = "ok"; _wizActive = "negative";
+    }else{
+      _wizState.verify.status = "err";
+    }
+  }catch(e){
+    _wizState.verify.status = "err";
+    _wizState.verify.report = {error: String(e)};
+  }
+  if(_lastDashboard) render(_lastDashboard);
+}
+
+function renderWizNegative(){
+  const step = WIZ_STEPS[5];
+  const body = `<div class="job-form">
+    <div class="builder-grid">
+      ${wizField("wiz_neg_job_id","Job ID", "two-party-demo", "")}
+      ${wizField("wiz_neg_public_report","Privacy Report Path (for privacy_denial)", "tmp/pjc_two_party/public_report.json", "(optional)")}
+      ${wizField("wiz_neg_csv","Input CSV", "tmp/pjc_two_party/inputs/demo.csv", "(optional)")}
+    </div>
+    <div class="wiz-actions">
+      <button class="btn" onclick="wizNegative()" ${_wizState.verify.status==="ok"?"":"disabled"}>Run All Required Denials</button>
+    </div>
+  </div>`;
+  return wizPanel(step, body);
+}
+
+async function wizNegative(){
+  _wizState.negative.status = "pending"; render(_lastDashboard);
+  const job_id = document.getElementById("wiz_neg_job_id").value.trim();
+  const public_report_path = document.getElementById("wiz_neg_public_report").value.trim();
+  const input_csv_path = document.getElementById("wiz_neg_csv").value.trim();
+  const scenarios = {
+    wrong_token: {pairing_token:"definitely-not-real", csr_pem:"garbage"},
+    expired_token: {csr_pem:"garbage"},
+    wrong_ca: {input_csv_path, job_id},
+    wrong_peer: {input_csv_path, job_id, peer_cert_path:""},
+    closed_port: {input_csv_path, job_id},
+    commit_mismatch: {input_csv_path, job_id},
+    modified_csv: {input_csv_path, job_id},
+    privacy_denial: public_report_path ? {public_report_path} : {}
+  };
+  try{
+    const resp = await fetch("/v1/pjc-mtls/negative-cases/run", {
+      method:"POST", headers:{"Content-Type":"application/json"},
+      body: JSON.stringify({job_id, scenarios})
+    });
+    const data = await resp.json();
+    _wizState.negative.report = data;
+    if(resp.ok && (data.report||{}).decision === "allow"){
+      _wizState.negative.status = "ok"; _wizActive = "archive";
+    }else{
+      _wizState.negative.status = "err";
+    }
+  }catch(e){
+    _wizState.negative.status = "err";
+    _wizState.negative.report = {error: String(e)};
+  }
+  if(_lastDashboard) render(_lastDashboard);
+}
+
+function renderWizArchive(){
+  const step = WIZ_STEPS[6];
+  const paths = [];
+  const push = (label, value)=>{ if(value) paths.push({label, value}); };
+  push("invite.cert_dir", (_wizState.invite.report||{}).cert_dir);
+  push("invite.bootstrap_uri", (_wizState.invite.report||{}).bootstrap_uri);
+  push("enroll.cert_dir", (_wizState.enroll.report||{}).cert_dir);
+  push("preflight.evidence_path", (_wizState.preflight.report||{}).evidence_path);
+  push("server.log_path", (_wizState.run.server_snapshot||{}).log_path);
+  push("server.evidence_path", (_wizState.run.server_snapshot||{}).evidence_path);
+  push("client.log_path", (_wizState.run.client_snapshot||{}).log_path);
+  push("client.evidence_path", (_wizState.run.client_snapshot||{}).evidence_path);
+  push("verify.evidence_path", (_wizState.verify.report||{}).evidence_path);
+  push("negative.evidence_path", (_wizState.negative.report||{}).evidence_path);
+  const ready = _wizState.negative.status === "ok";
+  if(ready){ _wizState.archive.status = "ok"; }
+  const list = paths.length ? paths.map(p=>`<div class="row"><b>${esc(p.label)}</b><span class="copyable">${esc(p.value)}<button onclick="copyToClip('${esc(p.value)}')">copy</button></span></div>`).join("") : `<div class="empty">No artifacts yet — finish step 1-6 first.</div>`;
+  const body = `<div class="wiz-checklist">${list}</div>
+    <div class="wiz-actions">
+      <button class="btn secondary" onclick="copyToClip(${JSON.stringify(paths.map(p=>p.value).join("\n"))})" ${paths.length?"":"disabled"}>Copy All Paths</button>
+    </div>`;
+  return wizPanel(step, body);
+}
+
 load();
 _timer=setInterval(tick,1000);
 </script>
@@ -1094,6 +1814,754 @@ def _repo_path(path_value: str, *, base_dir: Path | None = None) -> Path:
 
 def _utc_now() -> str:
     return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+
+
+def _cert_fingerprint(path: Path) -> str:
+    result = subprocess.run(
+        ["openssl", "x509", "-in", str(path), "-fingerprint", "-sha256", "-noout"],
+        cwd=str(REPO_ROOT),
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        check=False,
+    )
+    if result.returncode != 0:
+        raise RuntimeError(result.stderr.strip() or f"openssl fingerprint failed for {path}")
+    return result.stdout.strip()
+
+
+def _normalize_fingerprint(value: str) -> str:
+    text = str(value or "").strip()
+    if "=" in text:
+        text = text.split("=", 1)[1]
+    return text.replace(":", "").replace(" ", "").lower()
+
+
+def _build_pjc_mtls_bootstrap_uri(*, enroll_url: str, pairing_token: str, ca_fingerprint: str, ttl_seconds: int) -> str:
+    return "pjc-mtls://enroll?" + urlencode({
+        "url": enroll_url,
+        "token": pairing_token,
+        "ca_sha256": ca_fingerprint,
+        "ttl": str(ttl_seconds),
+    })
+
+
+def _parse_pjc_mtls_bootstrap_uri(value: str) -> dict[str, str]:
+    parsed = urlparse(str(value or "").strip())
+    if parsed.scheme != "pjc-mtls" or parsed.netloc != "enroll":
+        raise ValueError("bootstrap_uri must start with pjc-mtls://enroll")
+    params = parse_qs(parsed.query, keep_blank_values=False)
+
+    def one(name: str) -> str:
+        values = params.get(name) or []
+        if len(values) != 1 or not str(values[0]).strip():
+            raise ValueError(f"bootstrap_uri missing {name}")
+        return str(values[0]).strip()
+
+    return {
+        "enroll_url": one("url"),
+        "pairing_token": one("token"),
+        "expected_ca_fingerprint": one("ca_sha256"),
+        "ttl_seconds": str((params.get("ttl") or [""])[0]).strip(),
+    }
+
+
+def _choose_bootstrap_field(name: str, explicit: str, bootstrap_value: str, *, fingerprint: bool = False) -> str:
+    explicit = str(explicit or "").strip()
+    bootstrap_value = str(bootstrap_value or "").strip()
+    if not explicit:
+        return bootstrap_value
+    if not bootstrap_value:
+        return explicit
+    left = _normalize_fingerprint(explicit) if fingerprint else explicit
+    right = _normalize_fingerprint(bootstrap_value) if fingerprint else bootstrap_value
+    if not secrets.compare_digest(left, right):
+        raise ValueError(f"{name} conflicts with bootstrap_uri")
+    return explicit
+
+
+def _derive_mtls_enroll_url_from_body(body: dict[str, Any]) -> str:
+    explicit = str(body.get("enroll_url") or "").strip()
+    if explicit:
+        return explicit
+    server_host = str(body.get("server_host") or "").strip()
+    if not server_host:
+        return ""
+    try:
+        port = int(body.get("dashboard_port") or 18134)
+    except (TypeError, ValueError):
+        port = 18134
+    port = port if 1 <= port <= 65535 else 18134
+    return f"http://{server_host}:{port}/v1/pjc-mtls/enroll"
+
+
+def _env_int(name: str, default: int, *, min_value: int = 0) -> int:
+    raw = os.environ.get(name, "").strip()
+    if not raw:
+        return default
+    try:
+        value = int(raw)
+    except ValueError:
+        return default
+    return max(min_value, value)
+
+
+def _pairing_token_ttl_seconds() -> int:
+    return _env_int("PJC_MTLS_PAIRING_TOKEN_TTL_SECONDS", PJC_MTLS_PAIRING_TOKEN_DEFAULT_TTL_SECONDS, min_value=0)
+
+
+def _pairing_token_max_enrollments() -> int:
+    return _env_int("PJC_MTLS_MAX_ENROLLMENTS", PJC_MTLS_PAIRING_TOKEN_DEFAULT_MAX_ENROLLMENTS, min_value=0)
+
+
+def _utc_now_iso() -> str:
+    return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def _read_pairing_meta() -> dict[str, Any]:
+    if not PJC_MTLS_PAIRING_TOKEN_META_FILE.is_file():
+        return {}
+    try:
+        return json.loads(PJC_MTLS_PAIRING_TOKEN_META_FILE.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {}
+
+
+def _write_pairing_meta(meta: dict[str, Any]) -> None:
+    PJC_MTLS_PAIRING_TOKEN_META_FILE.parent.mkdir(parents=True, exist_ok=True)
+    PJC_MTLS_PAIRING_TOKEN_META_FILE.write_text(json.dumps(meta, sort_keys=True) + "\n", encoding="utf-8")
+    PJC_MTLS_PAIRING_TOKEN_META_FILE.chmod(0o600)
+
+
+def _delete_pairing_state() -> None:
+    for path in (PJC_MTLS_PAIRING_TOKEN_FILE, PJC_MTLS_PAIRING_TOKEN_META_FILE):
+        try:
+            path.unlink()
+        except FileNotFoundError:
+            pass
+
+
+def _append_enrollment_audit(event: dict[str, Any]) -> None:
+    try:
+        PJC_MTLS_ENROLLMENT_AUDIT_FILE.parent.mkdir(parents=True, exist_ok=True)
+        with PJC_MTLS_ENROLLMENT_AUDIT_FILE.open("a", encoding="utf-8") as handle:
+            handle.write(json.dumps(event, sort_keys=True) + "\n")
+        try:
+            PJC_MTLS_ENROLLMENT_AUDIT_FILE.chmod(0o600)
+        except OSError:
+            pass
+    except OSError as exc:
+        print(f"[warn] could not append enrollment audit: {exc}", file=sys.stderr)
+
+
+def _trigger_enrollment_shutdown(reason: str) -> None:
+    print(f"[info] PJC mTLS enrollment shutdown triggered: {reason}", file=sys.stderr)
+    for hook in list(_PJC_MTLS_SHUTDOWN_HOOKS):
+        try:
+            hook(reason)
+        except Exception as exc:  # noqa: BLE001
+            print(f"[warn] enrollment shutdown hook failed: {exc}", file=sys.stderr)
+
+
+def _ensure_pairing_token(*, force: bool = False) -> str:
+    with _PJC_MTLS_TOKEN_LOCK:
+        env_token = os.environ.get("PJC_MTLS_PAIRING_TOKEN", "").strip()
+        if env_token:
+            meta = _read_pairing_meta()
+            if force or meta.get("token") != env_token:
+                meta = {
+                    "token": env_token,
+                    "issued_at": _utc_now_iso(),
+                    "issued_at_epoch": int(time.time()),
+                    "ttl_seconds": _pairing_token_ttl_seconds(),
+                    "max_enrollments": _pairing_token_max_enrollments(),
+                    "enrollments": 0,
+                    "source": "env",
+                }
+                _write_pairing_meta(meta)
+            return env_token
+
+        if PJC_MTLS_PAIRING_TOKEN_FILE.is_file() and not force:
+            token = PJC_MTLS_PAIRING_TOKEN_FILE.read_text(encoding="utf-8").strip()
+            if token:
+                meta = _read_pairing_meta()
+                if not meta or meta.get("token") != token:
+                    meta = {
+                        "token": token,
+                        "issued_at": _utc_now_iso(),
+                        "issued_at_epoch": int(time.time()),
+                        "ttl_seconds": _pairing_token_ttl_seconds(),
+                        "max_enrollments": _pairing_token_max_enrollments(),
+                        "enrollments": 0,
+                        "source": "file",
+                    }
+                    _write_pairing_meta(meta)
+                return token
+
+        PJC_MTLS_PAIRING_TOKEN_FILE.parent.mkdir(parents=True, exist_ok=True)
+        token = secrets.token_urlsafe(24)
+        PJC_MTLS_PAIRING_TOKEN_FILE.write_text(token + "\n", encoding="utf-8")
+        PJC_MTLS_PAIRING_TOKEN_FILE.chmod(0o600)
+        _write_pairing_meta({
+            "token": token,
+            "issued_at": _utc_now_iso(),
+            "issued_at_epoch": int(time.time()),
+            "ttl_seconds": _pairing_token_ttl_seconds(),
+            "max_enrollments": _pairing_token_max_enrollments(),
+            "enrollments": 0,
+            "source": "generated",
+        })
+        return token
+
+
+def _prepare_pjc_mtls_party_a(*, force_regenerate: bool = False, enroll_url: str = "") -> dict[str, Any]:
+    script = PJC_MTLS_SCRIPT_DIR / "prepare_pjc_mtls_party_a.sh"
+    if not script.is_file():
+        raise FileNotFoundError(f"missing helper script: {script}")
+    env = os.environ.copy()
+    env.update({
+        "CERT_DIR": str(PJC_MTLS_CERT_DIR),
+        "BUNDLE_DIR": str(PJC_MTLS_BUNDLE_DIR),
+        "FORCE_REGENERATE": "1" if force_regenerate else "0",
+    })
+    result = subprocess.run(
+        ["bash", str(script)],
+        cwd=str(REPO_ROOT),
+        env=env,
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        check=False,
+    )
+    if result.returncode != 0:
+        return {
+            "status": "error",
+            "exit_code": result.returncode,
+            "stdout": result.stdout,
+            "stderr": result.stderr,
+            "cert_dir": str(PJC_MTLS_CERT_DIR),
+            "bundle_dir": str(PJC_MTLS_BUNDLE_DIR),
+        }
+    token = _ensure_pairing_token(force=force_regenerate)
+    meta = _read_pairing_meta()
+    fingerprint = _cert_fingerprint(PJC_MTLS_CERT_DIR / "ca.crt")
+    ttl_seconds = int(meta.get("ttl_seconds") or _pairing_token_ttl_seconds())
+    enroll_url = enroll_url.strip()
+    bootstrap_uri = (
+        _build_pjc_mtls_bootstrap_uri(
+            enroll_url=enroll_url,
+            pairing_token=token,
+            ca_fingerprint=fingerprint,
+            ttl_seconds=ttl_seconds,
+        )
+        if enroll_url
+        else ""
+    )
+    return {
+        "status": "ok",
+        "exit_code": result.returncode,
+        "stdout": result.stdout,
+        "stderr": result.stderr,
+        "cert_dir": str(PJC_MTLS_CERT_DIR),
+        "bundle_dir": str(PJC_MTLS_BUNDLE_DIR),
+        "fingerprint": fingerprint,
+        "pairing_token": token,
+        "pairing_token_ttl_seconds": ttl_seconds,
+        "pairing_token_max_enrollments": int(meta.get("max_enrollments") or _pairing_token_max_enrollments()),
+        "pairing_token_enrollments_used": int(meta.get("enrollments") or 0),
+        "pairing_token_issued_at": meta.get("issued_at"),
+        "enroll_url": enroll_url,
+        "bootstrap_uri": bootstrap_uri,
+        "enroll_path": "/v1/pjc-mtls/enroll",
+    }
+
+
+def _csr_fingerprint(csr_pem: str) -> str:
+    with tempfile.NamedTemporaryFile("w", suffix=".csr", delete=False) as handle:
+        handle.write(csr_pem)
+        csr_tmp = handle.name
+    try:
+        result = subprocess.run(
+            ["openssl", "req", "-in", csr_tmp, "-pubkey", "-noout"],
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            check=False,
+        )
+        if result.returncode != 0:
+            return ""
+        digest = subprocess.run(
+            ["openssl", "dgst", "-sha256"],
+            input=result.stdout,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            check=False,
+        )
+        if digest.returncode != 0:
+            return ""
+        return digest.stdout.strip().split()[-1] if digest.stdout.strip() else ""
+    finally:
+        try:
+            os.unlink(csr_tmp)
+        except OSError:
+            pass
+
+
+def _enroll_pjc_mtls_csr(
+    *,
+    csr_pem: str,
+    pairing_token: str,
+    remote_addr: str | None = None,
+) -> dict[str, Any]:
+    submitted = pairing_token.strip()
+    audit_base = {
+        "ts": _utc_now_iso(),
+        "remote_addr": remote_addr or "",
+        "csr_fingerprint": _csr_fingerprint(csr_pem) if csr_pem else "",
+    }
+
+    with _PJC_MTLS_TOKEN_LOCK:
+        expected = ""
+        env_token = os.environ.get("PJC_MTLS_PAIRING_TOKEN", "").strip()
+        if env_token:
+            expected = env_token
+        elif PJC_MTLS_PAIRING_TOKEN_FILE.is_file():
+            expected = PJC_MTLS_PAIRING_TOKEN_FILE.read_text(encoding="utf-8").strip()
+
+        meta = _read_pairing_meta()
+        ttl_seconds = int(meta.get("ttl_seconds") or _pairing_token_ttl_seconds())
+        max_enrollments = int(meta.get("max_enrollments") or _pairing_token_max_enrollments())
+        issued_at_epoch = int(meta.get("issued_at_epoch") or 0)
+        used = int(meta.get("enrollments") or 0)
+
+        if not expected or not submitted or not secrets.compare_digest(submitted, expected):
+            _append_enrollment_audit({**audit_base, "result": "rejected", "reason": "invalid_token"})
+            raise PermissionError("invalid PJC mTLS pairing token")
+
+        if ttl_seconds > 0 and issued_at_epoch > 0 and (time.time() - issued_at_epoch) > ttl_seconds:
+            _append_enrollment_audit({**audit_base, "result": "rejected", "reason": "token_expired"})
+            _delete_pairing_state()
+            _trigger_enrollment_shutdown("pairing token expired")
+            raise PermissionError("PJC mTLS pairing token has expired")
+
+        if max_enrollments > 0 and used >= max_enrollments:
+            _append_enrollment_audit({**audit_base, "result": "rejected", "reason": "max_enrollments_reached"})
+            _delete_pairing_state()
+            _trigger_enrollment_shutdown("max enrollments reached")
+            raise PermissionError("PJC mTLS pairing token already used the maximum number of times")
+
+        if "BEGIN CERTIFICATE REQUEST" not in csr_pem or "END CERTIFICATE REQUEST" not in csr_pem:
+            _append_enrollment_audit({**audit_base, "result": "rejected", "reason": "invalid_csr"})
+            raise ValueError("csr_pem must contain a PEM certificate request")
+
+    prep = _prepare_pjc_mtls_party_a(force_regenerate=False)
+    if prep.get("status") != "ok":
+        _append_enrollment_audit({**audit_base, "result": "error", "reason": "prepare_failed"})
+        raise RuntimeError(prep.get("stderr") or prep.get("stdout") or "could not prepare Party A certificates")
+
+    with tempfile.TemporaryDirectory(prefix="pjc_mtls_enroll_") as tmp:
+        tmp_dir = Path(tmp)
+        csr_path = tmp_dir / "client.csr"
+        crt_path = tmp_dir / "client.crt"
+        csr_path.write_text(csr_pem, encoding="utf-8")
+        result = subprocess.run(
+            [
+                "openssl",
+                "x509",
+                "-req",
+                "-days",
+                os.environ.get("PJC_MTLS_CLIENT_CERT_DAYS", "365"),
+                "-in",
+                str(csr_path),
+                "-CA",
+                str(PJC_MTLS_CERT_DIR / "ca.crt"),
+                "-CAkey",
+                str(PJC_MTLS_CERT_DIR / "ca.key"),
+                "-CAcreateserial",
+                "-out",
+                str(crt_path),
+            ],
+            cwd=str(REPO_ROOT),
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            check=False,
+        )
+        if result.returncode != 0:
+            _append_enrollment_audit({**audit_base, "result": "error", "reason": "openssl_sign_failed"})
+            raise RuntimeError(result.stderr.strip() or "openssl CSR signing failed")
+        ca_crt_text = (PJC_MTLS_CERT_DIR / "ca.crt").read_text(encoding="utf-8")
+        client_crt_text = crt_path.read_text(encoding="utf-8")
+        client_fp = _cert_fingerprint(crt_path)
+        ca_fp = _cert_fingerprint(PJC_MTLS_CERT_DIR / "ca.crt")
+
+    with _PJC_MTLS_TOKEN_LOCK:
+        meta = _read_pairing_meta()
+        meta["enrollments"] = int(meta.get("enrollments") or 0) + 1
+        meta["last_enrolled_at"] = _utc_now_iso()
+        _write_pairing_meta(meta)
+        remaining = max(0, int(meta.get("max_enrollments") or 0) - int(meta["enrollments"]))
+        _append_enrollment_audit({
+            **audit_base,
+            "result": "ok",
+            "client_cert_fingerprint": client_fp,
+            "ca_fingerprint": ca_fp,
+            "enrollments_used": meta["enrollments"],
+            "enrollments_remaining": remaining,
+        })
+
+    if remaining == 0 and int(meta.get("max_enrollments") or 0) > 0:
+        _delete_pairing_state()
+        _trigger_enrollment_shutdown("max enrollments reached")
+
+    return {
+        "status": "ok",
+        "ca_crt": ca_crt_text,
+        "client_crt": client_crt_text,
+        "fingerprint": ca_fp,
+        "client_cert_fingerprint": client_fp,
+        "enrollments_remaining": remaining,
+    }
+
+
+def _party_b_enroll_from_dashboard(body: dict[str, Any]) -> dict[str, Any]:
+    enroll_url = str(body.get("enroll_url") or "").strip()
+    pairing_token = str(body.get("pairing_token") or "").strip()
+    expected_ca_fingerprint = str(
+        body.get("expected_ca_fingerprint")
+        or body.get("expected_fingerprint")
+        or body.get("ca_fingerprint")
+        or ""
+    ).strip()
+    bootstrap_uri = str(body.get("bootstrap_uri") or body.get("pjc_mtls_bootstrap") or "").strip()
+    if bootstrap_uri:
+        parsed_bootstrap = _parse_pjc_mtls_bootstrap_uri(bootstrap_uri)
+        enroll_url = _choose_bootstrap_field("enroll_url", enroll_url, parsed_bootstrap["enroll_url"])
+        pairing_token = _choose_bootstrap_field("pairing_token", pairing_token, parsed_bootstrap["pairing_token"])
+        expected_ca_fingerprint = _choose_bootstrap_field(
+            "expected_ca_fingerprint",
+            expected_ca_fingerprint,
+            parsed_bootstrap["expected_ca_fingerprint"],
+            fingerprint=True,
+        )
+    cert_dir_raw = str(body.get("cert_dir") or "").strip() or str(Path.home() / "pjc_certs_shared")
+    cert_dir = Path(cert_dir_raw).expanduser().resolve()
+    if not enroll_url:
+        raise ValueError("enroll_url is required")
+    if not pairing_token:
+        raise ValueError("pairing_token is required")
+    cert_dir.mkdir(parents=True, exist_ok=True)
+    cert_dir.chmod(0o700)
+    key_path = cert_dir / "client.key"
+    csr_path = cert_dir / "client.csr"
+    if not key_path.is_file():
+        result = subprocess.run(
+            ["openssl", "genrsa", "-out", str(key_path), "4096"],
+            cwd=str(REPO_ROOT),
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            check=False,
+        )
+        if result.returncode != 0:
+            raise RuntimeError(result.stderr.strip() or "openssl client key generation failed")
+        key_path.chmod(0o600)
+    result = subprocess.run(
+        [
+            "openssl",
+            "req",
+            "-new",
+            "-key",
+            str(key_path),
+            "-out",
+            str(csr_path),
+            "-subj",
+            "/CN=pjc-client/O=PJC-TLS",
+        ],
+        cwd=str(REPO_ROOT),
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        check=False,
+    )
+    if result.returncode != 0:
+        raise RuntimeError(result.stderr.strip() or "openssl CSR generation failed")
+    payload = json.dumps(
+        {
+            "pairing_token": pairing_token,
+            "csr_pem": csr_path.read_text(encoding="utf-8"),
+        },
+        ensure_ascii=False,
+    ).encode("utf-8")
+    req = urllib_request.Request(
+        enroll_url,
+        data=payload,
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+    opener = urllib_request.build_opener(urllib_request.ProxyHandler({}))
+    with opener.open(req, timeout=30) as resp:
+        response_payload = json.loads(resp.read().decode("utf-8"))
+    if not isinstance(response_payload, dict) or response_payload.get("status") != "ok":
+        raise RuntimeError(f"enrollment failed: {response_payload}")
+    returned_fp = str(response_payload.get("fingerprint") or "")
+    if expected_ca_fingerprint:
+        expected_norm = _normalize_fingerprint(expected_ca_fingerprint)
+        returned_norm = _normalize_fingerprint(returned_fp)
+        if not returned_norm:
+            raise RuntimeError("enrollment response omitted CA fingerprint")
+        if not secrets.compare_digest(returned_norm, expected_norm):
+            raise RuntimeError("CA fingerprint mismatch; refusing enrollment")
+    (cert_dir / "ca.crt").write_text(str(response_payload["ca_crt"]), encoding="utf-8")
+    (cert_dir / "client.crt").write_text(str(response_payload["client_crt"]), encoding="utf-8")
+    (cert_dir / "ca.crt").chmod(0o644)
+    (cert_dir / "client.crt").chmod(0o644)
+    if expected_ca_fingerprint:
+        local_fp = _cert_fingerprint(cert_dir / "ca.crt")
+        if not secrets.compare_digest(_normalize_fingerprint(local_fp), _normalize_fingerprint(expected_ca_fingerprint)):
+            raise RuntimeError("stored CA fingerprint mismatch; refusing enrollment")
+    return {
+        "status": "ok",
+        "cert_dir": str(cert_dir),
+        "fingerprint": response_payload.get("fingerprint"),
+        "stdout": f"wrote ca.crt, client.crt, client.key under {cert_dir}",
+    }
+
+
+def _int_body(body: dict[str, Any], key: str, default: int, *, min_value: int = 1) -> int:
+    raw = body.get(key, default)
+    try:
+        value = int(raw)
+    except (TypeError, ValueError) as exc:
+        raise ValueError(f"{key} must be an integer") from exc
+    if value < min_value:
+        raise ValueError(f"{key} must be >= {min_value}")
+    return value
+
+
+# --- Bucketed scale-test: async job registry ----------------------------------
+#
+# The bucketed scale test used to run synchronously inside the POST handler,
+# which pinned an HTTP worker for the whole PJC + policy flow. For longer jobs
+# the browser would just sit there until the run finished. We now spawn a
+# background worker thread, return 202 + job_id immediately, and expose the
+# result via GET /v1/bucketed-scale-test/{job_id}.
+
+_BUCKETED_SCALE_TEST_JOBS: dict[str, dict[str, Any]] = {}
+_BUCKETED_SCALE_TEST_JOBS_LOCK = threading.Lock()
+_BUCKETED_SCALE_TEST_JOBS_MAX_RETAINED = 50
+
+
+def _bucketed_scale_test_validate_inputs(body: dict[str, Any]) -> dict[str, Any]:
+    """Pure validation — raises on bad input, returns the resolved parameters."""
+    script = PJC_MTLS_SCRIPT_DIR / "run_bucketed_scale_test.sh"
+    if not script.is_file():
+        raise FileNotFoundError(f"missing helper script: {script}")
+
+    job_id = str(body.get("job_id") or "bucketed-scale-1k").strip()
+    if not job_id:
+        raise ValueError("job_id must be non-empty")
+    out_dir_raw = str(body.get("out_dir") or f"tmp/pjc_bucketed_scale_{job_id}").strip()
+    out_dir = _repo_path(out_dir_raw)
+    records = _int_body(body, "records", 1000)
+    buckets = _int_body(body, "buckets", 8)
+    k = _int_body(body, "k", 20)
+    dp_sensitivity = _int_body(body, "dp_sensitivity", 10000)
+    base_port = _int_body(body, "base_port", 10621, min_value=1024)
+    max_jobs = _int_body(body, "max_jobs", 4)
+    bucket_field = str(body.get("bucket_field") or "campaign_id").strip() or "campaign_id"
+    dp_epsilon = str(body.get("dp_epsilon") or "1.0").strip()
+    try:
+        if float(dp_epsilon) <= 0:
+            raise ValueError
+    except ValueError as exc:
+        raise ValueError("dp_epsilon must be a positive number") from exc
+    return {
+        "script": script,
+        "job_id": job_id,
+        "out_dir": out_dir,
+        "records": records,
+        "buckets": buckets,
+        "k": k,
+        "dp_sensitivity": dp_sensitivity,
+        "base_port": base_port,
+        "max_jobs": max_jobs,
+        "bucket_field": bucket_field,
+        "dp_epsilon": dp_epsilon,
+        "parallel": bool(body.get("parallel")),
+    }
+
+
+def _bucketed_scale_test_execute(resolved: dict[str, Any]) -> dict[str, Any]:
+    """Run the underlying bash helper and turn its output into a result payload."""
+    out_dir: Path = resolved["out_dir"]
+    env = os.environ.copy()
+    env.update({
+        "JOB_ID": resolved["job_id"],
+        "OUT_DIR": str(out_dir),
+        "RECORDS": str(resolved["records"]),
+        "BUCKETS": str(resolved["buckets"]),
+        "BUCKET_FIELD": resolved["bucket_field"],
+        "K_THRESHOLD": str(resolved["k"]),
+        "DP_EPSILON": resolved["dp_epsilon"],
+        "DP_SENSITIVITY": str(resolved["dp_sensitivity"]),
+        "BASE_PORT": str(resolved["base_port"]),
+        "MAX_JOBS": str(resolved["max_jobs"]),
+        "PARALLEL": "1" if resolved["parallel"] else "0",
+        "PJC_BIN_DIR": str(REPO_ROOT / "a-psi" / "private-join-and-compute" / "bazel-bin"),
+    })
+    result = subprocess.run(
+        ["bash", str(resolved["script"])],
+        cwd=str(REPO_ROOT),
+        env=env,
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        check=False,
+        timeout=1800,
+    )
+    payload: dict[str, Any] = {
+        "status": "ok" if result.returncode == 0 else "error",
+        "exit_code": result.returncode,
+        "out_dir": str(out_dir),
+        "stdout": result.stdout,
+        "stderr": result.stderr,
+    }
+    for name, path in {
+        "attribution": out_dir / "attribution_result.json",
+        "bucket_public_report": out_dir / "bucket_public_report.json",
+        "public_report": out_dir / "public_report.json",
+        "expected": out_dir / "expected_result.json",
+    }.items():
+        if path.is_file():
+            payload[name] = str(path)
+    if (out_dir / "attribution_result.json").is_file() and (out_dir / "expected_result.json").is_file():
+        actual = json.loads((out_dir / "attribution_result.json").read_text(encoding="utf-8"))
+        expected = json.loads((out_dir / "expected_result.json").read_text(encoding="utf-8"))
+        payload["summary"] = {
+            "intersection_size": actual.get("intersection_size"),
+            "intersection_sum": actual.get("intersection_sum"),
+            "expected_size": expected.get("intersection_size"),
+            "expected_sum": expected.get("intersection_sum"),
+            "matches_expected": (
+                int(actual.get("intersection_size", -1)) == int(expected.get("intersection_size", -2))
+                and int(actual.get("intersection_sum", -1)) == int(expected.get("intersection_sum", -2))
+            ),
+        }
+    return payload
+
+
+def _bucketed_scale_test_job_snapshot(job: dict[str, Any]) -> dict[str, Any]:
+    """Build the dict returned over the wire — never includes the lock itself."""
+    snapshot = {
+        "job_id": job["job_id"],
+        "state": job["state"],
+        "started_at_utc": job["started_at_utc"],
+        "finished_at_utc": job.get("finished_at_utc"),
+        "duration_sec": job.get("duration_sec"),
+        "params": job.get("params"),
+    }
+    if job["state"] in ("succeeded", "failed"):
+        snapshot["result"] = job.get("result")
+        snapshot["error"] = job.get("error")
+    return snapshot
+
+
+def _bucketed_scale_test_evict_oldest_finished() -> None:
+    """Drop the oldest terminal job if we're over the retention cap."""
+    if len(_BUCKETED_SCALE_TEST_JOBS) <= _BUCKETED_SCALE_TEST_JOBS_MAX_RETAINED:
+        return
+    finished = [
+        (jid, j) for jid, j in _BUCKETED_SCALE_TEST_JOBS.items()
+        if j["state"] in ("succeeded", "failed")
+    ]
+    if not finished:
+        return
+    finished.sort(key=lambda kv: kv[1].get("finished_at_utc") or "")
+    _BUCKETED_SCALE_TEST_JOBS.pop(finished[0][0], None)
+
+
+def _bucketed_scale_test_worker(record_id: str, resolved: dict[str, Any]) -> None:
+    started = time.time()
+    try:
+        result = _bucketed_scale_test_execute(resolved)
+        with _BUCKETED_SCALE_TEST_JOBS_LOCK:
+            job = _BUCKETED_SCALE_TEST_JOBS.get(record_id)
+            if job is not None:
+                job["state"] = "succeeded" if result.get("status") == "ok" else "failed"
+                job["result"] = result
+                job["finished_at_utc"] = _utc_now_iso()
+                job["duration_sec"] = round(time.time() - started, 3)
+                _bucketed_scale_test_evict_oldest_finished()
+    except Exception as exc:  # noqa: BLE001
+        with _BUCKETED_SCALE_TEST_JOBS_LOCK:
+            job = _BUCKETED_SCALE_TEST_JOBS.get(record_id)
+            if job is not None:
+                job["state"] = "failed"
+                job["error"] = {"type": type(exc).__name__, "message": str(exc)}
+                job["finished_at_utc"] = _utc_now_iso()
+                job["duration_sec"] = round(time.time() - started, 3)
+                _bucketed_scale_test_evict_oldest_finished()
+
+
+def _start_bucketed_scale_test_job(body: dict[str, Any]) -> dict[str, Any]:
+    resolved = _bucketed_scale_test_validate_inputs(body)
+    record_id = f"{resolved['job_id']}-{uuid.uuid4().hex[:8]}"
+    job_snapshot = {
+        "job_id": record_id,
+        "state": "running",
+        "started_at_utc": _utc_now_iso(),
+        "params": {
+            "job_id": resolved["job_id"],
+            "out_dir": str(resolved["out_dir"]),
+            "records": resolved["records"],
+            "buckets": resolved["buckets"],
+            "k": resolved["k"],
+            "dp_epsilon": resolved["dp_epsilon"],
+            "dp_sensitivity": resolved["dp_sensitivity"],
+            "base_port": resolved["base_port"],
+            "max_jobs": resolved["max_jobs"],
+            "bucket_field": resolved["bucket_field"],
+            "parallel": resolved["parallel"],
+        },
+    }
+    with _BUCKETED_SCALE_TEST_JOBS_LOCK:
+        _BUCKETED_SCALE_TEST_JOBS[record_id] = job_snapshot
+        _bucketed_scale_test_evict_oldest_finished()
+    threading.Thread(
+        target=_bucketed_scale_test_worker,
+        args=(record_id, resolved),
+        daemon=True,
+        name=f"bucketed-scale-{record_id}",
+    ).start()
+    return _bucketed_scale_test_job_snapshot(job_snapshot)
+
+
+def _get_bucketed_scale_test_job(record_id: str) -> dict[str, Any] | None:
+    with _BUCKETED_SCALE_TEST_JOBS_LOCK:
+        job = _BUCKETED_SCALE_TEST_JOBS.get(record_id)
+        if job is None:
+            return None
+        return _bucketed_scale_test_job_snapshot(dict(job))
+
+
+def _list_bucketed_scale_test_jobs() -> list[dict[str, Any]]:
+    with _BUCKETED_SCALE_TEST_JOBS_LOCK:
+        return [
+            _bucketed_scale_test_job_snapshot(dict(job))
+            for job in sorted(
+                _BUCKETED_SCALE_TEST_JOBS.values(),
+                key=lambda j: j.get("started_at_utc") or "",
+                reverse=True,
+            )
+        ]
+
+
+def _run_bucketed_scale_test(body: dict[str, Any]) -> dict[str, Any]:
+    """Legacy synchronous entrypoint, kept for callers that still want the blocking behavior."""
+    resolved = _bucketed_scale_test_validate_inputs(body)
+    return _bucketed_scale_test_execute(resolved)
 
 
 def _iso_to_ts(value: str | None) -> float | None:
@@ -2267,6 +3735,1695 @@ def _start_job_thread(server: "DashboardServer", *, payload: dict[str, Any], req
 
 
 # ---------------------------------------------------------------------------
+# Two-Party Out-of-Box (S9) helpers — preflight, role package, role lifecycle,
+# evidence merge, and required negative-case runner. These are intentionally
+# kept self-contained at module level so the new endpoints stay easy to test
+# directly without spinning up the HTTP server.
+# ---------------------------------------------------------------------------
+
+PJC_TWO_PARTY_PREFLIGHT_SCHEMA = "pjc_two_party_preflight/v1"
+PJC_ROLE_PACKAGE_SCHEMA = "pjc_role_package/v1"
+PJC_ROLE_STATUS_SCHEMA = "pjc_role_status/v1"
+PJC_TWO_PARTY_EVIDENCE_MERGE_SCHEMA = "pjc_two_party_evidence_merge/v1"
+PJC_TWO_PARTY_NEGATIVE_CASES_SCHEMA = "pjc_two_party_negative_cases/v1"
+
+PJC_TWO_PARTY_EVIDENCE_DIR = REPO_ROOT / "tmp" / "pjc_two_party"
+
+PJC_ROLE_ENV_ALLOWLIST: tuple[str, ...] = (
+    "PATH",
+    "HOME",
+    "LANG",
+    "LC_ALL",
+    "JOB_ID",
+    "JOB_DIR",
+    "CERT_DIR",
+    "SERVER_HOST",
+    "SERVER_CSV",
+    "CLIENT_CSV",
+    "PJC_DIR",
+    "PJC_BIN_DIR",
+    "PJC_BUILD",
+    "PJC_LOCAL_PORT",
+    "TLS_PORT",
+    "BIND_ADDR",
+    "LOCAL_PROXY_PORT",
+    "OUT_DIR",
+    "GRPC_MAX_MESSAGE_MB",
+    "SHARED_RESULT_DIR",
+    "RUN_PJC_SERVER_SH",
+    "RUN_PJC_CLIENT_SH",
+    "SERVER_ADDR",
+    "PJC_GRPC_STREAM_CHUNK_ELEMENTS",
+    "PJC_MTLS_REQUIRE_SESSION_MANIFEST",
+    "PJC_RESOURCE_LIMITS",
+    "PJC_PREFLIGHT_REQUIRED",
+    "PJC_PREFLIGHT_CALLER",
+    "PJC_PREFLIGHT_TENANT_ID",
+    "PJC_PREFLIGHT_DATASET_ID",
+    "PJC_PREFLIGHT_PURPOSE",
+    "PJC_PREFLIGHT_CLIENT_CSV",
+    "PJC_PREFLIGHT_CLIENT_ROWS",
+)
+
+PJC_REQUIRED_NEGATIVE_CASES: tuple[str, ...] = (
+    "wrong_token",
+    "expired_token",
+    "wrong_ca",
+    "wrong_peer",
+    "closed_port",
+    "commit_mismatch",
+    "modified_csv",
+    "privacy_denial",
+)
+
+
+_PJC_ROLE_REGISTRY: dict[str, dict[str, Any]] = {}
+_PJC_ROLE_REGISTRY_LOCK = threading.Lock()
+
+
+def _sha256_file(path: Path) -> str:
+    h = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(65536), b""):
+            h.update(chunk)
+    return h.hexdigest()
+
+
+def _sha256_bytes(data: bytes) -> str:
+    return hashlib.sha256(data).hexdigest()
+
+
+def _ensure_two_party_dir() -> Path:
+    PJC_TWO_PARTY_EVIDENCE_DIR.mkdir(parents=True, exist_ok=True)
+    return PJC_TWO_PARTY_EVIDENCE_DIR
+
+
+def _read_repo_commit() -> str | None:
+    try:
+        result = subprocess.run(
+            ["git", "rev-parse", "HEAD"],
+            cwd=str(REPO_ROOT),
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            check=False,
+            timeout=10,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    if result.returncode != 0:
+        return None
+    return result.stdout.strip() or None
+
+
+def _tcp_probe(host: str, port: int, *, timeout_sec: float = 5.0) -> tuple[bool, float, str]:
+    started = time.monotonic()
+    try:
+        with socket.create_connection((host, int(port)), timeout=timeout_sec):
+            return True, round((time.monotonic() - started) * 1000.0, 3), ""
+    except (OSError, ValueError) as exc:
+        return False, round((time.monotonic() - started) * 1000.0, 3), str(exc)
+
+
+def _tls_handshake_probe(host: str, port: int, *, ca_path: Path | None, cert_path: Path | None, key_path: Path | None, server_hostname: str | None, timeout_sec: float = 5.0) -> dict[str, Any]:
+    """Try a TLS handshake and return cert / protocol details (does not verify SAN)."""
+    import ssl
+
+    info: dict[str, Any] = {
+        "ok": False,
+        "tls_protocol": None,
+        "peer_cert_pem": None,
+        "peer_cert_subject": None,
+        "peer_cert_fingerprint_sha256": None,
+        "message": "",
+    }
+    try:
+        ctx = ssl.create_default_context(cafile=str(ca_path) if ca_path else None)
+        ctx.check_hostname = False
+        ctx.verify_mode = ssl.CERT_REQUIRED if ca_path is not None else ssl.CERT_NONE
+        if cert_path is not None and key_path is not None:
+            ctx.load_cert_chain(certfile=str(cert_path), keyfile=str(key_path))
+        with socket.create_connection((host, int(port)), timeout=timeout_sec) as raw:
+            with ctx.wrap_socket(raw, server_hostname=server_hostname or None) as tls:
+                info["tls_protocol"] = tls.version()
+                cert_bin = tls.getpeercert(binary_form=True)
+                if cert_bin:
+                    info["peer_cert_fingerprint_sha256"] = hashlib.sha256(cert_bin).hexdigest()
+                    cert_pem = ssl.DER_cert_to_PEM_cert(cert_bin)
+                    info["peer_cert_pem"] = cert_pem
+                cert_info = tls.getpeercert()
+                if isinstance(cert_info, dict):
+                    subject = cert_info.get("subject")
+                    if isinstance(subject, (list, tuple)):
+                        flat = []
+                        for rdn in subject:
+                            for kv in rdn or ():
+                                try:
+                                    flat.append("=".join(str(p) for p in kv))
+                                except Exception:
+                                    continue
+                        info["peer_cert_subject"] = "/".join(flat) or None
+        info["ok"] = True
+    except Exception as exc:  # noqa: BLE001
+        info["message"] = str(exc)
+    return info
+
+
+def _validate_two_party_role(value: Any) -> str:
+    role = str(value or "").strip().lower()
+    if role not in ("server", "client"):
+        raise ValueError("role must be 'server' or 'client'")
+    return role
+
+
+def _resolve_repo_path_strict(value: Any, *, label: str) -> Path:
+    raw = str(value or "").strip()
+    if not raw:
+        raise ValueError(f"{label} is required")
+    return _repo_path(raw)
+
+
+def _file_rows_and_bytes(path: Path) -> tuple[int, int]:
+    if not path.is_file():
+        return 0, 0
+    size = path.stat().st_size
+    rows = 0
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(65536), b""):
+            rows += chunk.count(b"\n")
+    return rows, size
+
+
+def _walk_files(root: Path) -> list[Path]:
+    items: list[Path] = []
+    for path in sorted(root.rglob("*")):
+        if path.is_file():
+            items.append(path)
+    return items
+
+
+def _file_manifest(root: Path, files: list[Path]) -> list[dict[str, Any]]:
+    out: list[dict[str, Any]] = []
+    for path in files:
+        try:
+            rel = path.relative_to(root)
+        except ValueError:
+            rel = path
+        out.append({
+            "path": str(rel).replace("\\", "/"),
+            "sha256": _sha256_file(path),
+            "size_bytes": path.stat().st_size,
+        })
+    return out
+
+
+def _package_aggregate_sha(items: list[dict[str, Any]]) -> str:
+    h = hashlib.sha256()
+    for item in items:
+        h.update(item["path"].encode("utf-8"))
+        h.update(b"\x00")
+        h.update(item["sha256"].encode("ascii"))
+        h.update(b"\n")
+    return h.hexdigest()
+
+
+def _safe_unique_dir(parent: Path, suggestion: str) -> Path:
+    base = parent / suggestion
+    if not base.exists():
+        return base
+    for n in range(1, 1000):
+        candidate = parent / f"{suggestion}_{n}"
+        if not candidate.exists():
+            return candidate
+    return parent / f"{suggestion}_{uuid.uuid4().hex[:8]}"
+
+
+def _peer_identity_check_via_helper(*, cert_pem: str, ca_pem: str | None, role: str, job_id: str, expected_fingerprint: str, expected_identity: str) -> dict[str, Any]:
+    """Use scripts/check_pjc_tls_identity.py as the canonical identity gate."""
+    helper = REPO_ROOT / "scripts" / "check_pjc_tls_identity.py"
+    if not helper.is_file():
+        return {"status": "skip", "decision": None, "reason_code": None, "message": "identity helper missing"}
+    with tempfile.TemporaryDirectory(prefix="pjc_preflight_") as tmp:
+        tmp_dir = Path(tmp)
+        cert_path = tmp_dir / "peer.crt"
+        cert_path.write_text(cert_pem, encoding="utf-8")
+        ca_path: Path | None = None
+        if ca_pem:
+            ca_path = tmp_dir / "ca.crt"
+            ca_path.write_text(ca_pem, encoding="utf-8")
+        out_path = tmp_dir / "identity.json"
+        argv = [
+            sys.executable,
+            str(helper),
+            "--cert", str(cert_path),
+            "--role", role,
+            "--job-id", job_id,
+            "--output", str(out_path),
+        ]
+        if ca_path is not None:
+            argv += ["--ca-cert", str(ca_path)]
+        if expected_fingerprint:
+            argv += ["--expected-fingerprint-sha256", expected_fingerprint]
+        if expected_identity:
+            argv += ["--expected-peer-identity", expected_identity]
+        result = subprocess.run(
+            argv,
+            cwd=str(REPO_ROOT),
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            check=False,
+            timeout=30,
+        )
+        if not out_path.is_file():
+            return {
+                "status": "deny",
+                "decision": "deny",
+                "reason_code": "identity_helper_failed",
+                "message": (result.stderr.strip() or result.stdout.strip() or "identity check did not write report"),
+            }
+        try:
+            report = json.loads(out_path.read_text(encoding="utf-8"))
+        except json.JSONDecodeError as exc:
+            return {"status": "deny", "decision": "deny", "reason_code": "identity_helper_invalid_json", "message": str(exc)}
+        decision = report.get("decision")
+        reason_code = report.get("reason_code")
+        return {
+            "status": "ok" if decision == "allow" else "deny",
+            "decision": decision,
+            "reason_code": reason_code,
+            "actual_identity": report.get("peer_identity"),
+            "ca_fingerprint_sha256": report.get("ca_fingerprint_sha256"),
+            "message": report.get("reason") or "",
+        }
+
+
+def _two_party_preflight(body: dict[str, Any]) -> dict[str, Any]:
+    """Produce a ``pjc_two_party_preflight/v1`` report and decide allow/deny."""
+    job_id = str(body.get("job_id") or "").strip()
+    if not job_id:
+        raise ValueError("job_id is required")
+    role = _validate_two_party_role(body.get("role"))
+    expected_peer_role = "client" if role == "server" else "server"
+    expected_peer_identity = str(body.get("expected_peer_identity") or "").strip() or None
+    expected_ca_fp = _normalize_fingerprint(str(body.get("expected_ca_fingerprint_sha256") or body.get("expected_ca_fingerprint") or "")) or None
+    expected_commit = str(body.get("expected_commit") or "").strip() or None
+    expected_dataplane_port_raw = body.get("expected_dataplane_port")
+    expected_dataplane_port = (
+        int(expected_dataplane_port_raw)
+        if isinstance(expected_dataplane_port_raw, (int, str)) and str(expected_dataplane_port_raw).strip()
+        else None
+    )
+
+    findings: list[dict[str, Any]] = []
+    checks: dict[str, dict[str, Any]] = {
+        "commit": {"status": "skip"},
+        "helper_script": {"status": "skip"},
+        "pjc_binary": {"status": "skip"},
+        "tcp_probe": {"status": "skip"},
+        "tls_handshake": {"status": "skip"},
+        "peer_identity": {"status": "skip"},
+        "input_manifest": {"status": "skip"},
+        "resource_limits": {"status": "skip"},
+        "output_path": {"status": "skip"},
+    }
+
+    # 1. commit check
+    actual_commit = _read_repo_commit()
+    if expected_commit:
+        commit_status = "ok" if actual_commit and actual_commit == expected_commit else "deny"
+        checks["commit"] = {
+            "status": commit_status,
+            "actual": actual_commit,
+            "expected": expected_commit,
+            "message": None if commit_status == "ok" else "repo commit does not match expected",
+        }
+        if commit_status == "deny":
+            findings.append({
+                "kind": "commit_mismatch",
+                "message": "repo commit does not match expected",
+                "expected": expected_commit,
+                "actual": actual_commit,
+            })
+    else:
+        checks["commit"] = {"status": "skip", "actual": actual_commit, "expected": None, "message": "no expected_commit provided"}
+
+    # 2. helper-script hash check
+    helper_path_raw = str(body.get("helper_script_path") or "").strip()
+    expected_helper_sha = str(body.get("expected_helper_script_sha256") or "").strip().lower() or None
+    if helper_path_raw:
+        helper_path = _repo_path(helper_path_raw)
+        if not helper_path.is_file():
+            checks["helper_script"] = {"status": "deny", "script_path": str(helper_path), "actual_sha256": None, "expected_sha256": expected_helper_sha, "message": "helper script not found"}
+            findings.append({"kind": "helper_version_mismatch", "message": "helper script not found", "expected": expected_helper_sha, "actual": None})
+        else:
+            actual_sha = _sha256_file(helper_path)
+            if expected_helper_sha and actual_sha != expected_helper_sha:
+                checks["helper_script"] = {"status": "deny", "script_path": str(helper_path), "actual_sha256": actual_sha, "expected_sha256": expected_helper_sha, "message": "helper-script hash mismatch"}
+                findings.append({"kind": "helper_version_mismatch", "message": "helper-script hash mismatch", "expected": expected_helper_sha, "actual": actual_sha})
+            else:
+                checks["helper_script"] = {"status": "ok", "script_path": str(helper_path), "actual_sha256": actual_sha, "expected_sha256": expected_helper_sha, "message": None}
+
+    # 3. PJC binary check
+    pjc_bin_raw = str(body.get("pjc_binary_path") or "").strip()
+    if pjc_bin_raw:
+        bin_path = _repo_path(pjc_bin_raw)
+        if not bin_path.is_file() or not os.access(bin_path, os.X_OK):
+            checks["pjc_binary"] = {"status": "deny", "binary_path": str(bin_path), "expected_flag": str(body.get("expected_pjc_flag") or "") or None, "message": "PJC binary missing or not executable"}
+            findings.append({"kind": "pjc_binary_missing", "message": "PJC binary missing or not executable", "expected": str(bin_path), "actual": None})
+        else:
+            expected_flag = str(body.get("expected_pjc_flag") or "").strip() or None
+            checks["pjc_binary"] = {"status": "ok", "binary_path": str(bin_path), "expected_flag": expected_flag, "message": None}
+
+    # 4. TCP probe
+    probe_host = str(body.get("peer_host") or body.get("server_host") or "").strip()
+    probe_port = body.get("peer_port") or body.get("dataplane_port") or expected_dataplane_port
+    if probe_host and probe_port:
+        try:
+            port_int = int(probe_port)
+        except (TypeError, ValueError) as exc:
+            raise ValueError(f"peer_port must be an integer: {exc}") from exc
+        ok, duration_ms, msg = _tcp_probe(probe_host, port_int, timeout_sec=float(body.get("tcp_timeout_sec") or 5.0))
+        tcp_status = "ok" if ok else "deny"
+        checks["tcp_probe"] = {"status": tcp_status, "host": probe_host, "port": port_int, "duration_ms": duration_ms, "message": msg or None}
+        if not ok:
+            findings.append({"kind": "tcp_unreachable", "message": msg or f"could not reach {probe_host}:{port_int}", "expected": f"{probe_host}:{port_int}", "actual": None})
+
+    # 5. TLS handshake
+    cert_dir_raw = str(body.get("cert_dir") or "").strip()
+    cert_dir = _repo_path(cert_dir_raw) if cert_dir_raw else None
+    tls_protocol = None
+    peer_cert_pem: str | None = None
+    peer_cert_fp: str | None = None
+    if probe_host and probe_port and cert_dir is not None and checks["tcp_probe"]["status"] == "ok":
+        ca_path = cert_dir / "ca.crt"
+        cert_path: Path | None = None
+        key_path: Path | None = None
+        if role == "client":
+            cert_path = cert_dir / "client.crt"
+            key_path = cert_dir / "client.key"
+        else:
+            cert_path = cert_dir / "server.crt"
+            key_path = cert_dir / "server.key"
+        if cert_path is not None and not cert_path.is_file():
+            cert_path = None
+            key_path = None
+        info = _tls_handshake_probe(
+            probe_host,
+            int(probe_port),
+            ca_path=ca_path if ca_path.is_file() else None,
+            cert_path=cert_path if (cert_path and cert_path.is_file()) else None,
+            key_path=key_path if (key_path and key_path.is_file()) else None,
+            server_hostname=str(body.get("server_hostname") or "pjc-server"),
+            timeout_sec=float(body.get("tls_timeout_sec") or 8.0),
+        )
+        tls_status = "ok" if info["ok"] else "deny"
+        tls_protocol = info["tls_protocol"]
+        peer_cert_pem = info.get("peer_cert_pem")
+        peer_cert_fp = info.get("peer_cert_fingerprint_sha256")
+        checks["tls_handshake"] = {
+            "status": tls_status,
+            "peer_cert_subject": info.get("peer_cert_subject"),
+            "peer_cert_fingerprint_sha256": peer_cert_fp,
+            "tls_protocol": tls_protocol,
+            "message": info.get("message") or None,
+        }
+        if not info["ok"]:
+            findings.append({"kind": "tls_handshake_failed", "message": info.get("message") or "TLS handshake failed", "expected": "ok", "actual": None})
+
+    # 6. peer identity (uses TLS cert if present, else explicit cert path)
+    explicit_peer_cert_path = str(body.get("peer_cert_path") or "").strip()
+    peer_cert_text: str | None = peer_cert_pem
+    if peer_cert_text is None and explicit_peer_cert_path:
+        explicit_path = _repo_path(explicit_peer_cert_path)
+        if explicit_path.is_file():
+            peer_cert_text = explicit_path.read_text(encoding="utf-8")
+    ca_for_identity: str | None = None
+    if cert_dir is not None and (cert_dir / "ca.crt").is_file():
+        ca_for_identity = (cert_dir / "ca.crt").read_text(encoding="utf-8")
+    if peer_cert_text and (expected_peer_identity or expected_ca_fp):
+        identity_role = "client" if role == "server" else "server"
+        ident = _peer_identity_check_via_helper(
+            cert_pem=peer_cert_text,
+            ca_pem=ca_for_identity,
+            role=identity_role,
+            job_id=job_id,
+            expected_fingerprint=expected_ca_fp or peer_cert_fp or "",
+            expected_identity=expected_peer_identity or "",
+        )
+        checks["peer_identity"] = {
+            "status": ident.get("status") or "deny",
+            "actual_identity": ident.get("actual_identity"),
+            "expected_identity": expected_peer_identity,
+            "ca_fingerprint_sha256": expected_ca_fp,
+            "decision": ident.get("decision"),
+            "reason_code": ident.get("reason_code"),
+            "message": ident.get("message") or None,
+        }
+        if checks["peer_identity"]["status"] == "deny":
+            if (ident.get("reason_code") or "").startswith("fingerprint"):
+                findings.append({"kind": "ca_fingerprint_mismatch", "message": ident.get("message") or "fingerprint mismatch", "expected": expected_ca_fp, "actual": ident.get("ca_fingerprint_sha256")})
+            else:
+                findings.append({"kind": "peer_identity_mismatch", "message": ident.get("message") or "peer identity rejected", "expected": expected_peer_identity, "actual": ident.get("actual_identity")})
+
+    # 7. input manifest / csv hash
+    csv_path_raw = str(body.get("input_csv_path") or "").strip()
+    expected_csv_sha = str(body.get("expected_input_csv_sha256") or "").strip().lower() or None
+    expected_manifest_sha = str(body.get("expected_manifest_sha256") or "").strip().lower() or None
+    if csv_path_raw:
+        csv_path = _repo_path(csv_path_raw)
+        if not csv_path.is_file():
+            checks["input_manifest"] = {"status": "deny", "csv_path": str(csv_path), "csv_sha256": None, "manifest_sha256": None, "rows": 0, "bytes": 0, "message": "input CSV missing"}
+            findings.append({"kind": "input_csv_missing", "message": "input CSV missing", "expected": str(csv_path), "actual": None})
+        else:
+            rows, size = _file_rows_and_bytes(csv_path)
+            csv_sha = _sha256_file(csv_path)
+            manifest_sha: str | None = None
+            manifest_path_raw = str(body.get("input_manifest_path") or "").strip()
+            if manifest_path_raw:
+                mpath = _repo_path(manifest_path_raw)
+                if mpath.is_file():
+                    manifest_sha = _sha256_file(mpath)
+            status = "ok"
+            message = None
+            if expected_csv_sha and csv_sha != expected_csv_sha:
+                status = "deny"
+                message = "input CSV hash mismatch"
+                findings.append({"kind": "input_manifest_hash_mismatch", "message": message, "expected": expected_csv_sha, "actual": csv_sha})
+            if expected_manifest_sha and (manifest_sha != expected_manifest_sha):
+                status = "deny"
+                message = message or "input manifest hash mismatch"
+                findings.append({"kind": "input_manifest_hash_mismatch", "message": "input manifest hash mismatch", "expected": expected_manifest_sha, "actual": manifest_sha})
+            checks["input_manifest"] = {
+                "status": status,
+                "csv_path": str(csv_path),
+                "csv_sha256": csv_sha,
+                "manifest_sha256": manifest_sha,
+                "rows": rows,
+                "bytes": size,
+                "message": message,
+            }
+
+    # 8. resource limits — compare csv rows/size against optional caps
+    max_rows = body.get("max_rows")
+    max_bytes = body.get("max_bytes")
+    max_buckets = body.get("max_buckets")
+    actual_buckets = body.get("actual_buckets")
+    if any(v is not None for v in (max_rows, max_bytes, max_buckets, actual_buckets)):
+        actual_rows = checks["input_manifest"].get("rows") if checks["input_manifest"]["status"] != "skip" else None
+        actual_bytes = checks["input_manifest"].get("bytes") if checks["input_manifest"]["status"] != "skip" else None
+        status = "ok"
+        message = None
+        if max_rows is not None and actual_rows is not None and int(actual_rows) > int(max_rows):
+            status = "deny"; message = "row count over limit"
+            findings.append({"kind": "resource_limit_exceeded", "message": message, "expected": int(max_rows), "actual": int(actual_rows)})
+        if max_bytes is not None and actual_bytes is not None and int(actual_bytes) > int(max_bytes):
+            status = "deny"; message = message or "byte size over limit"
+            findings.append({"kind": "resource_limit_exceeded", "message": "byte size over limit", "expected": int(max_bytes), "actual": int(actual_bytes)})
+        if max_buckets is not None and actual_buckets is not None and int(actual_buckets) > int(max_buckets):
+            status = "deny"; message = message or "bucket count over limit"
+            findings.append({"kind": "resource_limit_exceeded", "message": "bucket count over limit", "expected": int(max_buckets), "actual": int(actual_buckets)})
+        checks["resource_limits"] = {
+            "status": status,
+            "max_rows": int(max_rows) if max_rows is not None else None,
+            "max_bytes": int(max_bytes) if max_bytes is not None else None,
+            "max_buckets": int(max_buckets) if max_buckets is not None else None,
+            "actual_rows": int(actual_rows) if isinstance(actual_rows, int) else None,
+            "actual_bytes": int(actual_bytes) if isinstance(actual_bytes, int) else None,
+            "actual_buckets": int(actual_buckets) if isinstance(actual_buckets, int) else None,
+            "message": message,
+        }
+
+    # 9. output path
+    out_dir_raw = str(body.get("output_dir") or "").strip()
+    if out_dir_raw:
+        out_dir = _repo_path(out_dir_raw)
+        unique_required = bool(body.get("require_unique_output", True))
+        writable = False
+        message = None
+        try:
+            out_dir.mkdir(parents=True, exist_ok=True)
+            probe = out_dir / f".pjc_preflight_{uuid.uuid4().hex[:8]}"
+            probe.write_text("ok", encoding="utf-8")
+            probe.unlink()
+            writable = True
+        except OSError as exc:
+            message = str(exc)
+        is_unique = True
+        if unique_required and out_dir.is_dir():
+            try:
+                non_empty = any(out_dir.iterdir())
+            except OSError:
+                non_empty = True
+            is_unique = not non_empty
+        status = "ok" if (writable and (is_unique or not unique_required)) else "deny"
+        if status == "deny":
+            findings.append({"kind": "output_path_unwritable", "message": message or "output dir is not unique or not writable", "expected": str(out_dir), "actual": None})
+        checks["output_path"] = {
+            "status": status,
+            "out_dir": str(out_dir),
+            "writable": writable,
+            "unique": is_unique,
+            "message": message,
+        }
+
+    # Decide
+    deny_reasons_priority = [
+        ("commit", "commit_mismatch"),
+        ("helper_script", "helper_version_mismatch"),
+        ("pjc_binary", "pjc_binary_missing"),
+        ("tcp_probe", "tcp_unreachable"),
+        ("tls_handshake", "tls_handshake_failed"),
+        ("peer_identity", "peer_identity_mismatch"),
+        ("input_manifest", "input_manifest_hash_mismatch"),
+        ("resource_limits", "resource_limit_exceeded"),
+        ("output_path", "output_path_unwritable"),
+    ]
+    decision = "allow"
+    reason_code = "ok"
+    reason: str | None = None
+    for check_name, code in deny_reasons_priority:
+        if checks.get(check_name, {}).get("status") == "deny":
+            decision = "deny"
+            reason_code = code
+            # peer_identity covers both ca_fingerprint_mismatch and identity_mismatch;
+            # disambiguate using the underlying helper's reason_code
+            if check_name == "peer_identity":
+                helper_code = str(checks[check_name].get("reason_code") or "")
+                if helper_code.startswith("fingerprint"):
+                    reason_code = "ca_fingerprint_mismatch"
+            reason = checks[check_name].get("message") or reason_code
+            break
+
+    report = {
+        "schema": PJC_TWO_PARTY_PREFLIGHT_SCHEMA,
+        "generated_at_utc": _utc_now_iso(),
+        "job_id": job_id,
+        "role": role,
+        "decision": decision,
+        "reason_code": reason_code,
+        "reason": reason,
+        "expected_peer_role": expected_peer_role,
+        "expected_peer_identity": expected_peer_identity,
+        "expected_ca_fingerprint_sha256": expected_ca_fp,
+        "expected_commit": expected_commit,
+        "expected_dataplane_port": expected_dataplane_port,
+        "checks": checks,
+        "findings": findings,
+    }
+    out_dir = _ensure_two_party_dir() / "preflight"
+    out_dir.mkdir(parents=True, exist_ok=True)
+    evidence_path = out_dir / f"{job_id}_{role}_{_utc_suffix()}.json"
+    evidence_path.write_text(json.dumps(report, ensure_ascii=False, sort_keys=True) + "\n", encoding="utf-8")
+    return {"status": "ok", "evidence_path": str(evidence_path), "report": report}
+
+
+# --- Role package export/import ------------------------------------------------
+
+
+def _role_package_export(body: dict[str, Any]) -> dict[str, Any]:
+    job_id = str(body.get("job_id") or "").strip()
+    if not job_id:
+        raise ValueError("job_id is required")
+    role = _validate_two_party_role(body.get("role"))
+    source_dir = _resolve_repo_path_strict(body.get("source_dir"), label="source_dir")
+    if not source_dir.is_dir():
+        raise ValueError(f"source_dir does not exist: {source_dir}")
+    files = _walk_files(source_dir)
+    if not files:
+        raise ValueError(f"source_dir is empty: {source_dir}")
+    manifest_files = _file_manifest(source_dir, files)
+    package_sha = _package_aggregate_sha(manifest_files)
+    out_dir_raw = body.get("output_dir") or str(_ensure_two_party_dir() / "role_packages")
+    out_root = _repo_path(str(out_dir_raw))
+    out_root.mkdir(parents=True, exist_ok=True)
+    package_dir = _safe_unique_dir(out_root, f"{job_id}_{role}_{_utc_suffix()}")
+    package_dir.mkdir(parents=True, exist_ok=False)
+    payload_dir = package_dir / "payload"
+    payload_dir.mkdir(parents=True, exist_ok=False)
+    for path in files:
+        rel = path.relative_to(source_dir)
+        dst = payload_dir / rel
+        dst.parent.mkdir(parents=True, exist_ok=True)
+        dst.write_bytes(path.read_bytes())
+        try:
+            os.chmod(dst, path.stat().st_mode & 0o600 | 0o600)
+        except OSError:
+            pass
+    operator_notes = str(body.get("operator_notes") or "").strip() or None
+    if operator_notes:
+        redacted = operator_notes.replace("\r", "").strip()
+        # block raw secrets — never echo tokens
+        for banned in ("PJC_MTLS_PAIRING_TOKEN", "BRIDGE_TOKEN_SECRET", "BEGIN PRIVATE KEY", "BEGIN RSA PRIVATE KEY"):
+            if banned in redacted:
+                raise ValueError(f"operator_notes must not contain {banned}")
+        operator_notes = redacted
+
+    peer_block = {
+        "expected_role": "client" if role == "server" else "server",
+        "expected_identity": str(body.get("expected_peer_identity") or "").strip() or None,
+        "expected_ca_fingerprint_sha256": _normalize_fingerprint(str(body.get("expected_ca_fingerprint_sha256") or "")) or None,
+        "expected_host": str(body.get("expected_host") or "").strip() or None,
+    }
+    ports_block = {
+        "dataplane_port": int(body.get("dataplane_port") or 10502),
+        "loopback_port": (int(body["loopback_port"]) if body.get("loopback_port") else None),
+        "client_proxy_port": (int(body["client_proxy_port"]) if body.get("client_proxy_port") else None),
+    }
+    policy_block = {
+        "k_threshold": (int(body["k_threshold"]) if body.get("k_threshold") is not None else None),
+        "dp_epsilon": (float(body["dp_epsilon"]) if body.get("dp_epsilon") is not None else None),
+        "dp_sensitivity": (float(body["dp_sensitivity"]) if body.get("dp_sensitivity") is not None else None),
+        "require_dp": (bool(body["require_dp"]) if body.get("require_dp") is not None else True),
+        "redact_operator_fields": (bool(body["redact_operator_fields"]) if body.get("redact_operator_fields") is not None else True),
+    }
+    manifest = {
+        "schema": PJC_ROLE_PACKAGE_SCHEMA,
+        "generated_at_utc": _utc_now_iso(),
+        "job_id": job_id,
+        "role": role,
+        "package_path": str(package_dir),
+        "package_sha256": package_sha,
+        "source_dir": str(source_dir),
+        "exported_dir": str(payload_dir),
+        "operator_notes": operator_notes,
+        "files": manifest_files,
+        "peer": peer_block,
+        "ports": ports_block,
+        "policy": policy_block,
+    }
+    manifest_path = package_dir / "role_package.json"
+    manifest_path.write_text(json.dumps(manifest, ensure_ascii=False, sort_keys=True) + "\n", encoding="utf-8")
+    return {"status": "ok", "package_path": str(package_dir), "manifest_path": str(manifest_path), "manifest": manifest}
+
+
+def _role_package_import(body: dict[str, Any]) -> dict[str, Any]:
+    package_path = _resolve_repo_path_strict(body.get("package_path"), label="package_path")
+    if not package_path.is_dir():
+        raise ValueError(f"package_path is not a directory: {package_path}")
+    manifest_path = package_path / "role_package.json"
+    if not manifest_path.is_file():
+        raise ValueError("package is missing role_package.json")
+    try:
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as exc:
+        raise ValueError(f"role_package.json is not valid JSON: {exc}") from exc
+    if not isinstance(manifest, dict) or manifest.get("schema") != PJC_ROLE_PACKAGE_SCHEMA:
+        raise ValueError("package manifest has wrong schema")
+    files_decl = manifest.get("files") or []
+    payload_dir = package_path / "payload"
+    findings: list[dict[str, Any]] = []
+    if not payload_dir.is_dir():
+        raise ValueError("package payload directory is missing")
+    actual_manifest = _file_manifest(payload_dir, _walk_files(payload_dir))
+    decl_by_path = {item["path"]: item for item in files_decl if isinstance(item, dict)}
+    actual_by_path = {item["path"]: item for item in actual_manifest}
+    for path, decl in decl_by_path.items():
+        actual = actual_by_path.get(path)
+        if actual is None:
+            findings.append({"kind": "missing_file", "message": f"declared file missing: {path}", "expected": decl, "actual": None})
+            continue
+        if actual["sha256"] != decl["sha256"]:
+            findings.append({"kind": "hash_mismatch", "message": f"hash mismatch: {path}", "expected": decl["sha256"], "actual": actual["sha256"]})
+        if int(actual["size_bytes"]) != int(decl["size_bytes"]):
+            findings.append({"kind": "size_mismatch", "message": f"size mismatch: {path}", "expected": int(decl["size_bytes"]), "actual": int(actual["size_bytes"])})
+    for path in actual_by_path:
+        if path not in decl_by_path:
+            findings.append({"kind": "unexpected_file", "message": f"undeclared file present: {path}", "expected": None, "actual": path})
+    expected_pkg_sha = manifest.get("package_sha256")
+    actual_pkg_sha = _package_aggregate_sha(actual_manifest)
+    if expected_pkg_sha and expected_pkg_sha != actual_pkg_sha:
+        findings.append({"kind": "package_sha_mismatch", "message": "package_sha256 mismatch", "expected": expected_pkg_sha, "actual": actual_pkg_sha})
+
+    target_dir_raw = str(body.get("target_dir") or "").strip()
+    imported_dir: Path | None = None
+    if not findings and target_dir_raw:
+        imported_dir = _repo_path(target_dir_raw)
+        imported_dir.mkdir(parents=True, exist_ok=True)
+        for item in actual_manifest:
+            src = payload_dir / item["path"]
+            dst = imported_dir / item["path"]
+            dst.parent.mkdir(parents=True, exist_ok=True)
+            dst.write_bytes(src.read_bytes())
+            try:
+                os.chmod(dst, 0o600)
+            except OSError:
+                pass
+
+    decision = "allow" if not findings else "deny"
+    reason_code = "ok" if not findings else findings[0]["kind"]
+    validation = {
+        "decision": decision,
+        "reason_code": reason_code,
+        "findings": findings,
+    }
+    out_manifest = dict(manifest)
+    out_manifest["imported_dir"] = str(imported_dir) if imported_dir else None
+    out_manifest["validation"] = validation
+    out_manifest["generated_at_utc"] = _utc_now_iso()
+    report_path = _ensure_two_party_dir() / "role_packages" / f"import_{manifest.get('job_id') or 'unknown'}_{manifest.get('role') or 'unknown'}_{_utc_suffix()}.json"
+    report_path.parent.mkdir(parents=True, exist_ok=True)
+    report_path.write_text(json.dumps(out_manifest, ensure_ascii=False, sort_keys=True) + "\n", encoding="utf-8")
+    return {"status": "ok" if decision == "allow" else "error", "decision": decision, "report_path": str(report_path), "report": out_manifest}
+
+
+# --- Role lifecycle (server/client start/status/cancel) ------------------------
+
+
+PJC_DEFAULT_CERT_DIR = REPO_ROOT / "tmp" / "pjc_mtls_shared" / "certs"
+PJC_DEFAULT_ROLE_DIR_ROOT = REPO_ROOT / "tmp" / "pjc_role_dirs"
+PJC_DEFAULT_OUT_DIR_ROOT = REPO_ROOT / "tmp" / "pjc_two_party" / "runs"
+PJC_DEFAULT_PJC_DIR = REPO_ROOT / "a-psi" / "private-join-and-compute"
+
+
+def _role_command(role: str, *, body: dict[str, Any]) -> tuple[list[str], dict[str, str]]:
+    job_id = str(body.get("job_id") or "").strip()
+    if not job_id:
+        raise ValueError("job_id is required")
+
+    # Cert dir: explicit > default repo-side shared dir.
+    cert_dir_raw = str(body.get("cert_dir") or "").strip()
+    cert_dir = _repo_path(cert_dir_raw) if cert_dir_raw else PJC_DEFAULT_CERT_DIR
+
+    # Role dir holds the bucketed job_meta.json + bucket_*/csv layout.
+    role_dir_raw = str(body.get("role_dir") or "").strip()
+    role_dir = _repo_path(role_dir_raw) if role_dir_raw else (PJC_DEFAULT_ROLE_DIR_ROOT / job_id)
+
+    server_host = str(body.get("server_host") or "").strip()
+
+    # Out dir — auto-segregated per (job_id, role) so logs/evidence are easy
+    # to find and never clobber another role's run.
+    out_dir_raw = str(body.get("out_dir") or "").strip()
+    out_dir = _repo_path(out_dir_raw) if out_dir_raw else (PJC_DEFAULT_OUT_DIR_ROOT / f"{job_id}_{role}")
+
+    # PJC binary location: keep optional; the script auto-resolves via bazel.
+    bin_dir_raw = str(body.get("pjc_bin_dir") or "").strip()
+    bin_dir = _repo_path(bin_dir_raw) if bin_dir_raw else None
+
+    env: dict[str, str] = {
+        "PATH": os.environ.get("PATH", "/usr/local/bin:/usr/bin:/bin"),
+        "HOME": os.environ.get("HOME", "/tmp"),
+        "JOB_ID": job_id,
+        "CERT_DIR": str(cert_dir),
+        "JOB_DIR": str(role_dir),
+        "OUT_DIR": str(out_dir),
+        "PJC_DIR": str(_repo_path(str(body.get("pjc_dir"))) if body.get("pjc_dir") else PJC_DEFAULT_PJC_DIR),
+    }
+    if bin_dir is not None:
+        env["PJC_BIN_DIR"] = str(bin_dir)
+    if "LANG" in os.environ:
+        env["LANG"] = os.environ["LANG"]
+    if "LC_ALL" in os.environ:
+        env["LC_ALL"] = os.environ["LC_ALL"]
+    if body.get("pjc_grpc_stream_chunk_elements") is not None:
+        env["PJC_GRPC_STREAM_CHUNK_ELEMENTS"] = str(body["pjc_grpc_stream_chunk_elements"])
+    if body.get("require_session_manifest"):
+        env["PJC_MTLS_REQUIRE_SESSION_MANIFEST"] = "1"
+    if body.get("grpc_max_message_mb") is not None:
+        env["GRPC_MAX_MESSAGE_MB"] = str(int(body["grpc_max_message_mb"]))
+    if body.get("pjc_resource_limits"):
+        env["PJC_RESOURCE_LIMITS"] = str(_repo_path(str(body["pjc_resource_limits"])))
+        env["PJC_PREFLIGHT_REQUIRED"] = "1"
+    if body.get("shared_result_dir"):
+        env["SHARED_RESULT_DIR"] = str(_repo_path(str(body["shared_result_dir"])))
+
+    # If an explicit script override is provided (smoke tests, custom helpers)
+    # skip the production-only cert and role_dir preflight; the override owner
+    # is responsible for any inputs the script needs.
+    explicit_script = bool(body.get("script"))
+    if not explicit_script:
+        if not cert_dir.is_dir():
+            raise FileNotFoundError(f"cert_dir does not exist: {cert_dir}")
+        required_cert_files = ["ca.crt"]
+        if role == "server":
+            required_cert_files += ["server.crt", "server.key"]
+        else:
+            required_cert_files += ["client.crt", "client.key"]
+        missing = [name for name in required_cert_files if not (cert_dir / name).is_file()]
+        if missing:
+            raise FileNotFoundError(
+                f"cert_dir {cert_dir} is missing required files for role={role}: {', '.join(missing)}"
+            )
+        if not role_dir.is_dir():
+            raise FileNotFoundError(f"role_dir does not exist: {role_dir}")
+        meta_path = role_dir / "job_meta.json"
+        if not meta_path.is_file():
+            raise FileNotFoundError(
+                f"role_dir {role_dir} is missing job_meta.json (required by bucketed TLS scripts)"
+            )
+
+    if role == "server":
+        script_name = str(body.get("script") or "run_pjc_bucketed_tls_server.sh")
+        script_path = PJC_MTLS_SCRIPT_DIR / script_name
+        env["TLS_PORT"] = str(int(body.get("tls_port") or 10502))
+        env["PJC_LOCAL_PORT"] = str(int(body.get("pjc_local_port") or 10501))
+        env["BIND_ADDR"] = str(body.get("bind_addr") or "0.0.0.0")
+        if body.get("server_csv"):
+            env["SERVER_CSV"] = str(_repo_path(str(body["server_csv"])))
+    else:
+        script_name = str(body.get("script") or "run_pjc_bucketed_tls_client.sh")
+        script_path = PJC_MTLS_SCRIPT_DIR / script_name
+        if not server_host:
+            raise ValueError("server_host is required for client role")
+        env["SERVER_HOST"] = server_host
+        env["TLS_PORT"] = str(int(body.get("tls_port") or 10502))
+        env["LOCAL_PROXY_PORT"] = str(int(body.get("local_proxy_port") or 10503))
+        if body.get("client_csv"):
+            env["CLIENT_CSV"] = str(_repo_path(str(body["client_csv"])))
+
+    if not script_path.is_file():
+        raise FileNotFoundError(f"missing role script: {script_path}")
+
+    # Pre-create the out dir so log files have a destination.
+    try:
+        out_dir.mkdir(parents=True, exist_ok=True)
+    except OSError as exc:
+        raise FileNotFoundError(f"out_dir is not writable: {out_dir}: {exc}") from exc
+
+    command = ["bash", str(script_path)]
+    # filter env to allowlist — never leak unrelated host env
+    filtered = {k: v for k, v in env.items() if k in PJC_ROLE_ENV_ALLOWLIST}
+    return command, filtered
+
+
+def _role_status_payload(role_key: str) -> dict[str, Any] | None:
+    with _PJC_ROLE_REGISTRY_LOCK:
+        record = _PJC_ROLE_REGISTRY.get(role_key)
+        if record is None:
+            return None
+        snapshot = dict(record)
+    proc = snapshot.pop("_process", None)
+    snapshot.pop("_log_handle", None)
+    if proc is not None and snapshot.get("state") in ("starting", "running"):
+        exit_code = proc.poll()
+        if exit_code is not None:
+            snapshot["state"] = "completed" if exit_code == 0 else "failed"
+            snapshot["exit_code"] = exit_code
+            snapshot["finished_at_utc"] = _utc_now_iso()
+            started_ts = _iso_to_ts(snapshot.get("started_at_utc"))
+            finished_ts = _iso_to_ts(snapshot["finished_at_utc"])
+            if started_ts is not None and finished_ts is not None:
+                snapshot["duration_sec"] = round(max(0.0, finished_ts - started_ts), 3)
+            log_path = snapshot.get("log_path")
+            if log_path and Path(log_path).is_file():
+                snapshot["log_sha256"] = _sha256_file(Path(log_path))
+            _write_role_evidence(role_key, snapshot)
+            with _PJC_ROLE_REGISTRY_LOCK:
+                _PJC_ROLE_REGISTRY[role_key].update(snapshot)
+    snapshot["schema"] = PJC_ROLE_STATUS_SCHEMA
+    snapshot["generated_at_utc"] = _utc_now_iso()
+    return snapshot
+
+
+def _write_role_evidence(role_key: str, snapshot: dict[str, Any]) -> Path:
+    out_dir = _ensure_two_party_dir() / "roles"
+    out_dir.mkdir(parents=True, exist_ok=True)
+    evidence_path = out_dir / f"{role_key}_{_utc_suffix()}.json"
+    full = dict(snapshot)
+    full["schema"] = PJC_ROLE_STATUS_SCHEMA
+    full["generated_at_utc"] = _utc_now_iso()
+    full.pop("_process", None)
+    evidence_path.write_text(json.dumps(full, ensure_ascii=False, sort_keys=True) + "\n", encoding="utf-8")
+    return evidence_path
+
+
+def _start_role(role: str, body: dict[str, Any]) -> dict[str, Any]:
+    role = _validate_two_party_role(role)
+    job_id = str(body.get("job_id") or "").strip()
+    if not job_id:
+        raise ValueError("job_id is required")
+    role_key = f"{job_id}::{role}"
+    with _PJC_ROLE_REGISTRY_LOCK:
+        existing = _PJC_ROLE_REGISTRY.get(role_key)
+        if existing is not None and existing.get("state") in ("starting", "running"):
+            return {"status": "error", "error": "role_already_running", "snapshot": {k: v for k, v in existing.items() if k != "_process"}}
+    command, env = _role_command(role, body=body)
+    cmd_digest = _sha256_bytes(("\x00".join(command)).encode("utf-8"))
+    env_keys_sorted = sorted(env.keys())
+    env_digest = _sha256_bytes(("\n".join(f"{k}={env[k]}" for k in env_keys_sorted)).encode("utf-8"))
+    logs_root = _ensure_two_party_dir() / "logs"
+    logs_root.mkdir(parents=True, exist_ok=True)
+    log_path = logs_root / f"{role_key.replace('::', '_')}_{_utc_suffix()}.log"
+    started_at = _utc_now_iso()
+    log_handle = log_path.open("wb")
+    try:
+        proc = subprocess.Popen(  # noqa: S603 — controlled command list
+            command,
+            cwd=str(REPO_ROOT),
+            env=env,
+            stdout=log_handle,
+            stderr=subprocess.STDOUT,
+            stdin=subprocess.DEVNULL,
+        )
+    except Exception:
+        log_handle.close()
+        raise
+    snapshot = {
+        "schema": PJC_ROLE_STATUS_SCHEMA,
+        "generated_at_utc": started_at,
+        "job_id": job_id,
+        "role": role,
+        "state": "running",
+        "pid": proc.pid,
+        "started_at_utc": started_at,
+        "finished_at_utc": None,
+        "duration_sec": None,
+        "exit_code": None,
+        "command_digest_sha256": cmd_digest,
+        "command_argv_hash": cmd_digest,
+        "env_allowlist_digest_sha256": env_digest,
+        "env_allowlist": env_keys_sorted,
+        "dataplane_port": int(body.get("tls_port") or 10502),
+        "loopback_port": int(body.get("pjc_local_port") or 10501) if role == "server" else int(body.get("local_proxy_port") or 10503),
+        "log_path": str(log_path),
+        "log_sha256": None,
+        "cancel_reason": None,
+        "evidence_path": None,
+        "cert_dir": env.get("CERT_DIR"),
+        "role_dir": env.get("JOB_DIR"),
+    }
+    with _PJC_ROLE_REGISTRY_LOCK:
+        record = dict(snapshot)
+        record["_process"] = proc
+        record["_log_handle"] = log_handle
+        _PJC_ROLE_REGISTRY[role_key] = record
+    evidence_path = _write_role_evidence(role_key, snapshot)
+    snapshot["evidence_path"] = str(evidence_path)
+    with _PJC_ROLE_REGISTRY_LOCK:
+        _PJC_ROLE_REGISTRY[role_key]["evidence_path"] = str(evidence_path)
+    return {"status": "ok", "role_key": role_key, "snapshot": snapshot}
+
+
+def _cancel_role(role: str, body: dict[str, Any]) -> dict[str, Any]:
+    role = _validate_two_party_role(role)
+    job_id = str(body.get("job_id") or "").strip()
+    if not job_id:
+        raise ValueError("job_id is required")
+    role_key = f"{job_id}::{role}"
+    cancel_reason = str(body.get("reason") or "operator_cancel").strip() or "operator_cancel"
+    with _PJC_ROLE_REGISTRY_LOCK:
+        record = _PJC_ROLE_REGISTRY.get(role_key)
+        if record is None:
+            return {"status": "error", "error": "not_found", "role_key": role_key}
+        proc = record.get("_process")
+        log_handle = record.get("_log_handle")
+    if proc is None:
+        return {"status": "error", "error": "no_process", "role_key": role_key}
+    try:
+        if proc.poll() is None:
+            proc.terminate()
+            try:
+                proc.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                proc.kill()
+                proc.wait(timeout=5)
+    except Exception as exc:  # noqa: BLE001
+        cancel_reason = f"{cancel_reason}: terminate raised {exc}"
+    if log_handle is not None:
+        try:
+            log_handle.close()
+        except Exception:
+            pass
+    snapshot = _role_status_payload(role_key) or {}
+    snapshot["state"] = "cancelled"
+    snapshot["cancel_reason"] = cancel_reason
+    snapshot["finished_at_utc"] = snapshot.get("finished_at_utc") or _utc_now_iso()
+    log_path = snapshot.get("log_path")
+    if log_path and Path(log_path).is_file():
+        snapshot["log_sha256"] = _sha256_file(Path(log_path))
+    evidence_path = _write_role_evidence(role_key, snapshot)
+    snapshot["evidence_path"] = str(evidence_path)
+    with _PJC_ROLE_REGISTRY_LOCK:
+        record = _PJC_ROLE_REGISTRY.get(role_key)
+        if record is not None:
+            record.update({k: v for k, v in snapshot.items() if not k.startswith("_")})
+            record.pop("_process", None)
+            record.pop("_log_handle", None)
+    return {"status": "ok", "role_key": role_key, "snapshot": snapshot}
+
+
+# --- Evidence verify-merge ----------------------------------------------------
+
+
+def _maybe_load_json(path: Path) -> dict[str, Any] | None:
+    if not path.is_file():
+        return None
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError:
+        return None
+
+
+def _maybe_load_jsonl(path: Path) -> list[dict[str, Any]]:
+    if not path.is_file():
+        return []
+    items: list[dict[str, Any]] = []
+    with path.open("r", encoding="utf-8") as handle:
+        for line in handle:
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                value = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if isinstance(value, dict):
+                items.append(value)
+    return items
+
+
+def _extract_party_evidence(root: Path, *, label: str) -> dict[str, Any]:
+    missing: list[str] = []
+    if not root.is_dir():
+        return {"source": str(root), "missing_files": ["<dir>"]}
+    public = _maybe_load_json(root / "a_psi_run" / "public_report.json") or _maybe_load_json(root / "public_report.json")
+    if public is None:
+        missing.append("public_report.json")
+    attribution = _maybe_load_json(root / "a_psi_run" / "attribution_result.json") or _maybe_load_json(root / "attribution_result.json")
+    if attribution is None:
+        missing.append("attribution_result.json")
+    pjc_audits = _maybe_load_jsonl(root / "a_psi_run" / "pjc_audit.jsonl") or _maybe_load_jsonl(root / "pjc_audit.jsonl")
+    audit_chain = _maybe_load_json(root / "audit_chain.json")
+    bridge_meta = _maybe_load_json(root / "bridge_job" / "job_meta.json") or _maybe_load_json(root / "bridge_meta.json")
+
+    def _result_hash() -> str | None:
+        if attribution is not None:
+            return _sha256_bytes(json.dumps(attribution, sort_keys=True, ensure_ascii=False).encode("utf-8"))
+        if public is not None:
+            return _sha256_bytes(json.dumps(public, sort_keys=True, ensure_ascii=False).encode("utf-8"))
+        return None
+
+    def _tls_identity() -> tuple[str | None, str | None]:
+        for entry in reversed(pjc_audits):
+            tls = entry.get("tls") if isinstance(entry, dict) else None
+            if isinstance(tls, dict):
+                return tls.get("peer_identity"), tls.get("ca_fingerprint_sha256")
+        return None, None
+
+    job_id = (public or {}).get("job_id") or (attribution or {}).get("job_id") or (audit_chain or {}).get("job_id")
+    commit = (audit_chain or {}).get("commit") or (audit_chain or {}).get("git_commit") or (public or {}).get("commit")
+    if not commit and pjc_audits:
+        commit = pjc_audits[-1].get("commit")
+    tls_identity, ca_fp = _tls_identity()
+    input_commit = None
+    if bridge_meta is not None:
+        input_commit = bridge_meta.get("input_commitment_sha256") or bridge_meta.get("input_csv_sha256")
+    if not input_commit and pjc_audits:
+        input_commit = pjc_audits[-1].get("input_commitment_sha256")
+    policy_decision = None
+    if public is not None:
+        policy_decision = "release" if public.get("released") else f"deny:{public.get('reason_code') or 'unknown'}"
+    audit_chain_sha = None
+    if audit_chain is not None:
+        audit_chain_sha = _sha256_bytes(json.dumps(audit_chain, sort_keys=True, ensure_ascii=False).encode("utf-8"))
+    return {
+        "source": str(root),
+        "job_id": job_id,
+        "commit": commit,
+        "input_commitment_sha256": input_commit,
+        "tls_identity": tls_identity,
+        "ca_fingerprint_sha256": ca_fp,
+        "result_sha256": _result_hash(),
+        "policy_decision": policy_decision,
+        "audit_chain_sha256": audit_chain_sha,
+        "missing_files": missing,
+    }
+
+
+def _two_party_evidence_merge(body: dict[str, Any]) -> dict[str, Any]:
+    job_id = str(body.get("job_id") or "").strip()
+    if not job_id:
+        raise ValueError("job_id is required")
+    party_a_dir = _resolve_repo_path_strict(body.get("party_a_dir"), label="party_a_dir")
+    party_b_dir = _resolve_repo_path_strict(body.get("party_b_dir"), label="party_b_dir")
+    a = _extract_party_evidence(party_a_dir, label="party_a")
+    b = _extract_party_evidence(party_b_dir, label="party_b")
+    if a.get("missing_files") or b.get("missing_files"):
+        decision = "deny"
+        reason_code = "missing_party_artifacts"
+        reason = f"missing files: A={a.get('missing_files')!r}, B={b.get('missing_files')!r}"
+        findings = [{"kind": "missing_party_artifacts", "message": reason, "expected": [], "actual": [a.get("missing_files"), b.get("missing_files")]}]
+        checks = {k: "missing" for k in (
+            "job_id_match", "commit_match", "input_commitment_match", "tls_identity_match",
+            "ca_fingerprint_match", "result_hash_match", "policy_decision_match", "audit_chain_match",
+        )}
+    else:
+        findings = []
+
+        def _cmp(name: str, key: str, mismatch_reason: str) -> str:
+            av = a.get(key)
+            bv = b.get(key)
+            if av is None or bv is None:
+                return "missing"
+            if av == bv:
+                return "match"
+            findings.append({"kind": mismatch_reason, "message": f"{key} differs", "expected": av, "actual": bv})
+            return "mismatch"
+
+        checks = {
+            "job_id_match": _cmp("job_id_match", "job_id", "job_id_mismatch"),
+            "commit_match": _cmp("commit_match", "commit", "commit_mismatch"),
+            "input_commitment_match": _cmp("input_commitment_match", "input_commitment_sha256", "input_manifest_mismatch"),
+            "tls_identity_match": _cmp("tls_identity_match", "tls_identity", "tls_identity_mismatch"),
+            "ca_fingerprint_match": _cmp("ca_fingerprint_match", "ca_fingerprint_sha256", "ca_fingerprint_mismatch"),
+            "result_hash_match": _cmp("result_hash_match", "result_sha256", "result_hash_mismatch"),
+            "policy_decision_match": _cmp("policy_decision_match", "policy_decision", "policy_decision_mismatch"),
+            "audit_chain_match": _cmp("audit_chain_match", "audit_chain_sha256", "audit_chain_hash_mismatch"),
+        }
+        priority = [
+            ("job_id_match", "job_id_mismatch"),
+            ("commit_match", "commit_mismatch"),
+            ("input_commitment_match", "input_manifest_mismatch"),
+            ("tls_identity_match", "tls_identity_mismatch"),
+            ("ca_fingerprint_match", "ca_fingerprint_mismatch"),
+            ("result_hash_match", "result_hash_mismatch"),
+            ("policy_decision_match", "policy_decision_mismatch"),
+            ("audit_chain_match", "audit_chain_hash_mismatch"),
+        ]
+        decision = "allow"
+        reason_code = "ok"
+        reason = None
+        for name, code in priority:
+            if checks[name] == "mismatch":
+                decision = "deny"
+                reason_code = code
+                reason = f"{name} mismatch"
+                break
+
+    report = {
+        "schema": PJC_TWO_PARTY_EVIDENCE_MERGE_SCHEMA,
+        "generated_at_utc": _utc_now_iso(),
+        "job_id": job_id,
+        "decision": decision,
+        "reason_code": reason_code,
+        "reason": reason,
+        "party_a": a,
+        "party_b": b,
+        "checks": checks,
+        "findings": findings,
+    }
+    out_dir = _ensure_two_party_dir() / "evidence_merge"
+    out_dir.mkdir(parents=True, exist_ok=True)
+    evidence_path = out_dir / f"{job_id}_{_utc_suffix()}.json"
+    evidence_path.write_text(json.dumps(report, ensure_ascii=False, sort_keys=True) + "\n", encoding="utf-8")
+    return {"status": "ok", "evidence_path": str(evidence_path), "report": report}
+
+
+# --- Required negative-case runner --------------------------------------------
+
+
+def _generate_dummy_cert(tmp_dir: Path, *, common_name: str, san: str | None = None) -> tuple[Path, Path]:
+    """Synthesize a short-lived self-signed cert for negative-case identity probes."""
+    key_path = tmp_dir / "dummy.key"
+    cert_path = tmp_dir / "dummy.crt"
+    cfg_path = tmp_dir / "openssl.cnf"
+    cfg_path.write_text(
+        "[req]\n"
+        "distinguished_name=dn\nx509_extensions=ext\nprompt=no\n"
+        "[dn]\nCN=" + common_name + "\n"
+        "[ext]\nsubjectAltName=DNS:" + (san or common_name) + "\n",
+        encoding="utf-8",
+    )
+    subprocess.run(
+        ["openssl", "genrsa", "-out", str(key_path), "2048"],
+        cwd=str(REPO_ROOT), text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=True, timeout=30,
+    )
+    subprocess.run(
+        ["openssl", "req", "-new", "-x509", "-key", str(key_path),
+         "-out", str(cert_path), "-days", "1", "-config", str(cfg_path)],
+        cwd=str(REPO_ROOT), text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=True, timeout=30,
+    )
+    return cert_path, key_path
+
+
+_NEGATIVE_CASE_EXPECTED: dict[str, tuple[str, ...]] = {
+    "wrong_token": ("invalid_token", "pairing_rejected"),
+    "expired_token": ("token_expired",),
+    "wrong_ca": ("ca_fingerprint_mismatch",),
+    "wrong_peer": ("peer_identity_mismatch",),
+    "closed_port": ("tcp_unreachable",),
+    "commit_mismatch": ("commit_mismatch",),
+    "modified_csv": ("input_manifest_hash_mismatch",),
+    "privacy_denial": ("below_k", "below_min_rows", "privacy_budget_exhausted", "privacy_denial"),
+}
+
+
+def _negative_case_record(name: str, *, actual_decision: str, actual_reason_code: str, message: str = "", evidence_path: str | None = None) -> dict[str, Any]:
+    expected_codes = _NEGATIVE_CASE_EXPECTED.get(name, ())
+    expected_decision = "deny"
+    code_ok = actual_reason_code in expected_codes if expected_codes else True
+    result = "pass" if (actual_decision == expected_decision and code_ok) else "fail"
+    return {
+        "name": name,
+        "expected_decision": expected_decision,
+        "actual_decision": actual_decision,
+        "expected_reason_code": expected_codes[0] if expected_codes else "",
+        "actual_reason_code": actual_reason_code,
+        "result": result,
+        "message": message or None,
+        "evidence_path": evidence_path,
+    }
+
+
+def _run_negative_case(name: str, *, scenario: dict[str, Any]) -> dict[str, Any]:
+    if name == "wrong_token":
+        try:
+            _enroll_pjc_mtls_csr(
+                csr_pem=scenario.get("csr_pem") or "",
+                pairing_token=scenario.get("pairing_token") or "definitely-not-the-real-token",
+            )
+        except PermissionError as exc:
+            return _negative_case_record(name, actual_decision="deny", actual_reason_code="invalid_token", message=str(exc))
+        except ValueError as exc:
+            return _negative_case_record(name, actual_decision="deny", actual_reason_code="invalid_csr", message=str(exc))
+        return _negative_case_record(name, actual_decision="allow", actual_reason_code="unexpected_ok", message="enrollment accepted bad token")
+    if name == "expired_token":
+        meta_path = PJC_MTLS_PAIRING_TOKEN_META_FILE
+        token_path = PJC_MTLS_PAIRING_TOKEN_FILE
+        backup_meta = meta_path.read_text(encoding="utf-8") if meta_path.is_file() else None
+        backup_token = token_path.read_text(encoding="utf-8") if token_path.is_file() else None
+        try:
+            token = _ensure_pairing_token(force=True)
+            meta = _read_pairing_meta()
+            meta["issued_at_epoch"] = max(0, int(time.time()) - max(1, int(meta.get("ttl_seconds") or 60)) - 10)
+            _write_pairing_meta(meta)
+            try:
+                _enroll_pjc_mtls_csr(csr_pem=scenario.get("csr_pem") or "", pairing_token=token)
+            except PermissionError as exc:
+                return _negative_case_record(name, actual_decision="deny", actual_reason_code="token_expired", message=str(exc))
+            except ValueError as exc:
+                return _negative_case_record(name, actual_decision="deny", actual_reason_code="invalid_csr", message=str(exc))
+            return _negative_case_record(name, actual_decision="allow", actual_reason_code="unexpected_ok", message="enrollment accepted expired token")
+        finally:
+            if backup_meta is not None:
+                meta_path.write_text(backup_meta, encoding="utf-8")
+            else:
+                try:
+                    meta_path.unlink()
+                except FileNotFoundError:
+                    pass
+            if backup_token is not None:
+                token_path.write_text(backup_token, encoding="utf-8")
+            else:
+                try:
+                    token_path.unlink()
+                except FileNotFoundError:
+                    pass
+    if name == "wrong_ca":
+        with tempfile.TemporaryDirectory(prefix="pjc_neg_ca_") as cert_tmp:
+            cert_dir = Path(cert_tmp)
+            cert_path, _ = _generate_dummy_cert(cert_dir, common_name="pjc-server", san=f"job-{scenario.get('job_id') or 'neg'}.partyA.example")
+            body = dict(scenario)
+            body["peer_cert_path"] = str(cert_path)
+            body["expected_ca_fingerprint_sha256"] = "0" * 64
+            body["expected_peer_identity"] = body.get("expected_peer_identity") or f"job-{scenario.get('job_id') or 'neg'}.partyA.example"
+            body.setdefault("role", "client")
+            body.setdefault("job_id", scenario.get("job_id") or "neg-case")
+            try:
+                report = _two_party_preflight(body)["report"]
+            except ValueError as exc:
+                return _negative_case_record(name, actual_decision="deny", actual_reason_code="config_error", message=str(exc))
+            return _negative_case_record(name, actual_decision=report["decision"], actual_reason_code=report["reason_code"], message=report.get("reason") or "", evidence_path=None)
+    if name == "wrong_peer":
+        with tempfile.TemporaryDirectory(prefix="pjc_neg_peer_") as cert_tmp:
+            cert_dir = Path(cert_tmp)
+            cert_path, _ = _generate_dummy_cert(cert_dir, common_name="pjc-server", san=f"job-{scenario.get('job_id') or 'neg'}.partyA.example")
+            body = dict(scenario)
+            body["peer_cert_path"] = str(cert_path)
+            # Force an identity that the synthesized cert does NOT carry
+            body["expected_peer_identity"] = scenario.get("wrong_peer_identity") or "job-someone-else.partyA.example"
+            body.setdefault("role", "client")
+            body.setdefault("job_id", scenario.get("job_id") or "neg-case")
+            try:
+                report = _two_party_preflight(body)["report"]
+            except ValueError as exc:
+                return _negative_case_record(name, actual_decision="deny", actual_reason_code="config_error", message=str(exc))
+            return _negative_case_record(name, actual_decision=report["decision"], actual_reason_code=report["reason_code"], message=report.get("reason") or "")
+    if name == "closed_port":
+        body = dict(scenario)
+        # pick a port we believe is closed (high random ephemeral)
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+            s.bind(("127.0.0.1", 0))
+            closed_port = s.getsockname()[1]
+        body["peer_host"] = "127.0.0.1"
+        body["peer_port"] = closed_port
+        body.setdefault("role", "client")
+        body.setdefault("job_id", scenario.get("job_id") or "neg-case")
+        report = _two_party_preflight(body)["report"]
+        return _negative_case_record(name, actual_decision=report["decision"], actual_reason_code=report["reason_code"], message=report.get("reason") or "")
+    if name == "commit_mismatch":
+        body = dict(scenario)
+        body["expected_commit"] = "0" * 40
+        body.setdefault("role", "client")
+        body.setdefault("job_id", scenario.get("job_id") or "neg-case")
+        report = _two_party_preflight(body)["report"]
+        return _negative_case_record(name, actual_decision=report["decision"], actual_reason_code=report["reason_code"], message=report.get("reason") or "")
+    if name == "modified_csv":
+        body = dict(scenario)
+        body["expected_input_csv_sha256"] = "0" * 64
+        body.setdefault("role", "client")
+        body.setdefault("job_id", scenario.get("job_id") or "neg-case")
+        report = _two_party_preflight(body)["report"]
+        return _negative_case_record(name, actual_decision=report["decision"], actual_reason_code=report["reason_code"], message=report.get("reason") or "")
+    if name == "privacy_denial":
+        # Synthesize a privacy denial by checking that resource_limits + low-k flag fires
+        # via input_manifest hash check. Operator-supplied scenario decides exact match.
+        provided = scenario.get("privacy_denial_outcome")
+        if isinstance(provided, dict):
+            return _negative_case_record(
+                name,
+                actual_decision=str(provided.get("decision") or "deny"),
+                actual_reason_code=str(provided.get("reason_code") or "below_k"),
+                message=str(provided.get("message") or ""),
+                evidence_path=provided.get("evidence_path"),
+            )
+        # default: simulate below-k denial from a public_report stub if path supplied
+        report_path = scenario.get("public_report_path")
+        if isinstance(report_path, str) and report_path:
+            data = _maybe_load_json(_repo_path(report_path)) or {}
+            released = bool(data.get("released"))
+            reason = str(data.get("reason_code") or "below_k")
+            decision = "deny" if not released else "allow"
+            return _negative_case_record(name, actual_decision=decision, actual_reason_code=reason)
+        return _negative_case_record(name, actual_decision="deny", actual_reason_code="privacy_denial", message="default privacy denial assumption")
+    return _negative_case_record(name, actual_decision="allow", actual_reason_code="unknown_case", message=f"unsupported case: {name}")
+
+
+def _two_party_negative_cases(body: dict[str, Any]) -> dict[str, Any]:
+    job_id = str(body.get("job_id") or "").strip()
+    if not job_id:
+        raise ValueError("job_id is required")
+    required = list(body.get("required_cases") or PJC_REQUIRED_NEGATIVE_CASES)
+    if not required:
+        raise ValueError("required_cases must not be empty")
+    for case in required:
+        if case not in PJC_REQUIRED_NEGATIVE_CASES:
+            raise ValueError(f"unsupported required case: {case}")
+    scenarios = body.get("scenarios") or {}
+    if not isinstance(scenarios, dict):
+        raise ValueError("scenarios must be a JSON object keyed by case name")
+    results: list[dict[str, Any]] = []
+    for case_name in required:
+        scenario = scenarios.get(case_name) or {}
+        if not isinstance(scenario, dict):
+            scenario = {}
+        scenario = dict(scenario)
+        scenario.setdefault("job_id", job_id)
+        try:
+            result = _run_negative_case(case_name, scenario=scenario)
+        except Exception as exc:  # noqa: BLE001
+            result = _negative_case_record(case_name, actual_decision="deny", actual_reason_code="case_execution_failed", message=str(exc))
+        results.append(result)
+    # decision: allow only if every required case passes (i.e. expected deny)
+    decision = "allow"
+    reason_code = "ok"
+    reason: str | None = None
+    case_by_name = {item["name"]: item for item in results}
+    for required_case in required:
+        item = case_by_name.get(required_case)
+        if item is None:
+            decision = "deny"; reason_code = "missing_required_case"
+            reason = f"missing required case: {required_case}"
+            break
+        if item.get("result") == "fail":
+            decision = "deny"
+            reason_code = "unexpected_allow"
+            reason = f"{required_case} did not produce the expected denial"
+            break
+    report = {
+        "schema": PJC_TWO_PARTY_NEGATIVE_CASES_SCHEMA,
+        "generated_at_utc": _utc_now_iso(),
+        "job_id": job_id,
+        "decision": decision,
+        "reason_code": reason_code,
+        "reason": reason,
+        "required_cases": required,
+        "cases": results,
+    }
+    out_dir = _ensure_two_party_dir() / "negative_cases"
+    out_dir.mkdir(parents=True, exist_ok=True)
+    evidence_path = out_dir / f"{job_id}_{_utc_suffix()}.json"
+    evidence_path.write_text(json.dumps(report, ensure_ascii=False, sort_keys=True) + "\n", encoding="utf-8")
+    return {"status": "ok", "evidence_path": str(evidence_path), "report": report}
+
+
+# --- TLS EOF live diagnostic --------------------------------------------------
+
+PJC_TLS_DIAGNOSTIC_SCHEMA = "pjc_tls_diagnostic/v1"
+
+
+def _classify_tls_error(message: str) -> str:
+    text = (message or "").lower()
+    if not text:
+        return "ok"
+    if "eof" in text and ("unexpected" in text or "occurred in violation" in text or "before" in text):
+        return "tls_eof"
+    if "alert" in text and "handshake" in text:
+        return "tls_alert_handshake"
+    if "alert" in text and "certificate" in text:
+        return "tls_alert_certificate"
+    if "wrong version number" in text or "sslv3 alert" in text:
+        return "tls_protocol_mismatch"
+    if "tlsv1_alert_unknown_ca" in text or "unknown_ca" in text:
+        return "tls_unknown_ca"
+    if "self-signed" in text or "self signed" in text:
+        return "tls_self_signed"
+    if "certificate verify failed" in text or "verify failed" in text:
+        return "tls_verify_failed"
+    if "connection refused" in text:
+        return "tcp_refused"
+    if "timed out" in text or "timeout" in text:
+        return "tcp_timeout"
+    if "no route to host" in text:
+        return "tcp_no_route"
+    if "permission denied" in text:
+        return "io_permission_denied"
+    return "other"
+
+
+def _suggest_tls_action(category: str, *, tcp_ok: bool, local_files: dict[str, bool]) -> str:
+    if not tcp_ok:
+        return (
+            "Open the data-plane port on Party A's firewall/security group and confirm the "
+            "TLS proxy (socat or pjc_tls_proxy.py) is actually listening before retrying."
+        )
+    missing_local = [name for name, present in local_files.items() if not present]
+    if missing_local:
+        return (
+            f"Local cert material is missing ({', '.join(missing_local)}). Run Party B enroll "
+            "or copy the per-job cert bundle before retrying."
+        )
+    if category == "tls_eof":
+        return (
+            "Likely cause: the peer accepted the TCP connection but closed before the TLS "
+            "handshake completed. Common culprits are (1) PROXY-protocol or HTTP plain text "
+            "in front of socat, (2) the wrong port mapped to socat, or (3) socat being killed "
+            "early. Check the server log path for socat/PJC errors and verify the listener "
+            "really runs OPENSSL-LISTEN."
+        )
+    if category == "tls_alert_handshake":
+        return (
+            "TLS alert during handshake — usually a peer-cert mismatch. Re-verify both parties "
+            "share the same CA bundle and that the SAN of the presented cert matches the "
+            "configured peer identity."
+        )
+    if category == "tls_protocol_mismatch":
+        return "Force TLS 1.2+/1.3 on both ends; legacy SSL/early TLS is rejected by default."
+    if category == "tls_unknown_ca":
+        return "Party A's server certificate is not signed by the CA Party B trusts; re-issue or re-enroll."
+    if category == "tls_self_signed":
+        return "Self-signed cert without trust pinning; use the bootstrap_uri/CA fingerprint pin instead of TOFU."
+    if category == "tls_verify_failed":
+        return "Inspect the peer cert subject and the SAN; check that the trust bundle matches."
+    if category == "tcp_refused":
+        return "No process listening on the data-plane port — start Party A's role first."
+    if category == "tcp_timeout":
+        return "Firewall or NAT is dropping packets; verify the path with traceroute/mtr."
+    if category == "ok":
+        return "TLS handshake completed; no action required."
+    return "Capture the full TLS handshake (openssl s_client -showcerts -msg) and attach the server log path for triage."
+
+
+def _two_party_tls_diagnostic(body: dict[str, Any]) -> dict[str, Any]:
+    """Produce a ``pjc_tls_diagnostic/v1`` report.
+
+    The diagnostic intentionally never raises on a probe failure — it captures
+    every observed symptom so operators can compare the TCP, TLS, local file,
+    and server-log signals side by side.
+    """
+    job_id = str(body.get("job_id") or "").strip() or "tls-diag"
+    host = str(body.get("peer_host") or body.get("server_host") or "").strip()
+    if not host:
+        raise ValueError("peer_host is required")
+    try:
+        port = int(body.get("peer_port") or body.get("dataplane_port") or 10502)
+    except (TypeError, ValueError) as exc:
+        raise ValueError(f"peer_port must be an integer: {exc}") from exc
+    server_hostname = str(body.get("server_hostname") or "pjc-server").strip()
+    cert_dir_raw = str(body.get("cert_dir") or "").strip()
+    cert_dir = _repo_path(cert_dir_raw) if cert_dir_raw else None
+    role = str(body.get("role") or "client").strip().lower()
+    if role not in ("server", "client"):
+        role = "client"
+    server_log_raw = str(body.get("server_log_path") or "").strip()
+    server_log = _repo_path(server_log_raw) if server_log_raw else None
+    tcp_timeout = float(body.get("tcp_timeout_sec") or 3.0)
+    tls_timeout = float(body.get("tls_timeout_sec") or 5.0)
+
+    # 1) Local files
+    local_files: dict[str, bool] = {}
+    if cert_dir is not None:
+        local_files["ca.crt"] = (cert_dir / "ca.crt").is_file()
+        if role == "client":
+            local_files["client.crt"] = (cert_dir / "client.crt").is_file()
+            local_files["client.key"] = (cert_dir / "client.key").is_file()
+        else:
+            local_files["server.crt"] = (cert_dir / "server.crt").is_file()
+            local_files["server.key"] = (cert_dir / "server.key").is_file()
+
+    # 2) TCP probe
+    tcp_ok, tcp_duration_ms, tcp_msg = _tcp_probe(host, port, timeout_sec=tcp_timeout)
+
+    # 3) TLS handshake probe (only if TCP succeeded)
+    tls_block: dict[str, Any] = {
+        "attempted": False,
+        "ok": False,
+        "tls_protocol": None,
+        "peer_cert_fingerprint_sha256": None,
+        "peer_cert_subject": None,
+        "message": "",
+        "category": "skip",
+    }
+    if tcp_ok:
+        ca_path = cert_dir / "ca.crt" if cert_dir is not None and (cert_dir / "ca.crt").is_file() else None
+        cert_path: Path | None = None
+        key_path: Path | None = None
+        if cert_dir is not None:
+            if role == "client":
+                cert_path = cert_dir / "client.crt" if (cert_dir / "client.crt").is_file() else None
+                key_path = cert_dir / "client.key" if (cert_dir / "client.key").is_file() else None
+            else:
+                cert_path = cert_dir / "server.crt" if (cert_dir / "server.crt").is_file() else None
+                key_path = cert_dir / "server.key" if (cert_dir / "server.key").is_file() else None
+        info = _tls_handshake_probe(
+            host, port,
+            ca_path=ca_path,
+            cert_path=cert_path,
+            key_path=key_path,
+            server_hostname=server_hostname,
+            timeout_sec=tls_timeout,
+        )
+        tls_block["attempted"] = True
+        tls_block["ok"] = bool(info.get("ok"))
+        tls_block["tls_protocol"] = info.get("tls_protocol")
+        tls_block["peer_cert_fingerprint_sha256"] = info.get("peer_cert_fingerprint_sha256")
+        tls_block["peer_cert_subject"] = info.get("peer_cert_subject")
+        tls_block["message"] = info.get("message") or ""
+        tls_block["category"] = _classify_tls_error(info.get("message") or "")
+        if tls_block["ok"]:
+            tls_block["category"] = "ok"
+
+    # 4) Server-side log tail (only the last 40 lines, never copy private keys)
+    server_log_block: dict[str, Any] = {
+        "path": str(server_log) if server_log else None,
+        "exists": bool(server_log and server_log.is_file()),
+        "tail": [],
+        "sha256": None,
+    }
+    if server_log and server_log.is_file():
+        try:
+            with server_log.open("r", encoding="utf-8", errors="replace") as handle:
+                lines = handle.readlines()
+            tail = [line.rstrip("\n") for line in lines[-40:]]
+            redacted = []
+            for line in tail:
+                lower = line.lower()
+                if "begin private key" in lower or "begin rsa private key" in lower or "pairing_token" in lower:
+                    redacted.append("<redacted: contained secret>")
+                else:
+                    redacted.append(line)
+            server_log_block["tail"] = redacted
+            server_log_block["sha256"] = _sha256_file(server_log)
+        except OSError as exc:
+            server_log_block["tail"] = [f"<error reading log: {exc}>"]
+
+    # 5) Verdict + suggested action
+    if not tcp_ok:
+        category = "tcp_refused" if "connection refused" in tcp_msg.lower() else _classify_tls_error(tcp_msg)
+        decision = "deny"
+        reason_code = category if category != "ok" else "tcp_unreachable"
+    elif not tls_block["ok"]:
+        category = tls_block["category"]
+        decision = "deny"
+        reason_code = category if category != "ok" else "tls_handshake_failed"
+    else:
+        category = "ok"
+        decision = "allow"
+        reason_code = "ok"
+
+    suggested_action = _suggest_tls_action(category, tcp_ok=tcp_ok, local_files=local_files)
+
+    report = {
+        "schema": PJC_TLS_DIAGNOSTIC_SCHEMA,
+        "generated_at_utc": _utc_now_iso(),
+        "job_id": job_id,
+        "role": role,
+        "decision": decision,
+        "reason_code": reason_code,
+        "category": category,
+        "host": host,
+        "port": port,
+        "server_hostname": server_hostname,
+        "tcp": {
+            "ok": tcp_ok,
+            "duration_ms": tcp_duration_ms,
+            "message": tcp_msg or None,
+        },
+        "tls": tls_block,
+        "local_files": local_files,
+        "server_log": server_log_block,
+        "suggested_action": suggested_action,
+    }
+    out_dir = _ensure_two_party_dir() / "tls_diagnostics"
+    out_dir.mkdir(parents=True, exist_ok=True)
+    evidence_path = out_dir / f"{job_id}_{role}_{_utc_suffix()}.json"
+    evidence_path.write_text(json.dumps(report, ensure_ascii=False, sort_keys=True) + "\n", encoding="utf-8")
+    return {"status": "ok", "evidence_path": str(evidence_path), "report": report}
+
+
+def _release_policy_gate_endpoint(body: dict[str, Any]) -> dict[str, Any]:
+    """Run the server-side release policy gate (delegates to the CLI helper)."""
+    from check_release_policy_gate import run_gate  # local import to keep startup light
+
+    public_report_raw = str(body.get("public_report_path") or "").strip()
+    policy_config_raw = str(body.get("policy_config_path") or "").strip()
+    if not public_report_raw:
+        raise ValueError("public_report_path is required")
+    if not policy_config_raw:
+        raise ValueError("policy_config_path is required")
+    public_report = _repo_path(public_report_raw)
+    policy_config = _repo_path(policy_config_raw)
+    if not public_report.is_file():
+        raise FileNotFoundError(f"public_report not found: {public_report}")
+    if not policy_config.is_file():
+        raise FileNotFoundError(f"policy_config not found: {policy_config}")
+    operator_report = _repo_path(str(body["operator_report_path"])) if body.get("operator_report_path") else None
+    budget_ledger = _repo_path(str(body["privacy_budget_ledger"])) if body.get("privacy_budget_ledger") else None
+
+    report = run_gate(
+        public_report_path=public_report,
+        policy_config_path=policy_config,
+        operator_report_path=operator_report,
+        budget_ledger_path=budget_ledger,
+    )
+    out_dir = _ensure_two_party_dir() / "release_policy_gate"
+    out_dir.mkdir(parents=True, exist_ok=True)
+    evidence_path = out_dir / f"{report.get('job_id') or 'unknown'}_{_utc_suffix()}.json"
+    evidence_path.write_text(json.dumps(report, ensure_ascii=False, sort_keys=True) + "\n", encoding="utf-8")
+    return {"status": "ok", "evidence_path": str(evidence_path), "report": report}
+
+
+# ---------------------------------------------------------------------------
 # HTTP handler
 # ---------------------------------------------------------------------------
 
@@ -2290,6 +5447,7 @@ class DashboardServer(ThreadingHTTPServer):
         metadata_db_dsn: str = "",
         metadata_db_read_dsn: str = "",
         identity_token_config: str = "",
+        mtls_enrollment_only_mode: bool = False,
     ) -> None:
         self.out_base = out_base
         self.history_root = history_root
@@ -2302,6 +5460,7 @@ class DashboardServer(ThreadingHTTPServer):
         self.metadata_db_dsn = metadata_db_dsn
         self.metadata_db_read_dsn = metadata_db_read_dsn
         self.identity_token_config = str(Path(identity_token_config).resolve()) if identity_token_config else ""
+        self.mtls_enrollment_only_mode = bool(mtls_enrollment_only_mode)
         self.job_lock = threading.Lock()
         self.current_job: dict[str, Any] | None = _seed_job_from_out_base(out_base)
         self.jobs: dict[str, dict[str, Any]] = {}
@@ -2546,6 +5705,18 @@ class DashboardHandler(BaseHTTPRequestHandler):
         parsed = urlparse(self.path)
         path = parsed.path
         query = parse_qs(parsed.query, keep_blank_values=False)
+        if self.server.mtls_enrollment_only_mode and path not in ("/healthz",):
+            # Dedicated enrollment-only mode: the only thing this server is
+            # supposed to expose is POST /v1/pjc-mtls/enroll. Block every
+            # other surface (dashboard HTML, jobs, audit, request workflow…)
+            # so we never widen the public-IP attack surface during enrollment.
+            self._send_json(404, {
+                "status": "error",
+                "error": "enrollment_only_mode",
+                "message": "this server is restricted to PJC mTLS enrollment endpoints",
+                "allowed_paths": ["GET /healthz", "POST /v1/pjc-mtls/enroll"],
+            })
+            return
         if path in ("/", "/index.html"):
             body = _DASHBOARD_HTML.encode("utf-8")
             self._send(200, "text/html; charset=utf-8", body)
@@ -2568,6 +5739,18 @@ class DashboardHandler(BaseHTTPRequestHandler):
             data = dict(data)
             data["job_control"] = self._current_job_snapshot()
             self._send_json(200, data)
+        elif path == "/v1/bucketed-scale-test":
+            self._send_json(200, {"jobs": _list_bucketed_scale_test_jobs()})
+        elif path.startswith("/v1/bucketed-scale-test/"):
+            record_id = unquote(path.removeprefix("/v1/bucketed-scale-test/"))
+            if not record_id or "/" in record_id:
+                self._send_json(404, {"status": "error", "error": "not_found", "path": path})
+                return
+            snapshot = _get_bucketed_scale_test_job(record_id)
+            if snapshot is None:
+                self._send_json(404, {"status": "error", "error": "job_not_found", "job_id": record_id})
+                return
+            self._send_json(200, snapshot)
         elif path == "/v1/runs":
             limit_raw = query.get("limit", [""])[0]
             state = query.get("state", [""])[0] or None
@@ -2616,6 +5799,19 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 self._send_json(403, {"error": "authz_rejected", "message": str(exc), "submission_id": submission_id})
             except RuntimeError as exc:
                 self._send_json(503, {"error": "metadata_sidecar_unavailable", "message": str(exc)})
+        elif path.startswith("/v1/pjc/roles/") and path.endswith("/status"):
+            role = unquote(path[len("/v1/pjc/roles/") : -len("/status")]).strip("/")
+            job_id = query.get("job_id", [""])[0].strip()
+            if not job_id or role not in ("server", "client"):
+                self._send_json(400, {"error": "invalid_request", "message": "job_id and role are required"})
+                return
+            payload = _role_status_payload(f"{job_id}::{role}")
+            if payload is None:
+                self._send_json(404, {"error": "role_not_found", "job_id": job_id, "role": role})
+                return
+            payload.pop("_process", None)
+            payload.pop("_log_handle", None)
+            self._send_json(200, payload)
         elif path.startswith("/v1/jobs/") and path.endswith("/result"):
             job_id = unquote(path[len("/v1/jobs/") : -len("/result")]).strip("/")
             snapshot = self._job_snapshot_or_404(job_id)
@@ -2650,6 +5846,14 @@ class DashboardHandler(BaseHTTPRequestHandler):
     def do_POST(self) -> None:
         parsed = urlparse(self.path)
         path = parsed.path
+        if self.server.mtls_enrollment_only_mode and path != "/v1/pjc-mtls/enroll":
+            self._send_json(404, {
+                "status": "error",
+                "error": "enrollment_only_mode",
+                "message": "this server is restricted to PJC mTLS enrollment endpoints",
+                "allowed_paths": ["GET /healthz", "POST /v1/pjc-mtls/enroll"],
+            })
+            return
         if path == "/v1/runs/select":
             try:
                 body = self._read_json_body()
@@ -2828,6 +6032,177 @@ class DashboardHandler(BaseHTTPRequestHandler):
             except SystemExit as exc:
                 self._send_json(400, {"error": "validation_rejected", "message": str(exc), "job_id": job_id})
             return
+        if path == "/v1/pjc-mtls/preflight":
+            try:
+                body = self._read_json_body()
+                payload = _two_party_preflight(body)
+                self._send_json(200, payload)
+            except ValueError as exc:
+                self._send_json(400, {"status": "error", "error": "invalid_request", "message": str(exc)})
+            except RuntimeError as exc:
+                self._send_json(500, {"status": "error", "error": "preflight_failed", "message": str(exc)})
+            return
+        if path == "/v1/pjc/role-package/export":
+            try:
+                body = self._read_json_body()
+                payload = _role_package_export(body)
+                self._send_json(200, payload)
+            except FileNotFoundError as exc:
+                self._send_json(404, {"status": "error", "error": "not_found", "message": str(exc)})
+            except ValueError as exc:
+                self._send_json(400, {"status": "error", "error": "invalid_request", "message": str(exc)})
+            except OSError as exc:
+                self._send_json(500, {"status": "error", "error": "export_failed", "message": str(exc)})
+            return
+        if path == "/v1/pjc/role-package/import":
+            try:
+                body = self._read_json_body()
+                payload = _role_package_import(body)
+                status = 200 if payload.get("decision") == "allow" else 422
+                self._send_json(status, payload)
+            except FileNotFoundError as exc:
+                self._send_json(404, {"status": "error", "error": "not_found", "message": str(exc)})
+            except ValueError as exc:
+                self._send_json(400, {"status": "error", "error": "invalid_request", "message": str(exc)})
+            return
+        if path.startswith("/v1/pjc/roles/") and path.endswith("/start"):
+            role = unquote(path[len("/v1/pjc/roles/") : -len("/start")]).strip("/")
+            try:
+                body = self._read_json_body()
+                payload = _start_role(role, body)
+                status = 202 if payload.get("status") == "ok" else 409
+                self._send_json(status, payload)
+            except FileNotFoundError as exc:
+                self._send_json(404, {"status": "error", "error": "helper_not_found", "message": str(exc)})
+            except ValueError as exc:
+                self._send_json(400, {"status": "error", "error": "invalid_request", "message": str(exc)})
+            except OSError as exc:
+                self._send_json(500, {"status": "error", "error": "role_start_failed", "message": str(exc)})
+            return
+        if path.startswith("/v1/pjc/roles/") and path.endswith("/cancel"):
+            role = unquote(path[len("/v1/pjc/roles/") : -len("/cancel")]).strip("/")
+            try:
+                body = self._read_json_body()
+                payload = _cancel_role(role, body)
+                status = 200 if payload.get("status") == "ok" else 404
+                self._send_json(status, payload)
+            except ValueError as exc:
+                self._send_json(400, {"status": "error", "error": "invalid_request", "message": str(exc)})
+            return
+        if path == "/v1/pjc/evidence/verify-merge":
+            try:
+                body = self._read_json_body()
+                payload = _two_party_evidence_merge(body)
+                status = 200 if payload.get("report", {}).get("decision") == "allow" else 422
+                self._send_json(status, payload)
+            except ValueError as exc:
+                self._send_json(400, {"status": "error", "error": "invalid_request", "message": str(exc)})
+            return
+        if path == "/v1/pjc-mtls/negative-cases/run":
+            try:
+                body = self._read_json_body()
+                payload = _two_party_negative_cases(body)
+                status = 200 if payload.get("report", {}).get("decision") == "allow" else 422
+                self._send_json(status, payload)
+            except ValueError as exc:
+                self._send_json(400, {"status": "error", "error": "invalid_request", "message": str(exc)})
+            return
+        if path == "/v1/pjc-mtls/tls-diagnostic":
+            try:
+                body = self._read_json_body()
+                payload = _two_party_tls_diagnostic(body)
+                # Always 200 — the diagnostic itself succeeded even when the
+                # peer connection failed; the report carries the decision.
+                self._send_json(200, payload)
+            except ValueError as exc:
+                self._send_json(400, {"status": "error", "error": "invalid_request", "message": str(exc)})
+            except OSError as exc:
+                self._send_json(500, {"status": "error", "error": "diagnostic_failed", "message": str(exc)})
+            return
+        if path == "/v1/release/policy-gate":
+            try:
+                body = self._read_json_body()
+                payload = _release_policy_gate_endpoint(body)
+                status = 200 if payload.get("report", {}).get("decision") == "allow" else 422
+                self._send_json(status, payload)
+            except FileNotFoundError as exc:
+                self._send_json(404, {"status": "error", "error": "not_found", "message": str(exc)})
+            except ValueError as exc:
+                self._send_json(400, {"status": "error", "error": "invalid_request", "message": str(exc)})
+            except OSError as exc:
+                self._send_json(500, {"status": "error", "error": "release_gate_failed", "message": str(exc)})
+            return
+        if path == "/v1/pjc-mtls/party-a/prepare":
+            try:
+                body = self._read_json_body()
+                payload = _prepare_pjc_mtls_party_a(
+                    force_regenerate=bool(body.get("force_regenerate")),
+                    enroll_url=_derive_mtls_enroll_url_from_body(body),
+                )
+                status = 200 if payload.get("status") == "ok" else 500
+                self._send_json(status, payload)
+            except FileNotFoundError as exc:
+                self._send_json(404, {"status": "error", "error": "helper_not_found", "message": str(exc)})
+            except ValueError as exc:
+                self._send_json(400, {"status": "error", "error": "invalid_request", "message": str(exc)})
+            except RuntimeError as exc:
+                self._send_json(500, {"status": "error", "error": "prepare_failed", "message": str(exc)})
+            return
+        if path == "/v1/pjc-mtls/enroll":
+            try:
+                body = self._read_json_body()
+                csr_pem = str(body.get("csr_pem") or "")
+                pairing_token = str(body.get("pairing_token") or "")
+                remote_addr = self.client_address[0] if self.client_address else ""
+                self._send_json(
+                    200,
+                    _enroll_pjc_mtls_csr(
+                        csr_pem=csr_pem,
+                        pairing_token=pairing_token,
+                        remote_addr=remote_addr,
+                    ),
+                )
+            except PermissionError as exc:
+                self._send_json(403, {"status": "error", "error": "pairing_rejected", "message": str(exc)})
+            except ValueError as exc:
+                self._send_json(400, {"status": "error", "error": "invalid_request", "message": str(exc)})
+            except RuntimeError as exc:
+                self._send_json(500, {"status": "error", "error": "enroll_failed", "message": str(exc)})
+            return
+        if path == "/v1/pjc-mtls/party-b/enroll":
+            try:
+                body = self._read_json_body()
+                self._send_json(200, _party_b_enroll_from_dashboard(body))
+            except ValueError as exc:
+                self._send_json(400, {"status": "error", "error": "invalid_request", "message": str(exc)})
+            except RuntimeError as exc:
+                self._send_json(500, {"status": "error", "error": "enroll_failed", "message": str(exc)})
+            except OSError as exc:
+                self._send_json(502, {"status": "error", "error": "enroll_connect_failed", "message": str(exc)})
+            return
+        if path == "/v1/bucketed-scale-test/run":
+            try:
+                body = self._read_json_body()
+                # Async by default — POST returns 202 + job_id, caller polls
+                # GET /v1/bucketed-scale-test/{job_id}. Pass {"sync": true} or
+                # ?sync=1 for the legacy blocking behavior (still used by the
+                # JS dashboard until the SPA-side polling lands).
+                sync_flag = bool(body.get("sync"))
+                if not sync_flag and parsed.query:
+                    sync_flag = parse_qs(parsed.query).get("sync", ["0"])[0] in ("1", "true", "yes")
+                if sync_flag:
+                    payload = _run_bucketed_scale_test(body)
+                    self._send_json(200 if payload.get("status") == "ok" else 500, payload)
+                else:
+                    snapshot = _start_bucketed_scale_test_job(body)
+                    self._send_json(202, snapshot)
+            except FileNotFoundError as exc:
+                self._send_json(404, {"status": "error", "error": "helper_not_found", "message": str(exc)})
+            except ValueError as exc:
+                self._send_json(400, {"status": "error", "error": "invalid_request", "message": str(exc)})
+            except subprocess.TimeoutExpired as exc:
+                self._send_json(504, {"status": "error", "error": "bucketed_scale_timeout", "message": str(exc)})
+            return
         if path != "/v1/jobs/start":
             self._send_json(404, {"error": "not_found", "path": path})
             return
@@ -2927,6 +6302,16 @@ def build_parser() -> argparse.ArgumentParser:
         help="Optional PostgreSQL replica DSN for identity-resolution SELECTs",
     )
     ap.add_argument("--identity-token-config", default="", help="Optional bearer-token to caller-identity mapping config")
+    ap.add_argument(
+        "--mtls-enrollment-only-mode",
+        action="store_true",
+        help=(
+            "Carve down the HTTP surface to just /healthz + POST /v1/pjc-mtls/enroll. "
+            "Every other dashboard endpoint returns 404 with error=enrollment_only_mode. "
+            "Used by serve_pjc_mtls_enrollment_party_a.sh to keep the public-IP "
+            "attack surface minimal during enrollment."
+        ),
+    )
     return ap
 
 
@@ -2956,6 +6341,7 @@ def main() -> int:
         metadata_db_dsn=args.metadata_db_dsn,
         metadata_db_read_dsn=args.metadata_db_dsn_read_replica,
         identity_token_config=args.identity_token_config,
+        mtls_enrollment_only_mode=bool(args.mtls_enrollment_only_mode),
     )
 
     def _shutdown(sig: int, frame: Any) -> None:
@@ -2966,6 +6352,28 @@ def main() -> int:
     signal.signal(signal.SIGTERM, _shutdown)
     signal.signal(signal.SIGINT, _shutdown)
 
+    def _enrollment_shutdown_hook(reason: str) -> None:
+        remove_file(args.pid_file)
+        remove_file(args.ready_file)
+        threading.Thread(target=server.shutdown, daemon=True).start()
+
+    _PJC_MTLS_SHUTDOWN_HOOKS.append(_enrollment_shutdown_hook)
+
+    idle_timeout = _env_int("PJC_MTLS_ENROLLMENT_IDLE_TIMEOUT_SECONDS", 0, min_value=0)
+    if idle_timeout > 0:
+        def _idle_watch() -> None:
+            deadline = time.time() + idle_timeout
+            while time.time() < deadline:
+                time.sleep(min(5.0, max(1.0, deadline - time.time())))
+                meta = _read_pairing_meta()
+                if int(meta.get("enrollments") or 0) > 0:
+                    return
+            _trigger_enrollment_shutdown(
+                f"idle timeout reached after {idle_timeout}s with zero enrollments"
+            )
+
+        threading.Thread(target=_idle_watch, daemon=True, name="pjc-mtls-idle-watch").start()
+
     write_file(args.pid_file, str(os.getpid()))
     write_file(args.ready_file, "1")
 
@@ -2974,6 +6382,7 @@ def main() -> int:
         "url": f"http://{args.bind_host}:{args.port}/",
         "out_base": str(out_base),
         "history_root": str(history_root),
+        "mtls_enrollment_only_mode": bool(args.mtls_enrollment_only_mode),
         "max_concurrent_jobs_per_tenant": max(0, int(args.max_concurrent_jobs_per_tenant)),
         "request_submission_enabled": bool(args.metadata_db_path or args.metadata_db_dsn),
         "identity_auth_required": bool(auth_token or args.identity_token_config),

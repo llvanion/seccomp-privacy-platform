@@ -34,10 +34,33 @@ def load_json_object(path: str) -> Dict[str, Any]:
 
 
 def save_json_object(path: str, data: Dict[str, Any]) -> None:
-    os.makedirs(os.path.dirname(os.path.abspath(path)) or ".", exist_ok=True)
-    with open(path, "w", encoding="utf-8") as f:
-        json.dump(data, f, ensure_ascii=False, indent=2)
-        f.write("\n")
+    abs_path = os.path.abspath(path)
+    target_dir = os.path.dirname(abs_path) or "."
+    os.makedirs(target_dir, exist_ok=True)
+    # Atomic write: tempfile in the same directory + fsync + os.replace.
+    # A kill -9 between bytes can no longer leave a half-written keyring on disk.
+    import tempfile
+    fd, tmp_path = tempfile.mkstemp(prefix=".", suffix=".tmp", dir=target_dir)
+    try:
+        try:
+            os.chmod(tmp_path, 0o600)
+        except OSError:
+            pass
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            json.dump(data, f, ensure_ascii=False, indent=2)
+            f.write("\n")
+            f.flush()
+            try:
+                os.fsync(f.fileno())
+            except OSError:
+                pass
+        os.replace(tmp_path, abs_path)
+    except BaseException:
+        try:
+            os.unlink(tmp_path)
+        except OSError:
+            pass
+        raise
 
 
 def append_jsonl(path: str, record: Dict[str, Any]) -> None:
@@ -220,13 +243,19 @@ def ensure_key_access_allowed(*,
     if version_value.get("status", "active") != "active":
         raise PermissionError(f"key {key_name} version {version} is not active")
 
-    allowed_callers = key_value.get("allowed_callers", [])
-    if allowed_callers is None:
-        allowed_callers = []
-    if not isinstance(allowed_callers, list):
-        raise ValueError(f"key {key_name} allowed_callers must be a list")
-    if allowed_callers and caller not in {str(item) for item in allowed_callers}:
-        raise PermissionError(f"caller {caller} is not allowed to access key {key_name}")
+    if "allowed_callers" in key_value:
+        allowed_callers = key_value.get("allowed_callers")
+        if allowed_callers is None or not isinstance(allowed_callers, list):
+            raise ValueError(f"key {key_name} allowed_callers must be a list when present")
+        if not allowed_callers:
+            # Empty list used to silently mean "unrestricted" — refuse it now.
+            # If you really want no per-caller restriction, omit the field entirely.
+            raise PermissionError(
+                f"key {key_name} has allowed_callers=[]; that meant 'everyone' historically "
+                f"and is rejected. Omit the field for unrestricted, or list explicit callers."
+            )
+        if caller not in {str(item) for item in allowed_callers}:
+            raise PermissionError(f"caller {caller} is not allowed to access key {key_name}")
 
     secret_ref = version_value.get("secret_ref")
     normalized_secret_ref = normalize_secret_ref(secret_ref)

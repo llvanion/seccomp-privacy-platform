@@ -31,6 +31,14 @@ OUT_DIR="${OUT_DIR:-$MODULE_ROOT/runs/$JOB_ID}"
 CLIENT_CSV="${CLIENT_CSV:-/tmp/client.csv}"
 GRPC_MAX_MESSAGE_MB="${GRPC_MAX_MESSAGE_MB:-512}"
 PJC_GRPC_STREAM_CHUNK_ELEMENTS="${PJC_GRPC_STREAM_CHUNK_ELEMENTS:-4096}"
+PJC_RESOURCE_LIMITS="${PJC_RESOURCE_LIMITS:-}"
+PJC_PREFLIGHT_REQUIRED="${PJC_PREFLIGHT_REQUIRED:-0}"
+PJC_PREFLIGHT_CALLER="${PJC_PREFLIGHT_CALLER:-auto_demo}"
+PJC_PREFLIGHT_TENANT_ID="${PJC_PREFLIGHT_TENANT_ID:-}"
+PJC_PREFLIGHT_DATASET_ID="${PJC_PREFLIGHT_DATASET_ID:-}"
+PJC_PREFLIGHT_PURPOSE="${PJC_PREFLIGHT_PURPOSE:-bridge_token}"
+PJC_PREFLIGHT_SERVER_CSV="${PJC_PREFLIGHT_SERVER_CSV:-}"
+PJC_PREFLIGHT_SERVER_ROWS="${PJC_PREFLIGHT_SERVER_ROWS:-0}"
 SERVER_CONNECT_RETRIES="${SERVER_CONNECT_RETRIES:-10}"
 SERVER_CONNECT_DELAY_SEC="${SERVER_CONNECT_DELAY_SEC:-2}"
 RESULT_CALLBACK_URL="${RESULT_CALLBACK_URL:-}"
@@ -54,6 +62,9 @@ _require "$CERT_DIR/ca.crt"
 _require "$CERT_DIR/client.crt"
 _require "$CERT_DIR/client.key"
 
+SESSION_MANIFEST="${PJC_MTLS_SESSION_MANIFEST:-$CERT_DIR/session_manifest.json}"
+PJC_MTLS_REQUIRE_SESSION_MANIFEST="${PJC_MTLS_REQUIRE_SESSION_MANIFEST:-0}"
+
 mkdir -p "$OUT_DIR"
 
 unset http_proxy https_proxy all_proxy HTTP_PROXY HTTPS_PROXY ALL_PROXY || true
@@ -66,6 +77,25 @@ echo "[info] PJC binary → 127.0.0.1:${LOCAL_PROXY_PORT} (socat) → TLS → ${
 echo "[info] TLS_SERVER_COMMON_NAME=$TLS_SERVER_COMMON_NAME"
 echo "[info] OUT_DIR=$OUT_DIR"
 
+if [[ -f "$SESSION_MANIFEST" ]]; then
+  SESSION_CHECK="$OUT_DIR/pjc_mtls_session_check_client.json"
+  echo "[info] validating PJC mTLS session manifest: $SESSION_MANIFEST"
+  python3 "$MODULE_ROOT/../scripts/check_pjc_mtls_session_manifest.py" \
+    --manifest "$SESSION_MANIFEST" \
+    --cert-dir "$CERT_DIR" \
+    --role client \
+    --job-id "$JOB_ID" \
+    --output "$SESSION_CHECK" \
+    --assert-allow \
+    > /dev/null
+  echo "[ok] session manifest accepted: $SESSION_CHECK"
+elif [[ "$PJC_MTLS_REQUIRE_SESSION_MANIFEST" == "1" ]]; then
+  echo "[error] PJC_MTLS_REQUIRE_SESSION_MANIFEST=1 but no manifest found at $SESSION_MANIFEST" >&2
+  exit 1
+else
+  echo "[warn] no PJC mTLS session manifest found; legacy reusable-cert mode is allowed for this run" >&2
+fi
+
 # ── Resolve PJC binary ────────────────────────────────────────────────────────
 PJC_DIR="${PJC_DIR:-$MODULE_ROOT/private-join-and-compute}"
 PJC_BIN_DIR="${PJC_BIN_DIR:-}"
@@ -76,6 +106,36 @@ resolve_path() {
 }
 CLIENT_CSV="$(resolve_path "$CLIENT_CSV")"
 [[ -f "$CLIENT_CSV" ]] || { echo "[error] CLIENT_CSV not found: $CLIENT_CSV" >&2; exit 1; }
+
+if [[ -n "$PJC_RESOURCE_LIMITS" ]]; then
+  PREFLIGHT_REPORT="$OUT_DIR/pjc_preflight_client.json"
+  PREFLIGHT_ARGS=(
+    --resource-limits "$(resolve_path "$PJC_RESOURCE_LIMITS")"
+    --client-csv "$CLIENT_CSV"
+    --caller "$PJC_PREFLIGHT_CALLER"
+    --job-id "$JOB_ID"
+    --transport-mode streaming_grpc
+    --chunk-size-elements "$PJC_GRPC_STREAM_CHUNK_ELEMENTS"
+    --output "$PREFLIGHT_REPORT"
+    --assert-allow
+  )
+  [[ -n "$PJC_PREFLIGHT_TENANT_ID" ]] && PREFLIGHT_ARGS+=(--tenant-id "$PJC_PREFLIGHT_TENANT_ID")
+  [[ -n "$PJC_PREFLIGHT_DATASET_ID" ]] && PREFLIGHT_ARGS+=(--dataset-id "$PJC_PREFLIGHT_DATASET_ID")
+  [[ -n "$PJC_PREFLIGHT_PURPOSE" ]] && PREFLIGHT_ARGS+=(--purpose "$PJC_PREFLIGHT_PURPOSE")
+  if [[ -n "$PJC_PREFLIGHT_SERVER_CSV" ]]; then
+    PREFLIGHT_ARGS+=(--server-csv "$(resolve_path "$PJC_PREFLIGHT_SERVER_CSV")")
+  else
+    PREFLIGHT_ARGS+=(--server-rows "$PJC_PREFLIGHT_SERVER_ROWS")
+  fi
+  echo "[info] running PJC preflight: $PREFLIGHT_REPORT"
+  python3 "$MODULE_ROOT/../scripts/preflight_pjc_job.py" "${PREFLIGHT_ARGS[@]}" > /dev/null
+  echo "[ok] PJC preflight accepted client-side launch"
+elif [[ "$PJC_PREFLIGHT_REQUIRED" == "1" ]]; then
+  echo "[error] PJC_PREFLIGHT_REQUIRED=1 but PJC_RESOURCE_LIMITS is unset" >&2
+  exit 1
+else
+  echo "[warn] PJC resource preflight skipped; set PJC_RESOURCE_LIMITS to enable it" >&2
+fi
 
 if [[ -n "$PJC_BIN_DIR" ]]; then
   BIN_DIR="$(resolve_path "$PJC_BIN_DIR")"
@@ -191,3 +251,5 @@ echo "[ok] intersection_size=$INTERSECTION_SIZE  intersection_sum=$INTERSECTION_
   --url "$RESULT_CALLBACK_URL" \
   --result "$RESULT_JSON" \
   --token "$RESULT_CALLBACK_TOKEN"
+
+exit 0

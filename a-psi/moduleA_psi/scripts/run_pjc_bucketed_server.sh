@@ -24,12 +24,14 @@ PY='import json,sys; m=json.load(open(sys.argv[1])); b=m.get("bucket",{}); print
 mapfile -t INFO < <(python3 -c "$PY" "$JOB_DIR/job_meta.json")
 BUCKET_FIELD="${INFO[0]}"
 [[ -n "$BUCKET_FIELD" ]] || die "job_meta.json has no bucket_field; use run_pjc_server.sh for non-bucketed jobs"
+JOB_META_ID="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1])).get("job_id") or "")' "$JOB_DIR/job_meta.json")"
+[[ -n "$JOB_META_ID" ]] || JOB_META_ID="$(basename "$JOB_DIR")"
 
 for bucket in "${INFO[@]:1}"; do
   sub="$JOB_DIR/bucket_${BUCKET_FIELD}=${bucket}"
   [[ -f "$sub/server.csv" ]] || die "missing $sub/server.csv"
   log "serving bucket=$bucket from $sub"
-  export PJC_DIR JOB_ID="$(basename "$JOB_DIR")" OUT_DIR="$sub"
+  export PJC_DIR JOB_ID="$JOB_META_ID" OUT_DIR="$sub"
   export SERVER_CSV="$sub/server.csv" SERVER_ADDR GRPC_MAX_MESSAGE_MB PJC_BUILD
   export PJC_GRPC_STREAM_CHUNK_ELEMENTS
   bash "$RUN_PJC_SERVER_SH"

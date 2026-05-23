@@ -40,6 +40,15 @@
     "caller": {
       "type": "string"
     },
+    "tenant_id": {
+      "type": ["string", "null"]
+    },
+    "dataset_id": {
+      "type": ["string", "null"]
+    },
+    "purpose": {
+      "type": ["string", "null"]
+    },
     "window": {
       "type": "object"
     },

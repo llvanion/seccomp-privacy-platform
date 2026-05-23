@@ -1,0 +1,23 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "release_policy_gate_config/v1",
+  "title": "Server-side release policy gate config",
+  "type": "object",
+  "required": ["schema", "require_dp", "min_k", "require_privacy_budget", "allowed_deny_reason_codes"],
+  "properties": {
+    "schema": { "const": "release_policy_gate_config/v1" },
+    "require_dp": { "type": "boolean" },
+    "min_dp_epsilon": { "type": "number", "minimum": 0 },
+    "max_dp_epsilon": { "type": "number", "minimum": 0 },
+    "min_k": { "type": "integer", "minimum": 1 },
+    "require_privacy_budget": { "type": "boolean" },
+    "budget_ledger_path": { "type": ["string", "null"] },
+    "duplicate_query_denied": { "type": "boolean" },
+    "allowed_deny_reason_codes": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "type": "string", "minLength": 1 }
+    }
+  },
+  "additionalProperties": false
+}

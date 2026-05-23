@@ -85,6 +85,22 @@ run_one_bucket() {
   [[ -f "$sub/server.csv" ]] || die "missing $sub/server.csv"
   [[ -f "$sub/client.csv" ]] || die "missing $sub/client.csv"
 
+  local exposure_n purchase_n
+  exposure_n="$(wc -l < "$sub/server.csv" | tr -d ' ')"
+  purchase_n="$(wc -l < "$sub/client.csv" | tr -d ' ')"
+  if [[ "$exposure_n" == "0" || "$purchase_n" == "0" ]]; then
+    log "skip empty bucket=$bucket exposure_n=$exposure_n purchase_n=$purchase_n"
+    cat > "$sub/attribution_result.json" <<JSON
+{
+  "job_id": "$(basename "$JOB_DIR")",
+  "server_addr": "skipped-empty-bucket",
+  "intersection_size": 0,
+  "intersection_sum": 0
+}
+JSON
+    return 0
+  fi
+
   log "bucket=$bucket port=$port"
   export PJC_DIR="$PJC_DIR"
   export JOB_ID="$(basename "$JOB_DIR")"

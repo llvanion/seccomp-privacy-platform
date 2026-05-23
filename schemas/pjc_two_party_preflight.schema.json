@@ -1,0 +1,206 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "pjc_two_party_preflight/v1",
+  "title": "PJC two-party preflight decision report",
+  "type": "object",
+  "required": [
+    "schema",
+    "generated_at_utc",
+    "job_id",
+    "role",
+    "decision",
+    "reason_code",
+    "checks",
+    "findings"
+  ],
+  "properties": {
+    "schema": { "const": "pjc_two_party_preflight/v1" },
+    "generated_at_utc": { "type": "string", "format": "date-time" },
+    "job_id": { "type": "string", "minLength": 1 },
+    "role": { "enum": ["server", "client", "both"] },
+    "decision": { "enum": ["allow", "deny"] },
+    "reason_code": {
+      "enum": [
+        "ok",
+        "commit_mismatch",
+        "helper_version_mismatch",
+        "pjc_binary_missing",
+        "tcp_unreachable",
+        "tls_handshake_failed",
+        "peer_identity_mismatch",
+        "ca_fingerprint_mismatch",
+        "input_manifest_hash_mismatch",
+        "input_csv_missing",
+        "resource_limit_exceeded",
+        "output_path_unwritable",
+        "config_error"
+      ]
+    },
+    "reason": { "type": ["string", "null"] },
+    "expected_peer_role": { "type": ["string", "null"] },
+    "expected_peer_identity": { "type": ["string", "null"] },
+    "expected_ca_fingerprint_sha256": { "type": ["string", "null"] },
+    "expected_commit": { "type": ["string", "null"] },
+    "expected_dataplane_port": { "type": ["integer", "null"], "minimum": 0 },
+    "checks": {
+      "type": "object",
+      "required": [
+        "commit",
+        "helper_script",
+        "pjc_binary",
+        "tcp_probe",
+        "tls_handshake",
+        "peer_identity",
+        "input_manifest",
+        "resource_limits",
+        "output_path"
+      ],
+      "properties": {
+        "commit": {
+          "type": "object",
+          "required": ["status"],
+          "properties": {
+            "status": { "enum": ["ok", "skip", "deny"] },
+            "actual": { "type": ["string", "null"] },
+            "expected": { "type": ["string", "null"] },
+            "message": { "type": ["string", "null"] }
+          },
+          "additionalProperties": false
+        },
+        "helper_script": {
+          "type": "object",
+          "required": ["status"],
+          "properties": {
+            "status": { "enum": ["ok", "skip", "deny"] },
+            "actual_sha256": { "type": ["string", "null"] },
+            "expected_sha256": { "type": ["string", "null"] },
+            "script_path": { "type": ["string", "null"] },
+            "message": { "type": ["string", "null"] }
+          },
+          "additionalProperties": false
+        },
+        "pjc_binary": {
+          "type": "object",
+          "required": ["status"],
+          "properties": {
+            "status": { "enum": ["ok", "skip", "deny"] },
+            "binary_path": { "type": ["string", "null"] },
+            "expected_flag": { "type": ["string", "null"] },
+            "message": { "type": ["string", "null"] }
+          },
+          "additionalProperties": false
+        },
+        "tcp_probe": {
+          "type": "object",
+          "required": ["status"],
+          "properties": {
+            "status": { "enum": ["ok", "skip", "deny"] },
+            "host": { "type": ["string", "null"] },
+            "port": { "type": ["integer", "null"], "minimum": 0 },
+            "duration_ms": { "type": ["number", "null"], "minimum": 0 },
+            "message": { "type": ["string", "null"] }
+          },
+          "additionalProperties": false
+        },
+        "tls_handshake": {
+          "type": "object",
+          "required": ["status"],
+          "properties": {
+            "status": { "enum": ["ok", "skip", "deny"] },
+            "peer_cert_subject": { "type": ["string", "null"] },
+            "peer_cert_fingerprint_sha256": { "type": ["string", "null"] },
+            "tls_protocol": { "type": ["string", "null"] },
+            "message": { "type": ["string", "null"] }
+          },
+          "additionalProperties": false
+        },
+        "peer_identity": {
+          "type": "object",
+          "required": ["status"],
+          "properties": {
+            "status": { "enum": ["ok", "skip", "deny"] },
+            "actual_identity": { "type": ["string", "null"] },
+            "expected_identity": { "type": ["string", "null"] },
+            "ca_fingerprint_sha256": { "type": ["string", "null"] },
+            "decision": { "type": ["string", "null"] },
+            "reason_code": { "type": ["string", "null"] },
+            "message": { "type": ["string", "null"] }
+          },
+          "additionalProperties": false
+        },
+        "input_manifest": {
+          "type": "object",
+          "required": ["status"],
+          "properties": {
+            "status": { "enum": ["ok", "skip", "deny"] },
+            "csv_path": { "type": ["string", "null"] },
+            "csv_sha256": { "type": ["string", "null"] },
+            "manifest_sha256": { "type": ["string", "null"] },
+            "rows": { "type": ["integer", "null"], "minimum": 0 },
+            "bytes": { "type": ["integer", "null"], "minimum": 0 },
+            "message": { "type": ["string", "null"] }
+          },
+          "additionalProperties": false
+        },
+        "resource_limits": {
+          "type": "object",
+          "required": ["status"],
+          "properties": {
+            "status": { "enum": ["ok", "skip", "deny"] },
+            "max_rows": { "type": ["integer", "null"], "minimum": 0 },
+            "max_bytes": { "type": ["integer", "null"], "minimum": 0 },
+            "max_buckets": { "type": ["integer", "null"], "minimum": 0 },
+            "actual_rows": { "type": ["integer", "null"], "minimum": 0 },
+            "actual_bytes": { "type": ["integer", "null"], "minimum": 0 },
+            "actual_buckets": { "type": ["integer", "null"], "minimum": 0 },
+            "message": { "type": ["string", "null"] }
+          },
+          "additionalProperties": false
+        },
+        "output_path": {
+          "type": "object",
+          "required": ["status"],
+          "properties": {
+            "status": { "enum": ["ok", "skip", "deny"] },
+            "out_dir": { "type": ["string", "null"] },
+            "writable": { "type": ["boolean", "null"] },
+            "unique": { "type": ["boolean", "null"] },
+            "message": { "type": ["string", "null"] }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    },
+    "findings": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["kind", "message"],
+        "properties": {
+          "kind": {
+            "enum": [
+              "commit_mismatch",
+              "helper_version_mismatch",
+              "pjc_binary_missing",
+              "tcp_unreachable",
+              "tls_handshake_failed",
+              "peer_identity_mismatch",
+              "ca_fingerprint_mismatch",
+              "input_manifest_hash_mismatch",
+              "input_csv_missing",
+              "resource_limit_exceeded",
+              "output_path_unwritable",
+              "config_error"
+            ]
+          },
+          "message": { "type": "string", "minLength": 1 },
+          "expected": {},
+          "actual": {}
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  "additionalProperties": false
+}

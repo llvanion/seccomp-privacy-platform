@@ -81,16 +81,22 @@ The platform has unusually complete operator tooling for a prototype: platform h
 
 ## 2. Risk Summary
 
+> **2026-05-17 update:** Many of the items below are now closed in code across
+> rounds 1-7 of Engineer A's control-plane hardening. See
+> [`CONTROL_PLANE_HARDENING_LOG.md`](CONTROL_PLANE_HARDENING_LOG.md) for the
+> audit-ID index and the permanent regression-smoke list. The tables below
+> retain the original audit row with a new **Resolution** column.
+
 ### Open Risks (documented in project)
 
-| Risk | Severity | Status |
+| Risk | Severity | Resolution |
 |---|---|---|
-| Bridge-ready CSV handoff is plaintext (file mode) | Medium | Mitigated by FIFO mode and cleanup-by-default; `handoff_exposure_assessment` in mainline contract tracks this |
-| Token secret is env-backed, not real KMS/HSM | Medium | Mock KMS exists; real KMS path (Vault/cloud KMS) is planned (Engineer A backlog) |
-| Policy is file-config based, not durable SQL control plane | Medium | SQL sidecar exists as read-only overlay; write-path control plane is in Engineer A backlog |
-| Linear O(n) scans in rate limit / nonce checks | Low | Acceptable for prototype scale; needs indexing for high-volume production |
-| Laplace DP noise uses `random.uniform` | Low | Not cryptographically random; low risk for current demo use |
-| Missing timestamp → anti-replay check is opt-in | Low | Provided client always sends timestamp; only risk is custom clients |
+| Bridge-ready CSV handoff is plaintext (file mode) | Medium | Still open in code; FIFO mode + cleanup-by-default + `handoff_exposure_assessment` are the documented mitigations. Owner-track (S1). |
+| Token secret is env-backed, not real KMS/HSM | Medium | Repo-side Vault HTTP / AWS KMS adapters complete (`scripts/keyring_lib.py`). Live Vault drill is operator-side (A.2). |
+| Policy is file-config based, not durable SQL control plane | Medium | SQL sidecar exists as read-only overlay; write-path control plane is in Engineer 2 backlog. Still partial. |
+| Linear O(n) scans in rate limit / nonce checks | Low | Acceptable for prototype scale; needs indexing for high-volume production. Open. |
+| Laplace DP noise uses `random.uniform` | Low | **Closed** — `policy_postprocess_buckets.py` now uses `secrets.SystemRandom`. `--require-dp` fail-closed flag added on both stages (A.11). |
+| Missing timestamp → anti-replay check is opt-in | Low | Open by design — provided client always sends timestamp; only risk is custom clients. |
 
 ### Security Tooling Gaps (cross-cutting)
 
@@ -102,34 +108,55 @@ The platform has unusually complete operator tooling for a prototype: platform h
 
 ### Code Quality Observations (not project-documented)
 
-| Item | Module | Severity |
+| Item | Module | Severity | Resolution |
+|---|---|---|---|
+| Phone normalizer is basic (no full E.164 normalization) | Bridge | Low | **Closed (A.18)** — `normalize_phone` now rejects bare `+`, > 15 digits, and `+0…`; `NORMALIZER_SCHEMA_VERSION` unchanged so existing tokens are stable. 5 new `cargo test` cases. |
+| `dedup_policy` is only validated in Python, not Rust | Bridge | Low | Open (Owner-track). |
+| Import is not atomic (no rollback on partial failure) | SQL sidecar | Low | **Closed (A.16)** — `import_run_metadata.py:import_runs` wraps the loop in explicit try/`conn.rollback()`; `main()` adds defence-in-depth rollback. |
+| `random.uniform` for Laplace noise | A-PSI policy release | Low | **Closed** — now uses `secrets.SystemRandom`; `--require-dp` fail-closed flag (A.11) for full enforcement. |
+| No rate limit on `serve_metadata_api.py` | SQL sidecar HTTP | Low | **Closed (A.15)** — per-caller token bucket via `--rate-limit-per-caller` / `--rate-limit-burst`; `/healthz` bypassed; HTTP 429 past burst. Regression smoke `scripts/check_metadata_api_rate_limit_smoke.py`. |
+| `allowed_callers = []` in keyring means unrestricted access | Key management | Medium | **Closed (A.4)** — empty list now hard-rejected at access time; field-absent retains legacy "unrestricted" semantics. |
+| Key agent auth is plain equality check, not HMAC-signed | Key management | Low | **Closed (A.6)** — `hmac.compare_digest` everywhere bearer/key-agent tokens are compared. |
+| Keyring file written without temp-file+rename atomicity | Key management | Low | **Closed (A.7)** — `save_json_object` uses `tempfile.mkstemp` + 0600 + `fsync` + `os.replace` in the same directory. |
+| Worker subprocess stdin candidate set has no size limit | Record recovery | Low | **Closed (A.9)** — `--max-candidate-ids` / `RECORD_RECOVERY_MAX_CANDIDATE_IDS` caps inbound list length before the set is materialized; HTTP service also accepts `--max-request-body-bytes` (returns 413). |
+| Query workflow `SECRET_FIELDS` set declared but not redacted in `build_command` | Pipeline scripts | Low | Open (Engineer B track). |
+| Observability artifact IDs for FIFO-mode items include sequential index (not stable across re-runs) | Sidecar exporters | Low | Open (Engineer B track). |
+| Authz policy loaded at service startup; policy file changes require service restart | Record recovery | Low | **Closed (A.8)** — SIGHUP triggers in-process reload via `RecordRecoveryServiceState.reload_authz_policy`; bad JSON keeps old policy and emits structured `authz_reload_status=error` log. |
+| Keyring transport auto-detection in `config.py` is implicit (no transport = infer from other fields) | Record recovery | Low | Open (Owner-track). |
+| `allowed_callers = []` in authz means no per-caller restriction (only `allowed_callers` service-level list applies) | Record recovery authz | Low | Kept as designed — service-level intent differs from keyring; the keyring trap (A.4) was the real bug. |
+| `min_output_rows` enforcement can leak membership via zero-row vs non-zero-row distinction | Record recovery authz | Informational | **Closed (A.10)** — `--suppress-min-rows-side-channel` (env: `RECORD_RECOVERY_SUPPRESS_MIN_ROWS_SIDE_CHANNEL=1`) collapses below-min into a uniform zero-row success; audit still records `min_rows_suppressed=true` for the operator. Regression smoke `scripts/check_min_rows_side_channel_smoke.py`. |
+| Silently drops rows with empty join-key or value-field during row selection | Record recovery common | Low | Open (Owner-track). |
+| `available_port` has TOCTOU race between port allocation and service bind | Runtime helpers | Low | **Closed (A.17)** — probe now sets `SO_REUSEADDR`; new `reserve_available_port()` returns `(port, sock)` for in-process callers that want a true reservation. |
+| HTTP adapter bearer-token comparison is plain equality, not constant-time | HTTP adapters | Low | **Closed (A.3)** — `hmac.compare_digest` in `scripts/api_identity.py`, `serve_identity_proxy.py`, and `services/record_recovery/http_service.py`. Covers metadata, audit, query, platform-health, operator-dashboard via the shared `resolve_request_identity`. |
+| Metadata API serializes all DB access with a global `threading.Lock` | HTTP adapters | Low | Open (performance, not security). |
+| Filter values in SSE export audit are SHA-256 hashed (keys logged in plaintext) | SSE export audit | Informational | Kept as designed. |
+| `enabled=False` must be explicitly set; absent `enabled` is always `True` | SSE policy + authz | Informational | Kept as designed. |
+| `dataset_id` and `service_id` auto-deduced from policy when caller has exactly one allowed value | SSE policy | Good: reduces config friction | — |
+| External KMS client writes audit on both success and failure; key agent does not | Key management | Low: key agent audit comes from server side | — |
+| `plan_policy_file` uses SHA-256 of file as `policy_id`; path changes without content change get `noop` | SQL registry | Low: correct semantics but could confuse | — |
+| Replay scripts use inline `python3 -c` for JSON extraction (not `runtime_service_helpers.py`) | Replay scripts | Low | Open (cleanup). |
+| `benchmark_pipeline.py` verifies embedded mainline contract matches sidecar file bit-for-bit | Benchmarks | Good: catches audit-chain embedding bugs | — |
+
+### New controls introduced 2026-05-17 (not in original review)
+
+| Control | Where | Audit ID |
 |---|---|---|
-| Phone normalizer is basic (no full E.164 normalization) | Bridge | Low |
-| `dedup_policy` is only validated in Python, not Rust | Bridge | Low |
-| Import is not atomic (no rollback on partial failure) | SQL sidecar | Low |
-| `random.uniform` for Laplace noise | A-PSI policy release | Low |
-| No rate limit on `serve_metadata_api.py` | SQL sidecar HTTP | Low |
-| `allowed_callers = []` in keyring means unrestricted access | Key management | Medium |
-| Key agent auth is plain equality check, not HMAC-signed | Key management | Low |
-| Keyring file written without temp-file+rename atomicity | Key management | Low |
-| Worker subprocess stdin candidate set has no size limit | Record recovery | Low |
-| Query workflow `SECRET_FIELDS` set declared but not redacted in `build_command` | Pipeline scripts | Low |
-| Observability artifact IDs for FIFO-mode items include sequential index (not stable across re-runs) | Sidecar exporters | Low |
-| Authz policy loaded at service startup; policy file changes require service restart | Record recovery | Low |
-| Keyring transport auto-detection in `config.py` is implicit (no transport = infer from other fields) | Record recovery | Low |
-| `allowed_callers = []` in authz means no per-caller restriction (only `allowed_callers` service-level list applies) | Record recovery authz | Low |
-| `min_output_rows` enforcement can leak membership via zero-row vs non-zero-row distinction | Record recovery authz | Informational |
-| Silently drops rows with empty join-key or value-field during row selection | Record recovery common | Low |
-| `available_port` has TOCTOU race between port allocation and service bind | Runtime helpers | Low |
-| HTTP adapter bearer-token comparison is plain equality, not constant-time | HTTP adapters | Low |
-| Metadata API serializes all DB access with a global `threading.Lock` | HTTP adapters | Low |
-| Filter values in SSE export audit are SHA-256 hashed (keys logged in plaintext) | SSE export audit | Informational |
-| `enabled=False` must be explicitly set; absent `enabled` is always `True` | SSE policy + authz | Informational |
-| `dataset_id` and `service_id` auto-deduced from policy when caller has exactly one allowed value | SSE policy | Good: reduces config friction |
-| External KMS client writes audit on both success and failure; key agent does not | Key management | Low: key agent audit comes from server side |
-| `plan_policy_file` uses SHA-256 of file as `policy_id`; path changes without content change get `noop` | SQL registry | Low: correct semantics but could confuse |
-| Replay scripts use inline `python3 -c` for JSON extraction (not `runtime_service_helpers.py`) | Replay scripts | Low |
-| `benchmark_pipeline.py` verifies embedded mainline contract matches sidecar file bit-for-bit | Benchmarks | Good: catches audit-chain embedding bugs |
+| `--mtls-enrollment-only-mode` on the operator dashboard restricts the HTTP surface to `/healthz` + `POST /v1/pjc-mtls/enroll` during PJC Party A enrollment | `scripts/serve_operator_dashboard.py`, `a-psi/moduleA_psi/scripts/serve_pjc_mtls_enrollment_party_a.sh` | A.13 |
+| `POST /v1/bucketed-scale-test/run` is async-by-default (202 + `GET /v1/bucketed-scale-test/{job_id}`); legacy `?sync=1` available | `scripts/serve_operator_dashboard.py` | A.14 |
+| `policy_release.py --public-report-redact-operator-fields` strips operator-only keys from `public_report.json` and routes the full set into `operator_release_report/v1`; same flag on `policy_postprocess_buckets.py` skips `debug.per_bucket_results` | `a-psi/moduleA_psi/scripts/policy_release.py`, `policy_postprocess_buckets.py` | S5 (field-redaction half) |
+| Recovery-service request signature now covers a canonical body SHA-256 (`common.py:_canonical_request_message`); tampered bodies fail HMAC verify | `services/record_recovery/common.py` | A.5 (verified existing implementation) |
+| PJC mTLS pairing token TTL + max-enrollments + audit JSONL + auto-shutdown after exhaustion / idle | `scripts/serve_operator_dashboard.py`, `a-psi/moduleA_psi/scripts/serve_pjc_mtls_enrollment_party_a.sh` | PJC_MTLS Risks #2, #3 |
+| Party B enrollment requires `EXPECTED_CA_FINGERPRINT` (server-returned and locally re-computed) | `a-psi/moduleA_psi/scripts/enroll_pjc_mtls_party_b.sh` | PJC_MTLS Risk #1 |
+
+### Permanent regression smokes added
+
+| Smoke | Covers | Wired into |
+|---|---|---|
+| `scripts/check_bucket_dp_smoke.py` | bucket k-suppression + DP metadata + `--require-dp` fail-closed + S5 field redaction | `check_json_contracts.sh`, `check_ci_smoke.sh` |
+| `scripts/check_enrollment_only_mode_smoke.py` | A.13 enrollment-only HTTP surface | same |
+| `scripts/check_bucketed_scale_test_async_smoke.py` | A.14 async 202 + polling + list + legacy sync | same |
+| `scripts/check_metadata_api_rate_limit_smoke.py` | A.15 per-caller HTTP 429 past burst | same |
+| `scripts/check_min_rows_side_channel_smoke.py` | A.10 helper contracts + dataclass field default | same |
 
 ---
 
@@ -152,21 +179,28 @@ The platform has unusually complete operator tooling for a prototype: platform h
 
 ## 4. Recommended Next Steps
 
-Ordered by impact on moving from "prototype" to "platform baseline":
+> **2026-05-17 update:** Items 4-7 below have all been completed across
+> Rounds 1-7. See [`CONTROL_PLANE_HARDENING_LOG.md`](CONTROL_PLANE_HARDENING_LOG.md)
+> for the audit-ID index. The remaining items are operator-side or other-role
+> work.
 
-1. **Engineer A Block 1–3 (Identity mapping + Vault/KMS):** Replace mock KMS and file-backed policy with real Vault/cloud KMS and unified identity. This is the highest-leverage remaining gap. The key management code is clean and ready to accept new `secret_ref.kind` values without restructuring.
+1. **Engineer A Block 1–3 (Identity mapping + Vault/KMS):** Replace mock KMS and file-backed policy with real Vault/cloud KMS and unified identity. Repo-side adapters complete (`vault_http`, `aws_kms`, OIDC claim mapper, issuer registry); **live Vault reachability drill is still operator-side (A.2)**.
 
 2. **Engineer B Block 1–2 (Execute permissions + durable workflow):** Wire `--allow-execute` through proper authz rather than a simple server flag; add durable workflow state persistence. The query workflow adapter's semantic validation is already production-quality — the main gap is the authz integration.
 
 3. **Engineer 2 Block 5 (PostgreSQL migration path):** Validate the full sidecar query layer against PostgreSQL, not just DDL portability. The `ARTIFACT_TYPE_STAGE_MAP` and query patterns should migrate cleanly.
 
-4. **Fix `allowed_callers = []` semantics:** Document or change the "empty list = unrestricted" behavior in `keyring_lib.py` to avoid misconfiguration.
+4. ~~**Fix `allowed_callers = []` semantics**~~ — **Done (A.4)**. Empty list now hard-rejected at access time; legacy field-absent path preserved.
 
-5. **Fix Laplace noise RNG:** Replace `random.uniform` with `secrets.SystemRandom()` in `policy_release.py` before any production DP use.
+5. ~~**Fix Laplace noise RNG**~~ — **Done**. `policy_postprocess_buckets.py` uses `secrets.SystemRandom`; `--require-dp` fail-closed flag added on both stages (A.11).
 
-6. **Recovery service payload signing:** Extend request signatures to cover the full payload hash, not just `request_id:timestamp:op`.
+6. ~~**Recovery service payload signing**~~ — **Verified existing implementation (A.5)**. `services/record_recovery/common.py:_canonical_request_message` already binds `request_payload_sha256` into the HMAC input; tamper test confirms a modified body fails verify.
 
-7. **Keyring write atomicity:** Use temp-file+rename in `save_json_object` to prevent partial writes during a power failure or kill signal mid-rotation.
+7. ~~**Keyring write atomicity**~~ — **Done (A.7)**. `save_json_object` uses `tempfile.mkstemp` + 0600 + `fsync` + `os.replace` in the same directory.
+
+8. **External audit anchor `--execute` against live AWS S3 Object Lock and Sigstore Rekor** (A.12) — repo paths verified in-process only, needs live credentials.
+
+9. **VPS-to-laptop 1k bucketed mTLS evidence** (PJC_MTLS Risk #4) — wrappers complete, needs a real two-machine run.
 
 ---
 

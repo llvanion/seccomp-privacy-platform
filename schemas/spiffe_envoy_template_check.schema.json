@@ -1,0 +1,52 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "spiffe_envoy_template_check/v1",
+  "title": "Structural lint report for the SPIFFE/SPIRE + Envoy deploy templates",
+  "type": "object",
+  "required": [
+    "schema",
+    "generated_at_utc",
+    "templates_dir",
+    "decision",
+    "reason_code",
+    "checks"
+  ],
+  "properties": {
+    "schema": { "const": "spiffe_envoy_template_check/v1" },
+    "generated_at_utc": { "type": "string", "format": "date-time" },
+    "templates_dir": { "type": "string", "minLength": 1 },
+    "decision": { "enum": ["allow", "deny"] },
+    "reason_code": { "type": "string", "minLength": 1 },
+    "reason": { "type": ["string", "null"] },
+    "checks": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["file", "kind", "status"],
+        "properties": {
+          "file": { "type": "string", "minLength": 1 },
+          "kind": { "enum": ["json", "yaml-ish", "hcl-ish", "markdown"] },
+          "status": { "enum": ["ok", "skip", "deny"] },
+          "found_keys": { "type": "array", "items": { "type": "string" } },
+          "missing_keys": { "type": "array", "items": { "type": "string" } },
+          "message": { "type": ["string", "null"] }
+        },
+        "additionalProperties": false
+      }
+    },
+    "findings": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["kind", "message"],
+        "properties": {
+          "kind": { "type": "string", "minLength": 1 },
+          "message": { "type": "string", "minLength": 1 },
+          "file": { "type": ["string", "null"] }
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  "additionalProperties": false
+}

@@ -1,0 +1,57 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "release_policy_gate/v1",
+  "title": "Server-side release policy gate decision",
+  "type": "object",
+  "required": [
+    "schema",
+    "generated_at_utc",
+    "decision",
+    "reason_code",
+    "public_report_path",
+    "checks"
+  ],
+  "properties": {
+    "schema": { "const": "release_policy_gate/v1" },
+    "generated_at_utc": { "type": "string", "format": "date-time" },
+    "decision": { "enum": ["allow", "deny"] },
+    "reason_code": { "type": "string", "minLength": 1 },
+    "reason": { "type": ["string", "null"] },
+    "public_report_path": { "type": "string", "minLength": 1 },
+    "public_report_sha256": { "type": ["string", "null"] },
+    "operator_report_path": { "type": ["string", "null"] },
+    "policy_config_path": { "type": ["string", "null"] },
+    "job_id": { "type": ["string", "null"] },
+    "caller": { "type": ["string", "null"] },
+    "checks": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["name", "status"],
+        "properties": {
+          "name": { "type": "string", "minLength": 1 },
+          "status": { "enum": ["ok", "skip", "deny"] },
+          "expected": {},
+          "actual": {},
+          "message": { "type": ["string", "null"] }
+        },
+        "additionalProperties": false
+      }
+    },
+    "findings": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["kind", "message"],
+        "properties": {
+          "kind": { "type": "string", "minLength": 1 },
+          "message": { "type": "string", "minLength": 1 },
+          "expected": {},
+          "actual": {}
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  "additionalProperties": false
+}

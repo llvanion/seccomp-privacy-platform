@@ -1,0 +1,41 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "pjc_role_status/v1",
+  "title": "PJC role lifecycle status",
+  "type": "object",
+  "required": [
+    "schema",
+    "generated_at_utc",
+    "job_id",
+    "role",
+    "state"
+  ],
+  "properties": {
+    "schema": { "const": "pjc_role_status/v1" },
+    "generated_at_utc": { "type": "string", "format": "date-time" },
+    "job_id": { "type": "string", "minLength": 1 },
+    "role": { "enum": ["server", "client"] },
+    "state": { "enum": ["starting", "running", "completed", "failed", "cancelled"] },
+    "pid": { "type": ["integer", "null"], "minimum": 0 },
+    "started_at_utc": { "type": ["string", "null"] },
+    "finished_at_utc": { "type": ["string", "null"] },
+    "duration_sec": { "type": ["number", "null"], "minimum": 0 },
+    "exit_code": { "type": ["integer", "null"] },
+    "command_digest_sha256": { "type": ["string", "null"], "minLength": 64, "maxLength": 64 },
+    "command_argv_hash": { "type": ["string", "null"] },
+    "env_allowlist_digest_sha256": { "type": ["string", "null"], "minLength": 64, "maxLength": 64 },
+    "env_allowlist": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 }
+    },
+    "dataplane_port": { "type": ["integer", "null"], "minimum": 0 },
+    "loopback_port": { "type": ["integer", "null"], "minimum": 0 },
+    "log_path": { "type": ["string", "null"] },
+    "log_sha256": { "type": ["string", "null"] },
+    "cancel_reason": { "type": ["string", "null"] },
+    "evidence_path": { "type": ["string", "null"] },
+    "cert_dir": { "type": ["string", "null"] },
+    "role_dir": { "type": ["string", "null"] }
+  },
+  "additionalProperties": false
+}

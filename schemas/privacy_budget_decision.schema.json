@@ -1,0 +1,84 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "privacy_budget_decision/v1",
+  "title": "Privacy budget per-request decision report",
+  "type": "object",
+  "required": [
+    "schema",
+    "generated_at_utc",
+    "decision",
+    "reason_code",
+    "scope",
+    "request",
+    "canonical_query_signature",
+    "near_duplicate_signature",
+    "budget_state",
+    "ledger_path",
+    "appended"
+  ],
+  "properties": {
+    "schema": { "const": "privacy_budget_decision/v1" },
+    "generated_at_utc": { "type": "string", "format": "date-time" },
+    "decision": { "enum": ["allow", "deny"] },
+    "reason_code": {
+      "enum": [
+        "ok",
+        "duplicate_query",
+        "near_duplicate_query",
+        "budget_exhausted",
+        "missing_budget_scope"
+      ]
+    },
+    "reason": { "type": ["string", "null"] },
+    "scope": {
+      "type": "object",
+      "required": ["caller"],
+      "properties": {
+        "caller": { "type": "string", "minLength": 1 },
+        "tenant_id": { "type": ["string", "null"] },
+        "dataset_id": { "type": ["string", "null"] },
+        "purpose": { "type": ["string", "null"] }
+      },
+      "additionalProperties": false
+    },
+    "request": {
+      "type": "object",
+      "required": ["window_start", "window_end"],
+      "properties": {
+        "window_start": { "type": ["string", "null"] },
+        "window_end": { "type": ["string", "null"] },
+        "bucket": { "type": ["string", "null"] },
+        "threshold_k": { "type": ["integer", "null"] },
+        "job_id": { "type": ["string", "null"] }
+      },
+      "additionalProperties": false
+    },
+    "canonical_query_signature": { "type": "string", "minLength": 1 },
+    "near_duplicate_signature": { "type": "string", "minLength": 1 },
+    "budget_state": {
+      "type": "object",
+      "required": ["used_before", "used_after", "max_queries"],
+      "properties": {
+        "used_before": { "type": "integer", "minimum": 0 },
+        "used_after": { "type": "integer", "minimum": 0 },
+        "max_queries": { "type": "integer", "minimum": 0 },
+        "near_duplicate_window_seconds": { "type": "integer", "minimum": 0 },
+        "matched_scope_index": { "type": ["integer", "null"], "minimum": 0 }
+      },
+      "additionalProperties": false
+    },
+    "ledger_path": { "type": "string", "minLength": 1 },
+    "appended": { "type": "boolean" },
+    "duplicate_match": {
+      "type": ["object", "null"],
+      "required": ["match_kind", "matched_at_utc", "matched_signature"],
+      "properties": {
+        "match_kind": { "enum": ["canonical", "near_duplicate"] },
+        "matched_at_utc": { "type": "string", "format": "date-time" },
+        "matched_signature": { "type": "string", "minLength": 1 }
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false
+}

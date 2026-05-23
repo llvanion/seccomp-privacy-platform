@@ -165,6 +165,16 @@ SCHEMAS=(
   "$REPO_ROOT/schemas/postgres_ha_topology_report.schema.json"
   "$REPO_ROOT/schemas/patroni_failover_topology_report.schema.json"
   "$REPO_ROOT/schemas/pgbouncer_topology_report.schema.json"
+  "$REPO_ROOT/schemas/pjc_two_party_preflight.schema.json"
+  "$REPO_ROOT/schemas/pjc_role_package.schema.json"
+  "$REPO_ROOT/schemas/pjc_role_status.schema.json"
+  "$REPO_ROOT/schemas/pjc_two_party_evidence_merge.schema.json"
+  "$REPO_ROOT/schemas/pjc_two_party_negative_cases.schema.json"
+  "$REPO_ROOT/schemas/pjc_tls_diagnostic.schema.json"
+  "$REPO_ROOT/schemas/spiffe_envoy_peer_allowlist.schema.json"
+  "$REPO_ROOT/schemas/spiffe_envoy_template_check.schema.json"
+  "$REPO_ROOT/schemas/release_policy_gate.schema.json"
+  "$REPO_ROOT/schemas/release_policy_gate_config.schema.json"
 )
 
 for schema in "${SCHEMAS[@]}"; do
@@ -3043,6 +3053,16 @@ python3 "$VALIDATOR" \
   --json "$tmp/observability_alert_report_no_health.json"
 # I2-a + I2-b: alert webhook adapter + alert daemon transitions
 python3 "$REPO_ROOT/scripts/check_alert_webhook_smoke.py" --out-dir "$tmp/alert_webhook_smoke"
+# PJC_MTLS Risk #6 task 6: bucket k-suppression + DP metadata + --require-dp fail-closed
+python3 "$REPO_ROOT/scripts/check_bucket_dp_smoke.py" --out-dir "$tmp/bucket_dp_smoke" > /dev/null
+# A.10: min_output_rows side-channel closure (helper + service-state propagation)
+python3 "$REPO_ROOT/scripts/check_min_rows_side_channel_smoke.py" --out-dir "$tmp/min_rows_side_channel_smoke" > /dev/null
+# A.13: dedicated enrollment-only HTTP mode locks down dashboard surface
+python3 "$REPO_ROOT/scripts/check_enrollment_only_mode_smoke.py" --out-dir "$tmp/enrollment_only_smoke" > /dev/null
+# A.14: async bucketed scale-test 202 + polling + list, plus legacy ?sync=1
+python3 "$REPO_ROOT/scripts/check_bucketed_scale_test_async_smoke.py" --out-dir "$tmp/bucketed_scale_test_async_smoke" > /dev/null
+# A.15: per-caller token bucket on serve_metadata_api.py returns 429 past burst
+python3 "$REPO_ROOT/scripts/check_metadata_api_rate_limit_smoke.py" --out-dir "$tmp/metadata_api_rate_limit_smoke" > /dev/null
 # B5: status list scan
 python3 "$REPO_ROOT/scripts/list_query_workflow_status.py" \
   --search-dir "$tmp" \
@@ -3122,5 +3142,19 @@ python3 "$VALIDATOR" \
 
 python3 "$REPO_ROOT/scripts/check_contract_smoke_reports.py" \
   --tmp-dir "$tmp"
+
+# SPIFFE/SPIRE + Envoy production templates: validate the committed peer
+# allowlist directly, and run the structural template lint so a missing key in
+# any Envoy/SPIRE template fails the JSON contract checks.
+python3 "$VALIDATOR" \
+  --schema "$REPO_ROOT/schemas/spiffe_envoy_peer_allowlist.schema.json" \
+  --json "$REPO_ROOT/deploy/spiffe_envoy/peer_spiffe_allowlist.json"
+python3 "$REPO_ROOT/scripts/check_spiffe_envoy_templates.py" \
+  --templates-dir "$REPO_ROOT/deploy/spiffe_envoy" \
+  --output "$tmp/spiffe_envoy_template_check.json" \
+  --assert-allow > /dev/null
+python3 "$VALIDATOR" \
+  --schema "$REPO_ROOT/schemas/spiffe_envoy_template_check.schema.json" \
+  --json "$tmp/spiffe_envoy_template_check.json"
 
 echo "[ok] JSON contract checks passed"

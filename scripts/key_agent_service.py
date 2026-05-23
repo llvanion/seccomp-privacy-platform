@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 import argparse
+import hmac
 import json
 import os
 import socketserver
@@ -113,7 +114,7 @@ def _handle_request(payload: dict, server: KeyAgentUnixStreamServer) -> dict:
 
     if server.auth_token:
         provided = str(payload.get("auth_token", ""))
-        if not provided or provided != server.auth_token:
+        if not provided or not hmac.compare_digest(provided, server.auth_token):
             if not (server.identity_token_config and identity_token):
                 raise PermissionError("key agent auth failed")
 

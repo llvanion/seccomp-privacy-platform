@@ -1,0 +1,47 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "privacy_budget_config/v1",
+  "title": "Privacy budget configuration: per-scope query quota and near-duplicate window",
+  "type": "object",
+  "required": ["schema", "default", "scopes"],
+  "properties": {
+    "schema": { "const": "privacy_budget_config/v1" },
+    "default": {
+      "type": "object",
+      "required": ["max_queries", "near_duplicate_window_seconds"],
+      "properties": {
+        "max_queries": { "type": "integer", "minimum": 0 },
+        "near_duplicate_window_seconds": { "type": "integer", "minimum": 0 },
+        "near_duplicate_window_round_seconds": { "type": "integer", "minimum": 1 },
+        "near_duplicate_threshold_round_step": { "type": "integer", "minimum": 1 }
+      },
+      "additionalProperties": false
+    },
+    "scopes": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["match", "max_queries", "near_duplicate_window_seconds"],
+        "properties": {
+          "match": {
+            "type": "object",
+            "required": ["caller"],
+            "properties": {
+              "caller": { "type": "string", "minLength": 1 },
+              "tenant_id": { "type": ["string", "null"] },
+              "dataset_id": { "type": ["string", "null"] },
+              "purpose": { "type": ["string", "null"] }
+            },
+            "additionalProperties": false
+          },
+          "max_queries": { "type": "integer", "minimum": 0 },
+          "near_duplicate_window_seconds": { "type": "integer", "minimum": 0 },
+          "near_duplicate_window_round_seconds": { "type": "integer", "minimum": 1 },
+          "near_duplicate_threshold_round_step": { "type": "integer", "minimum": 1 }
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  "additionalProperties": false
+}

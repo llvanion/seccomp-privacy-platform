@@ -1,0 +1,82 @@
+# Envoy outbound template for Party B. The PJC client binary opens 127.0.0.1:10503
+# on its own host; Envoy proxies that local plaintext to Party A's TLS listener
+# while validating the configured peer SPIFFE ID.
+node:
+  id: pjc-party-b
+  cluster: pjc-cluster
+
+admin:
+  address:
+    socket_address:
+      address: 127.0.0.1
+      port_value: 19000
+
+static_resources:
+  listeners:
+    - name: pjc_party_b_loopback
+      address:
+        socket_address:
+          address: 127.0.0.1
+          port_value: 10503
+      filter_chains:
+        - filters:
+            - name: envoy.filters.network.tcp_proxy
+              typed_config:
+                "@type": type.googleapis.com/envoy.extensions.filters.network.tcp_proxy.v3.TcpProxy
+                stat_prefix: pjc_party_b_tcp
+                cluster: pjc_party_a_remote
+
+  clusters:
+    - name: pjc_party_a_remote
+      type: STRICT_DNS
+      connect_timeout: 5s
+      load_assignment:
+        cluster_name: pjc_party_a_remote
+        endpoints:
+          - lb_endpoints:
+              - endpoint:
+                  address:
+                    socket_address:
+                      address: pjc-party-a.example.org
+                      port_value: 10502
+      transport_socket:
+        name: envoy.transport_sockets.tls
+        typed_config:
+          "@type": type.googleapis.com/envoy.extensions.transport_sockets.tls.v3.UpstreamTlsContext
+          common_tls_context:
+            tls_params:
+              tls_minimum_protocol_version: TLSv1_3
+            tls_certificate_sds_secret_configs:
+              - name: spiffe://example.org/pjc-client
+                sds_config:
+                  api_config_source:
+                    api_type: GRPC
+                    grpc_services:
+                      - envoy_grpc:
+                          cluster_name: spire_agent
+            combined_validation_context:
+              default_validation_context:
+                match_typed_subject_alt_names:
+                  - san_type: URI
+                    matcher:
+                      exact: spiffe://example.org/pjc-server
+              validation_context_sds_secret_config:
+                name: spiffe_validation_context
+                sds_config:
+                  api_config_source:
+                    api_type: GRPC
+                    grpc_services:
+                      - envoy_grpc:
+                          cluster_name: spire_agent
+    - name: spire_agent
+      type: STATIC
+      connect_timeout: 1s
+      http2_protocol_options: {}
+      load_assignment:
+        cluster_name: spire_agent
+        endpoints:
+          - lb_endpoints:
+              - endpoint:
+                  address:
+                    pipe:
+                      path: /run/spire/agent/sockets/spire-agent.sock

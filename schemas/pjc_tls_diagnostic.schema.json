@@ -1,0 +1,117 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "pjc_tls_diagnostic/v1",
+  "title": "PJC two-party live TLS diagnostic report",
+  "type": "object",
+  "required": [
+    "schema",
+    "generated_at_utc",
+    "job_id",
+    "role",
+    "decision",
+    "reason_code",
+    "category",
+    "host",
+    "port",
+    "tcp",
+    "tls",
+    "local_files",
+    "server_log",
+    "suggested_action"
+  ],
+  "properties": {
+    "schema": { "const": "pjc_tls_diagnostic/v1" },
+    "generated_at_utc": { "type": "string", "format": "date-time" },
+    "job_id": { "type": "string", "minLength": 1 },
+    "role": { "enum": ["server", "client"] },
+    "decision": { "enum": ["allow", "deny"] },
+    "reason_code": {
+      "type": "string",
+      "minLength": 1
+    },
+    "category": {
+      "enum": [
+        "ok",
+        "skip",
+        "tcp_refused",
+        "tcp_timeout",
+        "tcp_no_route",
+        "tls_eof",
+        "tls_alert_handshake",
+        "tls_alert_certificate",
+        "tls_protocol_mismatch",
+        "tls_unknown_ca",
+        "tls_self_signed",
+        "tls_verify_failed",
+        "io_permission_denied",
+        "tls_handshake_failed",
+        "tcp_unreachable",
+        "other"
+      ]
+    },
+    "host": { "type": "string", "minLength": 1 },
+    "port": { "type": "integer", "minimum": 0 },
+    "server_hostname": { "type": ["string", "null"] },
+    "tcp": {
+      "type": "object",
+      "required": ["ok", "duration_ms"],
+      "properties": {
+        "ok": { "type": "boolean" },
+        "duration_ms": { "type": "number", "minimum": 0 },
+        "message": { "type": ["string", "null"] }
+      },
+      "additionalProperties": false
+    },
+    "tls": {
+      "type": "object",
+      "required": ["attempted", "ok", "category"],
+      "properties": {
+        "attempted": { "type": "boolean" },
+        "ok": { "type": "boolean" },
+        "tls_protocol": { "type": ["string", "null"] },
+        "peer_cert_fingerprint_sha256": { "type": ["string", "null"] },
+        "peer_cert_subject": { "type": ["string", "null"] },
+        "message": { "type": ["string"] },
+        "category": {
+          "enum": [
+            "ok",
+            "skip",
+            "tls_eof",
+            "tls_alert_handshake",
+            "tls_alert_certificate",
+            "tls_protocol_mismatch",
+            "tls_unknown_ca",
+            "tls_self_signed",
+            "tls_verify_failed",
+            "io_permission_denied",
+            "tcp_refused",
+            "tcp_timeout",
+            "tcp_no_route",
+            "other"
+          ]
+        }
+      },
+      "additionalProperties": false
+    },
+    "local_files": {
+      "type": "object",
+      "additionalProperties": { "type": "boolean" }
+    },
+    "server_log": {
+      "type": "object",
+      "required": ["path", "exists", "tail"],
+      "properties": {
+        "path": { "type": ["string", "null"] },
+        "exists": { "type": "boolean" },
+        "tail": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "sha256": { "type": ["string", "null"] }
+      },
+      "additionalProperties": false
+    },
+    "suggested_action": { "type": "string", "minLength": 1 }
+  },
+  "additionalProperties": false
+}

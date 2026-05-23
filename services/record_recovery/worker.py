@@ -1,6 +1,7 @@
 # -*- coding:utf-8 _*-
 import argparse
 import json
+import os
 import sys
 from pathlib import Path
 
@@ -19,8 +20,8 @@ ensure_repo_paths()
 from services.record_recovery.encrypted_record_store import iter_candidate_rows  # noqa: E402
 
 
-def parse_stdin_payload() -> tuple[set[str], list[tuple[str, str]]]:
-    return parse_candidate_payload(json.load(sys.stdin))
+def parse_stdin_payload(*, max_candidate_ids: int = 0) -> tuple[set[str], list[tuple[str, str]]]:
+    return parse_candidate_payload(json.load(sys.stdin), max_candidate_ids=max_candidate_ids)
 
 
 def main() -> int:
@@ -34,13 +35,16 @@ def main() -> int:
     ap.add_argument("--value-field", default="")
     ap.add_argument("--min-output-rows", type=int, default=None)
     ap.add_argument("--max-output-rows", type=int, default=None)
+    ap.add_argument("--max-candidate-ids", type=int,
+                    default=int(os.environ.get("RECORD_RECOVERY_MAX_CANDIDATE_IDS", "0") or "0"),
+                    help="Hard cap on inbound candidate_ids length (0 = unlimited)")
     args = ap.parse_args()
 
     if args.role == "client" and not args.value_field:
         raise SystemExit("[ERROR] --value-field is required for client role")
 
     try:
-        candidate_ids, filters = parse_stdin_payload()
+        candidate_ids, filters = parse_stdin_payload(max_candidate_ids=args.max_candidate_ids)
         rows = iter_candidate_rows(
             store_path=Path(args.record_store_path),
             key_env=args.record_store_key_env,

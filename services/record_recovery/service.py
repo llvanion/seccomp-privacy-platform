@@ -42,6 +42,7 @@ from services.record_recovery.common import (  # noqa: E402
     build_health_result,
     build_result,
     enforce_row_limits,
+    evaluate_min_rows_suppression,
     parse_candidate_payload,
     select_bridge_rows,
     write_selected_rows,
@@ -83,6 +84,7 @@ class RecordRecoveryUnixStreamServer(socketserver.ThreadingMixIn, socketserver.U
         *,
         service_state: RecordRecoveryServiceState,
     ):
+        self.service_state = service_state
         self.service_id = service_state.service_id
         self.tenant_id = service_state.tenant_id
         self.dataset_id = service_state.dataset_id
@@ -90,7 +92,6 @@ class RecordRecoveryUnixStreamServer(socketserver.ThreadingMixIn, socketserver.U
         self.metadata_db_path = service_state.metadata_db_path
         self.identity_token_config = service_state.identity_token_config
         self.allowed_callers = service_state.allowed_callers
-        self.authz_policy = service_state.authz_policy
         self.authz_policy_path_value = service_state.authz_policy_path_value
         self.allowed_output_roots = service_state.allowed_output_roots
         self.allowed_record_store_roots = service_state.allowed_record_store_roots
@@ -100,6 +101,12 @@ class RecordRecoveryUnixStreamServer(socketserver.ThreadingMixIn, socketserver.U
         self.socket_path = service_state.socket_path or socket_path
         self.max_rows_per_request = service_state.max_rows_per_request
         super().__init__(socket_path, handler)
+
+    @property
+    def authz_policy(self) -> dict:
+        # Always read through service_state so SIGHUP reload is observed by
+        # in-flight request handlers without restarting the server.
+        return self.service_state.authz_policy
 
 
 class RecordRecoveryRequestHandler(socketserver.StreamRequestHandler):
@@ -334,7 +341,10 @@ def handle_record_recovery_service_payload(
     if service_state.dataset_id and not dataset_id:
         dataset_id = service_state.dataset_id
 
-    candidate_ids, filters = parse_candidate_payload(payload)
+    candidate_ids, filters = parse_candidate_payload(
+        payload,
+        max_candidate_ids=getattr(service_state, "max_candidate_ids", 0),
+    )
     record_store_path_value = str(payload.get("record_store_path", "")).strip()
     record_store_key_env = str(payload.get("record_store_key_env", ""))
     out_path_value = str(payload.get("out_path", "")).strip()
@@ -402,11 +412,35 @@ def handle_record_recovery_service_payload(
             value_field=value_field,
             filters=filters,
         )
-        enforce_row_limits(
-            output_rows=len(selected_rows),
-            min_rows=effective_min_rows,
-            max_rows=effective_max_rows,
+        # A.10 side-channel closure: if the operator turned on quiet suppression
+        # AND the result is below the effective min, collapse to a zero-row
+        # response that is indistinguishable from a genuine no-match. The
+        # operator still sees the distinction in the audit log via the
+        # `min_rows_suppressed=true` field that the audit writer attaches.
+        suppress_quietly = bool(
+            getattr(service_state, "suppress_min_rows_side_channel", False)
+            and evaluate_min_rows_suppression(
+                output_rows=len(selected_rows),
+                min_rows=effective_min_rows,
+            )
         )
+        if suppress_quietly:
+            selected_rows = []
+            payload["_min_rows_suppressed"] = True
+            payload["_min_rows_effective"] = effective_min_rows
+            # Max-rows still applies. Min-rows is now satisfied by definition
+            # because the output is empty; we don't re-raise on empty output.
+            enforce_row_limits(
+                output_rows=0,
+                min_rows=None,
+                max_rows=effective_max_rows,
+            )
+        else:
+            enforce_row_limits(
+                output_rows=len(selected_rows),
+                min_rows=effective_min_rows,
+                max_rows=effective_max_rows,
+            )
         output_sha256 = write_selected_rows(
             rows=selected_rows,
             out_path=out_path,
@@ -528,6 +562,8 @@ def append_record_recovery_service_audit(
         "signature_algorithm": str(payload.get("signature_algorithm", "") or "") or None,
         "input_rows": result.get("input_rows") if result is not None else None,
         "output_rows": result.get("output_rows") if result is not None else None,
+        "min_rows_suppressed": bool(payload.get("_min_rows_suppressed")) if payload.get("_min_rows_suppressed") is not None else None,
+        "min_rows_effective": payload.get("_min_rows_effective"),
         "duration_ms": duration_ms,
         "decision": decision,
         "reason_code": reason_code,
@@ -560,6 +596,16 @@ def main() -> int:
     ap.add_argument("--ready-file", default="")
     ap.add_argument("--max-rows-per-request", type=int, default=0,
                     help="Hard cap on rows returned per recovery request (0 = unlimited)")
+    ap.add_argument("--max-candidate-ids", type=int,
+                    default=int(os.environ.get("RECORD_RECOVERY_MAX_CANDIDATE_IDS", "0") or "0"),
+                    help="Hard cap on inbound candidate_ids length per request (0 = unlimited)")
+    ap.add_argument("--suppress-min-rows-side-channel", action="store_true",
+                    default=(os.environ.get("RECORD_RECOVERY_SUPPRESS_MIN_ROWS_SIDE_CHANNEL", "0") == "1"),
+                    help=(
+                        "Close the zero-rows vs below-min-rows side channel by collapsing "
+                        "below-min results into a uniform zero-row success response. The "
+                        "audit still records the distinction for the operator."
+                    ))
     args = ap.parse_args()
     if args.identity_token_config and not args.metadata_db_path:
         raise SystemExit("[ERROR] --identity-token-config requires --metadata-db-path")
@@ -587,6 +633,8 @@ def main() -> int:
         socket_path=str(socket_path),
         endpoint_url=None,
         max_rows_per_request=args.max_rows_per_request,
+        max_candidate_ids=args.max_candidate_ids,
+        suppress_min_rows_side_channel=bool(args.suppress_min_rows_side_channel),
     )
     server = RecordRecoveryUnixStreamServer(
         str(socket_path),
@@ -594,6 +642,18 @@ def main() -> int:
         service_state=service_state,
     )
     signal.signal(signal.SIGTERM, _raise_keyboard_interrupt)
+
+    def _reload_on_sighup(_sig: int, _frame) -> None:
+        result = service_state.reload_authz_policy()
+        emit_structured_service_log(
+            "record_recovery_service_authz_reload",
+            service_state,
+            authz_reload_status=result.get("status"),
+            authz_reload_path=result.get("path"),
+            authz_reload_error=result.get("error"),
+        )
+
+    signal.signal(signal.SIGHUP, _reload_on_sighup)
     os.chmod(socket_path, parse_socket_mode(args.socket_mode))
     write_text_file(pid_file, f"{os.getpid()}\n")
     write_text_file(ready_file, str(socket_path.resolve()) + "\n")

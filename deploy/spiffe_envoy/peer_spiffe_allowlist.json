@@ -1,0 +1,29 @@
+{
+  "schema": "spiffe_envoy_peer_allowlist/v1",
+  "trust_domain": "example.org",
+  "peers": [
+    {
+      "role": "server",
+      "spiffe_id": "spiffe://example.org/pjc-server",
+      "allowed_peers": ["spiffe://example.org/pjc-client"],
+      "svid_ttl_seconds": 3600,
+      "rotation_window_seconds": 1800
+    },
+    {
+      "role": "client",
+      "spiffe_id": "spiffe://example.org/pjc-client",
+      "allowed_peers": ["spiffe://example.org/pjc-server"],
+      "svid_ttl_seconds": 3600,
+      "rotation_window_seconds": 1800
+    }
+  ],
+  "audit": {
+    "destination": "pjc_audit_pipeline",
+    "include_fields": [
+      "peer_spiffe_id",
+      "svid_sha256",
+      "trust_bundle_generation",
+      "negotiated_cipher"
+    ]
+  }
+}

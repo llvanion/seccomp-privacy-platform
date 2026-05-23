@@ -6,7 +6,7 @@ set -euo pipefail
 
 SERVER_HOST="${SERVER_HOST:-}"
 PARTY_A_SSH="${PARTY_A_SSH:-}"
-REMOTE_BUNDLE_DIR="${REMOTE_BUNDLE_DIR:-~/Desktop/seccomp-privacy-platform/tmp/pjc_mtls_shared/party_b_bundle}"
+REMOTE_BUNDLE_DIR="${REMOTE_BUNDLE_DIR:-}"
 CERT_DIR="${CERT_DIR:-$HOME/pjc_certs_shared}"
 
 if [[ -z "$PARTY_A_SSH" ]]; then
@@ -19,15 +19,42 @@ if [[ -z "$PARTY_A_SSH" ]]; then
 fi
 
 command -v scp >/dev/null || { echo "[error] scp not found" >&2; exit 1; }
+command -v ssh >/dev/null || { echo "[error] ssh not found" >&2; exit 1; }
 command -v openssl >/dev/null || { echo "[error] openssl not found" >&2; exit 1; }
+
+if [[ -z "$REMOTE_BUNDLE_DIR" ]]; then
+  echo "[info] detecting Party A bundle path on $PARTY_A_SSH"
+  REMOTE_BUNDLE_DIR="$(
+    ssh "$PARTY_A_SSH" 'sh -s' <<'REMOTE_PROBE'
+set -eu
+for d in \
+  "$HOME/seccomp-privacy-platform/tmp/pjc_mtls_shared/party_b_bundle" \
+  "$HOME/Desktop/seccomp-privacy-platform/tmp/pjc_mtls_shared/party_b_bundle" \
+  "/root/seccomp-privacy-platform/tmp/pjc_mtls_shared/party_b_bundle"
+do
+  if [ -f "$d/ca.crt" ] && [ -f "$d/client.crt" ] && [ -f "$d/client.key" ]; then
+    printf "%s\n" "$d"
+    exit 0
+  fi
+done
+exit 1
+REMOTE_PROBE
+  )" || {
+    echo "[error] could not auto-detect Party A bundle path" >&2
+    echo "[hint] run prepare_pjc_mtls_party_a.sh on Party A, or set REMOTE_BUNDLE_DIR explicitly" >&2
+    exit 1
+  }
+fi
 
 mkdir -p "$CERT_DIR"
 chmod 700 "$CERT_DIR"
 
 echo "[info] fetching Party B cert bundle from $PARTY_A_SSH:$REMOTE_BUNDLE_DIR"
-scp "$PARTY_A_SSH:$REMOTE_BUNDLE_DIR/ca.crt" "$CERT_DIR/ca.crt"
-scp "$PARTY_A_SSH:$REMOTE_BUNDLE_DIR/client.crt" "$CERT_DIR/client.crt"
-scp "$PARTY_A_SSH:$REMOTE_BUNDLE_DIR/client.key" "$CERT_DIR/client.key"
+scp \
+  "$PARTY_A_SSH:$REMOTE_BUNDLE_DIR/ca.crt" \
+  "$PARTY_A_SSH:$REMOTE_BUNDLE_DIR/client.crt" \
+  "$PARTY_A_SSH:$REMOTE_BUNDLE_DIR/client.key" \
+  "$CERT_DIR/"
 
 chmod 644 "$CERT_DIR/ca.crt" "$CERT_DIR/client.crt"
 chmod 600 "$CERT_DIR/client.key"

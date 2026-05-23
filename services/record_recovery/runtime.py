@@ -29,12 +29,31 @@ class RecordRecoveryServiceState:
     socket_path: str | None = None
     endpoint_url: str | None = None
     max_rows_per_request: int = 0  # 0 = unlimited; positive value = hard cap per recovery request
+    max_candidate_ids: int = 0  # 0 = unlimited; positive value = hard cap on inbound candidate_ids length
+    suppress_min_rows_side_channel: bool = False  # A.10: hide below-min as zero-row success
 
     @property
     def server_address(self) -> str | None:
         if self.transport == "http":
             return self.endpoint_url
         return self.socket_path
+
+    def reload_authz_policy(self) -> dict:
+        """Re-read the authz policy file referenced at startup.
+
+        Returns a result dict with keys 'status' ('ok' | 'no_authz_config' | 'error'),
+        'path', and on failure 'error'. On success the policy attribute is swapped
+        atomically; on failure the previous policy is kept unchanged.
+        """
+        path = self.authz_policy_path_value
+        if not path:
+            return {"status": "no_authz_config", "path": None}
+        try:
+            new_policy = load_authz_policy(path)
+        except Exception as exc:  # noqa: BLE001
+            return {"status": "error", "path": path, "error": str(exc)}
+        self.authz_policy = new_policy
+        return {"status": "ok", "path": path}
 
 
 def read_optional_env(env_name: str) -> str:
@@ -75,7 +94,9 @@ def build_service_state(*,
                         transport: str,
                         socket_path: str | None,
                         endpoint_url: str | None,
-                        max_rows_per_request: int = 0) -> RecordRecoveryServiceState:
+                        max_rows_per_request: int = 0,
+                        max_candidate_ids: int = 0,
+                        suppress_min_rows_side_channel: bool = False) -> RecordRecoveryServiceState:
     return RecordRecoveryServiceState(
         service_id=str(service_id or ""),
         tenant_id=str(tenant_id or ""),
@@ -93,4 +114,6 @@ def build_service_state(*,
         socket_path=socket_path,
         endpoint_url=endpoint_url,
         max_rows_per_request=max(0, int(max_rows_per_request or 0)),
+        max_candidate_ids=max(0, int(max_candidate_ids or 0)),
+        suppress_min_rows_side_channel=bool(suppress_min_rows_side_channel),
     )

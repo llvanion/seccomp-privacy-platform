@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+import hmac
 import json
 import os
 from pathlib import Path
@@ -360,7 +361,7 @@ def resolve_request_identity(
         if not auth_header.startswith("Bearer "):
             raise PermissionError("missing bearer token")
         provided = auth_header[len("Bearer "):]
-        if provided == expected_bearer_token:
+        if hmac.compare_digest(provided, expected_bearer_token):
             return None
     if identity_token_config:
         if not auth_header.startswith("Bearer "):

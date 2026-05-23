@@ -43,6 +43,7 @@ echo "[info] CA fingerprint:"
 openssl x509 -in "$CERT_DIR/ca.crt" -fingerprint -sha256 -noout
 echo "[info] Party A runtime CERT_DIR:"
 echo "  $CERT_DIR"
-echo "[info] Party B can fetch with:"
+echo "[info] Party B can enroll through the PJC X-UI /v1/pjc-mtls/enroll endpoint."
+echo "[info] SSH fallback fetch command:"
 echo "  PARTY_A_SSH=<user@party-a-host> bash a-psi/moduleA_psi/scripts/fetch_pjc_mtls_party_b.sh"
 echo "[warn] Never send or commit ca.key/server.key. Only Party B bundle files are meant to be shared."

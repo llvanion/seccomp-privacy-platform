@@ -3,7 +3,7 @@ set -euo pipefail
 
 # Party B convenience wrapper. If CERT_DIR already contains ca.crt,
 # client.crt, and client.key, it directly runs the TLS client. If not, it can
-# fetch them from Party A over SSH when PARTY_A_SSH is provided.
+# enroll through Party A's dashboard CSR endpoint, or fall back to SSH fetch.
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
@@ -25,11 +25,16 @@ if ! bundle_ready; then
     echo "[error] missing cert bundle in $CERT_DIR and AUTO_FETCH_CERTS is disabled" >&2
     exit 1
   fi
-  if [[ -z "${PARTY_A_SSH:-}" ]]; then
-    echo "[error] missing cert bundle in $CERT_DIR; set PARTY_A_SSH=<user@party-a-host> for first-time fetch" >&2
+  if [[ -n "${PJC_MTLS_PAIRING_TOKEN:-${PAIRING_TOKEN:-}}" || -n "${PJC_MTLS_ENROLL_URL:-}" ]]; then
+    CERT_DIR="$CERT_DIR" bash "$SCRIPT_DIR/enroll_pjc_mtls_party_b.sh"
+  elif [[ -n "${PARTY_A_SSH:-}" ]]; then
+    CERT_DIR="$CERT_DIR" bash "$SCRIPT_DIR/fetch_pjc_mtls_party_b.sh"
+  else
+    echo "[error] missing cert bundle in $CERT_DIR" >&2
+    echo "[hint] set PJC_MTLS_PAIRING_TOKEN=<token> plus SERVER_HOST=<party-a-host> for no-SSH enrollment" >&2
+    echo "[hint] or set PARTY_A_SSH=<user@party-a-host> for SSH fallback fetch" >&2
     exit 1
   fi
-  CERT_DIR="$CERT_DIR" bash "$SCRIPT_DIR/fetch_pjc_mtls_party_b.sh"
 fi
 
 export CERT_DIR

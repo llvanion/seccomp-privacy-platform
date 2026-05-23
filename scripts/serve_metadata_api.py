@@ -4,6 +4,7 @@ import json
 import os
 import signal
 import threading
+import time
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -53,6 +54,34 @@ def single_param(params: dict[str, list[str]], name: str, default: str = "") -> 
     return values[0]
 
 
+class _RateLimited(Exception):
+    """Raised when a caller has exceeded the per-caller token bucket."""
+
+
+class _TokenBucket:
+    """Thread-safe token bucket. Identical algorithm to the recovery service."""
+
+    def __init__(self, rate: float, capacity: int) -> None:
+        self._tokens = float(capacity)
+        self._rate = rate
+        self._capacity = capacity
+        self._last = time.monotonic()
+        self._lock = threading.Lock()
+
+    def consume(self, n: int = 1) -> bool:
+        with self._lock:
+            now = time.monotonic()
+            self._tokens = min(
+                float(self._capacity),
+                self._tokens + (now - self._last) * self._rate,
+            )
+            self._last = now
+            if self._tokens >= n:
+                self._tokens -= n
+                return True
+            return False
+
+
 class MetadataApiServer(ThreadingHTTPServer):
     daemon_threads = True
     allow_reuse_address = True
@@ -69,6 +98,8 @@ class MetadataApiServer(ThreadingHTTPServer):
         identity_token_config: str,
         pid_file: str,
         ready_file: str,
+        rate_limit_per_caller: float = 0.0,
+        rate_limit_burst: int = 0,
     ) -> None:
         self.db_path = str(Path(db_path).resolve()) if db_path else ""
         self.db_dsn = db_dsn
@@ -78,7 +109,25 @@ class MetadataApiServer(ThreadingHTTPServer):
         self.pid_file = pid_file
         self.ready_file = ready_file
         self.state_lock = threading.Lock()
+        self._rate_limit_per_caller = float(rate_limit_per_caller or 0.0)
+        self._rate_limit_burst = max(0, int(rate_limit_burst or 0))
+        self._rate_buckets: dict[str, _TokenBucket] = {}
+        self._rate_lock = threading.Lock()
         super().__init__(server_address, handler_cls)
+
+    def check_rate_limit(self, caller: str) -> bool:
+        if self._rate_limit_per_caller <= 0:
+            return True
+        key = caller or "_anonymous"
+        with self._rate_lock:
+            bucket = self._rate_buckets.get(key)
+            if bucket is None:
+                bucket = _TokenBucket(
+                    self._rate_limit_per_caller,
+                    max(1, self._rate_limit_burst or int(self._rate_limit_per_caller)),
+                )
+                self._rate_buckets[key] = bucket
+        return bucket.consume()
 
 
 class MetadataApiHandler(BaseHTTPRequestHandler):
@@ -107,7 +156,7 @@ class MetadataApiHandler(BaseHTTPRequestHandler):
         )
 
     def _require_auth(self) -> dict[str, Any] | None:
-        return resolve_request_identity(
+        identity = resolve_request_identity(
             auth_header=self.headers.get("Authorization", ""),
             expected_bearer_token=self.server.auth_token,
             db_path=self.server.db_path,
@@ -116,6 +165,12 @@ class MetadataApiHandler(BaseHTTPRequestHandler):
             identity_token_config=self.server.identity_token_config,
             auth_failure_label="metadata API",
         )
+        caller_key = str(identity.get("caller") or "") if isinstance(identity, dict) else ""
+        if not self.server.check_rate_limit(caller_key):
+            # Raise a PermissionError-like signal but with a distinct type so the
+            # caller can map it to HTTP 429 instead of 403.
+            raise _RateLimited(caller_key)
+        return identity
 
     def do_GET(self) -> None:
         parsed = urlparse(self.path)
@@ -169,6 +224,8 @@ class MetadataApiHandler(BaseHTTPRequestHandler):
                 self._send_json(HTTPStatus.OK, self._success_payload(parsed=parsed, payload=payload))
                 return
             self._error(HTTPStatus.NOT_FOUND, "not found")
+        except _RateLimited as exc:
+            self._error(HTTPStatus.TOO_MANY_REQUESTS, f"rate limit exceeded for caller {exc}")
         except PermissionError as exc:
             self._error(HTTPStatus.FORBIDDEN, str(exc))
         except ValueError as exc:
@@ -292,6 +349,18 @@ def build_parser() -> argparse.ArgumentParser:
     ap.add_argument("--identity-token-config", default="", help="Optional bearer-token to caller-identity mapping config")
     ap.add_argument("--pid-file", default="")
     ap.add_argument("--ready-file", default="")
+    ap.add_argument(
+        "--rate-limit-per-caller",
+        type=float,
+        default=float(os.environ.get("METADATA_API_RATE_LIMIT_PER_CALLER", "0") or "0"),
+        help="Max requests/second per caller for auth-required endpoints (0 = disabled)",
+    )
+    ap.add_argument(
+        "--rate-limit-burst",
+        type=int,
+        default=int(os.environ.get("METADATA_API_RATE_LIMIT_BURST", "0") or "0"),
+        help="Burst capacity for the per-caller token bucket (0 = same as rate)",
+    )
     return ap
 
 
@@ -314,6 +383,8 @@ def main() -> int:
         identity_token_config=args.identity_token_config,
         pid_file=args.pid_file,
         ready_file=args.ready_file,
+        rate_limit_per_caller=args.rate_limit_per_caller,
+        rate_limit_burst=args.rate_limit_burst,
     )
 
     def handle_signal(_signum, _frame) -> None:

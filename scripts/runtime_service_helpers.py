@@ -10,9 +10,37 @@ from urllib.request import ProxyHandler, build_opener
 
 
 def available_port(*, host: str = "127.0.0.1") -> int:
+    """Return a likely-free TCP port on ``host``.
+
+    Caveat — this helper is best-effort, not a reservation. The returned port
+    is the one the kernel assigned to a temporary socket that is then closed;
+    another process can win the race between this call and the caller's own
+    ``bind()``. We set ``SO_REUSEADDR`` so the most common race outcome
+    (TIME_WAIT collision after our socket closes) does not block the real
+    service from re-binding. For a hard reservation, use
+    :func:`reserve_available_port`, which keeps the socket open and lets the
+    caller hand it to the real listener via ``socket.fromfd`` / ``adopt``.
+    """
     with socket.socket() as sock:
+        sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         sock.bind((host, 0))
         return int(sock.getsockname()[1])
+
+
+def reserve_available_port(*, host: str = "127.0.0.1") -> tuple[int, socket.socket]:
+    """Return ``(port, sock)`` for a port that is held open until ``sock`` closes.
+
+    Callers running entirely in-process can keep ``sock`` open until the real
+    listener binds; this eliminates the TOCTOU window from
+    :func:`available_port`. ``SO_REUSEADDR`` is set on both sockets, so the
+    real listener can ``bind()`` to ``port`` while ``sock`` is still
+    technically holding it (the real listener owns the four-tuple once it
+    accepts).
+    """
+    sock = socket.socket()
+    sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    sock.bind((host, 0))
+    return int(sock.getsockname()[1]), sock
 
 
 def tcp_port_ready(*, host: str, port: int, connect_timeout_sec: float = 0.2) -> bool:

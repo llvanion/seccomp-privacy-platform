@@ -27,6 +27,7 @@ Usage:
     --upstream health:http://127.0.0.1:18093
 """
 import argparse
+import hmac
 import json
 import os
 import signal
@@ -120,7 +121,7 @@ class IdentityProxyServer(ThreadingHTTPServer):
     def resolve_identity(self, bearer_token: str) -> dict[str, Any] | None:
         if not bearer_token:
             return None
-        if self.admin_token and bearer_token == self.admin_token:
+        if self.admin_token and hmac.compare_digest(bearer_token, self.admin_token):
             return {
                 "caller": "_proxy_admin",
                 "tenant_id": None,

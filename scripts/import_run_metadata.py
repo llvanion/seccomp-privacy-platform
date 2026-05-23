@@ -794,31 +794,43 @@ def import_runs(conn: sqlite3.Connection, out_bases: list[Path], *, dry_run: boo
             f"[ERROR] duplicate inferred job_id values in one import batch are not allowed: {', '.join(duplicate_job_ids)}"
         )
     imports: list[dict[str, Any]] = []
-    for plan in plans:
-        imported = None
-        imported_at = None
+    # All-or-nothing: every plan in the batch must apply, or none of them.
+    # On any Python exception below we roll back so the caller never observes
+    # a half-imported batch (e.g. plan #2 of 3 succeeded, plan #3 raised).
+    try:
+        for plan in plans:
+            imported = None
+            imported_at = None
+            if not dry_run:
+                imported_at = utc_now()
+                imported = apply_import_plan(conn, plan, imported_at=imported_at)
+            entry = {
+                "out_base": str(plan["bundle"]["out_base"]),
+                "job_id": plan["job_id"],
+                "correlation_id": plan["correlation_id"],
+                "caller": plan["caller"],
+                "tenant_id": plan["tenant_id"],
+                "dataset_id": plan["dataset_id"],
+                "service_id": plan["service_id"],
+                "action": plan["action"],
+                "existing_job": plan["existing_job"],
+                "incoming": plan["incoming"],
+                "imported_at_utc": imported_at,
+                "result": imported,
+            }
+            if not dry_run:
+                entry["job_state_after"] = existing_job_summary(conn, str(plan["job_id"]))
+            imports.append(entry)
         if not dry_run:
-            imported_at = utc_now()
-            imported = apply_import_plan(conn, plan, imported_at=imported_at)
-        entry = {
-            "out_base": str(plan["bundle"]["out_base"]),
-            "job_id": plan["job_id"],
-            "correlation_id": plan["correlation_id"],
-            "caller": plan["caller"],
-            "tenant_id": plan["tenant_id"],
-            "dataset_id": plan["dataset_id"],
-            "service_id": plan["service_id"],
-            "action": plan["action"],
-            "existing_job": plan["existing_job"],
-            "incoming": plan["incoming"],
-            "imported_at_utc": imported_at,
-            "result": imported,
-        }
+            conn.commit()
+    except BaseException:
         if not dry_run:
-            entry["job_state_after"] = existing_job_summary(conn, str(plan["job_id"]))
-        imports.append(entry)
-    if not dry_run:
-        conn.commit()
+            try:
+                conn.rollback()
+            except Exception:
+                # If rollback itself fails we still want the original error to surface.
+                pass
+        raise
     return {
         "schema": IMPORT_SCHEMA,
         "generated_at_utc": generated_at,
@@ -846,7 +858,17 @@ def main() -> int:
     conn = connect_db(args.db_path, dsn=args.db_dsn)
     try:
         applied = apply_migrations(conn)
-        report = import_runs(conn, out_bases, dry_run=args.dry_run)
+        try:
+            report = import_runs(conn, out_bases, dry_run=args.dry_run)
+        except BaseException:
+            # Defence in depth — import_runs already rolls back, but if anything
+            # raised between import_runs returning and conn.close() landing,
+            # explicitly drop the in-flight transaction so we never leak it.
+            try:
+                conn.rollback()
+            except Exception:
+                pass
+            raise
     finally:
         conn.close()
     report["db_path"] = str(Path(args.db_path).resolve()) if args.db_path else None

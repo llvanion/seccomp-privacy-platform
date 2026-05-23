@@ -256,12 +256,42 @@ def enforce_row_limits(*, output_rows: int, min_rows: int | None, max_rows: int 
         raise ValueError(f"record recovery output row count {output_rows} is below min rows {min_rows}")
 
 
-def parse_candidate_payload(payload: Any) -> tuple[set[str], list[tuple[str, str]]]:
+def evaluate_min_rows_suppression(
+    *,
+    output_rows: int,
+    min_rows: int | None,
+) -> bool:
+    """Return True when output is below ``min_rows`` and should be suppressed.
+
+    Companion to :func:`enforce_row_limits`. Callers that want to close the
+    "zero rows vs below-min rows" side channel (A.10) ask the server to
+    *suppress* the below-min case instead of raising. The response shape and
+    output file then match the legitimate zero-match case exactly, so a
+    membership-probing caller cannot distinguish "no candidates matched" from
+    "candidates matched but the cohort was too small to release".
+    """
+    if min_rows is None:
+        return False
+    return output_rows < int(min_rows)
+
+
+def parse_candidate_payload(
+    payload: Any,
+    *,
+    max_candidate_ids: int = 0,
+) -> tuple[set[str], list[tuple[str, str]]]:
     if not isinstance(payload, dict):
         raise ValueError("record recovery payload must be a JSON object")
     candidate_ids = payload.get("candidate_ids")
     if not isinstance(candidate_ids, list):
         raise ValueError("record recovery payload candidate_ids must be a list")
+    if max_candidate_ids > 0 and len(candidate_ids) > max_candidate_ids:
+        # Reject before materializing the set so a hostile caller cannot pin RSS
+        # by streaming an oversized candidate list. The cap is enforced before
+        # any per-item work runs.
+        raise PermissionError(
+            f"candidate_ids length {len(candidate_ids)} exceeds max_candidate_ids {max_candidate_ids}"
+        )
     filters = payload.get("filters", [])
     if not isinstance(filters, list):
         raise ValueError("record recovery payload filters must be a list")

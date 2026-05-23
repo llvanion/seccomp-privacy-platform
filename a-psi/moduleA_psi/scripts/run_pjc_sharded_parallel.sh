@@ -49,7 +49,7 @@ for t in targets:
   base=t["dir"]
   bucket=t.get("bucket")
   for s in t.get("shards",[]):
-    print((bucket if bucket is not None else "__ROOT__") + "\t" + s["dir"])'
+    print((bucket if bucket is not None else "__ROOT__") + "\t" + s["dir"] + "\t" + str(s.get("exposure_n", 0)) + "\t" + str(s.get("purchase_n", 0)))'
 
 mapfile -t ITEMS < <(python3 -c "$PY_LIST" "$JOB_DIR/job_shard_meta.json")
 
@@ -57,9 +57,22 @@ pids=()
 count=0
 idx=0
 for item in "${ITEMS[@]}"; do
-  bucket="${item%%$'\t'*}"
-  subdir="${item#*$'\t'}"
+  IFS=$'\t' read -r bucket subdir exposure_n purchase_n <<<"$item"
   port=$((BASE_PORT + idx))
+  if [[ "${exposure_n:-0}" == "0" || "${purchase_n:-0}" == "0" ]]; then
+    log "skip empty shard: bucket=$bucket dir=$subdir exposure_n=${exposure_n:-0} purchase_n=${purchase_n:-0}"
+    mkdir -p "$subdir"
+    cat > "$subdir/attribution_result.json" <<JSON
+{
+  "job_id": "$(basename "$JOB_DIR")",
+  "server_addr": "skipped-empty-shard",
+  "intersection_size": 0,
+  "intersection_sum": 0
+}
+JSON
+    idx=$((idx+1))
+    continue
+  fi
   log "run shard: bucket=$bucket dir=$subdir port=$port"
   run_one "$subdir" "$port" &
   pids+=($!)
