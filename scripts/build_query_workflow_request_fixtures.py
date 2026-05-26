@@ -89,6 +89,19 @@ def build_privacy_budget_payload(*, repo_root: Path, request_dir: Path) -> dict[
     return payload
 
 
+def build_privacy_budget_invalid_payload(
+    *,
+    repo_root: Path,
+    request_dir: Path,
+    missing_field: str,
+) -> dict[str, object]:
+    payload = build_privacy_budget_payload(repo_root=repo_root, request_dir=request_dir)
+    payload["job_id"] = f"contract-query-workflow-privacy-budget-missing-{missing_field}"
+    payload["out_base"] = f"../query_workflow_out_privacy_budget_missing_{missing_field}"
+    payload.pop(missing_field)
+    return payload
+
+
 def write_request(path: Path, *, keep_handoff_files: bool) -> None:
     repo_root = Path(__file__).resolve().parent.parent
     payload = build_payload(
@@ -114,12 +127,25 @@ def write_privacy_budget_request(path: Path) -> None:
     path.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
 
 
+def write_privacy_budget_invalid_request(path: Path, *, missing_field: str) -> None:
+    repo_root = Path(__file__).resolve().parent.parent
+    payload = build_privacy_budget_invalid_payload(
+        repo_root=repo_root,
+        request_dir=path.resolve().parent,
+        missing_field=missing_field,
+    )
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+
+
 def build_parser() -> argparse.ArgumentParser:
     ap = argparse.ArgumentParser(description="Build query workflow request fixtures for contract smoke.")
     ap.add_argument("--default-out", required=True)
     ap.add_argument("--keep-out", required=True)
     ap.add_argument("--ecommerce-out", default="")
     ap.add_argument("--privacy-budget-out", default="")
+    ap.add_argument("--privacy-budget-missing-config-out", default="")
+    ap.add_argument("--privacy-budget-missing-ledger-out", default="")
     return ap
 
 
@@ -131,6 +157,16 @@ def main() -> int:
         write_ecommerce_request(Path(args.ecommerce_out))
     if args.privacy_budget_out:
         write_privacy_budget_request(Path(args.privacy_budget_out))
+    if args.privacy_budget_missing_config_out:
+        write_privacy_budget_invalid_request(
+            Path(args.privacy_budget_missing_config_out),
+            missing_field="privacy_budget_config",
+        )
+    if args.privacy_budget_missing_ledger_out:
+        write_privacy_budget_invalid_request(
+            Path(args.privacy_budget_missing_ledger_out),
+            missing_field="privacy_budget_ledger",
+        )
     return 0
 
 

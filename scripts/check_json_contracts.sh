@@ -2190,7 +2190,9 @@ python3 "$REPO_ROOT/scripts/build_query_workflow_request_fixtures.py" \
   --default-out "$tmp/query_requests/cross_party_match.json" \
   --keep-out "$tmp/query_requests/cross_party_match_keep.json" \
   --ecommerce-out "$tmp/query_requests/ecommerce_cross_party_match.json" \
-  --privacy-budget-out "$tmp/query_requests/cross_party_match_privacy_budget.json"
+  --privacy-budget-out "$tmp/query_requests/cross_party_match_privacy_budget.json" \
+  --privacy-budget-missing-config-out "$tmp/query_requests/cross_party_match_privacy_budget_missing_config.json" \
+  --privacy-budget-missing-ledger-out "$tmp/query_requests/cross_party_match_privacy_budget_missing_ledger.json"
 python3 "$REPO_ROOT/scripts/submit_query_workflow.py" \
   --request-file "$tmp/query_requests/cross_party_match.json" \
   --dry-run \
@@ -2213,6 +2215,26 @@ assert cmd[cmd.index("--privacy-budget-cost")+1] == "1.0", cmd
 assert cmd[cmd.index("--tenant-id")+1] == "demo_tenant", cmd
 assert cmd[cmd.index("--dataset-id")+1] == "bridge_demo_dataset", cmd' \
   "$tmp/query_workflow_privacy_budget_stdout.json"
+if python3 "$REPO_ROOT/scripts/submit_query_workflow.py" \
+  --request-file "$tmp/query_requests/cross_party_match_privacy_budget_missing_config.json" \
+  --dry-run \
+  > "$tmp/query_workflow_privacy_budget_missing_config_stdout.json" \
+  2> "$tmp/query_workflow_privacy_budget_missing_config_stderr.txt"; then
+  echo "[ERROR] privacy budget required request without config unexpectedly passed" >&2
+  exit 1
+fi
+grep -q "privacy_budget_required=true requires privacy_budget_config" \
+  "$tmp/query_workflow_privacy_budget_missing_config_stderr.txt"
+if python3 "$REPO_ROOT/scripts/submit_query_workflow.py" \
+  --request-file "$tmp/query_requests/cross_party_match_privacy_budget_missing_ledger.json" \
+  --dry-run \
+  > "$tmp/query_workflow_privacy_budget_missing_ledger_stdout.json" \
+  2> "$tmp/query_workflow_privacy_budget_missing_ledger_stderr.txt"; then
+  echo "[ERROR] privacy budget required request without ledger unexpectedly passed" >&2
+  exit 1
+fi
+grep -q "privacy_budget_required=true requires privacy_budget_ledger" \
+  "$tmp/query_workflow_privacy_budget_missing_ledger_stderr.txt"
 python3 "$REPO_ROOT/scripts/submit_query_workflow.py" \
   --request-file "$tmp/query_requests/cross_party_match_keep.json" \
   --dry-run \
