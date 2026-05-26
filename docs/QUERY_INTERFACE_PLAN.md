@@ -99,6 +99,12 @@ Example:
   "caller": "auto_demo",
   "tenant_id": "demo_tenant",
   "dataset_id": "bridge_demo_dataset",
+  "privacy_budget_required": true,
+  "privacy_budget_config": "config/privacy_budget.example.json",
+  "privacy_budget_ledger": "tmp/query_demo_job/privacy_budget_ledger.jsonl",
+  "privacy_budget_purpose": "campaign_measurement",
+  "privacy_budget_limit": 3,
+  "privacy_budget_cost": 1.0,
   "k": 1,
   "n": 5,
   "sse_export_policy_config": "sse/config/export_policy.example.json",
@@ -115,6 +121,16 @@ For the HTTP API, there is no request file. In that transport, relative paths ar
 2. the repository root when the header is omitted
 
 The structural request contract is now frozen in [schemas/query_workflow_request.schema.json](/home/llvanion/Desktop/seccomp-privacy-platform/schemas/query_workflow_request.schema.json). Semantic rules that are awkward to express in the repo's lightweight validator, such as mutually-exclusive secret sources or KMS dependency checks, remain enforced in [scripts/submit_query_workflow.py](/home/llvanion/Desktop/seccomp-privacy-platform/scripts/submit_query_workflow.py).
+
+Privacy-budget release controls are now wired through the same request surface
+repo-side. `privacy_budget_required=true` requires both
+`privacy_budget_config` and `privacy_budget_ledger`; the wrapper passes those
+paths plus `privacy_budget_purpose`, `privacy_budget_limit`, and
+`privacy_budget_cost` to `scripts/run_sse_bridge_pipeline.sh`, which forwards
+them to `policy_release.py` during Stage4. The stable submission scope remains
+`caller` / `tenant_id` / `dataset_id`; `privacy_budget_purpose` maps to the
+release-side `--purpose` argument. This is still local/operator-entrypoint
+wiring, not the later approval queue or live VPS/public evidence path.
 
 ## 5. Secret Handling
 

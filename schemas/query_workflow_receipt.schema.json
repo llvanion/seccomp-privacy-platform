@@ -42,7 +42,7 @@
     "request_summary": {
       "type": "object",
       "additionalProperties": {
-        "type": ["string", "array", "integer", "boolean", "null"],
+        "type": ["string", "array", "integer", "number", "boolean", "null"],
         "items": { "type": "string" }
       }
     },

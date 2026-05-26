@@ -2189,12 +2189,30 @@ mkdir -p "$tmp/query_requests"
 python3 "$REPO_ROOT/scripts/build_query_workflow_request_fixtures.py" \
   --default-out "$tmp/query_requests/cross_party_match.json" \
   --keep-out "$tmp/query_requests/cross_party_match_keep.json" \
-  --ecommerce-out "$tmp/query_requests/ecommerce_cross_party_match.json"
+  --ecommerce-out "$tmp/query_requests/ecommerce_cross_party_match.json" \
+  --privacy-budget-out "$tmp/query_requests/cross_party_match_privacy_budget.json"
 python3 "$REPO_ROOT/scripts/submit_query_workflow.py" \
   --request-file "$tmp/query_requests/cross_party_match.json" \
   --dry-run \
   --manifest-out "$tmp/query_workflow_manifest.json" \
   > "$tmp/query_workflow_stdout.json"
+python3 "$REPO_ROOT/scripts/submit_query_workflow.py" \
+  --request-file "$tmp/query_requests/cross_party_match_privacy_budget.json" \
+  --dry-run \
+  --manifest-out "$tmp/query_workflow_privacy_budget_manifest.json" \
+  > "$tmp/query_workflow_privacy_budget_stdout.json"
+python3 -c 'import json, sys
+p=json.load(open(sys.argv[1], "r", encoding="utf-8"))
+cmd=p["command"]
+required=["--privacy-budget-required","--privacy-budget-config","--privacy-budget-ledger","--privacy-budget-purpose","--privacy-budget-limit","--privacy-budget-cost","--tenant-id","--dataset-id"]
+missing=[flag for flag in required if flag not in cmd]
+assert not missing, (missing, cmd)
+assert cmd[cmd.index("--privacy-budget-purpose")+1] == "campaign_measurement", cmd
+assert cmd[cmd.index("--privacy-budget-limit")+1] == "3", cmd
+assert cmd[cmd.index("--privacy-budget-cost")+1] == "1.0", cmd
+assert cmd[cmd.index("--tenant-id")+1] == "demo_tenant", cmd
+assert cmd[cmd.index("--dataset-id")+1] == "bridge_demo_dataset", cmd' \
+  "$tmp/query_workflow_privacy_budget_stdout.json"
 python3 "$REPO_ROOT/scripts/submit_query_workflow.py" \
   --request-file "$tmp/query_requests/cross_party_match_keep.json" \
   --dry-run \
@@ -2537,13 +2555,22 @@ python3 "$VALIDATOR" \
   --json "$tmp/query_requests/ecommerce_cross_party_match.json"
 python3 "$VALIDATOR" \
   --schema "$REPO_ROOT/schemas/query_workflow_request.schema.json" \
+  --json "$tmp/query_requests/cross_party_match_privacy_budget.json"
+python3 "$VALIDATOR" \
+  --schema "$REPO_ROOT/schemas/query_workflow_request.schema.json" \
   --json "$tmp/query_requests/cross_party_match_execute_run_failed.json"
 python3 "$VALIDATOR" \
   --schema "$REPO_ROOT/schemas/query_workflow_submission.schema.json" \
   --json "$tmp/query_workflow_stdout.json"
 python3 "$VALIDATOR" \
   --schema "$REPO_ROOT/schemas/query_workflow_submission.schema.json" \
+  --json "$tmp/query_workflow_privacy_budget_stdout.json"
+python3 "$VALIDATOR" \
+  --schema "$REPO_ROOT/schemas/query_workflow_submission.schema.json" \
   --json "$tmp/query_workflow_manifest.json"
+python3 "$VALIDATOR" \
+  --schema "$REPO_ROOT/schemas/query_workflow_submission.schema.json" \
+  --json "$tmp/query_workflow_privacy_budget_manifest.json"
 python3 "$VALIDATOR" \
   --schema "$REPO_ROOT/schemas/query_workflow_submission.schema.json" \
   --json "$tmp/query_workflow_out/query_workflow/submission_manifest.json"
@@ -2553,6 +2580,15 @@ python3 "$VALIDATOR" \
 python3 "$VALIDATOR" \
   --schema "$REPO_ROOT/schemas/query_workflow_status.schema.json" \
   --json "$tmp/query_workflow_out/query_workflow/status.json"
+python3 "$VALIDATOR" \
+  --schema "$REPO_ROOT/schemas/query_workflow_submission.schema.json" \
+  --json "$tmp/query_workflow_out_privacy_budget/query_workflow/submission_manifest.json"
+python3 "$VALIDATOR" \
+  --schema "$REPO_ROOT/schemas/query_workflow_receipt.schema.json" \
+  --jsonl "$tmp/query_workflow_out_privacy_budget/query_workflow/execution_receipts.jsonl"
+python3 "$VALIDATOR" \
+  --schema "$REPO_ROOT/schemas/query_workflow_status.schema.json" \
+  --json "$tmp/query_workflow_out_privacy_budget/query_workflow/status.json"
 python3 "$VALIDATOR" \
   --schema "$REPO_ROOT/schemas/query_workflow_submission.schema.json" \
   --json "$tmp/query_workflow_out_keep/query_workflow/submission_manifest.json"

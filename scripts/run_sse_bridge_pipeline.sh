@@ -118,6 +118,12 @@ OUT_BASE=""
 CALLER="bridge_demo"
 TENANT_ID=""
 DATASET_ID=""
+PRIVACY_BUDGET_REQUIRED="0"
+PRIVACY_BUDGET_CONFIG=""
+PRIVACY_BUDGET_LEDGER=""
+PRIVACY_BUDGET_PURPOSE=""
+PRIVACY_BUDGET_LIMIT=""
+PRIVACY_BUDGET_COST=""
 K_THRESHOLD="20"
 RATE_N="5"
 DENY_DUPLICATE_QUERY="0"
@@ -207,6 +213,12 @@ Options:
   --caller <id>                      policy caller, default: bridge_demo
   --tenant-id <id>                   optional tenant scope aligned with policy and service config
   --dataset-id <id>                  optional dataset scope aligned with policy and service config
+  --privacy-budget-required          fail closed unless privacy-budget config and ledger are provided
+  --privacy-budget-config <path>     privacy_budget_config/v1 scope rules for policy release
+  --privacy-budget-ledger <path>     privacy_budget_ledger/v1 JSONL path for policy release
+  --privacy-budget-purpose <purpose> optional purpose scope passed to policy release as --purpose
+  --privacy-budget-limit <number>    optional budget limit override
+  --privacy-budget-cost <number>     optional budget cost override
   --k <int>                          release threshold, default: 20
   --n <int>                          rate limit, default: 5
   --deny-duplicate-query             deny exact repeated policy-release query signatures
@@ -284,6 +296,12 @@ while [[ $# -gt 0 ]]; do
     --caller) CALLER="$2"; shift 2 ;;
     --tenant-id) TENANT_ID="$2"; shift 2 ;;
     --dataset-id) DATASET_ID="$2"; shift 2 ;;
+    --privacy-budget-required) PRIVACY_BUDGET_REQUIRED="1"; shift ;;
+    --privacy-budget-config) PRIVACY_BUDGET_CONFIG="$2"; shift 2 ;;
+    --privacy-budget-ledger) PRIVACY_BUDGET_LEDGER="$2"; shift 2 ;;
+    --privacy-budget-purpose) PRIVACY_BUDGET_PURPOSE="$2"; shift 2 ;;
+    --privacy-budget-limit) PRIVACY_BUDGET_LIMIT="$2"; shift 2 ;;
+    --privacy-budget-cost) PRIVACY_BUDGET_COST="$2"; shift 2 ;;
     --k) K_THRESHOLD="$2"; shift 2 ;;
     --n) RATE_N="$2"; shift 2 ;;
     --deny-duplicate-query) DENY_DUPLICATE_QUERY="1"; shift ;;
@@ -315,6 +333,8 @@ KEY_MANIFEST="$(normalize_repo_path "$KEY_MANIFEST")"
 KEYRING="$(normalize_repo_path "$KEYRING")"
 EXTERNAL_KMS_CONFIG="$(normalize_repo_path "$EXTERNAL_KMS_CONFIG")"
 SSE_EXPORT_POLICY_CONFIG="$(normalize_repo_path "$SSE_EXPORT_POLICY_CONFIG")"
+PRIVACY_BUDGET_CONFIG="$(normalize_repo_path "$PRIVACY_BUDGET_CONFIG")"
+PRIVACY_BUDGET_LEDGER="$(normalize_repo_path "$PRIVACY_BUDGET_LEDGER")"
 
 [[ -n "$SERVER_SOURCE" || -n "$SERVER_RECORD_STORE_PATH" ]] || die "--server-source or --server-record-store-path required"
 [[ -n "$CLIENT_SOURCE" || -n "$CLIENT_RECORD_STORE_PATH" ]] || die "--client-source or --client-record-store-path required"
@@ -337,6 +357,11 @@ SSE_EXPORT_POLICY_CONFIG="$(normalize_repo_path "$SSE_EXPORT_POLICY_CONFIG")"
 [[ "$RECORD_RECOVERY_SERVICE_MODE" == "auto" || "$RECORD_RECOVERY_SERVICE_MODE" == "manual" || "$RECORD_RECOVERY_SERVICE_MODE" == "subprocess" ]] || die "--record-recovery-service-mode must be auto, manual, or subprocess"
 [[ -z "$RECORD_RECOVERY_AUTHZ_CONFIG" || "$RECORD_RECOVERY_SERVICE_MODE" == "auto" ]] || die "--record-recovery-authz-config currently requires --record-recovery-service-mode=auto"
 [[ "$RECORD_RECOVERY_SOCKET_MODE" =~ ^[0-7]{3,4}$ ]] || die "--record-recovery-socket-mode must be octal like 600 or 0600"
+[[ -z "$PRIVACY_BUDGET_CONFIG" || -n "$PRIVACY_BUDGET_LEDGER" ]] || die "--privacy-budget-config requires --privacy-budget-ledger"
+if [[ "$PRIVACY_BUDGET_REQUIRED" == "1" ]]; then
+  [[ -n "$PRIVACY_BUDGET_CONFIG" ]] || die "--privacy-budget-required requires --privacy-budget-config"
+  [[ -n "$PRIVACY_BUDGET_LEDGER" ]] || die "--privacy-budget-required requires --privacy-budget-ledger"
+fi
 [[ "$KEY_AGENT_MODE" == "auto" || "$KEY_AGENT_MODE" == "manual" ]] || die "--key-agent-mode must be auto or manual"
 [[ -z "$KEY_AGENT_AUTH_ENV" || -n "$KEY_AGENT_SOCKET" || "$KEY_AGENT_MODE" == "auto" ]] || die "--key-agent-auth-env requires --key-agent-socket unless --key-agent-mode=auto"
 [[ "$EXTERNAL_KMS_MODE" == "auto" || "$EXTERNAL_KMS_MODE" == "manual" ]] || die "--external-kms-mode must be auto or manual"
@@ -439,6 +464,12 @@ if [[ -n "$EXTERNAL_KMS_CONFIG" ]]; then
   python3 "$VALIDATE_JSON_CONTRACT_PY" \
     --schema "$REPO_ROOT/schemas/external_kms_config.schema.json" \
     --json "$EXTERNAL_KMS_CONFIG"
+fi
+
+if [[ -n "$PRIVACY_BUDGET_CONFIG" ]]; then
+  python3 "$VALIDATE_JSON_CONTRACT_PY" \
+    --schema "$REPO_ROOT/schemas/privacy_budget_config.schema.json" \
+    --json "$PRIVACY_BUDGET_CONFIG"
 fi
 
 OUT_BASE="$(mkdir -p "$OUT_BASE" && cd "$OUT_BASE" && pwd)"
@@ -1532,8 +1563,32 @@ POLICY_RELEASE_CMD=(
   --k "$K_THRESHOLD"
   --n "$RATE_N"
 )
+if [[ -n "$TENANT_ID" ]]; then
+  POLICY_RELEASE_CMD+=(--tenant-id "$TENANT_ID")
+fi
+if [[ -n "$DATASET_ID" ]]; then
+  POLICY_RELEASE_CMD+=(--dataset-id "$DATASET_ID")
+fi
+if [[ -n "$PRIVACY_BUDGET_PURPOSE" ]]; then
+  POLICY_RELEASE_CMD+=(--purpose "$PRIVACY_BUDGET_PURPOSE")
+fi
 if [[ "$DENY_DUPLICATE_QUERY" == "1" ]]; then
   POLICY_RELEASE_CMD+=(--deny-duplicate-query)
+fi
+if [[ "$PRIVACY_BUDGET_REQUIRED" == "1" ]]; then
+  POLICY_RELEASE_CMD+=(--privacy-budget-required)
+fi
+if [[ -n "$PRIVACY_BUDGET_CONFIG" ]]; then
+  POLICY_RELEASE_CMD+=(--privacy-budget-config "$PRIVACY_BUDGET_CONFIG")
+fi
+if [[ -n "$PRIVACY_BUDGET_LEDGER" ]]; then
+  POLICY_RELEASE_CMD+=(--privacy-budget-ledger "$PRIVACY_BUDGET_LEDGER")
+fi
+if [[ -n "$PRIVACY_BUDGET_LIMIT" ]]; then
+  POLICY_RELEASE_CMD+=(--privacy-budget-limit "$PRIVACY_BUDGET_LIMIT")
+fi
+if [[ -n "$PRIVACY_BUDGET_COST" ]]; then
+  POLICY_RELEASE_CMD+=(--privacy-budget-cost "$PRIVACY_BUDGET_COST")
 fi
 (
   cd "$APSI_DIR"

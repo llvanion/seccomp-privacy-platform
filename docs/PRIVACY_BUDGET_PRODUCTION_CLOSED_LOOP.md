@@ -62,7 +62,9 @@ bash scripts/run_attack_surface_hardening_evidence.sh
 
 ## Production Status
 
-Current status: local production-style closed loop completed.
+Current status: local production-style closed loop completed, with repo-side
+operator/query submission wiring now passing the same required/config/ledger
+and scope fields into Stage4 release.
 
 Suggested final-report wording:
 
@@ -80,12 +82,23 @@ Do not use this stronger wording yet:
 S3 is fully production deployed and jointly certified.
 ```
 
+Repo-side update on 2026-05-26:
+
+- `query_workflow_request/v1` accepts `privacy_budget_required`,
+  `privacy_budget_config`, `privacy_budget_ledger`,
+  `privacy_budget_purpose`, `privacy_budget_limit`, and
+  `privacy_budget_cost`.
+- `submit_query_workflow.py` validates required/config/ledger coupling and
+  includes those fields in the pipeline command.
+- `run_sse_bridge_pipeline.sh` forwards tenant / dataset / purpose and privacy
+  budget controls to `policy_release.py`.
+- Default contract smoke includes a dry-run command assertion for this wiring.
+
 Remaining before claiming live production closure:
 
-- Wire `--privacy-budget-required`, `--privacy-budget-config`, and scope fields
-  into the operator query submission path.
 - Persist the ledger and config source in the metadata sidecar or equivalent
   production storage instead of local files.
+- Add the approval branch for near-duplicate / differencing-risk queries.
 - Run the same evidence flow on the VPS/public deployment.
 - Add joint certification evidence for the live deployment run.
 

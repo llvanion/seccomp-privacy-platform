@@ -257,6 +257,29 @@
       "type": "string",
       "minLength": 1
     },
+    "privacy_budget_required": {
+      "type": "boolean"
+    },
+    "privacy_budget_config": {
+      "type": "string",
+      "minLength": 1
+    },
+    "privacy_budget_ledger": {
+      "type": "string",
+      "minLength": 1
+    },
+    "privacy_budget_purpose": {
+      "type": "string",
+      "minLength": 1
+    },
+    "privacy_budget_limit": {
+      "type": "number",
+      "minimum": 0
+    },
+    "privacy_budget_cost": {
+      "type": "number",
+      "exclusiveMinimum": 0
+    },
     "k": {
       "type": "integer",
       "minimum": 1

@@ -32,6 +32,8 @@ PATH_FIELDS = {
     "keyring",
     "external_kms_config",
     "sse_export_policy_config",
+    "privacy_budget_config",
+    "privacy_budget_ledger",
     "out_base",
     "key_access_audit_log",
     "audit_archive_dir",
@@ -108,6 +110,17 @@ def optional_int(payload: dict[str, Any], field: str, *, default: int | None = N
     raise SystemExit(f"[ERROR] {field} must be an integer when provided")
 
 
+def optional_number(payload: dict[str, Any], field: str, *, default: float | None = None) -> float | None:
+    if field not in payload:
+        return default
+    value = payload[field]
+    if isinstance(value, bool):
+        raise SystemExit(f"[ERROR] {field} must be a number when provided")
+    if isinstance(value, (int, float)):
+        return float(value)
+    raise SystemExit(f"[ERROR] {field} must be a number when provided")
+
+
 def validate_request(payload: dict[str, Any]) -> None:
     schema = payload.get("schema")
     if schema not in (None, REQUEST_SCHEMA):
@@ -144,6 +157,7 @@ def validate_request(payload: dict[str, Any]) -> None:
         "production_mode",
         "unsafe_allow_no_sse_export_policy",
         "cleanup_sse_export_handoff_files_after_bridge",
+        "privacy_budget_required",
     ):
         optional_bool(payload, bool_field)
     handoff_retention_reason = payload.get("handoff_retention_reason")
@@ -190,6 +204,29 @@ def validate_request(payload: dict[str, Any]) -> None:
     recovery_mode = payload.get("record_recovery_service_mode", "auto")
     if recovery_mode not in {"auto", "manual", "subprocess"}:
         raise SystemExit("[ERROR] record_recovery_service_mode must be auto, manual, or subprocess")
+
+    privacy_budget_required = optional_bool(payload, "privacy_budget_required")
+    privacy_budget_config = payload.get("privacy_budget_config")
+    privacy_budget_ledger = payload.get("privacy_budget_ledger")
+    if privacy_budget_config not in (None, ""):
+        privacy_budget_config = require_nonempty_str(payload, "privacy_budget_config")
+    if privacy_budget_ledger not in (None, ""):
+        privacy_budget_ledger = require_nonempty_str(payload, "privacy_budget_ledger")
+    if privacy_budget_required:
+        if not privacy_budget_config:
+            raise SystemExit("[ERROR] privacy_budget_required=true requires privacy_budget_config")
+        if not privacy_budget_ledger:
+            raise SystemExit("[ERROR] privacy_budget_required=true requires privacy_budget_ledger")
+    if privacy_budget_config and not privacy_budget_ledger:
+        raise SystemExit("[ERROR] privacy_budget_config requires privacy_budget_ledger")
+    if payload.get("privacy_budget_purpose") not in (None, ""):
+        require_nonempty_str(payload, "privacy_budget_purpose")
+    privacy_budget_limit = optional_number(payload, "privacy_budget_limit")
+    if privacy_budget_limit is not None and privacy_budget_limit < 0:
+        raise SystemExit("[ERROR] privacy_budget_limit must be >= 0")
+    privacy_budget_cost = optional_number(payload, "privacy_budget_cost")
+    if privacy_budget_cost is not None and privacy_budget_cost <= 0:
+        raise SystemExit("[ERROR] privacy_budget_cost must be > 0")
 
 
 def build_command(payload: dict[str, Any]) -> list[str]:
@@ -259,6 +296,11 @@ def build_command(payload: dict[str, Any]) -> list[str]:
     add_arg("caller", payload.get("caller"))
     add_arg("tenant-id", payload.get("tenant_id"))
     add_arg("dataset-id", payload.get("dataset_id"))
+    add_arg("privacy-budget-config", payload.get("privacy_budget_config"))
+    add_arg("privacy-budget-ledger", payload.get("privacy_budget_ledger"))
+    add_arg("privacy-budget-purpose", payload.get("privacy_budget_purpose"))
+    add_arg("privacy-budget-limit", payload.get("privacy_budget_limit"))
+    add_arg("privacy-budget-cost", payload.get("privacy_budget_cost"))
     add_arg("k", payload.get("k", 20))
     add_arg("n", payload.get("n", 5))
     for item in optional_str_list(payload, "server_filters"):
@@ -266,6 +308,7 @@ def build_command(payload: dict[str, Any]) -> list[str]:
     for item in optional_str_list(payload, "client_filters"):
         add_arg("client-filter", item)
     add_flag("deny-duplicate-query", optional_bool(payload, "deny_duplicate_query"))
+    add_flag("privacy-budget-required", optional_bool(payload, "privacy_budget_required"))
     add_flag("production-mode", optional_bool(payload, "production_mode"))
     add_flag("unsafe-allow-no-sse-export-policy", optional_bool(payload, "unsafe_allow_no_sse_export_policy"))
     cleanup_handoff = optional_bool(payload, "cleanup_sse_export_handoff_files_after_bridge")

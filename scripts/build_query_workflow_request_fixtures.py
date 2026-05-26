@@ -72,6 +72,23 @@ def build_ecommerce_payload(*, repo_root: Path, request_dir: Path) -> dict[str, 
     }
 
 
+def build_privacy_budget_payload(*, repo_root: Path, request_dir: Path) -> dict[str, object]:
+    payload = build_payload(repo_root=repo_root, request_dir=request_dir, keep_handoff_files=False)
+    payload.update(
+        {
+            "job_id": "contract-query-workflow-privacy-budget",
+            "out_base": "../query_workflow_out_privacy_budget",
+            "privacy_budget_required": True,
+            "privacy_budget_config": os.path.relpath(repo_root / "config/privacy_budget.example.json", request_dir),
+            "privacy_budget_ledger": "../query_workflow_privacy_budget_ledger.jsonl",
+            "privacy_budget_purpose": "campaign_measurement",
+            "privacy_budget_limit": 3,
+            "privacy_budget_cost": 1.0,
+        }
+    )
+    return payload
+
+
 def write_request(path: Path, *, keep_handoff_files: bool) -> None:
     repo_root = Path(__file__).resolve().parent.parent
     payload = build_payload(
@@ -90,11 +107,19 @@ def write_ecommerce_request(path: Path) -> None:
     path.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
 
 
+def write_privacy_budget_request(path: Path) -> None:
+    repo_root = Path(__file__).resolve().parent.parent
+    payload = build_privacy_budget_payload(repo_root=repo_root, request_dir=path.resolve().parent)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+
+
 def build_parser() -> argparse.ArgumentParser:
     ap = argparse.ArgumentParser(description="Build query workflow request fixtures for contract smoke.")
     ap.add_argument("--default-out", required=True)
     ap.add_argument("--keep-out", required=True)
     ap.add_argument("--ecommerce-out", default="")
+    ap.add_argument("--privacy-budget-out", default="")
     return ap
 
 
@@ -104,6 +129,8 @@ def main() -> int:
     write_request(Path(args.keep_out), keep_handoff_files=True)
     if args.ecommerce_out:
         write_ecommerce_request(Path(args.ecommerce_out))
+    if args.privacy_budget_out:
+        write_privacy_budget_request(Path(args.privacy_budget_out))
     return 0
 
 
