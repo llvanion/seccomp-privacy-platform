@@ -136,6 +136,37 @@ CREATE TABLE IF NOT EXISTS audit_seals (
   payload_json JSONB NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS privacy_budget_ledger_events (
+  id SERIAL PRIMARY KEY,
+  job_id TEXT REFERENCES jobs(job_id) ON DELETE CASCADE,
+  ledger_job_id TEXT,
+  correlation_id TEXT,
+  policy_version TEXT,
+  ts_utc TIMESTAMPTZ,
+  caller TEXT,
+  tenant_id TEXT,
+  dataset_id TEXT,
+  purpose TEXT,
+  decision TEXT,
+  reason_code TEXT,
+  abuse_signal TEXT,
+  matched_prior_job_id TEXT,
+  matched_prior_relation TEXT,
+  budget_limit DOUBLE PRECISION,
+  budget_cost DOUBLE PRECISION,
+  budget_used_before DOUBLE PRECISION,
+  budget_used_after DOUBLE PRECISION,
+  budget_consumed BOOLEAN,
+  query_fingerprint TEXT,
+  query_payload_sha256 TEXT,
+  window_json JSONB,
+  bucket_json JSONB,
+  parsed_metrics_json JSONB,
+  public_report_sha256 TEXT,
+  ledger_path TEXT,
+  payload_json JSONB NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS policies (
   policy_id TEXT PRIMARY KEY,
   policy_kind TEXT NOT NULL,
@@ -256,6 +287,10 @@ CREATE INDEX IF NOT EXISTS idx_jobs_service_id ON jobs(service_id);
 CREATE INDEX IF NOT EXISTS idx_job_artifacts_job_id ON job_artifacts(job_id);
 CREATE INDEX IF NOT EXISTS idx_job_stage_status_job_id ON job_stage_status(job_id);
 CREATE INDEX IF NOT EXISTS idx_audit_events_job_stage ON audit_events(job_id, stage);
+CREATE INDEX IF NOT EXISTS idx_privacy_budget_source_job_id ON privacy_budget_ledger_events(job_id);
+CREATE INDEX IF NOT EXISTS idx_privacy_budget_ledger_job_id ON privacy_budget_ledger_events(ledger_job_id);
+CREATE INDEX IF NOT EXISTS idx_privacy_budget_scope ON privacy_budget_ledger_events(caller, tenant_id, dataset_id, purpose);
+CREATE INDEX IF NOT EXISTS idx_privacy_budget_decision ON privacy_budget_ledger_events(decision, reason_code);
 CREATE INDEX IF NOT EXISTS idx_key_access_events_job_id ON key_access_events(job_id);
 CREATE INDEX IF NOT EXISTS idx_key_refs_service_id ON key_refs(service_id);
 CREATE INDEX IF NOT EXISTS idx_key_refs_purpose ON key_refs(purpose);

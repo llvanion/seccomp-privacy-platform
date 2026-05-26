@@ -25,7 +25,7 @@ TYPE_UPGRADE_MAP = {
     "_json": "JSONB",
 }
 BOOL_COLUMNS = {
-    "exists_on_disk", "signed", "enabled", "public_report_released",
+    "exists_on_disk", "signed", "enabled", "public_report_released", "budget_consumed",
 }
 
 

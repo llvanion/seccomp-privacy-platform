@@ -25,6 +25,7 @@ LIST_ENTITY_CHOICES = (
     "job-state-transitions",
     "policy-versions",
     "service-versions",
+    "privacy-budget-ledger",
     "catalog-lineage-read-model",
     "retention-reconcile-plan",
 )
@@ -188,6 +189,31 @@ ENTITY_COLUMNS = {
         "effective_at_utc",
         "is_current",
         "metadata",
+    ],
+    "privacy-budget-ledger": [
+        "id",
+        "source_job_id",
+        "ledger_job_id",
+        "correlation_id",
+        "policy_version",
+        "ts_utc",
+        "caller",
+        "tenant_id",
+        "dataset_id",
+        "purpose",
+        "decision",
+        "reason_code",
+        "abuse_signal",
+        "matched_prior_job_id",
+        "matched_prior_relation",
+        "budget_limit",
+        "budget_cost",
+        "budget_used_before",
+        "budget_used_after",
+        "budget_consumed",
+        "query_fingerprint",
+        "query_payload_sha256",
+        "ledger_path",
     ],
     "catalog-lineage-read-model": [
         "id",
@@ -838,6 +864,19 @@ def query_job_detail(conn: sqlite3.Connection, job_id: str) -> dict:
         "timing_summary": build_timing_summary(stage_status),
         "audit_events": fetch_all_dicts(conn, "SELECT stage, event_type, ts_utc, caller, tenant_id, dataset_id, service_id, decision, reason_code, artifact_path, duration_ms FROM audit_events WHERE job_id = ? ORDER BY id", (job_id,)),
         "key_access_events": fetch_all_dicts(conn, "SELECT ts_utc, caller, key_id, key_version, purpose, decision, reason_code FROM key_access_events WHERE job_id = ? ORDER BY id", (job_id,)),
+        "privacy_budget_ledger_events": fetch_all_dicts(
+            conn,
+            """
+            SELECT
+              ts_utc, ledger_job_id, caller, tenant_id, dataset_id, purpose,
+              decision, reason_code, abuse_signal, matched_prior_job_id,
+              matched_prior_relation, budget_cost, budget_used_after, budget_consumed
+            FROM privacy_budget_ledger_events
+            WHERE job_id = ?
+            ORDER BY id
+            """,
+            (job_id,),
+        ),
         "audit_chain": row_to_dict(conn.execute("SELECT path, sha256, generated_at_utc, counts_json FROM audit_chains WHERE job_id = ?", (job_id,)).fetchone()),
         "audit_seal": row_to_dict(conn.execute("SELECT path, sha256, algorithm, signed FROM audit_seals WHERE job_id = ?", (job_id,)).fetchone()),
         "mainline_contract_summary": mainline_contract_summary,
@@ -1627,6 +1666,68 @@ def query_entities(
         for row in rows:
             row["is_current"] = as_bool(row.get("is_current"))
             row["metadata"] = decode_json_object(row.pop("metadata_json"))
+    elif entity == "privacy-budget-ledger":
+        if caller:
+            filters.append("caller = ?")
+            params.append(caller)
+        if tenant_id:
+            filters.append("tenant_id = ?")
+            params.append(tenant_id)
+        if dataset_id:
+            filters.append("dataset_id = ?")
+            params.append(dataset_id)
+        if purpose:
+            filters.append("purpose = ?")
+            params.append(purpose)
+        where = f"WHERE {' AND '.join(filters)}" if filters else ""
+        total_matching_count = int(
+            fetch_scalar(conn, f"SELECT COUNT(*) FROM privacy_budget_ledger_events {where}", tuple(params)) or 0
+        )
+        rows = fetch_all_dicts(
+            conn,
+            f"""
+            SELECT
+              id,
+              job_id AS source_job_id,
+              ledger_job_id,
+              correlation_id,
+              policy_version,
+              ts_utc,
+              caller,
+              tenant_id,
+              dataset_id,
+              purpose,
+              decision,
+              reason_code,
+              abuse_signal,
+              matched_prior_job_id,
+              matched_prior_relation,
+              budget_limit,
+              budget_cost,
+              budget_used_before,
+              budget_used_after,
+              budget_consumed,
+              query_fingerprint,
+              query_payload_sha256,
+              window_json,
+              bucket_json,
+              parsed_metrics_json,
+              public_report_sha256,
+              ledger_path,
+              payload_json
+            FROM privacy_budget_ledger_events
+            {where}
+            ORDER BY ts_utc DESC, id DESC
+            LIMIT ? OFFSET ?
+            """,
+            tuple(params + [limit, offset]),
+        )
+        for row in rows:
+            row["budget_consumed"] = as_bool(row.get("budget_consumed"))
+            row["window"] = decode_json_object(row.pop("window_json"))
+            row["bucket"] = decode_json_object(row.pop("bucket_json"))
+            row["parsed_metrics"] = decode_json_object(row.pop("parsed_metrics_json"))
+            row["payload"] = decode_json_object(row.pop("payload_json"))
     elif entity == "catalog-lineage-read-model":
         if caller:
             filters.append("caller = ?")
@@ -1760,6 +1861,7 @@ def validate_list_entity_args(args: argparse.Namespace) -> None:
         "job-state-transitions": set(),
         "policy-versions": {"policy_id"},
         "service-versions": {"tenant_id", "dataset_id", "service_id"},
+        "privacy-budget-ledger": {"caller", "tenant_id", "dataset_id", "purpose"},
         "catalog-lineage-read-model": {"caller", "tenant_id", "dataset_id", "service_id"},
         "retention-reconcile-plan": set(),
     }

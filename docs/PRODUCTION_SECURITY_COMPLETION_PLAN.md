@@ -142,6 +142,8 @@ repo-side 已交付：
 
 状态（2026-05-20）：本机 production-style 闭环已落地并通过证据脚本验证。`policy_release.py` 支持 `--privacy-budget-required`、`--privacy-budget-config`、`--tenant-id`、`--dataset-id`、`--purpose`；生产预算模式缺 ledger 会 fail closed，缺匹配 scope 会拒绝为 `privacy_budget_missing_scope`。新增 `scripts/run_s3_privacy_budget_production_evidence.sh`，覆盖 required-without-ledger、configured first release、exact duplicate、overlap near duplicate、budget exhausted、missing scope 六个 case。该证据可写为“本机生产式隐私预算闭环完成”，但在 operator 查询入口、metadata sidecar 持久化、VPS/公网部署和联合认证完成前，不写为“真实生产部署闭环完成”。
 
+状态（2026-05-26）：metadata sidecar 的 budget ledger read model / operator 查询入口已 repo-side 推进。新增 `privacy_budget_ledger_events` 表；`import_run_metadata.py` 会在 run bundle 中发现 `a_psi_run/privacy_budget_ledger.jsonl` 或根目录 `privacy_budget_ledger.jsonl` 时导入 ledger 记录；`query_metadata.py --list-entity privacy-budget-ledger` 支持按 caller / tenant / dataset / purpose 查询，job detail 也会返回该 run 关联的 privacy-budget ledger events。默认 contract smoke 已覆盖导入、scope 查询和 job-detail 查询。S3 仍保持 `partial`：operator query submission 透传、人工审批分支、VPS/公网证据和三人联合认证尚未完成。
+
 repo-side 已交付：
 
 1. `policy_release.py` 新增可选 `--privacy-budget-ledger`、`--privacy-budget-limit`、`--privacy-budget-cost`。默认不启用，不改变既有 demo / pipeline 行为；显式启用后，release 前会计算不含 `job_id` 的预算查询 fingerprint。
@@ -152,14 +154,14 @@ repo-side 已交付：
 6. production-style 本机闭环新增 scope 维度：caller / tenant / dataset / purpose 进入 canonical budget payload 和 ledger；`privacy_budget_config/v1` 用 default `max_queries=0` 实现未配置 scope 默认拒绝。
 7. 新增证据包：`tmp/s3_privacy_budget_production_evidence/verification_summary.json`，最近运行结果 `status=pass`、`cases=6`、`ledger_records=5`。
 8. consolidated attack-surface gate 已包含 `s3_privacy_budget_production_evidence`，最近运行结果 `tmp/attack_surface_hardening_evidence/verification_summary.json` 为 `status=pass`、`case_count=12`、`pass_count=12`、`fail_count=0`。
+9. metadata sidecar read model 已完成 repo-side：`migrations/metadata/013_add_privacy_budget_ledger_read_model.sql`、PostgreSQL DDL parity、`import_run_metadata.py` ledger import、`query_metadata.py --list-entity privacy-budget-ledger`，以及 default contract smoke 查询断言。
 
 仍需后续完成：
 
-1. metadata sidecar 的 budget ledger read model / operator 查询入口。
-2. 将 `--privacy-budget-required`、`--privacy-budget-config` 和 tenant / dataset / purpose scope 透传到 operator query submission，而不是只在本机 release CLI 中验证。
-3. near-duplicate 策略的人工审批分支，以及更丰富的集合包含 / 窗口差分样例。
-4. 在 VPS/公网部署运行同一闭环证据，确认生产部署路径与本机证据一致。
-5. Person 1 / Person 2 / Person 3 联合认证。
+1. 将 `--privacy-budget-required`、`--privacy-budget-config` 和 tenant / dataset / purpose scope 透传到 operator query submission，而不是只在本机 release CLI 中验证。
+2. near-duplicate 策略的人工审批分支，以及更丰富的集合包含 / 窗口差分样例。
+3. 在 VPS/公网部署运行同一闭环证据，确认生产部署路径与本机证据一致。
+4. Person 1 / Person 2 / Person 3 联合认证。
 
 目标：结果发布不只依赖 `k-threshold`、rate limit 和 exact duplicate deny，而是由隐私预算系统统一裁决。
 
@@ -185,7 +187,7 @@ repo-side 已交付：
 1. 新增 `schemas/privacy_budget_ledger.schema.json`。
 2. 新增 `scripts/check_privacy_budget.py` 或集成到 `policy_release.py`。
 3. `policy_release.py`：release 前计算 canonical query signature 和 near-duplicate signature。
-4. metadata sidecar：新增 budget ledger read model。
+4. ~~metadata sidecar：新增 budget ledger read model。~~ ✓ repo-side 完成（2026-05-26）。
 5. `docs/THREAT_MODEL_AND_LEAKAGE_MODEL.md`：把 query-abuse 从 residual risk 升级为解决路径。
 
 验收标准：

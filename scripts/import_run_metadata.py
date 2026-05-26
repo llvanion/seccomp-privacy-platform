@@ -27,6 +27,7 @@ ARTIFACT_TYPE_STAGE_MAP = {
     "pjc_audit": "pjc",
     "public_report": "policy_release",
     "policy_audit": "policy_release",
+    "privacy_budget_ledger": "policy_release",
     "audit_chain": "audit",
     "audit_seal": "audit",
     "key_access_audit": "key_access",
@@ -37,6 +38,7 @@ JOB_DEPENDENT_TABLES = (
     "audit_events",
     "audit_chains",
     "audit_seals",
+    "privacy_budget_ledger_events",
     "key_access_events",
 )
 
@@ -71,6 +73,13 @@ def optional_jsonl(path: Path) -> list[dict]:
     return load_jsonl(path) if path.is_file() else []
 
 
+def first_existing_path(*paths: Path) -> Path | None:
+    for path in paths:
+        if path.is_file():
+            return path
+    return None
+
+
 def first_nonempty(*values):
     for value in values:
         if value not in (None, "", []):
@@ -83,6 +92,15 @@ def optional_int(value) -> int | None:
         return None
     try:
         return int(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def optional_float(value) -> float | None:
+    if value in (None, ""):
+        return None
+    try:
+        return float(value)
     except (TypeError, ValueError):
         return None
 
@@ -163,6 +181,10 @@ def infer_scope(bundle: dict) -> tuple[str | None, str | None, str | None, str |
 
 
 def read_bundle(out_base: Path) -> dict:
+    privacy_budget_ledger_path = first_existing_path(
+        out_base / "a_psi_run" / "privacy_budget_ledger.jsonl",
+        out_base / "privacy_budget_ledger.jsonl",
+    )
     return {
         "out_base": out_base.resolve(),
         "audit_chain": optional_json(out_base / "audit_chain.json"),
@@ -176,6 +198,8 @@ def read_bundle(out_base: Path) -> dict:
         "bridge_audit": optional_jsonl(out_base / "bridge_job" / "bridge_audit.jsonl"),
         "pjc_audit": optional_jsonl(out_base / "a_psi_run" / "pjc_audit.jsonl"),
         "policy_audit": optional_jsonl(out_base / "a_psi_run" / "audit_log.jsonl"),
+        "privacy_budget_ledger_path": privacy_budget_ledger_path,
+        "privacy_budget_ledger": optional_jsonl(privacy_budget_ledger_path) if privacy_budget_ledger_path else [],
         "key_access_audit": optional_jsonl(out_base / "key_access_audit.jsonl"),
     }
 
@@ -197,7 +221,7 @@ def referenced_policy_paths(bundle: dict) -> list[str]:
 
 
 def import_artifact_map(bundle: dict) -> dict[str, Path]:
-    return {
+    artifacts = {
         "sse_export_audit": bundle["out_base"] / "sse_exports" / "export_audit.jsonl",
         "record_recovery_service_audit": bundle["out_base"] / "sse_exports" / "record_recovery_service_audit.jsonl",
         "record_recovery_service_health": bundle["out_base"] / "sse_exports" / "record_recovery_service_health.json",
@@ -211,6 +235,9 @@ def import_artifact_map(bundle: dict) -> dict[str, Path]:
         "audit_seal": bundle["out_base"] / "audit_chain.seal.json",
         "key_access_audit": bundle["out_base"] / "key_access_audit.jsonl",
     }
+    if bundle.get("privacy_budget_ledger_path"):
+        artifacts["privacy_budget_ledger"] = bundle["privacy_budget_ledger_path"]
+    return artifacts
 
 
 def incoming_summary(bundle: dict) -> dict[str, Any]:
@@ -221,6 +248,7 @@ def incoming_summary(bundle: dict) -> dict[str, Any]:
         "bridge": len(bundle["bridge_audit"]),
         "pjc": len(bundle["pjc_audit"]),
         "policy_release": len(bundle["policy_audit"]),
+        "privacy_budget_ledger": len(bundle["privacy_budget_ledger"]),
         "key_access": len(bundle["key_access_audit"]),
     }
     policy_paths = referenced_policy_paths(bundle)
@@ -572,6 +600,61 @@ def insert_key_access_events(
         )
 
 
+def insert_privacy_budget_ledger_events(
+    conn: sqlite3.Connection,
+    *,
+    bundle: dict,
+    source_job_id: str,
+) -> None:
+    ledger_path = bundle.get("privacy_budget_ledger_path")
+    if not ledger_path:
+        return
+    for record in bundle["privacy_budget_ledger"]:
+        budget = record.get("budget") if isinstance(record.get("budget"), dict) else {}
+        conn.execute(
+            """
+            INSERT INTO privacy_budget_ledger_events(
+              job_id, ledger_job_id, correlation_id, policy_version, ts_utc,
+              caller, tenant_id, dataset_id, purpose, decision, reason_code,
+              abuse_signal, matched_prior_job_id, matched_prior_relation,
+              budget_limit, budget_cost, budget_used_before, budget_used_after,
+              budget_consumed, query_fingerprint, query_payload_sha256,
+              window_json, bucket_json, parsed_metrics_json, public_report_sha256,
+              ledger_path, payload_json
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                source_job_id,
+                record.get("job_id"),
+                record.get("correlation_id"),
+                record.get("policy_version"),
+                record.get("ts_utc"),
+                record.get("caller"),
+                record.get("tenant_id"),
+                record.get("dataset_id"),
+                record.get("purpose"),
+                record.get("decision"),
+                record.get("reason_code"),
+                record.get("abuse_signal"),
+                record.get("matched_prior_job_id"),
+                record.get("matched_prior_relation"),
+                optional_float(budget.get("limit")),
+                optional_float(budget.get("cost")),
+                optional_float(budget.get("used_before")),
+                optional_float(budget.get("used_after")),
+                bool(budget.get("consumed")) if budget.get("consumed") is not None else None,
+                record.get("query_fingerprint"),
+                record.get("query_payload_sha256"),
+                json.dumps(record.get("window"), ensure_ascii=False),
+                json.dumps(record.get("bucket"), ensure_ascii=False),
+                json.dumps(record.get("parsed_metrics"), ensure_ascii=False),
+                record.get("public_report_sha256"),
+                str(Path(ledger_path).resolve()),
+                json.dumps(record, ensure_ascii=False),
+            ),
+        )
+
+
 def insert_audit_chain(conn: sqlite3.Connection, *, bundle: dict, job_id: str) -> None:
     if bundle["audit_chain"]:
         path = bundle["out_base"] / "audit_chain.json"
@@ -726,6 +809,7 @@ def apply_import_plan(conn: sqlite3.Connection, plan: dict[str, Any], *, importe
         dataset_id=dataset_id,
         service_id=service_id,
     )
+    insert_privacy_budget_ledger_events(conn, bundle=bundle, source_job_id=job_id)
     insert_audit_chain(conn, bundle=bundle, job_id=job_id)
     import_referenced_policies(conn, bundle=bundle, imported_at=imported_at)
     return {
