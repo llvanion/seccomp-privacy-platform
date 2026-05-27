@@ -1,3 +1,5 @@
+Adapted from SSEPy
+
 # SSEPy: Implementation of searchable symmetric encryption in pure Python
 
 ![SSEPy Logo](https://s3.bmp.ovh/imgs/2022/03/885a91b23aff75d2.jpg)
