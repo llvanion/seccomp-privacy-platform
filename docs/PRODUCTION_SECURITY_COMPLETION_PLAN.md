@@ -148,6 +148,8 @@ repo-side 已交付：
 
 状态（2026-05-27）：query workflow HTTP API 路径补了轻量负例 smoke。`serve_query_workflow_api.py` 的 dry-run 仍复用 `submit_query_workflow.py` 校验；默认 contract smoke 现在会发送 `privacy_budget_required=true` 但缺 config/ledger 的 HTTP 请求，并断言返回 `query_workflow_api_error/v1` / `validation_rejected`。这只是 repo-side API 边界证据，S3 仍保持 `partial`。
 
+状态（2026-05-27 v2）：near-duplicate 的本地人工审批分支已 repo-side 推进。`policy_release.py` 新增可选 `--privacy-budget-approval-queue`；命中 `privacy_budget_near_duplicate` 时仍 fail closed，不发布结果、不扣预算，但会写入 `privacy_budget_approval_request/v1` JSONL，状态为 `pending_approval`，供后续人工复核/审批系统消费。默认 contract smoke 新增 overlap 窗口样例，断言 ledger 记录为 near-duplicate deny、approval queue 只产生一条 pending request。S3 仍保持 `partial`：VPS/公网证据、三人联合认证和更丰富的包含/差分样例仍未完成。
+
 repo-side 已交付：
 
 1. `policy_release.py` 新增可选 `--privacy-budget-ledger`、`--privacy-budget-limit`、`--privacy-budget-cost`。默认不启用，不改变既有 demo / pipeline 行为；显式启用后，release 前会计算不含 `job_id` 的预算查询 fingerprint。
@@ -160,10 +162,11 @@ repo-side 已交付：
 8. consolidated attack-surface gate 已包含 `s3_privacy_budget_production_evidence`，最近运行结果 `tmp/attack_surface_hardening_evidence/verification_summary.json` 为 `status=pass`、`case_count=12`、`pass_count=12`、`fail_count=0`。
 9. metadata sidecar read model 已完成 repo-side：`migrations/metadata/013_add_privacy_budget_ledger_read_model.sql`、PostgreSQL DDL parity、`import_run_metadata.py` ledger import、`query_metadata.py --list-entity privacy-budget-ledger`，以及 default contract smoke 查询断言。
 10. operator/query submission wiring 已完成 repo-side：`query_workflow_request/v1`、`submit_query_workflow.py`、`run_sse_bridge_pipeline.sh` 和 default contract smoke 会把 privacy budget required/config/ledger/scope/limit/cost 送入 Stage4 release，并断言 required 模式缺 config / ledger 会在提交入口 fail closed；HTTP dry-run smoke 也覆盖缺 config/ledger 时的 `query_workflow_api_error/v1` 拒绝响应。
+11. near-duplicate 人工审批分支已有 repo-side 起点：可选 `privacy_budget_approval_request/v1` JSONL 队列记录 overlap/near-duplicate deny，release 仍 fail closed，approval 消费/真实运营流转后续再接。
 
 仍需后续完成：
 
-1. near-duplicate 策略的人工审批分支，以及更丰富的集合包含 / 窗口差分样例。
+1. 更丰富的集合包含 / 窗口差分样例，以及 approval queue 与实际 operator 审批/复核流的完整消费闭环。
 2. 在 VPS/公网部署运行同一闭环证据，确认生产部署路径与本机证据一致。
 3. Person 1 / Person 2 / Person 3 联合认证。
 

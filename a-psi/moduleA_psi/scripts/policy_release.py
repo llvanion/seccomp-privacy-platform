@@ -375,6 +375,9 @@ def privacy_budget_default() -> Dict[str, Any]:
         "matched_prior_fingerprint": None,
         "matched_prior_job_id": None,
         "matched_prior_relation": None,
+        "approval_required": False,
+        "approval_queue_path": None,
+        "approval_request_id": None,
     }
 
 
@@ -689,6 +692,87 @@ def append_privacy_budget_ledger_record(
         "public_report_sha256": sha256_file(public_report_path) if os.path.exists(public_report_path) else None,
     }
     append_jsonl(ledger_path, record)
+
+
+def append_privacy_budget_approval_request(
+    *,
+    queue_path: Optional[str],
+    policy_version: str,
+    job_id: Optional[str],
+    caller: str,
+    tenant_id: Optional[str],
+    dataset_id: Optional[str],
+    purpose: Optional[str],
+    window: Dict[str, Optional[str]],
+    bucket: Optional[str],
+    value_mode: Optional[str],
+    threshold_k: int,
+    privacy_budget: Dict[str, Any],
+    policy_out: Dict[str, Any],
+    metrics: Dict[str, Optional[int]],
+    public_report_path: str,
+) -> Optional[Dict[str, Any]]:
+    if not queue_path or not privacy_budget.get("enabled"):
+        return None
+    if privacy_budget.get("reason_code") != "privacy_budget_near_duplicate":
+        return None
+
+    queue_abs = os.path.abspath(queue_path)
+    request_basis = {
+        "policy_version": policy_version,
+        "job_id": job_id,
+        "caller": caller,
+        "tenant_id": tenant_id,
+        "dataset_id": dataset_id,
+        "purpose": purpose,
+        "query_fingerprint": privacy_budget.get("query_fingerprint"),
+        "matched_prior_fingerprint": privacy_budget.get("matched_prior_fingerprint"),
+        "matched_prior_job_id": privacy_budget.get("matched_prior_job_id"),
+        "matched_prior_relation": privacy_budget.get("matched_prior_relation"),
+    }
+    request_id = "pba_" + canonical_query_signature(request_basis)[:24]
+    record = {
+        "schema": "privacy_budget_approval_request/v1",
+        "created_at_utc": utc_now_iso(),
+        "status": "pending_approval",
+        "request_id": request_id,
+        "policy_version": policy_version,
+        "job_id": job_id,
+        "correlation_id": job_id,
+        "caller": caller,
+        "tenant_id": tenant_id,
+        "dataset_id": dataset_id,
+        "purpose": purpose,
+        "decision": policy_out.get("decision"),
+        "reason_code": policy_out.get("reason_code"),
+        "reason": policy_out.get("reason"),
+        "abuse_signal": privacy_budget.get("abuse_signal"),
+        "matched_prior_fingerprint": privacy_budget.get("matched_prior_fingerprint"),
+        "matched_prior_job_id": privacy_budget.get("matched_prior_job_id"),
+        "matched_prior_relation": privacy_budget.get("matched_prior_relation"),
+        "query_fingerprint": privacy_budget.get("query_fingerprint"),
+        "query_payload_sha256": canonical_query_signature(privacy_budget.get("query_payload") or {}),
+        "window": window,
+        "bucket": bucket,
+        "value_mode": value_mode,
+        "threshold_k": threshold_k,
+        "budget": {
+            "limit": privacy_budget.get("budget_limit"),
+            "cost": privacy_budget.get("budget_cost"),
+            "used_before": privacy_budget.get("budget_used_before"),
+            "used_after": privacy_budget.get("budget_used_before"),
+            "consumed": False,
+        },
+        "parsed_metrics": metrics,
+        "public_report_sha256": sha256_file(public_report_path) if os.path.exists(public_report_path) else None,
+        "approval_recommendation": "manual_review_required",
+    }
+    append_jsonl(queue_abs, record)
+    return {
+        "request_id": request_id,
+        "queue_path": queue_abs,
+        "status": "pending_approval",
+    }
 
 
 # ---------- auth and anti-replay ----------
@@ -1204,6 +1288,12 @@ def main() -> None:
                     help="Maximum cumulative privacy budget units for this caller in --privacy-budget-ledger.")
     ap.add_argument("--privacy-budget-cost", type=float, default=1.0,
                     help="Budget units consumed by an allowed release when --privacy-budget-ledger is enabled.")
+    ap.add_argument("--privacy-budget-approval-queue", default=None,
+                    help=(
+                        "Optional JSONL privacy_budget_approval_request/v1 path. "
+                        "When set, near-duplicate privacy-budget denials are also "
+                        "queued for manual review; release still fails closed."
+                    ))
 
     # signed result delivery
     ap.add_argument("--result-callback-url", default=None,
@@ -1460,6 +1550,15 @@ def main() -> None:
             scope_resolution=privacy_budget_scope_resolution,
         )
         if privacy_budget_out.get("decision") == "deny":
+            if (
+                args.privacy_budget_approval_queue
+                and privacy_budget_out.get("reason_code") == "privacy_budget_near_duplicate"
+            ):
+                privacy_budget_out = {
+                    **privacy_budget_out,
+                    "approval_required": True,
+                    "approval_queue_path": os.path.abspath(args.privacy_budget_approval_queue),
+                }
             policy_out = {
                 "decision": "deny",
                 "reason_code": privacy_budget_out["reason_code"],
@@ -1509,6 +1608,30 @@ def main() -> None:
         policy_out=policy_out,
         bucket_size=args.bucket_intersection_size,
     )
+
+    approval_request = append_privacy_budget_approval_request(
+        queue_path=args.privacy_budget_approval_queue,
+        policy_version=args.policy_version,
+        job_id=job_id,
+        caller=caller,
+        tenant_id=privacy_scope["tenant_id"],
+        dataset_id=privacy_scope["dataset_id"],
+        purpose=privacy_scope["purpose"],
+        window=window,
+        bucket=bucket,
+        value_mode=value_mode,
+        threshold_k=args.threshold_k,
+        privacy_budget=privacy_budget_out,
+        policy_out=policy_out,
+        metrics=metrics,
+        public_report_path=out_path,
+    )
+    if approval_request:
+        privacy_budget_out = {
+            **privacy_budget_out,
+            "approval_request_id": approval_request["request_id"],
+            "approval_request": approval_request,
+        }
 
     append_privacy_budget_ledger_record(
         ledger_path=args.privacy_budget_ledger,

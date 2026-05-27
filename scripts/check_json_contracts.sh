@@ -60,6 +60,7 @@ SCHEMAS=(
   "$REPO_ROOT/schemas/public_report.schema.json"
   "$REPO_ROOT/schemas/policy_audit.schema.json"
   "$REPO_ROOT/schemas/privacy_budget_ledger.schema.json"
+  "$REPO_ROOT/schemas/privacy_budget_approval_request.schema.json"
   "$REPO_ROOT/schemas/privacy_budget_check_report.schema.json"
   "$REPO_ROOT/schemas/audit_chain.schema.json"
   "$REPO_ROOT/schemas/audit_archive_index.schema.json"
@@ -787,6 +788,9 @@ printf '%s\n' \
 printf '%s\n' \
   '{"job_id":"privacy-budget-job-3","window_start":"2026-02-01T00:00:00Z","window_end":"2026-02-28T00:00:00Z","bucket":"campaign-a"}' \
   > "$tmp/privacy_budget_meta_3.json"
+printf '%s\n' \
+  '{"job_id":"privacy-budget-job-4","window_start":"2026-01-15T00:00:00Z","window_end":"2026-02-15T00:00:00Z","bucket":"campaign-a"}' \
+  > "$tmp/privacy_budget_meta_4.json"
 python3 "$REPO_ROOT/a-psi/moduleA_psi/scripts/policy_release.py" \
   --input "$tmp/privacy_budget_result.json" \
   --job-meta "$tmp/privacy_budget_meta_1.json" \
@@ -820,22 +824,38 @@ python3 "$REPO_ROOT/a-psi/moduleA_psi/scripts/policy_release.py" \
   --privacy-budget-ledger "$tmp/privacy_budget_ledger.jsonl" \
   --privacy-budget-limit 1 \
   > /dev/null
+python3 "$REPO_ROOT/a-psi/moduleA_psi/scripts/policy_release.py" \
+  --input "$tmp/privacy_budget_result.json" \
+  --job-meta "$tmp/privacy_budget_meta_4.json" \
+  --out "$tmp/privacy_budget_report_4.json" \
+  --audit-log "$tmp/privacy_budget_policy_audit.jsonl" \
+  --caller "privacy_budget_demo" \
+  --threshold-k 1 \
+  --max-queries 10 \
+  --privacy-budget-ledger "$tmp/privacy_budget_ledger.jsonl" \
+  --privacy-budget-limit 10 \
+  --privacy-budget-approval-queue "$tmp/privacy_budget_approval_queue.jsonl" \
+  > /dev/null
 python3 "$VALIDATOR" --schema "$REPO_ROOT/schemas/public_report.schema.json" --json "$tmp/privacy_budget_report_1.json"
 python3 "$VALIDATOR" --schema "$REPO_ROOT/schemas/public_report.schema.json" --json "$tmp/privacy_budget_report_2.json"
 python3 "$VALIDATOR" --schema "$REPO_ROOT/schemas/public_report.schema.json" --json "$tmp/privacy_budget_report_3.json"
+python3 "$VALIDATOR" --schema "$REPO_ROOT/schemas/public_report.schema.json" --json "$tmp/privacy_budget_report_4.json"
 python3 "$VALIDATOR" --schema "$REPO_ROOT/schemas/policy_audit.schema.json" --jsonl "$tmp/privacy_budget_policy_audit.jsonl"
 python3 "$VALIDATOR" --schema "$REPO_ROOT/schemas/privacy_budget_ledger.schema.json" --jsonl "$tmp/privacy_budget_ledger.jsonl"
+python3 "$VALIDATOR" --schema "$REPO_ROOT/schemas/privacy_budget_approval_request.schema.json" --jsonl "$tmp/privacy_budget_approval_queue.jsonl"
 python3 "$REPO_ROOT/scripts/check_privacy_budget.py" \
   --ledger "$tmp/privacy_budget_ledger.jsonl" \
   --expect-consumed-min 1 \
   --expect-deny-reason privacy_budget_duplicate_query \
   --expect-deny-reason privacy_budget_exhausted \
+  --expect-deny-reason privacy_budget_near_duplicate \
   --output "$tmp/privacy_budget_check_report.json" \
   > /dev/null
 python3 "$VALIDATOR" --schema "$REPO_ROOT/schemas/privacy_budget_check_report.schema.json" --json "$tmp/privacy_budget_check_report.json"
-python3 -c 'import json, sys; reports=[json.load(open(p, "r", encoding="utf-8")) for p in sys.argv[1:4]]; assert reports[0]["released"] is True, reports[0]; assert reports[1]["released"] is False and reports[1]["reason_code"] == "privacy_budget_duplicate_query", reports[1]; assert reports[2]["released"] is False and reports[2]["reason_code"] == "privacy_budget_exhausted", reports[2]' "$tmp/privacy_budget_report_1.json" "$tmp/privacy_budget_report_2.json" "$tmp/privacy_budget_report_3.json"
-python3 -c 'import json, sys; rows=[json.loads(line) for line in open(sys.argv[1], "r", encoding="utf-8") if line.strip()]; assert len(rows) == 3, rows; assert rows[0]["budget"]["consumed"] is True, rows; assert rows[1]["abuse_signal"] == "exact_duplicate" and rows[1]["budget"]["consumed"] is False, rows[1]; assert rows[2]["abuse_signal"] == "budget_exhausted" and rows[2]["budget"]["consumed"] is False, rows[2]' "$tmp/privacy_budget_ledger.jsonl"
-python3 -c 'import json, sys; payload=json.load(open(sys.argv[1], "r", encoding="utf-8")); summary=payload["summary"]; assert payload["status"] == "ok", payload; assert summary["total_records"] == 3, summary; assert summary["decision_counts"]["allow"] == 1 and summary["decision_counts"]["deny"] == 2, summary; assert summary["reason_code_counts"]["privacy_budget_duplicate_query"] == 1, summary; assert summary["reason_code_counts"]["privacy_budget_exhausted"] == 1, summary; assert summary["callers"]["privacy_budget_demo"]["consumed_count"] == 1, summary' "$tmp/privacy_budget_check_report.json"
+python3 -c 'import json, sys; reports=[json.load(open(p, "r", encoding="utf-8")) for p in sys.argv[1:5]]; assert reports[0]["released"] is True, reports[0]; assert reports[1]["released"] is False and reports[1]["reason_code"] == "privacy_budget_duplicate_query", reports[1]; assert reports[2]["released"] is False and reports[2]["reason_code"] == "privacy_budget_exhausted", reports[2]; assert reports[3]["released"] is False and reports[3]["reason_code"] == "privacy_budget_near_duplicate", reports[3]' "$tmp/privacy_budget_report_1.json" "$tmp/privacy_budget_report_2.json" "$tmp/privacy_budget_report_3.json" "$tmp/privacy_budget_report_4.json"
+python3 -c 'import json, sys; rows=[json.loads(line) for line in open(sys.argv[1], "r", encoding="utf-8") if line.strip()]; assert len(rows) == 4, rows; assert rows[0]["budget"]["consumed"] is True, rows; assert rows[1]["abuse_signal"] == "exact_duplicate" and rows[1]["budget"]["consumed"] is False, rows[1]; assert rows[2]["abuse_signal"] == "budget_exhausted" and rows[2]["budget"]["consumed"] is False, rows[2]; assert rows[3]["abuse_signal"] == "near_duplicate_or_differencing" and rows[3]["matched_prior_relation"] == "overlaps" and rows[3]["budget"]["consumed"] is False, rows[3]' "$tmp/privacy_budget_ledger.jsonl"
+python3 -c 'import json, sys; rows=[json.loads(line) for line in open(sys.argv[1], "r", encoding="utf-8") if line.strip()]; assert len(rows) == 1, rows; row=rows[0]; assert row["status"] == "pending_approval", row; assert row["reason_code"] == "privacy_budget_near_duplicate", row; assert row["approval_recommendation"] == "manual_review_required", row; assert row["matched_prior_relation"] == "overlaps", row; assert row["budget"]["consumed"] is False, row' "$tmp/privacy_budget_approval_queue.jsonl"
+python3 -c 'import json, sys; payload=json.load(open(sys.argv[1], "r", encoding="utf-8")); summary=payload["summary"]; assert payload["status"] == "ok", payload; assert summary["total_records"] == 4, summary; assert summary["decision_counts"]["allow"] == 1 and summary["decision_counts"]["deny"] == 3, summary; assert summary["reason_code_counts"]["privacy_budget_duplicate_query"] == 1, summary; assert summary["reason_code_counts"]["privacy_budget_exhausted"] == 1, summary; assert summary["reason_code_counts"]["privacy_budget_near_duplicate"] == 1, summary; assert summary["callers"]["privacy_budget_demo"]["consumed_count"] == 1, summary' "$tmp/privacy_budget_check_report.json"
 python3 "$VALIDATOR" --schema "$REPO_ROOT/schemas/key_access_audit.schema.json" --jsonl "$tmp/key_access_audit.jsonl"
 python3 "$VALIDATOR" --schema "$REPO_ROOT/schemas/key_access_audit.schema.json" --jsonl "$tmp/external_key_access_audit.jsonl"
 python3 "$VALIDATOR" --schema "$REPO_ROOT/schemas/key_access_audit.schema.json" --jsonl "$tmp/key_agent_vault_access_audit.jsonl"
@@ -1443,8 +1463,8 @@ python3 "$REPO_ROOT/scripts/query_metadata.py" \
   --db-path "$tmp/platform_metadata.db" \
   --job-id contract-check \
   > "$tmp/platform_metadata_job_detail.json"
-python3 -c 'import json, sys; payload=json.load(open(sys.argv[1], "r", encoding="utf-8")); assert payload["entity"] == "privacy-budget-ledger", payload; assert payload["pagination"]["total_matching_count"] == 3, payload; items=payload["items"]; reasons={item["reason_code"] for item in items}; assert {"threshold_passed", "privacy_budget_duplicate_query", "privacy_budget_exhausted"} <= reasons, reasons; assert any(item["budget_consumed"] is True and item["decision"] == "allow" for item in items), items; assert all(item["caller"] == "privacy_budget_demo" for item in items), items' "$tmp/platform_metadata_privacy_budget_ledger.json"
-python3 -c 'import json, sys; payload=json.load(open(sys.argv[1], "r", encoding="utf-8")); events=payload["privacy_budget_ledger_events"]; assert len(events) == 3, events; assert any(item["reason_code"] == "privacy_budget_duplicate_query" for item in events), events; assert any(item["reason_code"] == "privacy_budget_exhausted" for item in events), events' "$tmp/platform_metadata_job_detail.json"
+python3 -c 'import json, sys; payload=json.load(open(sys.argv[1], "r", encoding="utf-8")); assert payload["entity"] == "privacy-budget-ledger", payload; assert payload["pagination"]["total_matching_count"] == 4, payload; items=payload["items"]; reasons={item["reason_code"] for item in items}; assert {"threshold_passed", "privacy_budget_duplicate_query", "privacy_budget_exhausted", "privacy_budget_near_duplicate"} <= reasons, reasons; assert any(item["budget_consumed"] is True and item["decision"] == "allow" for item in items), items; assert any(item["abuse_signal"] == "near_duplicate_or_differencing" and item["matched_prior_relation"] == "overlaps" for item in items), items; assert all(item["caller"] == "privacy_budget_demo" for item in items), items' "$tmp/platform_metadata_privacy_budget_ledger.json"
+python3 -c 'import json, sys; payload=json.load(open(sys.argv[1], "r", encoding="utf-8")); events=payload["privacy_budget_ledger_events"]; assert len(events) == 4, events; assert any(item["reason_code"] == "privacy_budget_duplicate_query" for item in events), events; assert any(item["reason_code"] == "privacy_budget_exhausted" for item in events), events; assert any(item["reason_code"] == "privacy_budget_near_duplicate" and item["matched_prior_relation"] == "overlaps" for item in events), events' "$tmp/platform_metadata_job_detail.json"
 python3 -c 'import json, sys; payload=json.load(open(sys.argv[1], "r", encoding="utf-8")); assert payload["status"] == "ok", payload; assert payload["summary"]["sqlite_only_construct_count"] == 0, payload; check_names={item["name"] for item in payload["checks"]}; assert "sqlite_only_constructs" in check_names and "expected_indexes_present" in check_names, payload' "$tmp/platform_metadata_schema_portability.json"
 if [[ -n "${POSTGRES_DSN:-}" ]]; then
   python3 "$REPO_ROOT/scripts/check_metadata_schema_portability.py" \

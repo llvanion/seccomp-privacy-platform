@@ -1,0 +1,149 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "privacy_budget_approval_request/v1",
+  "title": "Privacy budget manual approval request JSONL record",
+  "type": "object",
+  "required": [
+    "schema",
+    "created_at_utc",
+    "status",
+    "request_id",
+    "policy_version",
+    "job_id",
+    "correlation_id",
+    "caller",
+    "tenant_id",
+    "dataset_id",
+    "purpose",
+    "decision",
+    "reason_code",
+    "reason",
+    "abuse_signal",
+    "matched_prior_fingerprint",
+    "matched_prior_job_id",
+    "matched_prior_relation",
+    "query_fingerprint",
+    "query_payload_sha256",
+    "window",
+    "bucket",
+    "value_mode",
+    "threshold_k",
+    "budget",
+    "parsed_metrics",
+    "public_report_sha256",
+    "approval_recommendation"
+  ],
+  "properties": {
+    "schema": {
+      "const": "privacy_budget_approval_request/v1"
+    },
+    "created_at_utc": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "status": {
+      "const": "pending_approval"
+    },
+    "request_id": {
+      "type": "string",
+      "pattern": "^pba_[0-9a-f]{24}$"
+    },
+    "policy_version": {
+      "type": "string"
+    },
+    "job_id": {
+      "type": ["string", "null"]
+    },
+    "correlation_id": {
+      "type": ["string", "null"]
+    },
+    "caller": {
+      "type": "string"
+    },
+    "tenant_id": {
+      "type": ["string", "null"]
+    },
+    "dataset_id": {
+      "type": ["string", "null"]
+    },
+    "purpose": {
+      "type": ["string", "null"]
+    },
+    "decision": {
+      "const": "deny"
+    },
+    "reason_code": {
+      "const": "privacy_budget_near_duplicate"
+    },
+    "reason": {
+      "type": "string"
+    },
+    "abuse_signal": {
+      "const": "near_duplicate_or_differencing"
+    },
+    "matched_prior_fingerprint": {
+      "type": ["string", "null"]
+    },
+    "matched_prior_job_id": {
+      "type": ["string", "null"]
+    },
+    "matched_prior_relation": {
+      "enum": ["same", "contains", "contained_by", "overlaps", "unknown"]
+    },
+    "query_fingerprint": {
+      "type": ["string", "null"]
+    },
+    "query_payload_sha256": {
+      "type": "string"
+    },
+    "window": {
+      "type": "object"
+    },
+    "bucket": {
+      "type": ["object", "string", "null"]
+    },
+    "value_mode": {
+      "type": ["string", "null"]
+    },
+    "threshold_k": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "budget": {
+      "type": "object",
+      "required": ["limit", "cost", "used_before", "used_after", "consumed"],
+      "properties": {
+        "limit": {
+          "type": ["number", "null"],
+          "minimum": 0
+        },
+        "cost": {
+          "type": ["number", "null"],
+          "exclusiveMinimum": 0
+        },
+        "used_before": {
+          "type": ["number", "null"],
+          "minimum": 0
+        },
+        "used_after": {
+          "type": ["number", "null"],
+          "minimum": 0
+        },
+        "consumed": {
+          "const": false
+        }
+      },
+      "additionalProperties": false
+    },
+    "parsed_metrics": {
+      "type": "object"
+    },
+    "public_report_sha256": {
+      "type": ["string", "null"]
+    },
+    "approval_recommendation": {
+      "const": "manual_review_required"
+    }
+  },
+  "additionalProperties": false
+}
