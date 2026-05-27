@@ -2672,6 +2672,11 @@ python3 "$VALIDATOR" \
   --schema "$REPO_ROOT/schemas/query_workflow_api_error.schema.json" \
   --json "$tmp/query_workflow_api_execute_disabled_error.json"
 python3 "$VALIDATOR" \
+  --schema "$REPO_ROOT/schemas/query_workflow_api_error.schema.json" \
+  --json "$tmp/query_workflow_api_privacy_budget_missing_config_error.json"
+python3 -c 'import json, sys; p=json.load(open(sys.argv[1], "r", encoding="utf-8")); assert p["schema"] == "query_workflow_api_error/v1", p; assert p.get("error_class") == "validation_rejected", p; assert "privacy_budget_required=true requires privacy_budget_config" in p["error"], p' \
+  "$tmp/query_workflow_api_privacy_budget_missing_config_error.json"
+python3 "$VALIDATOR" \
   --schema "$REPO_ROOT/schemas/metadata_api_health.schema.json" \
   --json "$tmp/metadata_api_health.json"
 python3 "$VALIDATOR" \

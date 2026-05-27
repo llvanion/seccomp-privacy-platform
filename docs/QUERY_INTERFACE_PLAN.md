@@ -131,6 +131,11 @@ them to `policy_release.py` during Stage4. The stable submission scope remains
 `caller` / `tenant_id` / `dataset_id`; `privacy_budget_purpose` maps to the
 release-side `--purpose` argument. This is still local/operator-entrypoint
 wiring, not the later approval queue or live VPS/public evidence path.
+The HTTP adapter smoke also covers the fail-closed path: a dry-run request with
+`privacy_budget_required=true` and no config/ledger returns
+`query_workflow_api_error/v1` with `validation_rejected`, proving the API layer
+continues to reuse `submit_query_workflow.py` validation instead of accepting a
+weaker request shape.
 
 ## 5. Secret Handling
 
@@ -198,6 +203,7 @@ Notes:
 2. non-health endpoints require `Authorization: Bearer ...` when `--auth-token-env` is set
 3. `/v1/query-workflows/execute` is disabled by default and only enabled when the server starts with `--allow-execute`
 4. the API returns a wrapper envelope plus the same redacted `query_workflow_submission/v1` manifest used by the CLI
+5. validation failures, including privacy-budget required-mode failures, return `query_workflow_api_error/v1`
 
 The HTTP envelopes are now frozen in:
 

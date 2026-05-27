@@ -101,6 +101,24 @@ def materialize_query_api(tmp_dir: Path, *, port: int, request_file: Path) -> No
             label="query workflow API execute-disabled request",
         ),
     )
+    privacy_budget_missing_config_payload = dict(request_payload)
+    privacy_budget_missing_config_payload["privacy_budget_required"] = True
+    privacy_budget_missing_config_payload.pop("privacy_budget_config", None)
+    privacy_budget_missing_config_payload.pop("privacy_budget_ledger", None)
+    dump(
+        tmp_dir / "query_workflow_api_privacy_budget_missing_config_error.json",
+        expect_http_error(
+            lambda: post_json(
+                opener,
+                f"{base}/v1/query-workflows/dry-run",
+                privacy_budget_missing_config_payload,
+                token="contract-query-workflow-api-token",
+                request_base_dir=request_base_dir,
+            ),
+            code=400,
+            label="query workflow API privacy-budget missing-config dry-run",
+        ),
+    )
     dump(
         tmp_dir / "query_workflow_api_status.json",
         fetch_json(
