@@ -125,12 +125,14 @@ The structural request contract is now frozen in [schemas/query_workflow_request
 Privacy-budget release controls are now wired through the same request surface
 repo-side. `privacy_budget_required=true` requires both
 `privacy_budget_config` and `privacy_budget_ledger`; the wrapper passes those
-paths plus `privacy_budget_purpose`, `privacy_budget_limit`, and
-`privacy_budget_cost` to `scripts/run_sse_bridge_pipeline.sh`, which forwards
-them to `policy_release.py` during Stage4. The stable submission scope remains
+paths plus optional `privacy_budget_approval_queue`,
+`privacy_budget_purpose`, `privacy_budget_limit`, and `privacy_budget_cost` to
+`scripts/run_sse_bridge_pipeline.sh`, which forwards them to
+`policy_release.py` during Stage4. The stable submission scope remains
 `caller` / `tenant_id` / `dataset_id`; `privacy_budget_purpose` maps to the
 release-side `--purpose` argument. This is still local/operator-entrypoint
-wiring, not the later approval queue or live VPS/public evidence path.
+wiring, not the later approval-queue consumption or live VPS/public evidence
+path.
 The HTTP adapter smoke also covers the fail-closed path: a dry-run request with
 `privacy_budget_required=true` and no config/ledger returns
 `query_workflow_api_error/v1` with `validation_rejected`, proving the API layer

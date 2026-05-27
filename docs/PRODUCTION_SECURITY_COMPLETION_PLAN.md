@@ -150,6 +150,8 @@ repo-side 已交付：
 
 状态（2026-05-27 v2）：near-duplicate 的本地人工审批分支已 repo-side 推进。`policy_release.py` 新增可选 `--privacy-budget-approval-queue`；命中 `privacy_budget_near_duplicate` 时仍 fail closed，不发布结果、不扣预算，但会写入 `privacy_budget_approval_request/v1` JSONL，状态为 `pending_approval`，供后续人工复核/审批系统消费。默认 contract smoke 新增 overlap 窗口样例，断言 ledger 记录为 near-duplicate deny、approval queue 只产生一条 pending request。S3 仍保持 `partial`：VPS/公网证据、三人联合认证和更丰富的包含/差分样例仍未完成。
 
+状态（2026-05-27 v3）：approval queue 路径已接入 query workflow / operator submission repo-side 透传。`query_workflow_request/v1` 新增可选 `privacy_budget_approval_queue`；`submit_query_workflow.py` 会做路径归一化并要求它必须搭配 `privacy_budget_ledger`；`run_sse_bridge_pipeline.sh` 会把该路径透传给 Stage4 `policy_release.py --privacy-budget-approval-queue`。默认 contract smoke 的 privacy-budget dry-run command 断言已覆盖该参数。S3 仍保持 `partial`：approval queue 的真实人工消费闭环、VPS/公网证据和三人联合认证未完成。
+
 repo-side 已交付：
 
 1. `policy_release.py` 新增可选 `--privacy-budget-ledger`、`--privacy-budget-limit`、`--privacy-budget-cost`。默认不启用，不改变既有 demo / pipeline 行为；显式启用后，release 前会计算不含 `job_id` 的预算查询 fingerprint。
@@ -161,8 +163,8 @@ repo-side 已交付：
 7. 新增证据包：`tmp/s3_privacy_budget_production_evidence/verification_summary.json`，最近运行结果 `status=pass`、`cases=6`、`ledger_records=5`。
 8. consolidated attack-surface gate 已包含 `s3_privacy_budget_production_evidence`，最近运行结果 `tmp/attack_surface_hardening_evidence/verification_summary.json` 为 `status=pass`、`case_count=12`、`pass_count=12`、`fail_count=0`。
 9. metadata sidecar read model 已完成 repo-side：`migrations/metadata/013_add_privacy_budget_ledger_read_model.sql`、PostgreSQL DDL parity、`import_run_metadata.py` ledger import、`query_metadata.py --list-entity privacy-budget-ledger`，以及 default contract smoke 查询断言。
-10. operator/query submission wiring 已完成 repo-side：`query_workflow_request/v1`、`submit_query_workflow.py`、`run_sse_bridge_pipeline.sh` 和 default contract smoke 会把 privacy budget required/config/ledger/scope/limit/cost 送入 Stage4 release，并断言 required 模式缺 config / ledger 会在提交入口 fail closed；HTTP dry-run smoke 也覆盖缺 config/ledger 时的 `query_workflow_api_error/v1` 拒绝响应。
-11. near-duplicate 人工审批分支已有 repo-side 起点：可选 `privacy_budget_approval_request/v1` JSONL 队列记录 overlap/near-duplicate deny，release 仍 fail closed，approval 消费/真实运营流转后续再接。
+10. operator/query submission wiring 已完成 repo-side：`query_workflow_request/v1`、`submit_query_workflow.py`、`run_sse_bridge_pipeline.sh` 和 default contract smoke 会把 privacy budget required/config/ledger/approval_queue/scope/limit/cost 送入 Stage4 release，并断言 required 模式缺 config / ledger 会在提交入口 fail closed；HTTP dry-run smoke 也覆盖缺 config/ledger 时的 `query_workflow_api_error/v1` 拒绝响应。
+11. near-duplicate 人工审批分支已有 repo-side 起点：可选 `privacy_budget_approval_request/v1` JSONL 队列记录 overlap/near-duplicate deny，release 仍 fail closed，approval queue 路径已可从 query workflow/operator submission 透传；真实运营流转后续再接。
 
 仍需后续完成：
 

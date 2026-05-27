@@ -81,6 +81,7 @@ def build_privacy_budget_payload(*, repo_root: Path, request_dir: Path) -> dict[
             "privacy_budget_required": True,
             "privacy_budget_config": os.path.relpath(repo_root / "config/privacy_budget.example.json", request_dir),
             "privacy_budget_ledger": "../query_workflow_privacy_budget_ledger.jsonl",
+            "privacy_budget_approval_queue": "../query_workflow_privacy_budget_approval_queue.jsonl",
             "privacy_budget_purpose": "campaign_measurement",
             "privacy_budget_limit": 3,
             "privacy_budget_cost": 1.0,

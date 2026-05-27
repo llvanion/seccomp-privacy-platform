@@ -2226,9 +2226,10 @@ python3 "$REPO_ROOT/scripts/submit_query_workflow.py" \
 python3 -c 'import json, sys
 p=json.load(open(sys.argv[1], "r", encoding="utf-8"))
 cmd=p["command"]
-required=["--privacy-budget-required","--privacy-budget-config","--privacy-budget-ledger","--privacy-budget-purpose","--privacy-budget-limit","--privacy-budget-cost","--tenant-id","--dataset-id"]
+required=["--privacy-budget-required","--privacy-budget-config","--privacy-budget-ledger","--privacy-budget-approval-queue","--privacy-budget-purpose","--privacy-budget-limit","--privacy-budget-cost","--tenant-id","--dataset-id"]
 missing=[flag for flag in required if flag not in cmd]
 assert not missing, (missing, cmd)
+assert cmd[cmd.index("--privacy-budget-approval-queue")+1].endswith("query_workflow_privacy_budget_approval_queue.jsonl"), cmd
 assert cmd[cmd.index("--privacy-budget-purpose")+1] == "campaign_measurement", cmd
 assert cmd[cmd.index("--privacy-budget-limit")+1] == "3", cmd
 assert cmd[cmd.index("--privacy-budget-cost")+1] == "1.0", cmd

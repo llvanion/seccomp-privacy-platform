@@ -121,6 +121,7 @@ DATASET_ID=""
 PRIVACY_BUDGET_REQUIRED="0"
 PRIVACY_BUDGET_CONFIG=""
 PRIVACY_BUDGET_LEDGER=""
+PRIVACY_BUDGET_APPROVAL_QUEUE=""
 PRIVACY_BUDGET_PURPOSE=""
 PRIVACY_BUDGET_LIMIT=""
 PRIVACY_BUDGET_COST=""
@@ -216,6 +217,7 @@ Options:
   --privacy-budget-required          fail closed unless privacy-budget config and ledger are provided
   --privacy-budget-config <path>     privacy_budget_config/v1 scope rules for policy release
   --privacy-budget-ledger <path>     privacy_budget_ledger/v1 JSONL path for policy release
+  --privacy-budget-approval-queue <path> optional privacy_budget_approval_request/v1 JSONL path
   --privacy-budget-purpose <purpose> optional purpose scope passed to policy release as --purpose
   --privacy-budget-limit <number>    optional budget limit override
   --privacy-budget-cost <number>     optional budget cost override
@@ -299,6 +301,7 @@ while [[ $# -gt 0 ]]; do
     --privacy-budget-required) PRIVACY_BUDGET_REQUIRED="1"; shift ;;
     --privacy-budget-config) PRIVACY_BUDGET_CONFIG="$2"; shift 2 ;;
     --privacy-budget-ledger) PRIVACY_BUDGET_LEDGER="$2"; shift 2 ;;
+    --privacy-budget-approval-queue) PRIVACY_BUDGET_APPROVAL_QUEUE="$2"; shift 2 ;;
     --privacy-budget-purpose) PRIVACY_BUDGET_PURPOSE="$2"; shift 2 ;;
     --privacy-budget-limit) PRIVACY_BUDGET_LIMIT="$2"; shift 2 ;;
     --privacy-budget-cost) PRIVACY_BUDGET_COST="$2"; shift 2 ;;
@@ -358,6 +361,7 @@ PRIVACY_BUDGET_LEDGER="$(normalize_repo_path "$PRIVACY_BUDGET_LEDGER")"
 [[ -z "$RECORD_RECOVERY_AUTHZ_CONFIG" || "$RECORD_RECOVERY_SERVICE_MODE" == "auto" ]] || die "--record-recovery-authz-config currently requires --record-recovery-service-mode=auto"
 [[ "$RECORD_RECOVERY_SOCKET_MODE" =~ ^[0-7]{3,4}$ ]] || die "--record-recovery-socket-mode must be octal like 600 or 0600"
 [[ -z "$PRIVACY_BUDGET_CONFIG" || -n "$PRIVACY_BUDGET_LEDGER" ]] || die "--privacy-budget-config requires --privacy-budget-ledger"
+[[ -z "$PRIVACY_BUDGET_APPROVAL_QUEUE" || -n "$PRIVACY_BUDGET_LEDGER" ]] || die "--privacy-budget-approval-queue requires --privacy-budget-ledger"
 if [[ "$PRIVACY_BUDGET_REQUIRED" == "1" ]]; then
   [[ -n "$PRIVACY_BUDGET_CONFIG" ]] || die "--privacy-budget-required requires --privacy-budget-config"
   [[ -n "$PRIVACY_BUDGET_LEDGER" ]] || die "--privacy-budget-required requires --privacy-budget-ledger"
@@ -1583,6 +1587,9 @@ if [[ -n "$PRIVACY_BUDGET_CONFIG" ]]; then
 fi
 if [[ -n "$PRIVACY_BUDGET_LEDGER" ]]; then
   POLICY_RELEASE_CMD+=(--privacy-budget-ledger "$PRIVACY_BUDGET_LEDGER")
+fi
+if [[ -n "$PRIVACY_BUDGET_APPROVAL_QUEUE" ]]; then
+  POLICY_RELEASE_CMD+=(--privacy-budget-approval-queue "$PRIVACY_BUDGET_APPROVAL_QUEUE")
 fi
 if [[ -n "$PRIVACY_BUDGET_LIMIT" ]]; then
   POLICY_RELEASE_CMD+=(--privacy-budget-limit "$PRIVACY_BUDGET_LIMIT")

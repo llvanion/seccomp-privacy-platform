@@ -324,6 +324,7 @@
         "n",
         "out_base",
         "pjc_audit_log",
+        "privacy_budget_approval_queue",
         "privacy_budget_config",
         "privacy_budget_cost",
         "privacy_budget_ledger",

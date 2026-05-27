@@ -34,6 +34,7 @@ PATH_FIELDS = {
     "sse_export_policy_config",
     "privacy_budget_config",
     "privacy_budget_ledger",
+    "privacy_budget_approval_queue",
     "out_base",
     "key_access_audit_log",
     "audit_archive_dir",
@@ -208,10 +209,13 @@ def validate_request(payload: dict[str, Any]) -> None:
     privacy_budget_required = optional_bool(payload, "privacy_budget_required")
     privacy_budget_config = payload.get("privacy_budget_config")
     privacy_budget_ledger = payload.get("privacy_budget_ledger")
+    privacy_budget_approval_queue = payload.get("privacy_budget_approval_queue")
     if privacy_budget_config not in (None, ""):
         privacy_budget_config = require_nonempty_str(payload, "privacy_budget_config")
     if privacy_budget_ledger not in (None, ""):
         privacy_budget_ledger = require_nonempty_str(payload, "privacy_budget_ledger")
+    if privacy_budget_approval_queue not in (None, ""):
+        privacy_budget_approval_queue = require_nonempty_str(payload, "privacy_budget_approval_queue")
     if privacy_budget_required:
         if not privacy_budget_config:
             raise SystemExit("[ERROR] privacy_budget_required=true requires privacy_budget_config")
@@ -219,6 +223,8 @@ def validate_request(payload: dict[str, Any]) -> None:
             raise SystemExit("[ERROR] privacy_budget_required=true requires privacy_budget_ledger")
     if privacy_budget_config and not privacy_budget_ledger:
         raise SystemExit("[ERROR] privacy_budget_config requires privacy_budget_ledger")
+    if privacy_budget_approval_queue and not privacy_budget_ledger:
+        raise SystemExit("[ERROR] privacy_budget_approval_queue requires privacy_budget_ledger")
     if payload.get("privacy_budget_purpose") not in (None, ""):
         require_nonempty_str(payload, "privacy_budget_purpose")
     privacy_budget_limit = optional_number(payload, "privacy_budget_limit")
@@ -298,6 +304,7 @@ def build_command(payload: dict[str, Any]) -> list[str]:
     add_arg("dataset-id", payload.get("dataset_id"))
     add_arg("privacy-budget-config", payload.get("privacy_budget_config"))
     add_arg("privacy-budget-ledger", payload.get("privacy_budget_ledger"))
+    add_arg("privacy-budget-approval-queue", payload.get("privacy_budget_approval_queue"))
     add_arg("privacy-budget-purpose", payload.get("privacy_budget_purpose"))
     add_arg("privacy-budget-limit", payload.get("privacy_budget_limit"))
     add_arg("privacy-budget-cost", payload.get("privacy_budget_cost"))
