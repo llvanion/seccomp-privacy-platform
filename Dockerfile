@@ -1,7 +1,8 @@
 # syntax=docker/dockerfile:1.7
 
 # Stage 1: build the Rust bridge binary in a small Rust image.
-FROM rust:1.79-bookworm AS bridge-builder
+# Bridge uses edition = "2024" + Cargo.lock v4, both requiring Rust >= 1.85.
+FROM rust:1.85-bookworm AS bridge-builder
 
 WORKDIR /src/bridge
 COPY bridge/Cargo.toml bridge/Cargo.lock ./
