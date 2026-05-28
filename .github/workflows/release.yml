@@ -320,9 +320,43 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: actions/download-artifact@v4
+      # Download each artifact bundle by explicit name. Skips the buildx cache
+      # artifact (auto-uploaded by docker/build-push-action) whose tilde-laden
+      # filename has tripped download-artifact@v4 in past runs.
+      - name: Download bridge artifacts
+        uses: actions/download-artifact@v4
         with:
           path: release-artifacts
+          pattern: bridge-*
+
+      - name: Download PyInstaller bundles
+        uses: actions/download-artifact@v4
+        with:
+          path: release-artifacts
+          pattern: seccomp-privacy-cli-*
+
+      - name: Download console SPA
+        uses: actions/download-artifact@v4
+        with:
+          path: release-artifacts
+          pattern: console-static
+
+      - name: Download source tarball
+        uses: actions/download-artifact@v4
+        with:
+          path: release-artifacts
+          pattern: source-tarball
+
+      - name: Verify downloads
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -z "$(ls -A release-artifacts 2>/dev/null || true)" ]; then
+            echo "::error::release-artifacts directory is empty after download-artifact"
+            exit 1
+          fi
+          echo "downloaded artifacts:"
+          find release-artifacts -maxdepth 3 -type f | sort
 
       - name: Flatten artifacts
         run: |
