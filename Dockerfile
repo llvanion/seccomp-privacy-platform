@@ -18,15 +18,18 @@ RUN cargo build --release \
 FROM node:20-bookworm-slim AS console-builder
 
 WORKDIR /src/console
-COPY console/package.json console/package-lock.json* ./
+# Copy package.json on its own first so a missing lockfile doesn't fail the COPY
+# glob (BuildKit's behaviour with `package-lock.json*` is brittle when zero
+# files match). The conditional below still uses `npm ci` if a lockfile gets
+# committed later, but defaults to `npm install` for greenfield builds.
+COPY console/package.json ./package.json
+COPY console/ ./
 RUN if [ -f package-lock.json ]; then \
       npm ci --no-audit --no-fund; \
     else \
       npm install --no-audit --no-fund; \
-    fi
-
-COPY console/ ./
-RUN npm run build
+    fi \
+    && npm run build
 
 
 # Stage 2: install Python dependencies into a dedicated venv layer.
