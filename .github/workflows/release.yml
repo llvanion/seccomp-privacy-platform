@@ -13,6 +13,7 @@ on:
 
 permissions:
   contents: write
+  packages: write
 
 env:
   CARGO_TERM_COLOR: always
@@ -262,6 +263,11 @@ jobs:
   build-docker-image:
     name: Docker image
     runs-on: ubuntu-latest
+    # The GHCR push can fail with "denied: installation not allowed to Create
+    # organization package" on personal repos until the package is first
+    # created/linked manually. Don't let that block the GitHub Release; the
+    # image lives separately in GHCR.
+    continue-on-error: true
     steps:
       - uses: actions/checkout@v4
 
@@ -307,7 +313,8 @@ jobs:
       - build-python-bundles
       - build-console
       - build-source-tarball
-      - build-docker-image
+      # build-docker-image intentionally omitted: GHCR push can fail with
+      # account-level permission denials that don't affect Release artifacts.
     if: github.event_name == 'push'
     runs-on: ubuntu-latest
     steps:
