@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import { Navigate, Route, Routes, useLocation } from "react-router-dom";
 import { Download, FileLock2, RefreshCw, ShieldCheck } from "lucide-react";
 
@@ -100,7 +100,7 @@ function PublicReportTab() {
   );
 }
 
-function Stat({ label, value, kind = "info" }: { label: string; value: React.ReactNode; kind?: "ok" | "warn" | "err" | "info" | "muted" }) {
+function Stat({ label, value, kind = "info" }: { label: string; value: ReactNode; kind?: "ok" | "warn" | "err" | "info" | "muted" }) {
   return (
     <div className="panel-soft p-3 rounded-lg">
       <div className="field-label">{label}</div>

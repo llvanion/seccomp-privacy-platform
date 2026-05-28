@@ -1,3 +1,4 @@
+import type { ReactNode } from "react";
 import { Navigate, Route, Routes, useLocation } from "react-router-dom";
 import { Bug, Fingerprint, GaugeCircle, ShieldCheck, ShieldOff, Sparkles, TestTube2 } from "lucide-react";
 
@@ -41,7 +42,7 @@ export function SecurityRoute() {
 }
 
 function ToolCard({ icon, title, contract, summary, commands, links }: {
-  icon: React.ReactNode;
+  icon: ReactNode;
   title: string;
   contract: string;
   summary: string;

@@ -1,3 +1,4 @@
+import type { ReactNode } from "react";
 import { Navigate, Route, Routes, useLocation } from "react-router-dom";
 import { BookOpen, CheckCircle2, FileCode2, ScrollText, ShieldQuestion } from "lucide-react";
 
@@ -201,7 +202,7 @@ function LicenseTab() {
   );
 }
 
-function LicenseCard({ icon, title, body, path }: { icon: React.ReactNode; title: string; body: string; path: string }) {
+function LicenseCard({ icon, title, body, path }: { icon: ReactNode; title: string; body: string; path: string }) {
   return (
     <div className="panel-soft p-3 rounded-lg">
       <div className="flex items-start gap-3">

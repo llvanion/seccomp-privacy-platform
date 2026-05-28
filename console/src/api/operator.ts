@@ -1,5 +1,14 @@
 import { api } from "./client";
-import type { OperatorDashboardData, OperatorJob, RequestSubmission, Json } from "./types";
+import type {
+  Json,
+  OperatorDashboardData,
+  OperatorJob,
+  PjcRunOnlyRequest,
+  PjcRunOnlyResponse,
+  RequestSubmission,
+  SseSearchRequest,
+  SseSearchResponse,
+} from "./types";
 
 export const operatorApi = {
   dashboard(opts?: { signal?: AbortSignal }): Promise<OperatorDashboardData> {
@@ -110,11 +119,11 @@ export const operatorApi = {
     return api.post("operator", "/v1/pjc/role-package/import", payload);
   },
 
-  sseSearch(payload: import("./types").SseSearchRequest): Promise<import("./types").SseSearchResponse> {
+  sseSearch(payload: SseSearchRequest): Promise<SseSearchResponse> {
     return api.post("operator", "/v1/sse/search", payload as unknown as Record<string, Json>);
   },
 
-  pjcRunOnly(payload: import("./types").PjcRunOnlyRequest): Promise<import("./types").PjcRunOnlyResponse> {
+  pjcRunOnly(payload: PjcRunOnlyRequest): Promise<PjcRunOnlyResponse> {
     return api.post("operator", "/v1/pjc/run-only", payload as unknown as Record<string, Json>);
   },
 };

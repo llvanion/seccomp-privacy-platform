@@ -65,12 +65,12 @@ export function PjcOnlyRoute() {
 
   const data: PjcRunOnlyResponse | undefined = mutation.data;
   const ok = data?.status === "ok";
-  const attribution = data?.attribution ?? {};
-  const publicReport = data?.public_report ?? {};
-  const intersectionSize = (attribution as { intersection_size?: number }).intersection_size;
-  const intersectionSum = (attribution as { intersection_sum?: number }).intersection_sum;
-  const released = (publicReport as { released?: boolean }).released;
-  const reasonCode = (publicReport as { reason_code?: string }).reason_code;
+  const attribution: Record<string, unknown> = (data?.attribution as Record<string, unknown>) ?? {};
+  const publicReport: Record<string, unknown> = (data?.public_report as Record<string, unknown>) ?? {};
+  const intersectionSize = typeof attribution.intersection_size === "number" ? attribution.intersection_size : undefined;
+  const intersectionSum = typeof attribution.intersection_sum === "number" ? attribution.intersection_sum : undefined;
+  const released = typeof publicReport.released === "boolean" ? publicReport.released : false;
+  const reasonCode = typeof publicReport.reason_code === "string" ? publicReport.reason_code : undefined;
 
   return (
     <div className="space-y-5">

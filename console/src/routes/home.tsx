@@ -1,3 +1,4 @@
+import type { ReactNode } from "react";
 import { Link } from "react-router-dom";
 import { Activity, AlertTriangle, FileLock2, GanttChartSquare, KeyRound, Network, ShieldCheck, Timer } from "lucide-react";
 
@@ -239,7 +240,7 @@ function HealthComponents({ data }: { data: PlatformHealth }) {
   );
 }
 
-function QuickLink({ to, icon, label, hint }: { to: string; icon: React.ReactNode; label: string; hint: string }) {
+function QuickLink({ to, icon, label, hint }: { to: string; icon: ReactNode; label: string; hint: string }) {
   return (
     <Link
       to={to}

@@ -5,7 +5,7 @@ import { useApiQuery } from "@/hooks/useApi";
 import { Card, CardHeader, EmptyState, ErrorBanner, JsonBlock, PageHeader, Skeleton } from "@/components/ui";
 import { DataTable, type Column } from "@/components/data-table";
 import { RouteTabs } from "@/components/tabs";
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import { Field, Input, Button } from "@/components/ui";
 import type { CatalogLineage, Json, MetadataEntityResponse } from "@/api/types";
 import { formatTimestamp, truncate } from "@/lib/format";
@@ -173,7 +173,7 @@ function FactLayerTab() {
   );
 }
 
-function Stat({ label, value }: { label: string; value: React.ReactNode }) {
+function Stat({ label, value }: { label: string; value: ReactNode }) {
   return (
     <div className="panel-soft p-3 rounded-lg">
       <div className="field-label">{label}</div>

@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useMemo, useState, type ReactNode } from "react";
 import { Navigate, Route, Routes, useLocation } from "react-router-dom";
 import { Activity, KeyRound, ShieldCheck, ZapOff } from "lucide-react";
 
@@ -202,7 +202,7 @@ function DiagnosticCard(props: {
   run: () => void;
   loading: boolean;
   result?: unknown;
-  icon: React.ReactNode;
+  icon: ReactNode;
 }) {
   return (
     <Card>

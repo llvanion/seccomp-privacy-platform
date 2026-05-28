@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useMemo, useState, type ReactNode } from "react";
 import { Link } from "react-router-dom";
 import { CheckCircle2, ClipboardList, Filter, Plus, RefreshCw, XCircle } from "lucide-react";
 
@@ -108,7 +108,7 @@ export function RequestsRoute() {
   );
 }
 
-function StatusTile({ kind, icon, label, count }: { kind: "warn" | "ok" | "err"; icon: React.ReactNode; label: string; count: number }) {
+function StatusTile({ kind, icon, label, count }: { kind: "warn" | "ok" | "err"; icon: ReactNode; label: string; count: number }) {
   return (
     <Card className="flex items-center gap-3">
       <div className="w-10 h-10 rounded-xl bg-bg-elevated grid place-items-center text-brand">{icon}</div>

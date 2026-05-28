@@ -103,11 +103,11 @@ export function SseQueryRoute() {
       <section className="grid grid-cols-1 lg:grid-cols-3 gap-4">
         <Card className="lg:col-span-2">
           <CardHeader title="加密数据库" description="倒排索引 keyword → [document_id...] 格式；可粘贴 JSON 或指向已有文件" actions={<Database className="w-4 h-4 text-ink-dim" />} />
-          <StaticTabs
+          <StaticTabs<DbMode>
             tabs={[
               { id: "inline", label: "粘贴 JSON" },
               { id: "path", label: "文件路径" },
-            ]}
+            ] as const}
             value={dbMode}
             onChange={setDbMode}
           />
