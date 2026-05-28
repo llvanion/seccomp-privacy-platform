@@ -1,0 +1,10 @@
+node_modules
+dist
+dist-ssr
+.vite
+.cache
+*.local
+.eslintcache
+npm-debug.log*
+yarn-error.log
+.DS_Store

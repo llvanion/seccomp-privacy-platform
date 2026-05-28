@@ -1,0 +1,365 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      tag_name:
+        description: "Manual release tag (e.g., v0.1.0). Used only when triggered manually."
+        required: true
+        default: "v0.0.0-manual"
+
+permissions:
+  contents: write
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build-bridge:
+    name: Build bridge (${{ matrix.target }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: x86_64-unknown-linux-gnu
+            os: ubuntu-latest
+            use_cross: false
+            archive_ext: tar.gz
+            bin_name: bridge
+          - target: x86_64-unknown-linux-musl
+            os: ubuntu-latest
+            use_cross: true
+            archive_ext: tar.gz
+            bin_name: bridge
+          - target: aarch64-unknown-linux-gnu
+            os: ubuntu-latest
+            use_cross: true
+            archive_ext: tar.gz
+            bin_name: bridge
+          - target: x86_64-pc-windows-msvc
+            os: windows-latest
+            use_cross: false
+            archive_ext: zip
+            bin_name: bridge.exe
+          - target: aarch64-apple-darwin
+            os: macos-latest
+            use_cross: false
+            archive_ext: tar.gz
+            bin_name: bridge
+          - target: x86_64-apple-darwin
+            os: macos-latest
+            use_cross: false
+            archive_ext: tar.gz
+            bin_name: bridge
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Install cross (Linux musl / aarch64)
+        if: matrix.use_cross == true
+        run: cargo install --locked cross
+
+      - name: Build bridge (cargo)
+        if: matrix.use_cross == false
+        working-directory: bridge
+        run: cargo build --release --target ${{ matrix.target }}
+
+      - name: Build bridge (cross)
+        if: matrix.use_cross == true
+        working-directory: bridge
+        run: cross build --release --target ${{ matrix.target }}
+
+      - name: Package artifact (POSIX)
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          set -euo pipefail
+          STAGING="bridge-${{ matrix.target }}"
+          mkdir -p "${STAGING}"
+          cp "bridge/target/${{ matrix.target }}/release/${{ matrix.bin_name }}" "${STAGING}/"
+          cp LICENSE NOTICE "${STAGING}/" 2>/dev/null || true
+          cp bridge/README.md "${STAGING}/" 2>/dev/null || true
+          tar -czf "${STAGING}.tar.gz" "${STAGING}"
+          shasum -a 256 "${STAGING}.tar.gz" > "${STAGING}.tar.gz.sha256"
+
+      - name: Package artifact (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $staging = "bridge-${{ matrix.target }}"
+          New-Item -ItemType Directory -Force -Path $staging | Out-Null
+          Copy-Item "bridge/target/${{ matrix.target }}/release/${{ matrix.bin_name }}" "$staging/"
+          if (Test-Path LICENSE) { Copy-Item LICENSE "$staging/" }
+          if (Test-Path NOTICE) { Copy-Item NOTICE "$staging/" }
+          if (Test-Path "bridge/README.md") { Copy-Item "bridge/README.md" "$staging/" }
+          Compress-Archive -Path "$staging" -DestinationPath "$staging.zip"
+          $hash = (Get-FileHash -Algorithm SHA256 "$staging.zip").Hash.ToLower()
+          "$hash  $staging.zip" | Out-File -Encoding ASCII "$staging.zip.sha256"
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: bridge-${{ matrix.target }}
+          path: |
+            bridge-${{ matrix.target }}.tar.gz
+            bridge-${{ matrix.target }}.tar.gz.sha256
+            bridge-${{ matrix.target }}.zip
+            bridge-${{ matrix.target }}.zip.sha256
+          if-no-files-found: ignore
+
+  build-python-bundles:
+    name: PyInstaller bundle (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            target: linux-x86_64
+            archive_ext: tar.gz
+          - os: windows-latest
+            target: windows-x86_64
+            archive_ext: zip
+          - os: macos-latest
+            target: macos-arm64
+            archive_ext: tar.gz
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install build deps
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install pyinstaller
+          python -m pip install -r sse/requirements.txt
+
+      - name: Build PyInstaller bundles
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m PyInstaller --clean --noconfirm packaging/pyinstaller/run_client.spec
+          python -m PyInstaller --clean --noconfirm packaging/pyinstaller/run_record_recovery_service.spec
+          python -m PyInstaller --clean --noconfirm packaging/pyinstaller/init_metadata_db.spec
+
+      - name: Package bundles (POSIX)
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          set -euo pipefail
+          STAGING="seccomp-privacy-cli-${{ matrix.target }}"
+          mkdir -p "${STAGING}"
+          cp -r dist/* "${STAGING}/"
+          cp LICENSE NOTICE "${STAGING}/" 2>/dev/null || true
+          tar -czf "${STAGING}.tar.gz" "${STAGING}"
+          shasum -a 256 "${STAGING}.tar.gz" > "${STAGING}.tar.gz.sha256"
+
+      - name: Package bundles (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $staging = "seccomp-privacy-cli-${{ matrix.target }}"
+          New-Item -ItemType Directory -Force -Path $staging | Out-Null
+          Copy-Item -Recurse "dist/*" $staging
+          if (Test-Path LICENSE) { Copy-Item LICENSE "$staging/" }
+          if (Test-Path NOTICE) { Copy-Item NOTICE "$staging/" }
+          Compress-Archive -Path "$staging" -DestinationPath "$staging.zip"
+          $hash = (Get-FileHash -Algorithm SHA256 "$staging.zip").Hash.ToLower()
+          "$hash  $staging.zip" | Out-File -Encoding ASCII "$staging.zip.sha256"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: seccomp-privacy-cli-${{ matrix.target }}
+          path: |
+            seccomp-privacy-cli-${{ matrix.target }}.tar.gz
+            seccomp-privacy-cli-${{ matrix.target }}.tar.gz.sha256
+            seccomp-privacy-cli-${{ matrix.target }}.zip
+            seccomp-privacy-cli-${{ matrix.target }}.zip.sha256
+          if-no-files-found: ignore
+
+  build-console:
+    name: Build operator console SPA
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: console/package-lock.json
+
+      - name: Install console deps
+        working-directory: console
+        run: |
+          if [ -f package-lock.json ]; then
+            npm ci --no-audit --no-fund
+          else
+            npm install --no-audit --no-fund
+          fi
+
+      - name: Typecheck
+        working-directory: console
+        run: npm run typecheck
+
+      - name: Build SPA
+        working-directory: console
+        run: npm run build
+
+      - name: Package console-static artifact
+        shell: bash
+        run: |
+          set -euo pipefail
+          TAG="${GITHUB_REF_NAME:-${{ github.event.inputs.tag_name }}}"
+          STAGING="console-static-${TAG}"
+          mkdir -p "${STAGING}"
+          cp -r console/dist/* "${STAGING}/"
+          cp LICENSE NOTICE "${STAGING}/" 2>/dev/null || true
+          tar -czf "${STAGING}.tar.gz" "${STAGING}"
+          shasum -a 256 "${STAGING}.tar.gz" > "${STAGING}.tar.gz.sha256"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: console-static
+          path: |
+            console-static-*.tar.gz
+            console-static-*.tar.gz.sha256
+
+  build-source-tarball:
+    name: Source tarball
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Build source tarball
+        run: |
+          set -euo pipefail
+          TAG="${GITHUB_REF_NAME:-${{ github.event.inputs.tag_name }}}"
+          OUT="seccomp-privacy-platform-${TAG}-source.tar.gz"
+          git archive --format=tar.gz --prefix="seccomp-privacy-platform-${TAG}/" -o "${OUT}" HEAD
+          sha256sum "${OUT}" > "${OUT}.sha256"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: source-tarball
+          path: |
+            seccomp-privacy-platform-*-source.tar.gz
+            seccomp-privacy-platform-*-source.tar.gz.sha256
+
+  build-docker-image:
+    name: Docker image
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Compute tags
+        id: tag
+        run: |
+          TAG="${GITHUB_REF_NAME:-${{ github.event.inputs.tag_name }}}"
+          IMG="ghcr.io/${{ github.repository }}"
+          IMG="${IMG,,}"
+          echo "image=${IMG}" >> "$GITHUB_OUTPUT"
+          echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
+
+      - name: Log in to GitHub Container Registry
+        if: github.event_name == 'push'
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build (and push on tag)
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: Dockerfile
+          push: ${{ github.event_name == 'push' }}
+          tags: |
+            ${{ steps.tag.outputs.image }}:${{ steps.tag.outputs.tag }}
+            ${{ steps.tag.outputs.image }}:latest
+          platforms: linux/amd64
+          provenance: false
+
+  create-release:
+    name: Create GitHub Release
+    needs:
+      - build-bridge
+      - build-python-bundles
+      - build-console
+      - build-source-tarball
+      - build-docker-image
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          path: release-artifacts
+
+      - name: Flatten artifacts
+        run: |
+          set -euo pipefail
+          mkdir -p release-flat
+          find release-artifacts -type f \( -name "*.tar.gz" -o -name "*.zip" -o -name "*.sha256" \) -exec cp {} release-flat/ \;
+          ls -la release-flat
+
+      - name: Generate release notes
+        id: notes
+        run: |
+          set -euo pipefail
+          TAG="${GITHUB_REF_NAME}"
+          {
+            echo "## seccomp-privacy-platform ${TAG}"
+            echo
+            echo "End-to-end privacy computing platform: SSE -> bridge -> A-PSI / PJC -> policy release."
+            echo
+            echo "### Artifacts"
+            echo "- bridge binary: Linux x86_64 (glibc + musl), Linux aarch64, Windows x86_64, macOS arm64/x86_64"
+            echo "- Python CLI bundles (PyInstaller): run_client, run_record_recovery_service, init_metadata_db"
+            echo "- operator console SPA (console-static-${TAG}.tar.gz)"
+            echo "- source tarball"
+            echo "- Docker image at ghcr.io/${{ github.repository }}:${TAG}"
+            echo
+            echo "### Verification"
+            echo "Each archive ships with a matching \`.sha256\` file. Verify with:"
+            echo
+            echo '```'
+            echo 'sha256sum -c <artifact>.sha256'
+            echo '```'
+            echo
+            echo "### License"
+            echo "GPL-3.0 (see LICENSE). Bundles Google private-join-and-compute (Apache-2.0); see NOTICE."
+          } > release-notes.md
+          cat release-notes.md
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: ${{ github.ref_name }}
+          tag_name: ${{ github.ref_name }}
+          body_path: release-notes.md
+          files: release-flat/*
+          fail_on_unmatched_files: false
+          generate_release_notes: false
+          draft: false
+          prerelease: ${{ contains(github.ref_name, '-rc') || contains(github.ref_name, '-beta') || contains(github.ref_name, '-alpha') }}

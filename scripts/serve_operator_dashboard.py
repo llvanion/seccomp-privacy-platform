@@ -67,1697 +67,77 @@ _PJC_MTLS_TOKEN_LOCK = threading.Lock()
 _PJC_MTLS_SHUTDOWN_HOOKS: list[Any] = []
 
 # ---------------------------------------------------------------------------
-# HTML dashboard (single-file, no external deps)
+# Static SPA assets (from console/dist; configured via --console-dist)
 # ---------------------------------------------------------------------------
 
-_DASHBOARD_HTML = r"""<!DOCTYPE html>
-<html lang="en">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
-<title>PJC X-UI | Control and Audit Center</title>
-<style>
-:root{--bg:#0a0f14;--bg2:#0f1722;--panel:#121c28;--panel2:#192636;--line:#243548;
-  --text:#e6edf6;--muted:#92a2b6;--ok:#37d67a;--warn:#f2b94b;--err:#ff6b6b;
-  --acc:#5ec8ff;--acc2:#1f8fff;--glow:rgba(94,200,255,.18);--font:"Segoe UI",
-  "SF Pro Display","Helvetica Neue",sans-serif;--mono:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
-*{box-sizing:border-box;margin:0;padding:0}
-html{scroll-behavior:smooth}
-body{background:
-  radial-gradient(circle at top right, rgba(31,143,255,.12), transparent 34%),
-  radial-gradient(circle at bottom left, rgba(55,214,122,.08), transparent 26%),
-  linear-gradient(180deg, var(--bg) 0%, var(--bg2) 100%);
-  color:var(--text);font:13px/1.5 var(--font);min-height:100vh}
-a{color:var(--acc)}
-.shell{display:grid;grid-template-columns:260px 1fr;min-height:100vh}
-@media(max-width:980px){.shell{grid-template-columns:1fr}}
-.sidebar{padding:20px 18px;border-right:1px solid rgba(36,53,72,.9);
-  background:linear-gradient(180deg, rgba(18,28,40,.96), rgba(10,15,20,.94));
-  position:sticky;top:0;height:100vh}
-@media(max-width:980px){.sidebar{position:static;height:auto;border-right:none;border-bottom:1px solid rgba(36,53,72,.9)}}
-.brand{font-size:22px;font-weight:800;letter-spacing:.6px}
-.brand span{color:var(--acc)}
-.brand-sub{font-size:11px;color:var(--muted);margin-top:6px;max-width:180px}
-.nav{display:grid;gap:8px;margin:28px 0}
-.nav a{text-decoration:none;padding:10px 12px;border:1px solid transparent;border-radius:12px;
-  color:var(--text);background:rgba(255,255,255,.02)}
-.nav a:hover{border-color:rgba(94,200,255,.28);background:rgba(94,200,255,.08)}
-.side-note{margin-top:auto;padding:12px;border:1px solid var(--line);border-radius:12px;
-  background:rgba(25,38,54,.52);font-size:11px;color:var(--muted)}
-.content{padding:20px}
-@media(max-width:700px){.content{padding:14px}}
-.badge{display:inline-flex;align-items:center;gap:4px;padding:2px 8px;
-  border-radius:12px;font-size:11px;font-weight:600;letter-spacing:.3px}
-.badge.ok{background:rgba(63,185,80,.15);color:var(--ok)}
-.badge.warn{background:rgba(210,153,34,.15);color:var(--warn)}
-.badge.err{background:rgba(248,81,73,.15);color:var(--err)}
-.badge.unknown{background:rgba(139,148,158,.12);color:var(--muted)}
-.dot{width:7px;height:7px;border-radius:50%;background:currentColor;display:inline-block}
-header{display:flex;align-items:flex-start;justify-content:space-between;padding:18px 20px;
-  background:linear-gradient(180deg, rgba(25,38,54,.95), rgba(18,28,40,.92));
-  border:1px solid var(--line);border-radius:18px;margin-bottom:16px;gap:16px;flex-wrap:wrap;
-  box-shadow:0 18px 48px rgba(0,0,0,.22)}
-.hero-title{font-size:28px;font-weight:800;letter-spacing:.2px}
-.hero-sub{font-size:12px;color:var(--muted);margin-top:4px}
-.meta-row{display:flex;gap:14px;align-items:center;flex-wrap:wrap;margin-top:12px}
-.meta{font-size:11px;color:var(--muted);font-family:var(--mono)}
-.meta b{color:var(--text)}
-.countdown{font-size:11px;color:var(--muted);font-family:var(--mono)}
-.grid{display:grid;gap:14px;margin-bottom:14px}
-.g2{grid-template-columns:1fr 1fr}
-.g3{grid-template-columns:1fr 1fr 1fr}
-.g4{grid-template-columns:repeat(4,1fr)}
-@media(max-width:900px){.g3,.g4{grid-template-columns:1fr 1fr}}
-@media(max-width:600px){.g2,.g3,.g4{grid-template-columns:1fr}}
-.card{background:linear-gradient(180deg, rgba(18,28,40,.95), rgba(14,22,32,.96));
-  border:1px solid var(--line);border-radius:18px;padding:16px;overflow:hidden;
-  box-shadow:0 16px 36px rgba(0,0,0,.18)}
-.card h3{font-size:11px;text-transform:uppercase;letter-spacing:1px;
-  color:var(--muted);margin-bottom:12px;display:flex;align-items:center;gap:8px}
-.section-title{font-size:11px;text-transform:uppercase;letter-spacing:1.2px;
-  color:var(--muted);margin:18px 0 10px}
-.hero-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-bottom:14px}
-@media(max-width:1100px){.hero-grid{grid-template-columns:repeat(2,1fr)}}
-@media(max-width:600px){.hero-grid{grid-template-columns:1fr}}
-.hero-card{padding:16px 18px;border-radius:18px;border:1px solid var(--line);
-  background:linear-gradient(180deg, rgba(25,38,54,.92), rgba(13,21,31,.92))}
-.hero-k{font-size:10px;text-transform:uppercase;letter-spacing:1px;color:var(--muted)}
-.hero-v{font-size:24px;font-weight:800;margin-top:8px}
-.hero-subline{margin-top:8px;font-size:12px;color:var(--muted)}
-.alert-card{border-left:3px solid var(--border)}
-.alert-card.firing.err{border-left-color:var(--err)}
-.alert-card.firing.warn{border-left-color:var(--warn)}
-.alert-card.ok-state{border-left-color:var(--ok)}
-.alert-name{font-weight:600;font-size:12px;margin-bottom:4px}
-.alert-msg{font-size:11px;color:var(--muted);line-height:1.4}
-.check-row{display:flex;flex-wrap:wrap;gap:6px}
-table{width:100%;border-collapse:collapse;font-size:12px}
-th{text-align:left;padding:4px 8px;color:var(--muted);font-size:10px;
-  text-transform:uppercase;letter-spacing:.5px;border-bottom:1px solid var(--line)}
-td{padding:6px 8px;border-bottom:1px solid rgba(36,53,72,.65)}
-tr:last-child td{border-bottom:none}
-.mono{font-family:var(--mono)}
-.bar-row{display:flex;align-items:center;gap:8px;padding:4px 0}
-.bar-label{width:160px;font-size:12px;white-space:nowrap;overflow:hidden;
-  text-overflow:ellipsis;flex-shrink:0}
-.bar-track{flex:1;height:8px;background:rgba(36,53,72,.82);border-radius:4px;
-  overflow:hidden;display:flex;gap:1px}
-.bar-ok{background:var(--ok);height:100%;border-radius:4px 0 0 4px}
-.bar-err{background:var(--err);height:100%;border-radius:0 4px 4px 0}
-.bar-counts{font-size:11px;color:var(--muted);white-space:nowrap;min-width:70px}
-.num{text-align:right;font-variant-numeric:tabular-nums}
-.loading{display:flex;align-items:center;justify-content:center;height:80px;
-  color:var(--muted);font-size:12px}
-.spinner{width:14px;height:14px;border:2px solid var(--border);
-  border-top-color:var(--acc);border-radius:50%;animation:spin .7s linear infinite;
-  margin-right:8px}
-@keyframes spin{to{transform:rotate(360deg)}}
-.error-msg{padding:12px;background:rgba(248,81,73,.1);border:1px solid var(--err);
-  border-radius:6px;color:var(--err);font-size:12px}
-.stage-timeline{max-height:280px;overflow-y:auto}
-.tl-row{display:flex;gap:8px;align-items:baseline;padding:3px 0;
-  border-bottom:1px solid rgba(36,53,72,.56)}
-.tl-row:last-child{border-bottom:none}
-.tl-ts{font-size:10px;color:var(--muted);min-width:82px;flex-shrink:0}
-.tl-stage{min-width:180px;flex-shrink:0;font-size:12px}
-.tl-role{min-width:50px;font-size:11px;color:var(--muted)}
-.tl-dur{min-width:60px;font-size:11px;color:var(--muted);text-align:right}
-.tl-rc{font-size:11px;color:var(--muted)}
-.wf-state{font-size:13px;font-weight:600}
-.job-form{display:grid;gap:10px}
-.field{display:grid;gap:4px}
-.field label{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.5px}
-.field input,.field select{width:100%;background:#0a1118;border:1px solid var(--line);color:var(--text);
-  border-radius:10px;padding:10px 12px;font:12px/1.4 var(--mono)}
-.builder-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}
-@media(max-width:700px){.builder-grid{grid-template-columns:1fr}}
-.check-field{display:flex;gap:8px;align-items:center;color:var(--muted);font-size:11px}
-.check-field input{accent-color:var(--acc)}
-.actions{display:flex;gap:8px;flex-wrap:wrap}
-.btn{background:linear-gradient(135deg, var(--acc), var(--acc2));color:#06111f;border:none;
-  border-radius:10px;padding:10px 14px;font:12px/1 var(--font);font-weight:800;cursor:pointer;
-  box-shadow:0 10px 24px var(--glow)}
-.btn.secondary{background:rgba(94,200,255,.14);color:var(--acc);box-shadow:none}
-.btn:disabled{opacity:.6;cursor:not-allowed}
-.subtle{font-size:11px;color:var(--muted)}
-.job-block{margin-bottom:12px}
-.live-row{display:grid;grid-template-columns:160px 1fr 80px 80px;gap:8px;align-items:center;padding:6px 0}
-@media(max-width:700px){.live-row{grid-template-columns:1fr;gap:4px}}
-.live-stage{font-size:12px}
-.live-track{height:10px;background:rgba(36,53,72,.82);border-radius:5px;overflow:hidden}
-.live-fill{height:100%;background:linear-gradient(90deg,var(--acc),var(--ok));width:100%}
-.result-metrics{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin:12px 0}
-@media(max-width:900px){.result-metrics{grid-template-columns:1fr 1fr}}
-@media(max-width:600px){.result-metrics{grid-template-columns:1fr}}
-.metric{padding:10px;border:1px solid var(--line);border-radius:12px;background:#0b1118}
-.metric .k{font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.5px}
-.metric .v{font-size:16px;font-weight:700;margin-top:4px}
-.panel-grid{display:grid;grid-template-columns:1.25fr .95fr;gap:14px;margin-bottom:14px}
-@media(max-width:1100px){.panel-grid{grid-template-columns:1fr}}
-.pill-row{display:flex;flex-wrap:wrap;gap:8px}
-.info-list{display:grid;gap:8px}
-.info-item{display:flex;justify-content:space-between;gap:10px;padding:8px 0;border-bottom:1px solid rgba(36,53,72,.56)}
-.info-item:last-child{border-bottom:none}
-.info-item .label{color:var(--muted);font-size:11px;text-transform:uppercase;letter-spacing:.6px}
-.info-item .value{text-align:right;font-family:var(--mono);font-size:12px}
-.path-cell{font-family:var(--mono);font-size:11px;word-break:break-all}
-.kv-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:10px}
-@media(max-width:700px){.kv-grid{grid-template-columns:1fr}}
-.empty{color:var(--muted);font-size:12px}
-.run-list{display:grid;gap:10px}
-.run-item{padding:12px;border:1px solid var(--line);border-radius:12px;background:#0b1118}
-.run-top{display:flex;justify-content:space-between;gap:10px;align-items:center;flex-wrap:wrap}
-.run-name{font-weight:700}
-.run-meta{font-size:11px;color:var(--muted);margin-top:6px;font-family:var(--mono)}
-.wiz-stepper{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:14px}
-.wiz-step{padding:8px 12px;border-radius:999px;border:1px solid var(--line);
-  background:rgba(25,38,54,.55);font-size:11px;letter-spacing:.3px;color:var(--muted);
-  display:flex;align-items:center;gap:6px}
-.wiz-step.active{border-color:var(--acc);color:var(--text);background:rgba(94,200,255,.12)}
-.wiz-step.ok{border-color:var(--ok);color:var(--ok);background:rgba(55,214,122,.1)}
-.wiz-step.err{border-color:var(--err);color:var(--err);background:rgba(255,107,107,.1)}
-.wiz-step .n{display:inline-flex;align-items:center;justify-content:center;
-  width:18px;height:18px;border-radius:50%;background:rgba(94,200,255,.2);font-weight:700;color:var(--acc)}
-.wiz-step.ok .n{background:rgba(55,214,122,.2);color:var(--ok)}
-.wiz-step.err .n{background:rgba(255,107,107,.2);color:var(--err)}
-.wiz-card{padding:18px;border:1px solid var(--line);border-radius:16px;background:linear-gradient(180deg, rgba(18,28,40,.95), rgba(13,21,31,.95));margin-bottom:14px}
-.wiz-head{display:flex;justify-content:space-between;align-items:flex-start;gap:14px;margin-bottom:10px;flex-wrap:wrap}
-.wiz-title{font-size:14px;font-weight:700}
-.wiz-desc{font-size:11px;color:var(--muted);margin-top:4px;max-width:600px}
-.wiz-report{margin-top:10px;border:1px dashed var(--line);border-radius:12px;padding:12px;
-  background:#0a1118;font-family:var(--mono);font-size:11px;color:var(--text);
-  white-space:pre-wrap;word-break:break-word;max-height:280px;overflow:auto}
-.wiz-checklist{display:grid;gap:6px;margin-top:8px}
-.wiz-checklist .row{display:flex;justify-content:space-between;gap:10px;font-size:11px;color:var(--muted);font-family:var(--mono)}
-.wiz-checklist .row b{color:var(--text)}
-.copyable{display:flex;gap:6px;align-items:center;font-family:var(--mono);font-size:11px;word-break:break-all;color:var(--acc)}
-.copyable button{background:rgba(94,200,255,.14);color:var(--acc);border:none;border-radius:6px;padding:2px 6px;cursor:pointer;font-size:10px}
-.wiz-actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px}
-.wiz-locked{opacity:.6;filter:saturate(.6)}
-</style>
-</head>
-<body>
-<div class="shell">
-  <aside class="sidebar">
-    <div class="brand">PJC <span>X-UI</span></div>
-    <div class="brand-sub">Admin-only control center and audit center for PJC, SSE handoff, and release review.</div>
-    <nav class="nav">
-      <a href="#overview">Overview</a>
-      <a href="#control">Control Center</a>
-      <a href="#s9-wizard">Two-Party Wizard</a>
-      <a href="#audit">Audit Center</a>
-      <a href="#history">Run Analytics</a>
-    </nav>
-    <div class="side-note">Loopback-only local admin shell. Treat <code>POST /v1/jobs/start</code> as privileged because it can launch the pipeline and expose live run artifacts.</div>
-  </aside>
-  <div class="content">
-    <header>
-      <div>
-        <div class="hero-title">PJC Control and Audit Center</div>
-        <div class="hero-sub">Single admin shell for job launch, live SSE-backed progress, audit chain review, and release confirmation.</div>
-        <div class="meta-row" id="meta-row">
-          <div class="loading"><div class="spinner"></div>loading…</div>
-        </div>
-      </div>
-      <div class="countdown" id="countdown"></div>
-    </header>
-    <div id="main"><div class="loading"><div class="spinner"></div>loading…</div></div>
-  </div>
-</div>
-
-<script>
-"use strict";
-let _timer = null;
-let _countdown = 15;
-
-function statusClass(s){
-  if(!s) return "unknown";
-  s = s.toLowerCase();
-  if(s==="ok"||s==="completed"||s==="allow") return "ok";
-  if(s==="warn"||s==="warning") return "warn";
-  if(s==="error"||s==="err"||s==="failed"||s==="reject"||s==="denied"||s==="deny") return "err";
-  return "unknown";
-}
-function badge(s, label){
-  const c = statusClass(s);
-  return `<span class="badge ${c}"><span class="dot"></span>${label||s||"—"}</span>`;
-}
-function esc(s){ return String(s||"").replace(/&/g,"&amp;").replace(/</g,"&lt;"); }
-function ms(v){ return v!=null ? `${v}ms` : "—"; }
-function fmtTs(s){
-  if(!s) return "—";
-  try{
-    const d=new Date(s);
-    return d.toLocaleTimeString("en-GB",{hour12:false,hour:"2-digit",
-      minute:"2-digit",second:"2-digit"});
-  }catch{return s.slice(0,19).replace("T"," ");}
-}
-function shortText(s){ return esc(s || "—"); }
-function boolWord(v){
-  if(v===true) return "true";
-  if(v===false) return "false";
-  return "—";
-}
-function metricCard(label, value, subline){
-  return `<div class="hero-card"><div class="hero-k">${esc(label)}</div><div class="hero-v">${value}</div><div class="hero-subline">${subline||""}</div></div>`;
-}
-
-function renderHeader(data){
-  const d = data.dashboard||{};
-  const sc = d.summary||{};
-  const parts = [
-    badge(data.overall_status),
-    `<span class="meta">job <b>${esc(data.job_id||"—")}</b></span>`,
-    data.caller ? `<span class="meta">caller <b>${esc(data.caller)}</b></span>` : "",
-    data.tenant_id ? `<span class="meta">tenant <b>${esc(data.tenant_id)}</b></span>` : "",
-    `<span class="meta">updated <b>${fmtTs(data.generated_at_utc)}</b></span>`,
-    sc.total_events!=null ? `<span class="meta">${sc.total_events} events</span>` : "",
-  ].filter(Boolean).join(" ");
-  document.getElementById("meta-row").innerHTML = parts;
-}
-
-function renderOverviewCards(data){
-  const job = data.job_control || {};
-  const audit = data.audit_center || {};
-  const artifact = audit.artifact_inventory || {};
-  const sse = audit.sse || {};
-  const pipeline = audit.pipeline || {};
-  const mainline = audit.mainline_contract || {};
-  const recent = data.recent_runs || {};
-  const cards = [
-    metricCard("Platform Status", badge(data.overall_status), `${shortText(data.job_id)} / ${fmtTs(data.generated_at_utc)}`),
-    metricCard("Current Control State", shortText(job.state || "idle"), `job ${shortText(job.job_id || "—")}`),
-    metricCard("Artifact Coverage", shortText(`${artifact.available_count||0}/${artifact.total_count||0}`), `${shortText(audit.out_base_display || "—")} active artifacts`),
-    metricCard("SSE Audit", shortText(`${sse.export_record_count||0} / ${sse.recovery_record_count||0}`), `export / recovery records, release=${boolWord(pipeline.released)}`),
-    metricCard("Recent Runs", shortText(recent.returned_count ?? 0), `search root ${shortText(recent.search_dir_display || "—")}`),
-  ];
-  if(mainline.status){
-    cards.push(metricCard("Mainline Contract", shortText(mainline.status), `handoff=${shortText(mainline.handoff_mode || "—")} cleanup s=${shortText((mainline.handoff_cleanup||{}).server || "—")} c=${shortText((mainline.handoff_cleanup||{}).client || "—")}`));
-  }else{
-    cards.push(metricCard("Mainline Contract", "—", "audit_chain.json not available yet"));
-  }
-  return `<section id="overview"><div class="hero-grid">${cards.join("")}</div></section>`;
-}
-
-function renderAlerts(alerts_data){
-  if(!alerts_data||!alerts_data.alerts) return `<div class="loading">No alert data</div>`;
-  const items = alerts_data.alerts.map(a=>{
-    const firing = a.firing;
-    const sc = firing ? statusClass(a.severity) : "ok-state";
-    const firingClass = firing ? `firing ${statusClass(a.severity)}` : "ok-state";
-    const b = firing ? badge(a.severity,"FIRING") : badge("ok","ok");
-    return `<div class="card alert-card ${firingClass}">
-      <div class="alert-name">${esc(a.alert_id)} ${b}</div>
-      <div class="alert-msg">${esc(a.message)}</div>
-    </div>`;
-  }).join("");
-  return `<div class="card"><h3>Alerts
-    ${badge(alerts_data.overall_status)} <span style="color:var(--muted);font-size:10px;">${alerts_data.firing_count||0} firing / ${alerts_data.alert_count||0} total</span>
-	  </h3><div class="grid g4">${items||"<div>—</div>"}</div></div>`;
-}
-
-function renderHealth(health){
-  if(!health||!health.checks) return "";
-  const sum = health.summary||{};
-  const checks = health.checks.map(c=>{
-    return badge(c.status, c.name);
-  }).join(" ");
-  return `<div class="card"><h3>Platform Health ${badge(sum.status)} <span style="color:var(--muted);font-size:10px;">ok:${sum.ok||0} warn:${sum.warn||0} err:${sum.error||0}</span></h3>
-    <div class="check-row">${checks||"<span style='color:var(--muted)'>—</span>"}</div>
-  </div>`;
-}
-
-function renderStageSummary(panels){
-  if(!panels||!panels.stage_summary) return "";
-  const rows = (panels.stage_summary.rows||[]).map(r=>{
-    const total = r.total||1;
-    const okPct = Math.round((r.ok||0)/total*100);
-    const errPct = Math.round((r.error||0)/total*100);
-    return `<div class="bar-row">
-      <div class="bar-label">${esc(r.stage)}</div>
-      <div class="bar-track">
-        <div class="bar-ok" style="width:${okPct}%"></div>
-        <div class="bar-err" style="width:${errPct}%"></div>
-      </div>
-      <div class="bar-counts">${badge("ok",r.ok)} ${r.error?badge("err",r.error):""}</div>
-    </div>`;
-  }).join("");
-	  return `<div class="card"><h3>Stage Summary</h3>${rows||"<div style='color:var(--muted)'>No data</div>"}</div>`;
-}
-
-function renderStageDuration(panels){
-  if(!panels||!panels.stage_duration) return "";
-  const rows = (panels.stage_duration.rows||[]).map(r=>`
-    <tr>
-      <td>${esc(r.stage)}</td>
-      <td class="num">${r.sample_count}</td>
-      <td class="num">${ms(r.min_ms)}</td>
-      <td class="num">${ms(r.mean_ms)}</td>
-      <td class="num">${ms(r.p50_ms)}</td>
-      <td class="num">${ms(r.p95_ms)}</td>
-      <td class="num">${ms(r.max_ms)}</td>
-    </tr>`).join("");
-  return `<div class="card"><h3>Stage Duration</h3>
-    <table><thead><tr><th>Stage</th><th>N</th><th>min</th><th>mean</th><th>p50</th><th>p95</th><th>max</th></tr></thead>
-    <tbody>${rows||"<tr><td colspan='7' style='color:var(--muted)'>No timing data</td></tr>"}</tbody></table>
-  </div>`;
-}
-
-function renderReleaseOutcomes(panels){
-  if(!panels||!panels.release_outcomes) return "";
-  const rows = (panels.release_outcomes.rows||[]).map(r=>`
-    <tr>
-      <td>${esc(r.tenant_id)}</td>
-      <td class="num">${badge("ok",r.ok_count)}</td>
-      <td class="num">${r.error_count?badge("err",r.error_count):badge("ok",0)}</td>
-      <td>${badge(r.last_status||"unknown")}</td>
-      <td>${fmtTs(r.last_ts_utc)}</td>
-    </tr>`).join("");
-  const label = panels.release_outcomes.row_count===0
-    ? "<tr><td colspan='5' style='color:var(--muted)'>No release events</td></tr>"
-    : rows;
-  return `<div class="card"><h3>Release Outcomes</h3>
-    <table><thead><tr><th>Tenant</th><th>OK</th><th>Errors</th><th>Last</th><th>Time</th></tr></thead>
-    <tbody>${label}</tbody></table>
-  </div>`;
-}
-
-function renderFailureSummary(panels){
-  if(!panels||!panels.failure_summary) return "";
-  const rows = (panels.failure_summary.rows||[]).map(r=>`
-    <tr>
-      <td>${badge("err",r.stage||"—")}</td>
-      <td>${esc(r.caller||"—")}</td>
-      <td>${esc(r.role||"—")}</td>
-      <td style="color:var(--err)">${esc(r.reason_code||"—")}</td>
-      <td>${ms(r.duration_ms)}</td>
-      <td>${fmtTs(r.ts_utc)}</td>
-    </tr>`).join("");
-  const label = panels.failure_summary.row_count===0
-    ? "<tr><td colspan='6' style='color:var(--ok)'>✓ No failures</td></tr>"
-    : rows;
-  return `<div class="card"><h3>Failure Summary</h3>
-    <table><thead><tr><th>Stage</th><th>Caller</th><th>Role</th><th>Reason</th><th>Dur</th><th>Time</th></tr></thead>
-    <tbody>${label}</tbody></table>
-  </div>`;
-}
-
-let _lastDashboard = null;
-let _jobPollTimer = null;
-let _panelOverride = "";
-
-function newJobId(){
-  const d = new Date();
-  const bits = [
-    d.getUTCFullYear(),
-    String(d.getUTCMonth()+1).padStart(2,"0"),
-    String(d.getUTCDate()).padStart(2,"0"),
-    String(d.getUTCHours()).padStart(2,"0"),
-    String(d.getUTCMinutes()).padStart(2,"0"),
-    String(d.getUTCSeconds()).padStart(2,"0")
-  ];
-  return `dashboard_job_${bits.join("")}`;
-}
-
-function renderJobSetup(job){
-  const outBase = esc((job&&job.out_base) || "");
-  return `<div class="card job-block"><h3>Control Center</h3>
-    <div class="subtle" style="margin-bottom:10px">Admin launch path. This X-UI shell still reuses the frozen <code>query_workflow_request/v1</code> contract instead of inventing a second control plane.</div>
-    <div class="job-form">
-      <div class="field">
-        <label for="request_mode">Start Mode</label>
-        <select id="request_mode" onchange="toggleRequestMode()">
-          <option value="builder">Field Builder</option>
-          <option value="file">Request File</option>
-        </select>
-      </div>
-      <div class="field">
-        <label for="request_file">Request File</label>
-        <input id="request_file" value="docs/examples/query_request.json" spellcheck="false">
-      </div>
-      <div class="field">
-        <label for="job_id_override">Job ID Override</label>
-        <input id="job_id_override" value="${esc((job&&job.job_id)||newJobId())}" spellcheck="false">
-      </div>
-      <div class="field">
-        <label for="out_base_override">Out Base Override</label>
-        <input id="out_base_override" value="${outBase}" spellcheck="false" placeholder="/abs/path/or/repo-relative">
-      </div>
-      <div id="builder_fields" class="builder-grid">
-        <div class="field">
-          <label for="builder_server_source">Server Source</label>
-          <input id="builder_server_source" value="sse/examples/bridge_server_records.jsonl" spellcheck="false">
-        </div>
-        <div class="field">
-          <label for="builder_client_source">Client Source</label>
-          <input id="builder_client_source" value="sse/examples/bridge_client_records.jsonl" spellcheck="false">
-        </div>
-        <div class="field">
-          <label for="builder_server_join_key">Server Join Key</label>
-          <input id="builder_server_join_key" value="email" spellcheck="false">
-        </div>
-        <div class="field">
-          <label for="builder_client_join_key">Client Join Key</label>
-          <input id="builder_client_join_key" value="email" spellcheck="false">
-        </div>
-        <div class="field">
-          <label for="builder_client_value_field">Client Value Field</label>
-          <input id="builder_client_value_field" value="amount" spellcheck="false">
-        </div>
-        <div class="field">
-          <label for="builder_client_value_mode">Client Value Mode</label>
-          <select id="builder_client_value_mode">
-            <option value="raw-int">raw-int</option>
-          </select>
-        </div>
-        <div class="field">
-          <label for="builder_server_normalizer">Server Normalizer</label>
-          <select id="builder_server_normalizer">
-            <option value="email">email</option>
-          </select>
-        </div>
-        <div class="field">
-          <label for="builder_client_normalizer">Client Normalizer</label>
-          <select id="builder_client_normalizer">
-            <option value="email">email</option>
-          </select>
-        </div>
-        <div class="field">
-          <label for="builder_server_filters">Server Filters</label>
-          <input id="builder_server_filters" value="campaign=demo" spellcheck="false">
-        </div>
-        <div class="field">
-          <label for="builder_client_filters">Client Filters</label>
-          <input id="builder_client_filters" value="campaign=demo" spellcheck="false">
-        </div>
-        <div class="field">
-          <label for="builder_token_scope">Token Scope</label>
-          <input id="builder_token_scope" value="query-demo-scope" spellcheck="false">
-        </div>
-        <div class="field">
-          <label for="builder_token_secret">Token Secret</label>
-          <input id="builder_token_secret" value="local-dev-secret" spellcheck="false">
-        </div>
-        <div class="field">
-          <label for="builder_caller">Caller</label>
-          <input id="builder_caller" value="auto_demo" spellcheck="false">
-        </div>
-        <div class="field">
-          <label for="builder_tenant_id">Tenant ID</label>
-          <input id="builder_tenant_id" value="demo_tenant" spellcheck="false">
-        </div>
-        <div class="field">
-          <label for="builder_dataset_id">Dataset ID</label>
-          <input id="builder_dataset_id" value="bridge_demo_dataset" spellcheck="false">
-        </div>
-        <div class="field">
-          <label for="builder_policy_config">Export Policy</label>
-          <input id="builder_policy_config" value="sse/config/export_policy.example.json" spellcheck="false">
-        </div>
-        <div class="field">
-          <label for="builder_k">K Threshold</label>
-          <input id="builder_k" value="1" inputmode="numeric" spellcheck="false">
-        </div>
-        <div class="field">
-          <label for="builder_n">N Value</label>
-          <input id="builder_n" value="5" inputmode="numeric" spellcheck="false">
-        </div>
-        <div class="field">
-          <label for="builder_handoff_mode">Handoff Mode</label>
-          <select id="builder_handoff_mode">
-            <option value="fifo">fifo</option>
-            <option value="file">file</option>
-          </select>
-        </div>
-        <div class="field">
-          <label for="builder_token_secret_env">Token Secret Env</label>
-          <input id="builder_token_secret_env" value="" spellcheck="false">
-        </div>
-        <label class="check-field"><input id="builder_cleanup_handoff" type="checkbox" checked> cleanup handoff after bridge</label>
-        <label class="check-field"><input id="builder_deny_duplicate" type="checkbox"> deny duplicate query</label>
-      </div>
-      <div class="actions">
-        <button class="btn" onclick="startJob()">▶ Start Job</button>
-        <button class="btn secondary" onclick="prefillExample()">Use Example</button>
-      </div>
-    </div>
-  </div>
-  <div class="card job-block"><h3>Cross-machine mTLS Certs</h3>
-    <div class="subtle" style="margin-bottom:10px">Certificate bootstrap for the existing TLS scripts. Defaults keep PJC loopback 10501, TLS 10502, and client proxy 10503 unchanged.</div>
-    <div class="job-form">
-      <div class="builder-grid">
-        <div class="field">
-          <label for="mtls_server_host">Server Host</label>
-          <input id="mtls_server_host" placeholder="118.190.61.66 or tailscale host" spellcheck="false">
-        </div>
-        <div class="field">
-          <label for="mtls_enroll_url">Enroll URL</label>
-          <input id="mtls_enroll_url" placeholder="http://118.190.61.66:18134/v1/pjc-mtls/enroll" spellcheck="false">
-        </div>
-        <div class="field">
-          <label for="mtls_bootstrap_uri">Bootstrap URI</label>
-          <input id="mtls_bootstrap_uri" placeholder="pjc-mtls://enroll?url=..." spellcheck="false">
-        </div>
-        <div class="field">
-          <label for="mtls_pairing_token">Pairing Token</label>
-          <input id="mtls_pairing_token" placeholder="shown by Party A after Prepare" spellcheck="false">
-        </div>
-        <div class="field">
-          <label for="mtls_expected_ca_fingerprint">CA Fingerprint</label>
-          <input id="mtls_expected_ca_fingerprint" placeholder="sha256 Fingerprint=..." spellcheck="false">
-        </div>
-        <div class="field">
-          <label for="mtls_cert_dir">Local Cert Dir</label>
-          <input id="mtls_cert_dir" placeholder="$HOME/pjc_certs_shared" spellcheck="false">
-        </div>
-      </div>
-      <label class="check-field"><input id="mtls_force_regenerate" type="checkbox"> force regenerate Party A certs</label>
-      <div class="actions">
-        <button class="btn secondary" onclick="prepareMtlsPartyA()">Prepare Party A Bundle</button>
-        <button class="btn secondary" onclick="enrollMtlsPartyB()">Enroll Party B Cert</button>
-      </div>
-      <pre id="mtls_status" class="path-cell" style="display:none;white-space:pre-wrap"></pre>
-    </div>
-  </div>
-  <div class="card job-block"><h3>Business Bucket Scale Test</h3>
-    <div class="subtle" style="margin-bottom:10px">Generate synthetic business-bucketed inputs, run local bucketed PJC, and produce k-threshold + DP protected bucket reports.</div>
-    <div class="job-form">
-      <div class="builder-grid">
-        <div class="field">
-          <label for="bucket_job_id">Job ID</label>
-          <input id="bucket_job_id" value="bucketed-scale-1k" spellcheck="false">
-        </div>
-        <div class="field">
-          <label for="bucket_out_dir">Out Dir</label>
-          <input id="bucket_out_dir" value="tmp/pjc_bucketed_scale_bucketed-scale-1k" spellcheck="false">
-        </div>
-        <div class="field">
-          <label for="bucket_records">Records</label>
-          <input id="bucket_records" value="1000" inputmode="numeric" spellcheck="false">
-        </div>
-        <div class="field">
-          <label for="bucket_count">Buckets</label>
-          <input id="bucket_count" value="8" inputmode="numeric" spellcheck="false">
-        </div>
-        <div class="field">
-          <label for="bucket_field">Bucket Field</label>
-          <input id="bucket_field" value="campaign_id" spellcheck="false">
-        </div>
-        <div class="field">
-          <label for="bucket_k">K Threshold</label>
-          <input id="bucket_k" value="20" inputmode="numeric" spellcheck="false">
-        </div>
-        <div class="field">
-          <label for="bucket_dp_epsilon">DP Epsilon</label>
-          <input id="bucket_dp_epsilon" value="1.0" spellcheck="false">
-        </div>
-        <div class="field">
-          <label for="bucket_dp_sensitivity">DP Sensitivity</label>
-          <input id="bucket_dp_sensitivity" value="10000" inputmode="numeric" spellcheck="false">
-        </div>
-        <div class="field">
-          <label for="bucket_base_port">Base Port</label>
-          <input id="bucket_base_port" value="10621" inputmode="numeric" spellcheck="false">
-        </div>
-        <div class="field">
-          <label for="bucket_max_jobs">Max Jobs</label>
-          <input id="bucket_max_jobs" value="4" inputmode="numeric" spellcheck="false">
-        </div>
-      </div>
-      <label class="check-field"><input id="bucket_parallel" type="checkbox"> run buckets in parallel</label>
-      <div class="actions">
-        <button class="btn secondary" onclick="runBucketedScaleTest()">Run 1k Bucket Test</button>
-      </div>
-      <pre id="bucket_status" class="path-cell" style="display:none;white-space:pre-wrap"></pre>
-    </div>
-  </div>`;
-}
-
-function prefillExample(){
-  const modeInput = document.getElementById("request_mode");
-  const requestInput = document.getElementById("request_file");
-  const jobInput = document.getElementById("job_id_override");
-  if(modeInput) modeInput.value = "builder";
-  if(requestInput) requestInput.value = "docs/examples/query_request.json";
-  if(jobInput && !jobInput.value) jobInput.value = newJobId();
-  setValue("builder_server_source", "sse/examples/bridge_server_records.jsonl");
-  setValue("builder_client_source", "sse/examples/bridge_client_records.jsonl");
-  setValue("builder_server_join_key", "email");
-  setValue("builder_client_join_key", "email");
-  setValue("builder_client_value_field", "amount");
-  setValue("builder_server_filters", "campaign=demo");
-  setValue("builder_client_filters", "campaign=demo");
-  setValue("builder_token_scope", "query-demo-scope");
-  setValue("builder_token_secret", "local-dev-secret");
-  setValue("builder_token_secret_env", "");
-  setValue("builder_caller", "auto_demo");
-  setValue("builder_tenant_id", "demo_tenant");
-  setValue("builder_dataset_id", "bridge_demo_dataset");
-  setValue("builder_policy_config", "sse/config/export_policy.example.json");
-  setValue("builder_k", "1");
-  setValue("builder_n", "5");
-  setValue("builder_handoff_mode", "fifo");
-  const cleanup = document.getElementById("builder_cleanup_handoff");
-  const denyDup = document.getElementById("builder_deny_duplicate");
-  if(cleanup) cleanup.checked = true;
-  if(denyDup) denyDup.checked = false;
-  toggleRequestMode();
-}
-
-function setValue(id, value){
-  const el = document.getElementById(id);
-  if(el) el.value = value;
-}
-
-function getValue(id){
-  return document.getElementById(id)?.value?.trim() || "";
-}
-
-function getBool(id){
-  return !!document.getElementById(id)?.checked;
-}
-
-function parseList(value){
-  return String(value||"")
-    .split(/[\n,]+/)
-    .map(v=>v.trim())
-    .filter(Boolean);
-}
-
-function parsePositiveInt(id, fallback){
-  const n = Number.parseInt(getValue(id), 10);
-  return Number.isFinite(n) && n > 0 ? n : fallback;
-}
-
-function toggleRequestMode(){
-  const mode = getValue("request_mode") || "builder";
-  const requestFile = document.getElementById("request_file")?.closest(".field");
-  const builder = document.getElementById("builder_fields");
-  if(requestFile) requestFile.style.display = mode === "file" ? "grid" : "none";
-  if(builder) builder.style.display = mode === "builder" ? "grid" : "none";
-}
-
-function buildInlineQueryRequest(){
-  const jobId = getValue("job_id_override") || newJobId();
-  const outBase = getValue("out_base_override");
-  const request = {
-    schema: "query_workflow_request/v1",
-    query_type: "cross_party_match",
-    server_source: getValue("builder_server_source"),
-    client_source: getValue("builder_client_source"),
-    server_join_key_field: getValue("builder_server_join_key"),
-    client_join_key_field: getValue("builder_client_join_key"),
-    client_value_field: getValue("builder_client_value_field"),
-    server_normalizer: getValue("builder_server_normalizer") || "email",
-    client_normalizer: getValue("builder_client_normalizer") || "email",
-    client_value_mode: getValue("builder_client_value_mode") || "raw-int",
-    server_filters: parseList(getValue("builder_server_filters")),
-    client_filters: parseList(getValue("builder_client_filters")),
-    token_scope: getValue("builder_token_scope"),
-    job_id: jobId,
-    caller: getValue("builder_caller"),
-    tenant_id: getValue("builder_tenant_id"),
-    dataset_id: getValue("builder_dataset_id"),
-    k: parsePositiveInt("builder_k", 1),
-    n: parsePositiveInt("builder_n", 5),
-    sse_export_policy_config: getValue("builder_policy_config"),
-    sse_export_handoff_mode: getValue("builder_handoff_mode") || "fifo",
-    cleanup_sse_export_handoff_files_after_bridge: getBool("builder_cleanup_handoff"),
-    deny_duplicate_query: getBool("builder_deny_duplicate")
-  };
-  const tokenSecret = getValue("builder_token_secret");
-  const tokenSecretEnv = getValue("builder_token_secret_env");
-  if(tokenSecret){
-    request.token_secret = tokenSecret;
-  }else if(tokenSecretEnv){
-    request.token_secret_env = tokenSecretEnv;
-  }
-  if(outBase){
-    request.out_base = outBase;
-  }
-  return request;
-}
-
-function renderLiveProgress(job){
-  const stages = Array.isArray(job.stages) ? job.stages : [];
-  const rows = stages.map((s)=>{
-    const cls = statusClass(s.status);
-    const fill = s.status === "waiting" ? "0%" : "100%";
-    return `<div class="live-row">
-      <div class="live-stage">${esc(s.name)}</div>
-      <div class="live-track">${s.status==="waiting" ? "" : `<div class="live-fill" style="width:${fill};opacity:${cls==="err" ? ".6" : "1"}"></div>`}</div>
-      <div>${badge(s.status)}</div>
-      <div class="num">${ms(s.duration_ms)}</div>
-    </div>`;
-  }).join("");
-  return `<div class="card job-block"><h3>Control Center</h3>
-    <div style="display:flex;gap:16px;align-items:baseline;flex-wrap:wrap;margin-bottom:8px">
-      <span class="wf-state">${badge(job.state||"running")}</span>
-      <span class="meta">job <b>${esc(job.job_id||"—")}</b></span>
-      ${job.elapsed_sec!=null?`<span class="meta">elapsed <b>${esc(job.elapsed_sec)}s</b></span>`:""}
-      ${job.exit_code!=null?`<span class="meta">exit <b>${esc(job.exit_code)}</b></span>`:""}
-    </div>
-    <div class="subtle" style="margin-bottom:10px">Live stage view for the current admin-controlled run. Historical analytics stay below to avoid mixing stale and active state.</div>
-    ${rows || "<div class='subtle'>Waiting for stage artifacts…</div>"}
-  </div>`;
-}
-
-function renderResultCard(job, audit){
-  const result = job.result || {};
-  const wrapper = (audit||{}).wrapper || {};
-  const relaunchLabel = wrapper.relaunch_action === "retry" ? "Retry Job" : wrapper.relaunch_action === "resubmit" ? "Re-submit Job" : "";
-  return `<div class="card job-block"><h3>Control Center</h3>
-    <div style="display:flex;gap:16px;align-items:baseline;flex-wrap:wrap;margin-bottom:8px">
-      <span class="wf-state">${badge(job.state||"unknown")}</span>
-      <span class="meta">job <b>${esc(job.job_id||"—")}</b></span>
-      ${job.elapsed_sec!=null?`<span class="meta">elapsed <b>${esc(job.elapsed_sec)}s</b></span>`:""}
-      ${job.exit_code!=null?`<span class="meta">exit <b>${esc(job.exit_code)}</b></span>`:""}
-    </div>
-    <div class="result-metrics">
-      <div class="metric"><div class="k">Intersection Size</div><div class="v">${esc(result.intersection_size ?? "—")}</div></div>
-      <div class="metric"><div class="k">Intersection Sum</div><div class="v">${esc(result.intersection_sum ?? "—")}</div></div>
-      <div class="metric"><div class="k">Released</div><div class="v">${result.released===true ? "true" : result.released===false ? "false" : "—"}</div></div>
-      <div class="metric"><div class="k">Reason Code</div><div class="v">${esc(result.reason_code || "—")}</div></div>
-    </div>
-    <div class="actions">
-      <button class="btn secondary" onclick="showSetup()">Start New Job</button>
-      ${wrapper.relaunch_supported ? `<button class="btn secondary" onclick="relaunchCurrentJob()">${esc(relaunchLabel)}</button>` : ""}
-      ${result.out_base ? `<a class="btn secondary" href="/v1/jobs/${encodeURIComponent(job.job_id)}/result" target="_blank" rel="noreferrer">View JSON</a>` : ""}
-    </div>
-  </div>`;
-}
-
-function renderAuditOverview(audit){
-  if(!audit) return "";
-  const wrapper = audit.wrapper || {};
-  const pipeline = audit.pipeline || {};
-  const mainline = audit.mainline_contract || {};
-  const relaunchLabel = wrapper.relaunch_action === "retry" ? "Retry" : wrapper.relaunch_action === "resubmit" ? "Re-submit" : "";
-  return `<div class="card"><h3>Audit Center</h3>
-    <div class="info-list">
-      <div class="info-item"><span class="label">Out Base</span><span class="value">${shortText(audit.out_base_display || audit.out_base)}</span></div>
-      <div class="info-item"><span class="label">Wrapper Receipts</span><span class="value">${shortText(wrapper.receipt_count ?? 0)} / latest=${shortText(wrapper.latest_event || "—")}</span></div>
-      <div class="info-item"><span class="label">Recommended Action</span><span class="value">${shortText(wrapper.recommended_action || "—")}</span></div>
-      <div class="info-item"><span class="label">Durable Wrapper</span><span class="value">${wrapper.relaunch_supported ? `${shortText(relaunchLabel)} via ${shortText(wrapper.request_file_display || "—")}` : shortText(wrapper.request_file_display || wrapper.request_source || "—")}</span></div>
-      <div class="info-item"><span class="label">Release</span><span class="value">${boolWord(pipeline.released)} / ${shortText(pipeline.reason_code || "—")}</span></div>
-      <div class="info-item"><span class="label">Mainline Contract</span><span class="value">${shortText(mainline.status || "—")} / handoff=${shortText(mainline.handoff_mode || "—")}</span></div>
-      <div class="info-item"><span class="label">Service Audit Consistency</span><span class="value">server=${shortText((mainline.service_audit_consistency||{}).server || "—")} client=${shortText((mainline.service_audit_consistency||{}).client || "—")}</span></div>
-    </div>
-    ${wrapper.relaunch_supported ? `<div class="actions" style="margin-top:12px"><button class="btn secondary" onclick="relaunchCurrentJob()">${esc(relaunchLabel)} Current Run</button></div>` : ""}
-  </div>`;
-}
-
-function renderSSEAudit(audit){
-  if(!audit || !audit.sse) return "";
-  const sse = audit.sse;
-  const rows = (sse.roles || []).map((r)=>`
-    <tr>
-      <td>${esc(r.role)}</td>
-      <td>${badge(r.export_decision || "unknown", r.export_decision || "—")}</td>
-      <td>${badge(r.recovery_decision || "unknown", r.recovery_decision || "—")}</td>
-      <td>${esc(r.boundary || "—")}</td>
-      <td>${esc(r.transport || "—")}</td>
-      <td>${esc(r.auth_mode || "—")}</td>
-      <td class="num">${esc(r.output_rows ?? "—")}</td>
-      <td class="num">${ms(r.duration_ms)}</td>
-      <td>${esc(r.output_file_type || "—")}</td>
-    </tr>`).join("");
-  return `<div class="card"><h3>SSE Audit</h3>
-    <div class="subtle" style="margin-bottom:10px">Integrated SSE export and record-recovery audit for admin review. This is the primary live view for transport, auth, and handoff boundary state.</div>
-    <div class="pill-row" style="margin-bottom:10px">
-      ${badge("ok", `export ${sse.export_record_count||0}`)}
-      ${badge("ok", `recovery ${sse.recovery_record_count||0}`)}
-      ${badge("unknown", `roles ${(sse.roles||[]).length}`)}
-    </div>
-    <table><thead><tr><th>Role</th><th>Export</th><th>Recovery</th><th>Boundary</th><th>Transport</th><th>Auth</th><th>Rows</th><th>Dur</th><th>Output</th></tr></thead>
-    <tbody>${rows || "<tr><td colspan='9' class='empty'>No SSE audit records yet</td></tr>"}</tbody></table>
-  </div>`;
-}
-
-function renderArtifactInventory(audit){
-  if(!audit || !audit.artifact_inventory) return "";
-  const inv = audit.artifact_inventory;
-  const rows = (inv.items || []).map((item)=>`
-    <tr>
-      <td>${esc(item.label)}</td>
-      <td>${badge(item.available ? "ok" : "unknown", item.available ? "present" : "missing")}</td>
-      <td class="path-cell">${esc(item.display_path || item.path || "—")}</td>
-    </tr>`).join("");
-  return `<div class="card"><h3>Artifact Inventory</h3>
-    <div class="subtle" style="margin-bottom:10px">Admin audit surface over wrapper sidecars, SSE logs, bridge/PJC artifacts, and audit-chain outputs.</div>
-    <table><thead><tr><th>Artifact</th><th>Status</th><th>Path</th></tr></thead>
-    <tbody>${rows || "<tr><td colspan='3' class='empty'>No tracked artifacts</td></tr>"}</tbody></table>
-  </div>`;
-}
-
-function renderRecentRuns(recentRuns, activeOutBase, job){
-  if(!recentRuns) return "";
-  const statuses = Array.isArray(recentRuns.statuses) ? recentRuns.statuses : [];
-  const rows = statuses.map((item)=>{
-    const isActive = item.out_base === activeOutBase;
-    const switchBlocked = !!(job && job.state === "running" && job.out_base && job.out_base !== item.out_base);
-    const encodedOutBase = encodeURIComponent(item.out_base || "");
-    return `<div class="run-item">
-      <div class="run-top">
-        <div>
-          <div class="run-name">${esc(item.job_id || "unknown_job")} ${isActive ? badge("ok","active") : ""}</div>
-          <div class="run-meta">${esc(item.out_base_display || item.out_base || "—")}</div>
-        </div>
-        <div class="actions">
-          ${badge(item.state || "unknown")}
-          <button class="btn secondary" onclick="openRun(decodeURIComponent('${encodedOutBase}'))" ${switchBlocked ? "disabled" : ""}>Open</button>
-        </div>
-      </div>
-      <div class="run-meta">updated=${fmtTs(item.last_updated_at_utc)} caller=${esc(item.caller || "—")} tenant=${esc(item.tenant_id || "—")} receipts=${esc(item.receipt_count ?? "—")}</div>
-    </div>`;
-  }).join("");
-  return `<div class="card"><h3>Recent Runs</h3>
-    <div class="subtle" style="margin-bottom:10px">Switch the active control/audit view without restarting the shell. Selection is blocked while another job is actively running.</div>
-    <div class="subtle" style="margin-bottom:10px">search root: <span class="mono">${esc(recentRuns.search_dir_display || recentRuns.search_dir || "—")}</span></div>
-    <div class="run-list">${rows || "<div class='empty'>No prior runs found under the history root.</div>"}</div>
-  </div>`;
-}
-
-function renderStageTimeline(panels){
-  if(!panels||!panels.stage_timeline) return "";
-  const rows = (panels.stage_timeline.rows||[]).map(r=>`
-    <div class="tl-row">
-      <span class="tl-ts">${fmtTs(r.ts_utc)}</span>
-      <span class="tl-stage">${badge(r.status,"●")} ${esc(r.stage||"—")}</span>
-      <span class="tl-role">${esc(r.role||"")}</span>
-      <span class="tl-dur">${ms(r.duration_ms)}</span>
-      <span class="tl-rc">${esc(r.reason_code||"")}</span>
-    </div>`).join("");
-  return `<div class="card" style="grid-column:1/-1"><h3>Stage Timeline (${panels.stage_timeline.row_count||0} events)</h3>
-    <div class="stage-timeline">${rows||"<div style='color:var(--muted)'>No events</div>"}</div>
-  </div>`;
-}
-
-function render(data){
-  _lastDashboard = data;
-  const d = data.dashboard||{};
-  const panels = d.panels||{};
-  const alerts = data.alerts||null;
-  const health = data.health||null;
-  const job = data.job_control||null;
-  const recentRuns = data.recent_runs||null;
-  const activeOutBase = (data.audit_center||{}).out_base || (job&&job.out_base) || "";
-  const panelState = _panelOverride || (job&&job.state ? job.state : "idle");
-  const showHistory = panelState !== "running";
-  renderHeader(data);
-  const blocks = [renderOverviewCards(data)];
-  blocks.push(`<section id="control" class="panel-grid">${
-    panelState === "running" && job
-      ? renderLiveProgress(job)
-      : (panelState === "completed" || panelState === "failed") && job
-      ? renderResultCard(job, data.audit_center||null)
-      : renderJobSetup(job)
-  }${renderAuditOverview(data.audit_center||null)}</section>`);
-  blocks.push(`<section id="s9-wizard">${renderS9Wizard()}</section>`);
-  blocks.push(`<section id="audit" class="grid g2">${renderSSEAudit(data.audit_center||null)}${renderArtifactInventory(data.audit_center||null)}</section>`);
-  blocks.push(`<section class="grid g2">${renderRecentRuns(recentRuns, activeOutBase, job)}</section>`);
-  blocks.push(`<div class="grid g2">${renderAlerts(alerts)}${renderHealth(health)}</div>`);
-  const historyBlocks = [];
-  if(showHistory){
-    historyBlocks.push(
-      `<div class="grid g3">` +
-      renderStageSummary(panels) +
-      renderStageDuration(panels) +
-      renderReleaseOutcomes(panels) +
-      `</div>`
-    );
-    historyBlocks.push(
-      `<div class="grid g2">` +
-      renderFailureSummary(panels) +
-      renderStageTimeline(panels) +
-      `</div>`
-    );
-  }
-  blocks.push(`<section id="history"><div class="section-title">Run Analytics</div>${historyBlocks.join("") || `<div class="card"><div class="empty">Historical analytics are hidden while a live run is active.</div></div>`}</section>`);
-  document.getElementById("main").innerHTML = blocks.filter(Boolean).join("\n");
-  toggleRequestMode();
-  if(job && job.job_id && job.state === "running"){
-    ensureJobPolling(job.job_id);
-  }else{
-    stopJobPolling();
-  }
-}
-
-function stopJobPolling(){
-  if(_jobPollTimer){
-    clearTimeout(_jobPollTimer);
-    _jobPollTimer = null;
-  }
-}
-
-async function fetchJob(jobId){
-  try{
-    const resp = await fetch(`/v1/jobs/${encodeURIComponent(jobId)}`, {cache:"no-store"});
-    const data = await resp.json();
-    if(!resp.ok){
-      stopJobPolling();
-      return;
-    }
-    if(_lastDashboard){
-      _lastDashboard.job_control = data;
-      render(_lastDashboard);
-    }
-    if(data.state === "running"){
-      _jobPollTimer = setTimeout(()=>fetchJob(jobId), 2000);
-    }else{
-      stopJobPolling();
-      _panelOverride = "";
-      load();
-    }
-  }catch(_e){
-    stopJobPolling();
-  }
-}
-
-function ensureJobPolling(jobId){
-  if(_jobPollTimer) return;
-  _jobPollTimer = setTimeout(()=>fetchJob(jobId), 2000);
-}
-
-function showSetup(){
-  _panelOverride = "idle";
-  if(_lastDashboard) render(_lastDashboard);
-}
-
-async function startJob(){
-  const mode = getValue("request_mode") || "builder";
-  const requestFile = document.getElementById("request_file")?.value?.trim();
-  const jobId = document.getElementById("job_id_override")?.value?.trim();
-  const outBase = document.getElementById("out_base_override")?.value?.trim();
-  const body = mode === "builder"
-    ? {
-        request: buildInlineQueryRequest(),
-        request_base_dir: "."
-      }
-    : {
-        request_file: requestFile,
-        overrides: {
-          job_id: jobId || undefined,
-          out_base: outBase || undefined
-        }
-      };
-  try{
-    const resp = await fetch("/v1/jobs/start", {
-      method: "POST",
-      headers: {"Content-Type":"application/json"},
-      body: JSON.stringify(body)
-    });
-    const data = await resp.json();
-    if(!resp.ok){
-      document.getElementById("main").innerHTML =
-        `<div class="error-msg">Could not start job: ${esc(data.message || data.error || JSON.stringify(data))}</div>`;
-      return;
-    }
-    _panelOverride = "";
-    stopJobPolling();
-    await load();
-  }catch(e){
-    document.getElementById("main").innerHTML =
-      `<div class="error-msg">Could not start job: ${esc(String(e))}</div>`;
-  }
-}
-
-function setMtlsStatus(text, isError){
-  const el = document.getElementById("mtls_status");
-  if(!el) return;
-  el.style.display = "block";
-  el.style.color = isError ? "var(--err)" : "var(--muted)";
-  el.textContent = text;
-}
-
-async function postMtls(path, body){
-  const resp = await fetch(path, {
-    method: "POST",
-    headers: {"Content-Type":"application/json"},
-    body: JSON.stringify(body)
-  });
-  const data = await resp.json();
-  const lines = [];
-  if(data.status) lines.push(`status: ${data.status}`);
-  if(data.cert_dir) lines.push(`cert_dir: ${data.cert_dir}`);
-  if(data.bundle_dir) lines.push(`bundle_dir: ${data.bundle_dir}`);
-  if(data.remote_bundle_dir) lines.push(`remote_bundle_dir: ${data.remote_bundle_dir}`);
-  if(data.fingerprint) lines.push(`fingerprint: ${data.fingerprint}`);
-  if(data.bootstrap_uri) lines.push(`bootstrap_uri: ${data.bootstrap_uri}`);
-  if(data.stdout) lines.push(`\nstdout:\n${data.stdout.trim()}`);
-  if(data.stderr) lines.push(`\nstderr:\n${data.stderr.trim()}`);
-  if(data.message || data.error) lines.push(`\n${data.message || data.error}`);
-  setMtlsStatus(lines.join("\n") || JSON.stringify(data, null, 2), !resp.ok);
-  return data;
-}
-
-async function prepareMtlsPartyA(){
-  setMtlsStatus("Preparing Party A certificate bundle...", false);
-  try{
-    const serverHost = getValue("mtls_server_host");
-    const enrollUrl = getValue("mtls_enroll_url") ||
-      (serverHost ? `http://${serverHost}:18134/v1/pjc-mtls/enroll` : "");
-    const data = await postMtls("/v1/pjc-mtls/party-a/prepare", {
-      force_regenerate: getBool("mtls_force_regenerate"),
-      server_host: serverHost,
-      enroll_url: enrollUrl
-    });
-    if(data.bootstrap_uri) document.getElementById("mtls_bootstrap_uri").value = data.bootstrap_uri;
-    if(data.pairing_token) document.getElementById("mtls_pairing_token").value = data.pairing_token;
-    if(data.fingerprint) document.getElementById("mtls_expected_ca_fingerprint").value = data.fingerprint;
-    if(data.enroll_url) document.getElementById("mtls_enroll_url").value = data.enroll_url;
-  }catch(e){
-    setMtlsStatus(`Could not prepare Party A bundle: ${String(e)}`, true);
-  }
-}
-
-async function enrollMtlsPartyB(){
-  const serverHost = getValue("mtls_server_host");
-  const enrollUrl = getValue("mtls_enroll_url") ||
-    (serverHost ? `http://${serverHost}:18134/v1/pjc-mtls/enroll` : "");
-  setMtlsStatus("Enrolling Party B certificate...", false);
-  try{
-    await postMtls("/v1/pjc-mtls/party-b/enroll", {
-      server_host: getValue("mtls_server_host"),
-      enroll_url: enrollUrl,
-      bootstrap_uri: getValue("mtls_bootstrap_uri"),
-      pairing_token: getValue("mtls_pairing_token"),
-      expected_ca_fingerprint: getValue("mtls_expected_ca_fingerprint"),
-      cert_dir: getValue("mtls_cert_dir")
-    });
-  }catch(e){
-    setMtlsStatus(`Could not enroll Party B certificate: ${String(e)}`, true);
-  }
-}
-
-function setBucketStatus(text, isError){
-  const el = document.getElementById("bucket_status");
-  if(!el) return;
-  el.style.display = "block";
-  el.style.color = isError ? "var(--err)" : "var(--muted)";
-  el.textContent = text;
-}
-
-async function runBucketedScaleTest(){
-  setBucketStatus("Running bucketed scale test...", false);
-  const body = {
-    job_id: getValue("bucket_job_id"),
-    out_dir: getValue("bucket_out_dir"),
-    records: parsePositiveInt("bucket_records", 1000),
-    buckets: parsePositiveInt("bucket_count", 8),
-    bucket_field: getValue("bucket_field") || "campaign_id",
-    k: parsePositiveInt("bucket_k", 20),
-    dp_epsilon: getValue("bucket_dp_epsilon") || "1.0",
-    dp_sensitivity: parsePositiveInt("bucket_dp_sensitivity", 10000),
-    base_port: parsePositiveInt("bucket_base_port", 10621),
-    max_jobs: parsePositiveInt("bucket_max_jobs", 4),
-    parallel: getBool("bucket_parallel")
-  };
-  try{
-    const resp = await fetch("/v1/bucketed-scale-test/run", {
-      method: "POST",
-      headers: {"Content-Type":"application/json"},
-      body: JSON.stringify(body)
-    });
-    const data = await resp.json();
-    const lines = [];
-    lines.push(`status: ${data.status || (resp.ok ? "ok" : "error")}`);
-    if(data.out_dir) lines.push(`out_dir: ${data.out_dir}`);
-    if(data.summary) lines.push(`summary: ${JSON.stringify(data.summary)}`);
-    if(data.stdout) lines.push(`\nstdout:\n${data.stdout.trim()}`);
-    if(data.stderr) lines.push(`\nstderr:\n${data.stderr.trim()}`);
-    if(data.message || data.error) lines.push(`\n${data.message || data.error}`);
-    setBucketStatus(lines.join("\n"), !resp.ok);
-  }catch(e){
-    setBucketStatus(`Bucketed scale test failed: ${String(e)}`, true);
-  }
-}
-
-async function openRun(outBase){
-  try{
-    const resp = await fetch("/v1/runs/select", {
-      method: "POST",
-      headers: {"Content-Type":"application/json"},
-      body: JSON.stringify({out_base: outBase})
-    });
-    const data = await resp.json();
-    if(!resp.ok){
-      document.getElementById("main").innerHTML =
-        `<div class="error-msg">Could not switch run: ${esc(data.message || data.error || JSON.stringify(data))}</div>`;
-      return;
-    }
-    _panelOverride = "";
-    stopJobPolling();
-    await load();
-  }catch(e){
-    document.getElementById("main").innerHTML =
-      `<div class="error-msg">Could not switch run: ${esc(String(e))}</div>`;
-  }
-}
-
-async function relaunchCurrentJob(){
-  const job = (_lastDashboard && _lastDashboard.job_control) || null;
-  const wrapper = ((_lastDashboard && _lastDashboard.audit_center) || {}).wrapper || {};
-  if(!job || !job.job_id){
-    document.getElementById("main").innerHTML =
-      `<div class="error-msg">Could not relaunch job: no active job selected</div>`;
-    return;
-  }
-  try{
-    const resp = await fetch(`/v1/jobs/${encodeURIComponent(job.job_id)}/relaunch`, {
-      method: "POST",
-      headers: {"Content-Type":"application/json"},
-      body: JSON.stringify({
-        action: wrapper.relaunch_action || undefined,
-        overrides: {
-          job_id: wrapper.suggested_job_id || undefined,
-          out_base: wrapper.suggested_out_base || undefined,
-        }
-      })
-    });
-    const data = await resp.json();
-    if(!resp.ok){
-      document.getElementById("main").innerHTML =
-        `<div class="error-msg">Could not relaunch job: ${esc(data.message || data.error || JSON.stringify(data))}</div>`;
-      return;
-    }
-    _panelOverride = "";
-    stopJobPolling();
-    await load();
-  }catch(e){
-    document.getElementById("main").innerHTML =
-      `<div class="error-msg">Could not relaunch job: ${esc(String(e))}</div>`;
-  }
-}
-
-async function load(){
-  try{
-    const resp = await fetch("/v1/dashboard", {cache:"no-store"});
-    const data = await resp.json();
-    if(data.error){
-      document.getElementById("main").innerHTML =
-        `<div class="error-msg">API error: ${esc(JSON.stringify(data.error))}</div>`;
-      return;
-    }
-    render(data);
-  }catch(e){
-    document.getElementById("main").innerHTML =
-      `<div class="error-msg">Could not reach /v1/dashboard: ${esc(String(e))}</div>`;
-  }
-}
-
-function tick(){
-  _countdown--;
-  if(_countdown<=0){
-    _countdown=15;
-    load();
-  }
-  document.getElementById("countdown").textContent=`refresh in ${_countdown}s`;
-}
-
-// ---------------------------------------------------------------------------
-// S9 Two-Party Out-of-Box Wizard
-// ---------------------------------------------------------------------------
-const WIZ_STEPS = [
-  {id:"invite",  label:"1 · Invite",   role:"Party A", desc:"Generate the pjc-mtls invite (bootstrap URI + pairing token + CA fingerprint) using POST /v1/pjc-mtls/party-a/prepare."},
-  {id:"enroll",  label:"2 · Enroll",   role:"Party B", desc:"Consume the invite to enroll a per-job client certificate via POST /v1/pjc-mtls/party-b/enroll."},
-  {id:"preflight",label:"3 · Preflight",role:"A + B",  desc:"Verify commit, helper hash, PJC binary, TCP+TLS reachability, peer identity, input hashes, limits, and output path via POST /v1/pjc-mtls/preflight."},
-  {id:"run",     label:"4 · Run",      role:"A + B",   desc:"Start each role through POST /v1/pjc/roles/{server,client}/start and poll GET /v1/pjc/roles/{role}/status until terminal."},
-  {id:"verify",  label:"5 · Verify",   role:"A + B",   desc:"Reconcile both parties' evidence (job id, commit, input commitment, TLS identity, CA fingerprint, result hash, policy, audit chain) via POST /v1/pjc/evidence/verify-merge."},
-  {id:"negative",label:"6 · Negative", role:"Operator",desc:"Force every required denial — wrong token, expired token, wrong CA, wrong peer, closed port, commit mismatch, modified CSV, privacy denial — via POST /v1/pjc-mtls/negative-cases/run."},
-  {id:"archive", label:"7 · Archive",  role:"Operator",desc:"Collect the evidence file set produced by the previous steps. The wizard surfaces every emitted path for archiving."}
-];
-let _wizActive = "invite";
-const _wizState = {
-  invite:    {status:"pending", report:null, ts:null},
-  enroll:    {status:"pending", report:null, ts:null},
-  preflight: {status:"pending", report:null, ts:null},
-  run:       {status:"pending", report:null, ts:null,
-              server_key:null, client_key:null},
-  verify:    {status:"pending", report:null, ts:null},
-  negative:  {status:"pending", report:null, ts:null},
-  archive:   {status:"pending", report:null, ts:null, paths:[]}
-};
-let _wizRolePoll = null;
-
-function wizStepClass(step){
-  if(_wizState[step.id]?.status === "ok") return "ok";
-  if(_wizState[step.id]?.status === "err") return "err";
-  return step.id === _wizActive ? "active" : "";
-}
-
-function renderS9Wizard(){
-  const stepper = WIZ_STEPS.map((s,i)=>{
-    const cls = wizStepClass(s);
-    return `<div class="wiz-step ${cls}" onclick="wizGoto('${s.id}')"><span class="n">${i+1}</span><span>${esc(s.label.split(" · ")[1])}</span></div>`;
-  }).join("");
-  const headerNote = "Backend endpoints are stable; this wizard chains them into one fail-closed flow. Each step blocks the next until its endpoint returns allow / ok.";
-  let panels = "";
-  panels += renderWizInvite();
-  panels += renderWizEnroll();
-  panels += renderWizPreflight();
-  panels += renderWizRun();
-  panels += renderWizVerify();
-  panels += renderWizNegative();
-  panels += renderWizArchive();
-  return `<div class="section-title">Two-Party Out-of-Box Wizard</div>
-    <div class="card">
-      <div class="wiz-stepper">${stepper}</div>
-      <div class="subtle">${esc(headerNote)}</div>
-      ${panels}
-    </div>`;
-}
-
-function wizGoto(id){
-  _wizActive = id;
-  const root = document.getElementById("s9-wizard");
-  if(root){ root.scrollIntoView({behavior:"smooth", block:"start"}); }
-  if(_lastDashboard) render(_lastDashboard);
-}
-
-function wizReport(stepId){
-  const s = _wizState[stepId];
-  if(!s || !s.report) return "";
-  return `<div class="wiz-report">${esc(JSON.stringify(s.report, null, 2))}</div>`;
-}
-
-function wizBadge(stepId){
-  const s = _wizState[stepId];
-  if(!s) return badge("unknown","pending");
-  if(s.status === "ok") return badge("ok","allow / ok");
-  if(s.status === "err") return badge("err", s.report?.report?.reason_code || s.report?.error || "deny");
-  return badge("unknown","pending");
-}
-
-function wizPanel(step, body){
-  const cls = wizStepClass(step);
-  return `<div class="wiz-card ${step.id===_wizActive?"":""}">
-    <div class="wiz-head">
-      <div>
-        <div class="wiz-title">${esc(step.label)} <span class="subtle">· ${esc(step.role)}</span></div>
-        <div class="wiz-desc">${esc(step.desc)}</div>
-      </div>
-      ${wizBadge(step.id)}
-    </div>
-    ${body}
-    ${wizReport(step.id)}
-  </div>`;
-}
-
-function copyToClip(value){
-  if(!value) return;
-  try{ navigator.clipboard.writeText(String(value)); }catch{}
-}
-
-function wizField(id, label, value, placeholder){
-  return `<div class="field"><label>${esc(label)}</label><input id="${id}" value="${esc(value||"")}" placeholder="${esc(placeholder||"")}" spellcheck="false"></div>`;
-}
-
-function renderWizInvite(){
-  const step = WIZ_STEPS[0];
-  const data = _wizState.invite.report || {};
-  const body = `<div class="job-form">
-      <div class="builder-grid">
-        ${wizField("wiz_invite_server_host","Server Host (Party A IP/DNS)", getValue("mtls_server_host"), "118.190.61.66 or tailscale host")}
-        ${wizField("wiz_invite_enroll_url","Enroll URL", getValue("mtls_enroll_url"), "http://<server-host>:18134/v1/pjc-mtls/enroll")}
-      </div>
-      <label class="check-field"><input id="wiz_invite_force" type="checkbox"> force regenerate Party A certs</label>
-      <div class="wiz-actions">
-        <button class="btn" onclick="wizInvite()">Create Invite</button>
-        <button class="btn secondary" onclick="wizGoto('enroll')">Skip to Enroll</button>
-      </div>
-      ${data.bootstrap_uri ? `<div class="wiz-checklist">
-        <div class="row"><b>bootstrap_uri</b><span class="copyable">${esc(data.bootstrap_uri)}<button onclick="copyToClip('${esc(data.bootstrap_uri)}')">copy</button></span></div>
-        <div class="row"><b>pairing_token</b><span class="copyable">${esc(data.pairing_token||"")}<button onclick="copyToClip('${esc(data.pairing_token||"")}')">copy</button></span></div>
-        <div class="row"><b>ca_fingerprint</b><span class="copyable">${esc(data.fingerprint||"")}<button onclick="copyToClip('${esc(data.fingerprint||"")}')">copy</button></span></div>
-        <div class="row"><b>enroll_url</b><span>${esc(data.enroll_url||"")}</span></div>
-        <div class="row"><b>cert_dir</b><span>${esc(data.cert_dir||"")}</span></div>
-      </div>` : ""}
-    </div>`;
-  return wizPanel(step, body);
-}
-
-async function wizInvite(){
-  _wizState.invite.status = "pending"; render(_lastDashboard);
-  try{
-    const serverHost = document.getElementById("wiz_invite_server_host").value.trim();
-    const enrollUrl = document.getElementById("wiz_invite_enroll_url").value.trim()
-      || (serverHost ? `http://${serverHost}:18134/v1/pjc-mtls/enroll` : "");
-    const resp = await fetch("/v1/pjc-mtls/party-a/prepare", {
-      method:"POST", headers:{"Content-Type":"application/json"},
-      body: JSON.stringify({force_regenerate: document.getElementById("wiz_invite_force").checked, server_host: serverHost, enroll_url: enrollUrl})
-    });
-    const data = await resp.json();
-    _wizState.invite.report = data;
-    if(!resp.ok || data.status !== "ok"){
-      _wizState.invite.status = "err";
-    }else{
-      _wizState.invite.status = "ok";
-      _wizActive = "enroll";
-      // Pre-fill enroll step inputs
-      const setIf = (id, value)=>{ const el=document.getElementById(id); if(el && value) el.value = value; };
-      // pre-fill mtls panel as well so the older flow stays in sync
-      setIf("mtls_bootstrap_uri", data.bootstrap_uri);
-      setIf("mtls_pairing_token", data.pairing_token);
-      setIf("mtls_expected_ca_fingerprint", data.fingerprint);
-      setIf("mtls_enroll_url", data.enroll_url);
-    }
-  }catch(e){
-    _wizState.invite.status = "err";
-    _wizState.invite.report = {error: String(e)};
-  }
-  if(_lastDashboard) render(_lastDashboard);
-}
-
-function renderWizEnroll(){
-  const step = WIZ_STEPS[1];
-  const inv = _wizState.invite.report || {};
-  const body = `<div class="job-form">
-      <div class="builder-grid">
-        ${wizField("wiz_enroll_uri","Bootstrap URI", inv.bootstrap_uri||"", "pjc-mtls://enroll?url=...")}
-        ${wizField("wiz_enroll_cert_dir","Party B Cert Dir", "tmp/pjc_certs_party_b", "$HOME/pjc_certs_shared")}
-      </div>
-      <div class="wiz-actions">
-        <button class="btn" onclick="wizEnroll()" ${_wizState.invite.status==="ok"?"":"disabled"}>Enroll Party B</button>
-      </div>
-    </div>`;
-  return wizPanel(step, body);
-}
-
-async function wizEnroll(){
-  _wizState.enroll.status = "pending"; render(_lastDashboard);
-  try{
-    const resp = await fetch("/v1/pjc-mtls/party-b/enroll", {
-      method:"POST", headers:{"Content-Type":"application/json"},
-      body: JSON.stringify({
-        bootstrap_uri: document.getElementById("wiz_enroll_uri").value.trim(),
-        cert_dir: document.getElementById("wiz_enroll_cert_dir").value.trim()
-      })
-    });
-    const data = await resp.json();
-    _wizState.enroll.report = data;
-    if(!resp.ok || data.status !== "ok"){ _wizState.enroll.status = "err"; }
-    else { _wizState.enroll.status = "ok"; _wizActive = "preflight"; }
-  }catch(e){
-    _wizState.enroll.status = "err";
-    _wizState.enroll.report = {error: String(e)};
-  }
-  if(_lastDashboard) render(_lastDashboard);
-}
-
-function renderWizPreflight(){
-  const step = WIZ_STEPS[2];
-  const body = `<div class="job-form">
-      <div class="builder-grid">
-        ${wizField("wiz_pf_job_id","Job ID", "two-party-demo", "")}
-        ${wizField("wiz_pf_role","Role (server|client)", "client", "")}
-        ${wizField("wiz_pf_peer_host","Peer Host", getValue("wiz_invite_server_host")||"", "Server host")}
-        ${wizField("wiz_pf_peer_port","Peer Port", "10502", "10502")}
-        ${wizField("wiz_pf_cert_dir","Cert Dir", "tmp/pjc_certs_party_b", "")}
-        ${wizField("wiz_pf_csv","Input CSV", "", "(optional)")}
-        ${wizField("wiz_pf_helper","Helper Script Path", "a-psi/moduleA_psi/scripts/run_pjc_bucketed_tls_client.sh", "")}
-        ${wizField("wiz_pf_bin","PJC Binary Path", "", "(optional)")}
-        ${wizField("wiz_pf_output","Output Dir", "tmp/pjc_two_party/runs/two-party-demo_client", "")}
-        ${wizField("wiz_pf_max_rows","Max Rows Limit", "100000", "(optional)")}
-      </div>
-      <label class="check-field"><input id="wiz_pf_unique" type="checkbox" checked> require unique output dir</label>
-      <div class="wiz-actions">
-        <button class="btn" onclick="wizPreflight()" ${_wizState.enroll.status==="ok"?"":"disabled"}>Run Preflight</button>
-        <button class="btn secondary" onclick="wizGoto('run')">Skip</button>
-      </div>
-    </div>`;
-  return wizPanel(step, body);
-}
-
-async function wizPreflight(){
-  _wizState.preflight.status = "pending"; render(_lastDashboard);
-  const body = {
-    job_id: document.getElementById("wiz_pf_job_id").value.trim(),
-    role: document.getElementById("wiz_pf_role").value.trim()||"client",
-    peer_host: document.getElementById("wiz_pf_peer_host").value.trim(),
-    peer_port: parseInt(document.getElementById("wiz_pf_peer_port").value, 10)||null,
-    cert_dir: document.getElementById("wiz_pf_cert_dir").value.trim(),
-    input_csv_path: document.getElementById("wiz_pf_csv").value.trim()||undefined,
-    helper_script_path: document.getElementById("wiz_pf_helper").value.trim()||undefined,
-    pjc_binary_path: document.getElementById("wiz_pf_bin").value.trim()||undefined,
-    output_dir: document.getElementById("wiz_pf_output").value.trim()||undefined,
-    max_rows: parseInt(document.getElementById("wiz_pf_max_rows").value, 10)||undefined,
-    require_unique_output: document.getElementById("wiz_pf_unique").checked
-  };
-  try{
-    const resp = await fetch("/v1/pjc-mtls/preflight", {
-      method:"POST", headers:{"Content-Type":"application/json"},
-      body: JSON.stringify(body)
-    });
-    const data = await resp.json();
-    _wizState.preflight.report = data;
-    const decision = (data.report||{}).decision;
-    if(resp.ok && decision === "allow"){ _wizState.preflight.status = "ok"; _wizActive = "run"; }
-    else { _wizState.preflight.status = "err"; }
-  }catch(e){
-    _wizState.preflight.status = "err";
-    _wizState.preflight.report = {error: String(e)};
-  }
-  if(_lastDashboard) render(_lastDashboard);
-}
-
-function renderWizRun(){
-  const step = WIZ_STEPS[3];
-  const sKey = _wizState.run.server_key;
-  const cKey = _wizState.run.client_key;
-  const body = `<div class="job-form">
-    <div class="builder-grid">
-      ${wizField("wiz_run_job_id","Job ID", "two-party-demo", "")}
-      ${wizField("wiz_run_cert_dir","Cert Dir", "tmp/pjc_mtls_shared/certs", "")}
-      ${wizField("wiz_run_role_dir","Role Dir (with job_meta.json)", "tmp/pjc_role_dirs/two-party-demo", "")}
-      ${wizField("wiz_run_server_host","Server Host", getValue("wiz_pf_peer_host"), "for client role")}
-      ${wizField("wiz_run_tls_port","TLS Port", "10502", "10502")}
-      ${wizField("wiz_run_out_dir","Out Dir", "tmp/pjc_two_party/runs/two-party-demo", "")}
-    </div>
-    <div class="wiz-actions">
-      <button class="btn" onclick="wizStartRole('server')" ${_wizState.preflight.status==="ok"?"":"disabled"}>Start Server (A)</button>
-      <button class="btn" onclick="wizStartRole('client')" ${_wizState.preflight.status==="ok"?"":"disabled"}>Start Client (B)</button>
-      <button class="btn secondary" onclick="wizCancelRole('server')" ${sKey?"":"disabled"}>Cancel Server</button>
-      <button class="btn secondary" onclick="wizCancelRole('client')" ${cKey?"":"disabled"}>Cancel Client</button>
-    </div>
-    ${(_wizState.run.server_snapshot || _wizState.run.client_snapshot) ? `<div class="wiz-checklist">
-      ${renderRoleSnap("server", _wizState.run.server_snapshot)}
-      ${renderRoleSnap("client", _wizState.run.client_snapshot)}
-    </div>` : ""}
-  </div>`;
-  return wizPanel(step, body);
-}
-
-function renderRoleSnap(role, snap){
-  if(!snap) return "";
-  return `<div class="row"><b>${role}</b><span>state=${esc(snap.state||"—")} pid=${esc(snap.pid||"—")} exit=${esc(snap.exit_code==null?"—":snap.exit_code)} log=${esc(snap.log_path||"—")}</span></div>`;
-}
-
-async function wizStartRole(role){
-  const body = {
-    job_id: document.getElementById("wiz_run_job_id").value.trim(),
-    cert_dir: document.getElementById("wiz_run_cert_dir").value.trim(),
-    role_dir: document.getElementById("wiz_run_role_dir").value.trim(),
-    server_host: document.getElementById("wiz_run_server_host").value.trim(),
-    tls_port: parseInt(document.getElementById("wiz_run_tls_port").value, 10)||10502,
-    out_dir: document.getElementById("wiz_run_out_dir").value.trim()
-  };
-  try{
-    const resp = await fetch(`/v1/pjc/roles/${role}/start`, {
-      method:"POST", headers:{"Content-Type":"application/json"},
-      body: JSON.stringify(body)
-    });
-    const data = await resp.json();
-    if(!resp.ok){
-      _wizState.run.status = "err";
-      _wizState.run.report = data;
-    }else{
-      _wizState.run[`${role}_key`] = data.role_key || `${body.job_id}::${role}`;
-      _wizState.run[`${role}_snapshot`] = data.snapshot || null;
-      _wizState.run.report = data;
-      _wizState.run.status = "pending";
-      wizPollRoles();
-    }
-  }catch(e){
-    _wizState.run.status = "err";
-    _wizState.run.report = {error: String(e)};
-  }
-  if(_lastDashboard) render(_lastDashboard);
-}
-
-async function wizCancelRole(role){
-  const job_id = document.getElementById("wiz_run_job_id").value.trim();
-  try{
-    const resp = await fetch(`/v1/pjc/roles/${role}/cancel`, {
-      method:"POST", headers:{"Content-Type":"application/json"},
-      body: JSON.stringify({job_id, reason:"wizard_cancel"})
-    });
-    const data = await resp.json();
-    _wizState.run[`${role}_snapshot`] = data.snapshot || null;
-    _wizState.run.report = data;
-  }catch(e){
-    _wizState.run.report = {error: String(e)};
-  }
-  if(_lastDashboard) render(_lastDashboard);
-}
-
-function wizPollRoles(){
-  if(_wizRolePoll) return;
-  const tick = async ()=>{
-    const job_id = document.getElementById("wiz_run_job_id")?.value?.trim();
-    if(!job_id){ _wizRolePoll = null; return; }
-    let anyRunning = false;
-    for(const role of ["server","client"]){
-      const key = _wizState.run[`${role}_key`];
-      if(!key) continue;
-      try{
-        const resp = await fetch(`/v1/pjc/roles/${role}/status?job_id=${encodeURIComponent(job_id)}`, {cache:"no-store"});
-        if(resp.ok){
-          const data = await resp.json();
-          _wizState.run[`${role}_snapshot`] = data;
-          if(data.state === "running" || data.state === "starting") anyRunning = true;
-        }
-      }catch{}
-    }
-    if(_lastDashboard) render(_lastDashboard);
-    if(anyRunning){
-      _wizRolePoll = setTimeout(tick, 2500);
-    }else{
-      _wizRolePoll = null;
-      // Promote step if both reached terminal allow
-      const s = _wizState.run.server_snapshot;
-      const c = _wizState.run.client_snapshot;
-      const ok = (snap)=> snap && (snap.state === "completed");
-      if(ok(s) && ok(c)){
-        _wizState.run.status = "ok";
-        _wizActive = "verify";
-        if(_lastDashboard) render(_lastDashboard);
-      }
-    }
-  };
-  _wizRolePoll = setTimeout(tick, 1500);
-}
-
-function renderWizVerify(){
-  const step = WIZ_STEPS[4];
-  const body = `<div class="job-form">
-    <div class="builder-grid">
-      ${wizField("wiz_verify_job_id","Job ID", "two-party-demo", "")}
-      ${wizField("wiz_verify_a_dir","Party A Evidence Dir", "tmp/pjc_two_party/runs/two-party-demo_server", "")}
-      ${wizField("wiz_verify_b_dir","Party B Evidence Dir", "tmp/pjc_two_party/runs/two-party-demo_client", "")}
-    </div>
-    <div class="wiz-actions">
-      <button class="btn" onclick="wizVerify()" ${_wizState.run.status==="ok"||_wizState.run.server_snapshot?"":"disabled"}>Verify Evidence</button>
-    </div>
-  </div>`;
-  return wizPanel(step, body);
-}
-
-async function wizVerify(){
-  _wizState.verify.status = "pending"; render(_lastDashboard);
-  const body = {
-    job_id: document.getElementById("wiz_verify_job_id").value.trim(),
-    party_a_dir: document.getElementById("wiz_verify_a_dir").value.trim(),
-    party_b_dir: document.getElementById("wiz_verify_b_dir").value.trim()
-  };
-  try{
-    const resp = await fetch("/v1/pjc/evidence/verify-merge", {
-      method:"POST", headers:{"Content-Type":"application/json"},
-      body: JSON.stringify(body)
-    });
-    const data = await resp.json();
-    _wizState.verify.report = data;
-    if(resp.ok && (data.report||{}).decision === "allow"){
-      _wizState.verify.status = "ok"; _wizActive = "negative";
-    }else{
-      _wizState.verify.status = "err";
-    }
-  }catch(e){
-    _wizState.verify.status = "err";
-    _wizState.verify.report = {error: String(e)};
-  }
-  if(_lastDashboard) render(_lastDashboard);
-}
-
-function renderWizNegative(){
-  const step = WIZ_STEPS[5];
-  const body = `<div class="job-form">
-    <div class="builder-grid">
-      ${wizField("wiz_neg_job_id","Job ID", "two-party-demo", "")}
-      ${wizField("wiz_neg_public_report","Privacy Report Path (for privacy_denial)", "tmp/pjc_two_party/public_report.json", "(optional)")}
-      ${wizField("wiz_neg_csv","Input CSV", "tmp/pjc_two_party/inputs/demo.csv", "(optional)")}
-    </div>
-    <div class="wiz-actions">
-      <button class="btn" onclick="wizNegative()" ${_wizState.verify.status==="ok"?"":"disabled"}>Run All Required Denials</button>
-    </div>
-  </div>`;
-  return wizPanel(step, body);
-}
-
-async function wizNegative(){
-  _wizState.negative.status = "pending"; render(_lastDashboard);
-  const job_id = document.getElementById("wiz_neg_job_id").value.trim();
-  const public_report_path = document.getElementById("wiz_neg_public_report").value.trim();
-  const input_csv_path = document.getElementById("wiz_neg_csv").value.trim();
-  const scenarios = {
-    wrong_token: {pairing_token:"definitely-not-real", csr_pem:"garbage"},
-    expired_token: {csr_pem:"garbage"},
-    wrong_ca: {input_csv_path, job_id},
-    wrong_peer: {input_csv_path, job_id, peer_cert_path:""},
-    closed_port: {input_csv_path, job_id},
-    commit_mismatch: {input_csv_path, job_id},
-    modified_csv: {input_csv_path, job_id},
-    privacy_denial: public_report_path ? {public_report_path} : {}
-  };
-  try{
-    const resp = await fetch("/v1/pjc-mtls/negative-cases/run", {
-      method:"POST", headers:{"Content-Type":"application/json"},
-      body: JSON.stringify({job_id, scenarios})
-    });
-    const data = await resp.json();
-    _wizState.negative.report = data;
-    if(resp.ok && (data.report||{}).decision === "allow"){
-      _wizState.negative.status = "ok"; _wizActive = "archive";
-    }else{
-      _wizState.negative.status = "err";
-    }
-  }catch(e){
-    _wizState.negative.status = "err";
-    _wizState.negative.report = {error: String(e)};
-  }
-  if(_lastDashboard) render(_lastDashboard);
-}
-
-function renderWizArchive(){
-  const step = WIZ_STEPS[6];
-  const paths = [];
-  const push = (label, value)=>{ if(value) paths.push({label, value}); };
-  push("invite.cert_dir", (_wizState.invite.report||{}).cert_dir);
-  push("invite.bootstrap_uri", (_wizState.invite.report||{}).bootstrap_uri);
-  push("enroll.cert_dir", (_wizState.enroll.report||{}).cert_dir);
-  push("preflight.evidence_path", (_wizState.preflight.report||{}).evidence_path);
-  push("server.log_path", (_wizState.run.server_snapshot||{}).log_path);
-  push("server.evidence_path", (_wizState.run.server_snapshot||{}).evidence_path);
-  push("client.log_path", (_wizState.run.client_snapshot||{}).log_path);
-  push("client.evidence_path", (_wizState.run.client_snapshot||{}).evidence_path);
-  push("verify.evidence_path", (_wizState.verify.report||{}).evidence_path);
-  push("negative.evidence_path", (_wizState.negative.report||{}).evidence_path);
-  const ready = _wizState.negative.status === "ok";
-  if(ready){ _wizState.archive.status = "ok"; }
-  const list = paths.length ? paths.map(p=>`<div class="row"><b>${esc(p.label)}</b><span class="copyable">${esc(p.value)}<button onclick="copyToClip('${esc(p.value)}')">copy</button></span></div>`).join("") : `<div class="empty">No artifacts yet — finish step 1-6 first.</div>`;
-  const body = `<div class="wiz-checklist">${list}</div>
-    <div class="wiz-actions">
-      <button class="btn secondary" onclick="copyToClip(${JSON.stringify(paths.map(p=>p.value).join("\n"))})" ${paths.length?"":"disabled"}>Copy All Paths</button>
-    </div>`;
-  return wizPanel(step, body);
-}
-
-load();
-_timer=setInterval(tick,1000);
-</script>
-</body>
-</html>
-"""
+import mimetypes
+
+
+_DEFAULT_CONSOLE_DIST_CANDIDATES = (
+    REPO_ROOT / "console" / "dist",
+    REPO_ROOT / "console-dist",
+    Path("/opt/seccomp/platform/console/dist"),
+)
+
+
+def _resolve_console_dist(explicit: str) -> Path | None:
+    if explicit:
+        candidate = Path(explicit).expanduser()
+        try:
+            candidate = candidate.resolve(strict=True)
+        except FileNotFoundError:
+            return None
+        return candidate if candidate.is_dir() else None
+    for candidate in _DEFAULT_CONSOLE_DIST_CANDIDATES:
+        try:
+            resolved = candidate.resolve(strict=True)
+        except FileNotFoundError:
+            continue
+        if resolved.is_dir():
+            return resolved
+    return None
+
+
+def _static_asset_response(
+    root: Path | None,
+    request_path: str,
+) -> tuple[int, str, bytes] | None:
+    """Resolve a SPA static asset under ``root``.
+
+    Returns ``(status, content_type, body)`` when an asset is found, or ``None``
+    if the caller should fall through to its normal behaviour (so requests for
+    real API paths still hit their handlers).
+
+    The function refuses to traverse outside ``root`` and only returns regular
+    files. SPA routes that do not map to a file get the ``index.html`` fallback
+    so the React Router history mode keeps working.
+    """
+    if root is None:
+        return None
+    rel = request_path.lstrip("/")
+    if not rel or rel.endswith("/"):
+        rel = (rel or "") + "index.html"
+    target = (root / rel).resolve()
+    try:
+        target.relative_to(root)
+    except ValueError:
+        return None
+    if not target.exists() or not target.is_file():
+        # SPA fallback for client-side routes.
+        index = (root / "index.html").resolve()
+        try:
+            index.relative_to(root)
+        except ValueError:
+            return None
+        if not index.is_file():
+            return None
+        target = index
+    ctype, _ = mimetypes.guess_type(target.name)
+    if ctype is None:
+        ctype = "application/octet-stream"
+    if ctype.startswith("text/") or ctype in {"application/javascript", "application/json"}:
+        ctype = f"{ctype}; charset=utf-8"
+    return 200, ctype, target.read_bytes()
 
 
 # ---------------------------------------------------------------------------
@@ -5448,6 +3828,7 @@ class DashboardServer(ThreadingHTTPServer):
         metadata_db_read_dsn: str = "",
         identity_token_config: str = "",
         mtls_enrollment_only_mode: bool = False,
+        console_dist: Path | None = None,
     ) -> None:
         self.out_base = out_base
         self.history_root = history_root
@@ -5461,6 +3842,7 @@ class DashboardServer(ThreadingHTTPServer):
         self.metadata_db_read_dsn = metadata_db_read_dsn
         self.identity_token_config = str(Path(identity_token_config).resolve()) if identity_token_config else ""
         self.mtls_enrollment_only_mode = bool(mtls_enrollment_only_mode)
+        self.console_dist = console_dist
         self.job_lock = threading.Lock()
         self.current_job: dict[str, Any] | None = _seed_job_from_out_base(out_base)
         self.jobs: dict[str, dict[str, Any]] = {}
@@ -5695,6 +4077,119 @@ class DashboardHandler(BaseHTTPRequestHandler):
             return None
         return _job_snapshot(job)
 
+    def _handle_helper_subprocess(
+        self,
+        *,
+        script_name: str,
+        request_body: dict[str, Any],
+        timeout_sec: int,
+        ok_status_field: str = "status",
+    ) -> None:
+        """Dispatch a JSON request to a one-shot helper subprocess and stream its
+        single-document JSON response back to the caller.
+
+        The helper is expected to live under ``REPO_ROOT/scripts/<script_name>``,
+        emit exactly one JSON document on stdout, and use ``status`` of ``ok`` or
+        ``error`` to signal success. Anything non-JSON or any subprocess crash
+        translates to an HTTP 5xx with diagnostic context.
+        """
+        helper = REPO_ROOT / "scripts" / script_name
+        if not helper.is_file():
+            self._send_json(500, {"status": "error", "stage": "validate", "message": f"helper not found: {helper}"})
+            return
+
+        try:
+            request_file = REPO_ROOT / "tmp" / f"_console_helper_{int(time.time() * 1000)}.json"
+            request_file.parent.mkdir(parents=True, exist_ok=True)
+            request_file.write_text(json.dumps(request_body))
+        except Exception as exc:  # noqa: BLE001
+            self._send_json(500, {"status": "error", "stage": "stage_request", "message": str(exc)})
+            return
+
+        try:
+            proc = subprocess.run(
+                [sys.executable, str(helper), "--request-file", str(request_file)],
+                capture_output=True,
+                text=True,
+                timeout=timeout_sec,
+                check=False,
+            )
+        except subprocess.TimeoutExpired:
+            self._send_json(504, {"status": "error", "stage": "subprocess", "message": f"{script_name} timed out after {timeout_sec}s"})
+            return
+        finally:
+            try:
+                request_file.unlink()
+            except OSError:
+                pass
+
+        stdout = proc.stdout.strip()
+        try:
+            payload = json.loads(stdout) if stdout else {}
+        except json.JSONDecodeError as exc:
+            self._send_json(
+                500,
+                {
+                    "status": "error",
+                    "stage": "parse_response",
+                    "message": f"helper emitted non-JSON: {exc}",
+                    "stdout": proc.stdout,
+                    "stderr": proc.stderr,
+                    "exit_code": proc.returncode,
+                },
+            )
+            return
+
+        if proc.returncode != 0 and ok_status_field not in payload:
+            payload = {
+                **payload,
+                "status": "error",
+                "stage": payload.get("stage") or "subprocess",
+                "message": payload.get("message") or f"helper exit code {proc.returncode}",
+            }
+
+        ok = (payload.get(ok_status_field) == "ok")
+        http_status = 200 if ok else (payload.get("http_status") if isinstance(payload.get("http_status"), int) else 500)
+        if proc.stderr and not ok:
+            payload.setdefault("stderr", proc.stderr)
+        self._send_json(http_status, payload)
+
+    def _handle_sse_search(self) -> None:
+        try:
+            body = self._read_json_body()
+        except ValueError as exc:
+            self._send_json(400, {"status": "error", "stage": "validate", "message": str(exc)})
+            return
+        if not body.get("keyword"):
+            self._send_json(400, {"status": "error", "stage": "validate", "message": "missing keyword"})
+            return
+        if "db" not in body and not body.get("db_path"):
+            self._send_json(400, {"status": "error", "stage": "validate", "message": "must provide either db or db_path"})
+            return
+        self._handle_helper_subprocess(
+            script_name="sse_oneshot_search.py",
+            request_body=body,
+            timeout_sec=int(body.get("timeout_sec") or 60),
+        )
+
+    def _handle_pjc_run_only(self) -> None:
+        try:
+            body = self._read_json_body()
+        except ValueError as exc:
+            self._send_json(400, {"status": "error", "stage": "validate", "message": str(exc)})
+            return
+        if not body.get("server_csv") or not body.get("client_csv"):
+            self._send_json(
+                400,
+                {"status": "error", "stage": "validate", "message": "server_csv and client_csv are required"},
+            )
+            return
+        self._handle_helper_subprocess(
+            script_name="pjc_run_only.py",
+            request_body=body,
+            timeout_sec=int(body.get("timeout_sec") or 900),
+        )
+
     def _job_snapshot_or_404(self, job_id: str) -> dict[str, Any] | None:
         job = self.server.get_job(job_id)
         if job is None or str(job.get("job_id") or "") != job_id:
@@ -5717,10 +4212,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 "allowed_paths": ["GET /healthz", "POST /v1/pjc-mtls/enroll"],
             })
             return
-        if path in ("/", "/index.html"):
-            body = _DASHBOARD_HTML.encode("utf-8")
-            self._send(200, "text/html; charset=utf-8", body)
-        elif path == "/healthz":
+        if path == "/healthz":
             self._send_json(
                 200,
                 {
@@ -5728,6 +4220,8 @@ class DashboardHandler(BaseHTTPRequestHandler):
                     "schema": "operator_dashboard_health/v1",
                     "request_submission_enabled": bool(self.server.metadata_db_path or self.server.metadata_db_dsn),
                     "auth_required": bool(self.server.auth_token or self.server.identity_token_config),
+                    "spa_available": self.server.console_dist is not None,
+                    "spa_dist": str(self.server.console_dist) if self.server.console_dist else None,
                 },
             )
         elif path == "/v1/dashboard":
@@ -5841,7 +4335,27 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 return
             self._send_json(200, snapshot)
         else:
-            self._send_json(404, {"error": "not_found", "path": path})
+            # Anything not matched above is treated as a SPA static asset:
+            # /, /index.html, /assets/*, /favicon.svg, or a client-side route
+            # like /jobs/abc that should fall back to index.html. If the
+            # console-dist directory is not configured or the file is missing,
+            # this returns 404 with a hint, so the JSON API surface remains
+            # intact.
+            asset = _static_asset_response(self.server.console_dist, path)
+            if asset is not None:
+                status, ctype, body = asset
+                self._send(status, ctype, body)
+                return
+            self._send_json(404, {
+                "error": "not_found",
+                "path": path,
+                "hint": (
+                    "Console SPA assets are not available. Build the SPA "
+                    "(npm --prefix console run build) and start this server "
+                    "with --console-dist <path>, or rely on the default "
+                    "<repo>/console/dist location."
+                ) if self.server.console_dist is None else "asset missing",
+            })
 
     def do_POST(self) -> None:
         parsed = urlparse(self.path)
@@ -6203,6 +4717,14 @@ class DashboardHandler(BaseHTTPRequestHandler):
             except subprocess.TimeoutExpired as exc:
                 self._send_json(504, {"status": "error", "error": "bucketed_scale_timeout", "message": str(exc)})
             return
+        if path == "/v1/sse/search":
+            self._handle_sse_search()
+            return
+
+        if path == "/v1/pjc/run-only":
+            self._handle_pjc_run_only()
+            return
+
         if path != "/v1/jobs/start":
             self._send_json(404, {"error": "not_found", "path": path})
             return
@@ -6303,6 +4825,17 @@ def build_parser() -> argparse.ArgumentParser:
     )
     ap.add_argument("--identity-token-config", default="", help="Optional bearer-token to caller-identity mapping config")
     ap.add_argument(
+        "--console-dist",
+        default="",
+        help=(
+            "Directory containing the built operator-console SPA (console/dist). "
+            "When set, serves SPA assets at / and falls back to index.html for "
+            "client-side routes. When omitted, the server probes "
+            "<repo>/console/dist, <repo>/console-dist, and /opt/seccomp/platform/console/dist. "
+            "If none is found, the dashboard root returns a 404 hint instead of HTML."
+        ),
+    )
+    ap.add_argument(
         "--mtls-enrollment-only-mode",
         action="store_true",
         help=(
@@ -6327,6 +4860,8 @@ def main() -> int:
     if not history_root.is_dir():
         raise SystemExit(f"[ERROR] --history-root does not exist: {history_root}")
 
+    console_dist = _resolve_console_dist(args.console_dist)
+
     server = DashboardServer(
         (args.bind_host, args.port),
         DashboardHandler,
@@ -6342,6 +4877,7 @@ def main() -> int:
         metadata_db_read_dsn=args.metadata_db_dsn_read_replica,
         identity_token_config=args.identity_token_config,
         mtls_enrollment_only_mode=bool(args.mtls_enrollment_only_mode),
+        console_dist=console_dist,
     )
 
     def _shutdown(sig: int, frame: Any) -> None:

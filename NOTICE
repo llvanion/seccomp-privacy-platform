@@ -1,0 +1,59 @@
+seccomp-privacy-platform
+Copyright (C) 2026 seccomp-privacy-platform contributors
+
+This program is free software: you can redistribute it and/or modify
+it under the terms of the GNU General Public License v3.0 as published
+by the Free Software Foundation. See the LICENSE file for the full text.
+
+================================================================================
+Third-party components
+================================================================================
+
+This repository bundles or depends on the following third-party code:
+
+1. Google private-join-and-compute (a-psi/private-join-and-compute/)
+   - License: Apache License, Version 2.0
+   - Upstream: https://github.com/google/private-join-and-compute
+   - License file: a-psi/private-join-and-compute/LICENSE
+   - Usage: PJC core (two-party private intersection sum) invoked by
+     a-psi/moduleA_psi/ wrappers and our policy-release layer.
+   - Compatibility: Apache-2.0 code may be combined with GPL-3.0 code; the
+     combined work is distributed under GPL-3.0 per the FSF compatibility
+     matrix (https://www.gnu.org/licenses/license-list.html#apache2).
+
+2. Rust crates referenced by bridge/Cargo.toml and locked in bridge/Cargo.lock
+   - Licenses: predominantly MIT and Apache-2.0 (dual-licensed).
+   - Each crate's license is preserved in its source distribution; this
+     repository does not redistribute pre-built crate binaries.
+
+3. Python packages referenced by sse/requirements.txt
+   - Licenses: predominantly Apache-2.0, BSD-3-Clause, MIT, or PSF.
+   - Each package's license is preserved by its upstream distribution; this
+     repository does not redistribute pre-built wheels.
+
+4. Bazel-managed dependencies under
+   a-psi/private-join-and-compute/bazel-private-join-and-compute/external/
+   - These are upstream-managed third-party sources resolved by Bazel
+     (gRPC, Abseil, BoringSSL, Protobuf, etc.). Each retains its own
+     upstream license. They are not first-party code of this project.
+
+================================================================================
+First-party scope (for GPL-3.0 attribution)
+================================================================================
+
+First-party source code (covered by the root LICENSE):
+- bridge/src/                       (Rust)
+- sse/                              (Python, excluding the upstream LICENSE
+                                     header inherited at module level)
+- a-psi/moduleA_psi/                (Python wrappers + policy release)
+- scripts/                          (Python + shell orchestration)
+- services/                         (Python services, e.g., record_recovery)
+- migrations/                       (SQL schema migrations)
+- schemas/                          (JSON schema contracts)
+- docs/                             (project documentation)
+
+Excluded (third-party, not first-party):
+- a-psi/private-join-and-compute/   (Google, Apache-2.0)
+- bridge/target/                    (Cargo build output)
+- sse/.venv/                        (Python virtual environment)
+- node_modules/, .git/, tmp/, out/  (working trees and caches)

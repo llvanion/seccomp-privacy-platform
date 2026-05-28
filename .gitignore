@@ -26,3 +26,33 @@ sse/.venv/
 # Rust/Cargo artifacts
 target/
 bridge/target/
+
+# Local release / build outputs
+dist/
+build/
+console/dist/
+console/node_modules/
+console/.vite/
+
+# Bridge job outputs (run artifacts, not source)
+bridge/out/
+
+# Submission documents (contains personal info / student forms — do not push)
+submit documents/
+
+# LaTeX intermediates + generated PDFs in report/
+report/*.aux
+report/*.log
+report/*.out
+report/*.toc
+report/*.synctex.gz
+report/seccomp_privacy_platform_report.pdf
+report/大创.pdf
+report/项目报告.pdf
+report/结题报告.pdf
+report/结题报告+(1).pdf
+
+# Operator-console node tooling
+node_modules/
+.vite/
+.cache/

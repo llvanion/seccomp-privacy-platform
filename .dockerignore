@@ -1,0 +1,44 @@
+.git
+.github
+.venv
+**/.venv
+**/__pycache__
+**/*.pyc
+
+bridge/target
+bridge/out
+
+a-psi/private-join-and-compute/bazel-*
+a-psi/private-join-and-compute/external
+a-psi/runs
+a-psi/tmp
+a-psi/logs
+
+console/node_modules
+console/dist
+
+tmp
+out
+**/tmp
+**/out
+report/*.pdf
+report/*.aux
+report/*.log
+report/*.out
+report/*.toc
+
+submit documents
+node_modules
+
+# Release artifacts (avoid recursive bundling if rebuilt locally).
+release-artifacts
+release-flat
+seccomp-privacy-platform-*.tar.gz
+seccomp-privacy-platform-*.zip
+bridge-*-unknown-linux-*.tar.gz
+bridge-*-pc-windows-*.zip
+bridge-*-apple-darwin*.tar.gz
+*.sha256
+
+# Backup of the docx form
+submit documents/*.bak

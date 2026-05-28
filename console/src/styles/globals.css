@@ -1,0 +1,102 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  color-scheme: dark;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  font-feature-settings: "cv11", "ss01", "ss03";
+  -webkit-font-smoothing: antialiased;
+  background-image:
+    radial-gradient(1200px 600px at 100% 0%, rgba(31, 143, 255, 0.06), transparent 60%),
+    radial-gradient(900px 400px at 0% 100%, rgba(55, 214, 122, 0.04), transparent 60%);
+  background-attachment: fixed;
+}
+
+::selection {
+  background: rgba(94, 200, 255, 0.32);
+}
+
+@layer base {
+  * {
+    border-color: theme(colors.line.subtle);
+  }
+  h1,
+  h2,
+  h3,
+  h4 {
+    @apply text-ink font-semibold tracking-tight;
+  }
+}
+
+@layer components {
+  .panel {
+    @apply rounded-card bg-bg-panel border border-line shadow-card;
+  }
+  .panel-soft {
+    @apply rounded-card bg-bg-panel/80 border border-line-subtle backdrop-blur-sm;
+  }
+  .pill {
+    @apply inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-2xs font-semibold uppercase tracking-wide;
+  }
+  .pill-ok {
+    @apply pill bg-accent-ok/15 text-accent-ok;
+  }
+  .pill-warn {
+    @apply pill bg-accent-warn/15 text-accent-warn;
+  }
+  .pill-err {
+    @apply pill bg-accent-err/15 text-accent-err;
+  }
+  .pill-info {
+    @apply pill bg-brand/15 text-brand;
+  }
+  .pill-muted {
+    @apply pill bg-ink-dim/15 text-ink-muted;
+  }
+  .field-label {
+    @apply text-2xs uppercase tracking-wider text-ink-muted font-semibold;
+  }
+  .data-grid {
+    @apply text-sm w-full border-collapse;
+  }
+  .data-grid th {
+    @apply text-left text-2xs font-semibold uppercase tracking-wider text-ink-muted bg-bg-elevated px-3 py-2 border-b border-line;
+  }
+  .data-grid td {
+    @apply px-3 py-2 border-b border-line-subtle align-top;
+  }
+  .data-grid tr:hover td {
+    @apply bg-bg-elevated/40;
+  }
+  .focus-ring {
+    @apply focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/70 focus-visible:ring-offset-2 focus-visible:ring-offset-bg-panel;
+  }
+}
+
+@keyframes shimmer {
+  0% {
+    background-position: -800px 0;
+  }
+  100% {
+    background-position: 800px 0;
+  }
+}
+.shimmer {
+  background: linear-gradient(
+    to right,
+    rgba(255, 255, 255, 0.04) 8%,
+    rgba(255, 255, 255, 0.08) 18%,
+    rgba(255, 255, 255, 0.04) 33%
+  );
+  background-size: 1600px 100%;
+  animation: shimmer 1.6s linear infinite;
+}

@@ -1,0 +1,28 @@
+# Quick-start compose file for the released seccomp-privacy-platform image.
+#
+# Build locally:
+#   docker build -t seccomp-privacy-platform:dev .
+#   IMAGE=seccomp-privacy-platform:dev docker compose -f docker-compose.release.yml up --build
+#
+# Pull a tagged release (after `git tag v... && git push --tags`):
+#   IMAGE=ghcr.io/<owner>/seccomp-privacy-platform:v0.1.0 \
+#     docker compose -f docker-compose.release.yml up
+
+services:
+  platform:
+    image: ${IMAGE:-seccomp-privacy-platform:dev}
+    container_name: seccomp-privacy-platform
+    environment:
+      - BRIDGE_LOG=info
+      - SECCOMP_HOME=/opt/seccomp/platform
+    volumes:
+      - platform-state:/var/lib/seccomp
+      - platform-logs:/var/log/seccomp
+    # Default CMD runs the live SSE-backed demo end-to-end inside the image.
+    # Override to drop into a shell for ad-hoc operator work:
+    #   docker compose -f docker-compose.release.yml run --rm platform bash
+    command: ["bash", "scripts/run_live_sse_bridge_demo.sh"]
+
+volumes:
+  platform-state: {}
+  platform-logs: {}
