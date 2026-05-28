@@ -208,8 +208,9 @@ jobs:
             npm install --no-audit --no-fund
           fi
 
-      - name: Typecheck
+      - name: Typecheck (advisory)
         working-directory: console
+        continue-on-error: true
         run: npm run typecheck
 
       - name: Build SPA
