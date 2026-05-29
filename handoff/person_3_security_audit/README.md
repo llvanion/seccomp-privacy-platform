@@ -23,10 +23,10 @@ This pack intentionally excludes completed scale work and local-only work.
 
 | Task | People needed | Person 3 role |
 | --- | --- | --- |
-| K3 external pen test | Person 1 + Person 2 + Person 3 + external tester | security owner, tester interface, report owner |
-| Recovery-service boundary test | Person 2 + Person 3 | run malformed/replay/auth tests and record findings |
-| Dashboard/API boundary test | Person 1 + Person 3 | test authz and request workflow if exposed |
-| Live external-anchor drill if credentials exist | Person 1 + Person 3 | verify S3/Rekor publish evidence |
+| K3 external pen test | Person 1 + Person 2 + Person 3 + external tester | Own security scope, coordinate with tester, and publish the report evidence |
+| Recovery-service boundary test | Person 2 + Person 3 | Run malformed/replay/auth tests and record findings |
+| Dashboard/API boundary test | Person 1 + Person 3 | Test authorization and request workflow if exposed |
+| Live external-anchor drill if credentials exist | Person 1 + Person 3 | Verify S3/Rekor publish evidence |
 
 ## Setup
 
