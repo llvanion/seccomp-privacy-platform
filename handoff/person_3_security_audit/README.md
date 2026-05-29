@@ -181,7 +181,7 @@ For every finding:
 ## Handoff Criteria
 
 - Security scope is approved.
-- Internal K3 pre-test gates are schema-valid.
+- Internal K3 pre-test gates produce schema-valid evidence.
 - External pen-test report or internal security test report is stored or linked.
 - Critical findings are fixed or explicitly accepted as risk.
-- Live S3/Rekor drills are completed or explicitly marked skipped with reason.
+- Live S3/Rekor drills are completed or explicitly marked as skipped with reason.
