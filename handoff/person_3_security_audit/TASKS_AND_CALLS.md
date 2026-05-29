@@ -1,8 +1,6 @@
 # Person 3 Tasks And Calls
 
-Person 3 owns security scope, internal security gates, audit verification, and final finding evidence.
 
-Run everything from the repository root.
 
 ## Script
 
