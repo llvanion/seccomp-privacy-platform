@@ -15,9 +15,9 @@ Goals:
 - Run internal pre-test gates that directly support K3.
 - Package final security evidence under `tmp/team_evidence/person_3/`.
 
-Use [docs/team/TEAM_COLLABORATION_AND_REPORTING_PLAN.md](/home/llvanion/Desktop/seccomp-privacy-platform/docs/team/TEAM_COLLABORATION_AND_REPORTING_PLAN.md) as the shared three-person plan for target readiness, evidence packaging, and pre/final report structure.
+Use [docs/team/TEAM_COLLABORATION_AND_REPORTING_PLAN.md](/home/llvanion/Desktop/seccomp-privacy-platform/docs/team/TEAM_COLLABORATION_AND_REPORTING_PLAN.md) as the shared three-person plan. It defines target readiness, evidence packaging, and pre/final report structure.
 
-This pack intentionally excludes completed scale and local-only work.
+This pack intentionally excludes completed scale work and local-only work.
 
 ## Unfinished Multi-Person Tasks
 
