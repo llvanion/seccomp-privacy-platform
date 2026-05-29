@@ -10,6 +10,6 @@ Use this file to track Person 3 security-test evidence, command results, and ext
 
 - `tmp/team_evidence/person_3/audit_tamper_resistance.json`
 - `tmp/team_evidence/person_3/http_malformed_input_gate.json`
-- Planned/live S3 Object Lock report.
-- Planned/live Rekor report.
-- External pen-test scope and final report link.
+- Planned or live S3 Object Lock report.
+- Planned or live Rekor report.
+- Approved external pen-test scope and final report link.
