@@ -48,7 +48,7 @@ Do not start external testing until Person 1 approves the scope and Person 2 con
 
 ## Internal Pre-Test Gates
 
-These are not the external pen test itself; they are local evidence that the existing defensive checks still work before the test window.
+These commands are not the external pen test. They provide local evidence that the existing defensive checks still work before the test window.
 
 ```bash
 python3 scripts/seal_audit_artifact.py \
@@ -66,7 +66,7 @@ python3 scripts/check_http_malformed_input_gate.py \
   --output tmp/team_evidence/person_3/http_malformed_input_gate.json
 ```
 
-Validate:
+Validate the generated evidence against the checked-in schemas:
 
 ```bash
 python3 scripts/validate_json_contract.py \
