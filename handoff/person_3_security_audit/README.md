@@ -163,6 +163,8 @@ python3 scripts/publish_external_audit_anchor.py \
 
 For every finding:
 
+
+
 1. Assign severity.
 2. Record target, request, timestamp, and reproduction steps.
 3. Ask Person 1 for owner assignment.
