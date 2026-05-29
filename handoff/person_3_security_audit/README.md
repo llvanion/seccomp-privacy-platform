@@ -169,7 +169,7 @@ For every finding:
 4. Ask Person 2 for service logs if infrastructure-related.
 5. Mark final disposition: `fixed`, `accepted risk`, or `not reproducible`.
 
-## Source Documents
+## Source 
 
 - `docs/PRODUCTION_READINESS_GUIDEBOOK.md`
 - `docs/THREAT_MODEL_AND_LEAKAGE_MODEL.md`
