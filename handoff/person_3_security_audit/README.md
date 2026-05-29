@@ -2,14 +2,14 @@
 
 ## Scope
 
-Owner: Person 3
+Owner: Person 3.
 
-Machines:
+Primary workstations:
 
 - PC-5: security test runner / external-audit workstation.
 - Shared targets: PC-2 from Person 1 and PC-3/PC-4 from Person 2.
 
-Goal:
+Goals:
 
 - Own the unfinished multi-person security task: K3 external/security test.
 - Run internal pre-test gates that directly support K3.
@@ -187,4 +187,3 @@ For every finding:
 - External pen-test report or internal security test report is stored or linked.
 - Critical findings are fixed or explicitly accepted as risk.
 - Live S3/Rekor drills are completed or explicitly marked skipped with reason.
-
