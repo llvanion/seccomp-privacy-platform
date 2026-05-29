@@ -1,5 +1,7 @@
 # Security Test Scope
 
+Complete this template before any external testing starts. Person 1 must approve the scope and Person 2 must confirm target readiness.
+
 ## Dates
 
 - Start:
