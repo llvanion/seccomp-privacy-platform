@@ -166,4 +166,9 @@ The schema is frozen and validated by `scripts/validate_bridge_job.py` before PJ
 
 ## 11. Summary
 
-The Rust bridge module is small (single-file), well-scoped, and handles the critical HMAC tokenization step correctly. The `join_token` function is the core security primitive and is sound. Audit records are comprehensive and include SHA-256 hashes of all input/output files plus the `job_meta.json`. The production mode gate correctly prevents CLI-flag secret injection. The main remaining limitations are the basic phone normalizer and the fact that `dedup_policy` is not validated in Rust (only in the downstream Python validator).
+The Rust bridge module is intentionally small, single-file, and clearly scoped. Its most security-sensitive responsibility is HMAC-based tokenization, and the core `join_token` primitive is implemented correctly. The module also provides strong auditability: audit records include SHA-256 hashes for all input files, output files, and `job_meta.json`, which helps support later integrity checks and reproducibility.
+
+The production-mode guard is also well designed because it prevents secrets from being passed through CLI flags, reducing the risk of accidental secret exposure through shell history, process listings, or logs.
+
+The main remaining limitations are relatively contained. First, the phone-number normalizer is still basic and may not handle all real-world formats robustly. Second, `dedup_policy` is not validated directly inside the Rust bridge; instead, validation is deferred to the downstream Python validator. This is acceptable for the current pipeline, but moving or duplicating this validation into the Rust layer would make the bridge more self-contained and reduce reliance on downstream enforcement.
+

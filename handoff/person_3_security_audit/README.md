@@ -180,18 +180,9 @@ For every finding:
 
 ## Handoff Criteria
 
-* Security scope is approved and documented, including in-scope services, APIs, data flows, trust boundaries, and explicitly out-of-scope items.
-* Internal K3 pre-test gates are completed and schema-valid, including audit-chain validation, malformed-input checks, access-control checks, and JSON contract validation.
-* External pen-test report or internal security test report is stored or linked, with test date, tester, environment, commit hash, and tested endpoints clearly recorded.
-* Critical and high-severity findings are fixed, retested, and linked to evidence, or explicitly accepted as risk with owner, reason, mitigation, and expiration/review date.
-* Medium and low-severity findings are triaged, assigned an owner, and either fixed, deferred with reason, or added to the follow-up backlog.
-* Live S3/Rekor drills are completed or explicitly marked skipped with reason, including whether evidence upload, transparency-log submission, and verification steps were successful.
-* All security evidence is stored under the agreed evidence directory, including logs, reports, command outputs, schema validation results, and audit-chain artifacts.
-* The final evidence log is updated with timestamp, environment, command, output artifact path, result, and short conclusion for each validation step.
-* No unexplained local-only changes remain before handoff; `git status` is reviewed and only intended tracked/untracked files are committed or documented.
-* Required runtime secrets, tokens, and credentials are not committed to the repository, and secret handling assumptions are documented.
-* The handoff README includes the exact reproduction commands for the latest validation run.
-* The receiving person can rerun the documented checks from a clean checkout and obtain the same pass/fail result.
-* Any skipped, flaky, or environment-dependent checks are clearly marked with reason, impact, and recommended next action.
-* Final handoff status is explicitly marked as `ready`, `blocked`, or `ready with accepted risks`.
+- Security scope is approved.
+- Internal K3 pre-test gates are schema-valid.
+- External pen-test report or internal security test report is stored or linked.
+- Critical findings are fixed or explicitly accepted as risk.
+- Live S3/Rekor drills are completed or explicitly marked skipped with reason.
 
