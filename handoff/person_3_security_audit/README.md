@@ -163,13 +163,11 @@ python3 scripts/publish_external_audit_anchor.py \
 
 For every finding:
 
-
-
 1. Assign severity.
 2. Record target, request, timestamp, and reproduction steps.
 3. Ask Person 1 for owner assignment.
 4. Ask Person 2 for service logs if infrastructure-related.
-5. Mark final disposition: `fixed`, `accepted risk`, or `not reproducible`.
+5. Record final disposition: `fixed`, `accepted risk`, or `not reproducible`.
 
 ## Source Documents
 
