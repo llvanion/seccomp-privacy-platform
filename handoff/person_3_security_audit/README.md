@@ -97,7 +97,7 @@ Out of scope unless explicitly approved:
 
 ## External Anchor Live Drill
 
-This is only needed if credentials/endpoints exist. Otherwise mark `skipped` with reason.
+Run the live drill only when credentials and endpoints exist. Otherwise, record it as `skipped` with the reason.
 
 Create a local anchor file:
 
@@ -112,7 +112,7 @@ python3 scripts/archive_audit_bundle.py \
   --anchor-key-env SECCOMP_AUDIT_ARCHIVE_ANCHOR_KEY
 ```
 
-Planned S3/Rekor reports, no external credentials:
+Planned S3/Rekor reports for environments without external credentials:
 
 ```bash
 python3 scripts/publish_external_audit_anchor.py \
