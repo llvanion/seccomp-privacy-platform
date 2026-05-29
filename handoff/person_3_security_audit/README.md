@@ -30,7 +30,7 @@ This pack intentionally excludes completed scale work and local-only work.
 
 ## Setup
 
-Run from repo root:
+From the repository root, create the evidence workspace and seed the working documents:
 
 ```bash
 mkdir -p tmp/team_evidence/person_3
@@ -38,13 +38,13 @@ cp handoff/person_3_security_audit/EVIDENCE_LOG.md tmp/team_evidence/person_3/EV
 cp handoff/person_3_security_audit/SECURITY_TEST_SCOPE_TEMPLATE.md tmp/team_evidence/person_3/SECURITY_TEST_SCOPE.md
 ```
 
-Fill and get approval for:
+Fill this file and get approval before testing:
 
 ```text
 tmp/team_evidence/person_3/SECURITY_TEST_SCOPE.md
 ```
 
-Do not start external testing before Person 1 approves the scope and Person 2 confirms target readiness.
+Do not start external testing until Person 1 approves the scope and Person 2 confirms target readiness.
 
 ## Internal Pre-Test Gates
 
