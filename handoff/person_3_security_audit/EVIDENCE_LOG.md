@@ -2,9 +2,9 @@
 
 Use this file to track Person 3 security-test evidence, command results, and external-audit artifacts.
 
-| Time UTC | Machine | Area | Command/Test | Output file | Status | Notes |
+| Time (UTC) | Machine | Area | Command or test | Output file | Result | Notes |
 | --- | --- | --- | --- | --- | --- | --- |
-|  | PC-5 | K3/K1/K2 |  |  | pass/fail/skipped |  |
+|  | PC-5 | K3/K1/K2 |  |  | pass / fail / skipped |  |
 
 ## Required Attachments
 
