@@ -1,4 +1,6 @@
-# Person 3 Evidence Log
+# Person 3 Evidence Log（证据记录）
+
+Use this file to track Person 3 security-test evidence, command results, and external-audit artifacts.
 
 | Time UTC | Machine | Area | Command/Test | Output file | Status | Notes |
 | --- | --- | --- | --- | --- | --- | --- |
