@@ -2,7 +2,7 @@
 
 Person 3 owns security scope, internal security gates, audit verification, and final finding evidence.
 
-Run everything from the repository root.
+Run all commands from the repository root.
 
 ## Script
 
@@ -19,7 +19,7 @@ Default evidence directory:
 tmp/team_evidence/person_3
 ```
 
-Override it with:
+Override the evidence directory when a separate run needs isolated outputs:
 
 ```bash
 PERSON3_EVIDENCE_DIR=tmp/team_evidence/person_3_k3 \
@@ -30,8 +30,8 @@ PERSON3_EVIDENCE_DIR=tmp/team_evidence/person_3_k3 \
 
 | Mode | Purpose | Main outputs |
 | --- | --- | --- |
-| `prepare` | Create evidence directory, seed `EVIDENCE_LOG.md`, copy security scope template | `SECURITY_TEST_SCOPE.md`, `FINDINGS.md` |
-| `pretest` | Run local malformed-input and audit-tamper evidence | `http_malformed_input_gate.json`, `audit_tamper_resistance.json` |
+| `prepare` | Create the evidence directory, seed `EVIDENCE_LOG.md`, and copy the security scope template | `SECURITY_TEST_SCOPE.md`, `FINDINGS.md` |
+| `pretest` | Generate local malformed-input and audit-tamper evidence | `http_malformed_input_gate.json`, `audit_tamper_resistance.json` |
 | `external-anchor-planned` | Produce planned S3 Object Lock and Rekor reports without external credentials | `s3_worm_planned.json`, `rekor_planned.json` |
 | `gates` | Run repo-side production/security gate scripts for S1/S2/S6/S7 evidence | gate logs and evidence directories |
 | `all` | Run `prepare`, `pretest`, `external-anchor-planned`, and `gates` | all local security evidence |
@@ -44,7 +44,7 @@ PERSON3_EVIDENCE_DIR=tmp/team_evidence/person_3_k3 \
 tmp/sse_bridge_pipeline_demo/audit_chain.json
 ```
 
-Override it when Person 1 gives you a fresh run:
+Override it when Person 1 provides a fresh run:
 
 ```bash
 PERSON3_AUDIT_CHAIN=tmp/live_sse_bridge_demo/run-20260515/audit_chain.json \
@@ -52,7 +52,7 @@ PERSON3_JOB_ID=live_demo_job \
   bash handoff/person_3_security_audit/run_person_3.sh pretest
 ```
 
-## External Testing Rule
+## External Testing Rules
 
 Do not start external testing until:
 
