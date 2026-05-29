@@ -90,10 +90,10 @@ Minimum target scope:
 
 Out of scope unless explicitly approved:
 
-- destructive data deletion
-- production tenant data
-- AWS account-wide testing outside the named S3 bucket
-- public Rekor load testing
+- Destructive data deletion.
+- Production tenant data.
+- AWS account-wide testing outside the named S3 bucket.
+- Public Rekor load testing.
 
 ## External Anchor Live Drill
 
