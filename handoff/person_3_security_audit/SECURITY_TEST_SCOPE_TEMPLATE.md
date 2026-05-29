@@ -29,8 +29,17 @@
 
 ## Evidence Required
 
-- Tooling summary.
-- Finding list with severity.
-- Reproduction steps.
-- Logs or request IDs.
-- Accepted-risk notes for unresolved findings.
+* Tooling summary, including tools used, versions, configuration, test environment, and any known limitations.
+* Tested commit hash, branch name, runtime environment, deployment target, and test timestamp.
+* Security scope, including in-scope endpoints, services, data flows, trust boundaries, and explicitly excluded areas.
+* Finding list with severity, affected component, impact, likelihood, status, owner, and final disposition.
+* Reproduction steps for each finding, including commands, request payloads, expected behavior, and observed behavior.
+* Logs, request IDs, job IDs, trace IDs, audit-chain IDs, or other identifiers needed to reproduce and verify each result.
+* Evidence artifacts, including screenshots, command outputs, JSON reports, audit logs, schema validation results, and generated files.
+* Validation results for fixed findings, including retest commands, retest timestamp, and pass/fail conclusion.
+* Accepted-risk notes for unresolved findings, including reason for acceptance, mitigation plan, responsible owner, and review/expiration date.
+* False-positive or not-reproducible notes, including why the issue was dismissed and what evidence supports that decision.
+* Residual risks and assumptions that remain after testing.
+* Follow-up actions, prioritized by severity and operational impact.
+* Final security handoff conclusion, marked as `pass`, `blocked`, or `pass with accepted risks`.
+
