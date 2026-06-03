@@ -7,6 +7,8 @@
   "require_privacy_budget": true,
   "budget_ledger_path": "tmp/privacy_budget_ledger.jsonl",
   "duplicate_query_denied": true,
+  "require_public_report_redaction": true,
+  "require_pjc_evidence_merge": true,
   "allowed_deny_reason_codes": [
     "below_k",
     "below_min_rows",

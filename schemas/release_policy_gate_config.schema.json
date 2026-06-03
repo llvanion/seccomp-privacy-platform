@@ -13,6 +13,8 @@
     "require_privacy_budget": { "type": "boolean" },
     "budget_ledger_path": { "type": ["string", "null"] },
     "duplicate_query_denied": { "type": "boolean" },
+    "require_public_report_redaction": { "type": "boolean" },
+    "require_pjc_evidence_merge": { "type": "boolean" },
     "allowed_deny_reason_codes": {
       "type": "array",
       "minItems": 1,

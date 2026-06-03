@@ -1,0 +1,88 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "privacy_budget_approval_decision/v1",
+  "title": "Privacy budget approval decision JSONL record",
+  "type": "object",
+  "required": [
+    "schema",
+    "created_at_utc",
+    "action",
+    "status",
+    "request_id",
+    "actor",
+    "caller",
+    "tenant_id",
+    "dataset_id",
+    "purpose",
+    "query_fingerprint",
+    "query_payload_sha256",
+    "reason",
+    "public_report_sha256",
+    "budget_consumed"
+  ],
+  "properties": {
+    "schema": {
+      "const": "privacy_budget_approval_decision/v1"
+    },
+    "created_at_utc": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "action": {
+      "enum": ["approve", "reject", "expire", "consume"]
+    },
+    "status": {
+      "enum": ["approved", "rejected", "expired", "consumed"]
+    },
+    "request_id": {
+      "type": "string",
+      "pattern": "^pba_[0-9a-f]{24}$"
+    },
+    "actor": {
+      "type": "string",
+      "minLength": 1
+    },
+    "caller": {
+      "type": "string"
+    },
+    "tenant_id": {
+      "type": ["string", "null"]
+    },
+    "dataset_id": {
+      "type": ["string", "null"]
+    },
+    "purpose": {
+      "type": ["string", "null"]
+    },
+    "job_id": {
+      "type": ["string", "null"]
+    },
+    "consuming_job_id": {
+      "type": ["string", "null"]
+    },
+    "query_fingerprint": {
+      "type": ["string", "null"]
+    },
+    "query_payload_sha256": {
+      "type": "string"
+    },
+    "reason": {
+      "type": "string"
+    },
+    "expires_at_utc": {
+      "type": ["string", "null"],
+      "format": "date-time"
+    },
+    "public_report_sha256": {
+      "type": ["string", "null"]
+    },
+    "budget_consumed": {
+      "type": "boolean"
+    },
+    "consuming_event_id": {
+      "type": ["integer", "null"],
+      "minimum": 1
+    }
+  },
+  "additionalProperties": false
+}

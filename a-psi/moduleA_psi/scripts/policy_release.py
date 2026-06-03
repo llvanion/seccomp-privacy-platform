@@ -5,6 +5,8 @@ import json
 import math
 import os
 import random as _random
+import sqlite3
+import time
 import urllib.error
 import urllib.request
 from dataclasses import dataclass
@@ -144,6 +146,26 @@ def append_jsonl(path: str, record: Dict[str, Any]) -> None:
     ensure_dir(os.path.dirname(path) or ".")
     with open(path, "a", encoding="utf-8") as f:
         f.write(json.dumps(record, ensure_ascii=False) + "\n")
+
+
+def json_pretty_bytes(record: Dict[str, Any]) -> bytes:
+    return (json.dumps(record, ensure_ascii=False, indent=2) + "\n").encode("utf-8")
+
+
+def write_json_atomic(path: str, record: Dict[str, Any]) -> None:
+    ensure_dir(os.path.dirname(path) or ".")
+    tmp_path = f"{path}.tmp.{os.getpid()}"
+    with open(tmp_path, "wb") as f:
+        f.write(json_pretty_bytes(record))
+    os.replace(tmp_path, path)
+
+
+def json_payload_sha256(record: Dict[str, Any]) -> str:
+    return sha256_hex_bytes(json_pretty_bytes(record))
+
+
+def random_hex(nbytes: int = 12) -> str:
+    return os.urandom(nbytes).hex()
 
 
 def cents_to_eur_str(cents: int) -> str:
@@ -418,6 +440,726 @@ def _load_privacy_budget_records(
     return records
 
 
+def default_privacy_budget_store_path(ledger_path: Optional[str]) -> Optional[str]:
+    if not ledger_path:
+        return None
+    return os.path.abspath(ledger_path) + ".sqlite"
+
+
+def resolve_privacy_budget_store_path(args: argparse.Namespace) -> Optional[str]:
+    if args.privacy_budget_disable_transactional_store:
+        return None
+    if args.privacy_budget_store:
+        return os.path.abspath(args.privacy_budget_store)
+    return default_privacy_budget_store_path(args.privacy_budget_ledger)
+
+
+def privacy_scope_key(
+    *,
+    caller: str,
+    tenant_id: Optional[str],
+    dataset_id: Optional[str],
+    purpose: Optional[str],
+) -> str:
+    payload = {
+        "caller": caller,
+        "tenant_id": tenant_id,
+        "dataset_id": dataset_id,
+        "purpose": purpose,
+    }
+    return canonical_query_signature(payload)
+
+
+def privacy_budget_ledger_record(
+    *,
+    policy_version: str,
+    job_id: Optional[str],
+    caller: str,
+    tenant_id: Optional[str],
+    dataset_id: Optional[str],
+    purpose: Optional[str],
+    window: Dict[str, Optional[str]],
+    bucket: Optional[str],
+    value_mode: Optional[str],
+    threshold_k: int,
+    privacy_budget: Dict[str, Any],
+    policy_out: Dict[str, Any],
+    metrics: Dict[str, Optional[int]],
+    public_report_path: str,
+    public_report_sha256: Optional[str] = None,
+) -> Dict[str, Any]:
+    consumed = policy_out.get("decision") == "allow" and privacy_budget.get("decision") == "allow"
+    return {
+        "schema": "privacy_budget_ledger/v1",
+        "ts_utc": utc_now_iso(),
+        "policy_version": policy_version,
+        "job_id": job_id,
+        "correlation_id": job_id,
+        "caller": caller,
+        "tenant_id": tenant_id,
+        "dataset_id": dataset_id,
+        "purpose": purpose,
+        "window": window,
+        "bucket": bucket,
+        "value_mode": value_mode,
+        "threshold_k": threshold_k,
+        "query_fingerprint": privacy_budget.get("query_fingerprint"),
+        "query_payload_sha256": canonical_query_signature(privacy_budget.get("query_payload") or {}),
+        "decision": policy_out.get("decision"),
+        "reason_code": policy_out.get("reason_code"),
+        "reason": policy_out.get("reason"),
+        "abuse_signal": privacy_budget.get("abuse_signal"),
+        "matched_prior_fingerprint": privacy_budget.get("matched_prior_fingerprint"),
+        "matched_prior_job_id": privacy_budget.get("matched_prior_job_id"),
+        "matched_prior_relation": privacy_budget.get("matched_prior_relation"),
+        "budget": {
+            "limit": privacy_budget.get("budget_limit"),
+            "cost": privacy_budget.get("budget_cost"),
+            "used_before": privacy_budget.get("budget_used_before"),
+            "used_after": privacy_budget.get("budget_used_after") if consumed else privacy_budget.get("budget_used_before"),
+            "consumed": consumed,
+        },
+        "parsed_metrics": metrics,
+        "public_report_sha256": public_report_sha256 if public_report_sha256 is not None else (sha256_file(public_report_path) if os.path.exists(public_report_path) else None),
+    }
+
+
+def privacy_budget_record_sha256(record: Dict[str, Any]) -> str:
+    payload = json.dumps(record, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+    return sha256_hex_str(payload)
+
+
+def approval_is_expired(expires_at_utc: Optional[str]) -> bool:
+    if not expires_at_utc:
+        return False
+    try:
+        return parse_iso8601_utc(expires_at_utc) <= utc_now()
+    except Exception:
+        return True
+
+
+class PrivacyBudgetStore:
+    def __init__(self, store_path: Optional[str]) -> None:
+        self.store_path = os.path.abspath(store_path) if store_path else None
+        self.conn: Optional[sqlite3.Connection] = None
+        self._transaction_open = False
+
+    @property
+    def enabled(self) -> bool:
+        return bool(self.store_path)
+
+    def __enter__(self) -> "PrivacyBudgetStore":
+        if not self.store_path:
+            return self
+        ensure_dir(os.path.dirname(self.store_path) or ".")
+        self.conn = sqlite3.connect(self.store_path, timeout=30.0, isolation_level=None)
+        self.conn.row_factory = sqlite3.Row
+        self.conn.execute("PRAGMA foreign_keys = ON")
+        self.conn.execute("PRAGMA busy_timeout = 30000")
+        try:
+            self.conn.execute("PRAGMA journal_mode = WAL")
+        except sqlite3.OperationalError as exc:
+            if "locked" not in str(exc).lower():
+                raise
+        self._with_lock_retry(self._init_schema)
+        return self
+
+    def __exit__(self, exc_type, exc, tb) -> bool:
+        if self.conn is not None:
+            if self._transaction_open:
+                self.conn.execute("ROLLBACK")
+                self._transaction_open = False
+            self.conn.close()
+        return False
+
+    def _init_schema(self) -> None:
+        assert self.conn is not None
+        self.conn.executescript(
+            """
+            CREATE TABLE IF NOT EXISTS privacy_budget_consumption_events (
+              id INTEGER PRIMARY KEY,
+              created_at_utc TEXT NOT NULL,
+              updated_at_utc TEXT NOT NULL,
+              scope_key TEXT NOT NULL,
+              caller TEXT NOT NULL,
+              tenant_id TEXT,
+              dataset_id TEXT,
+              purpose TEXT,
+              job_id TEXT,
+              correlation_id TEXT,
+              policy_version TEXT,
+              query_fingerprint TEXT NOT NULL,
+              query_payload_sha256 TEXT NOT NULL,
+              window_start TEXT,
+              window_end TEXT,
+              window_json TEXT NOT NULL,
+              bucket_json TEXT,
+              bucket_key TEXT,
+              value_mode TEXT,
+              threshold_k INTEGER NOT NULL,
+              decision TEXT NOT NULL,
+              reason_code TEXT NOT NULL,
+              reason TEXT NOT NULL,
+              abuse_signal TEXT,
+              matched_prior_fingerprint TEXT,
+              matched_prior_job_id TEXT,
+              matched_prior_relation TEXT,
+              budget_limit REAL,
+              budget_cost REAL,
+              budget_used_before REAL,
+              budget_used_after REAL,
+              budget_consumed INTEGER NOT NULL DEFAULT 0,
+              approval_request_id TEXT,
+              public_report_sha256 TEXT,
+              ledger_path TEXT,
+              status TEXT NOT NULL DEFAULT 'committed',
+              failure_reason TEXT,
+              source_record_sha256 TEXT,
+              payload_json TEXT NOT NULL
+            );
+            CREATE TABLE IF NOT EXISTS privacy_budget_approval_events (
+              id INTEGER PRIMARY KEY,
+              created_at_utc TEXT NOT NULL,
+              updated_at_utc TEXT NOT NULL,
+              request_id TEXT NOT NULL UNIQUE,
+              status TEXT NOT NULL,
+              caller TEXT NOT NULL,
+              tenant_id TEXT,
+              dataset_id TEXT,
+              purpose TEXT,
+              job_id TEXT,
+              correlation_id TEXT,
+              policy_version TEXT,
+              query_fingerprint TEXT NOT NULL,
+              query_payload_sha256 TEXT NOT NULL,
+              matched_prior_fingerprint TEXT,
+              matched_prior_job_id TEXT,
+              matched_prior_relation TEXT,
+              requested_at_utc TEXT NOT NULL,
+              decided_at_utc TEXT,
+              decided_by TEXT,
+              decision_reason TEXT,
+              expires_at_utc TEXT,
+              consumed_at_utc TEXT,
+              consumed_by_job_id TEXT,
+              consuming_event_id INTEGER,
+              request_payload_json TEXT NOT NULL,
+              latest_decision_json TEXT
+            );
+            CREATE UNIQUE INDEX IF NOT EXISTS ux_privacy_budget_scope_query_consumed
+              ON privacy_budget_consumption_events(scope_key, query_fingerprint)
+              WHERE budget_consumed = 1 AND decision = 'allow' AND status IN ('reserved', 'committed');
+            CREATE INDEX IF NOT EXISTS idx_privacy_budget_consumption_scope
+              ON privacy_budget_consumption_events(scope_key, created_at_utc);
+            CREATE INDEX IF NOT EXISTS idx_privacy_budget_consumption_job
+              ON privacy_budget_consumption_events(job_id);
+            CREATE INDEX IF NOT EXISTS idx_privacy_budget_consumption_decision
+              ON privacy_budget_consumption_events(decision, reason_code);
+            CREATE UNIQUE INDEX IF NOT EXISTS ux_privacy_budget_consumption_source_record
+              ON privacy_budget_consumption_events(source_record_sha256)
+              WHERE source_record_sha256 IS NOT NULL;
+            CREATE INDEX IF NOT EXISTS idx_privacy_budget_approval_status
+              ON privacy_budget_approval_events(status, updated_at_utc);
+            CREATE INDEX IF NOT EXISTS idx_privacy_budget_approval_scope
+              ON privacy_budget_approval_events(caller, tenant_id, dataset_id, purpose);
+            CREATE INDEX IF NOT EXISTS idx_privacy_budget_approval_query
+              ON privacy_budget_approval_events(query_fingerprint);
+            """
+        )
+
+    @staticmethod
+    def _with_lock_retry(func):
+        last_exc: Optional[Exception] = None
+        for attempt in range(10):
+            try:
+                return func()
+            except sqlite3.OperationalError as exc:
+                if "locked" not in str(exc).lower() and "busy" not in str(exc).lower():
+                    raise
+                last_exc = exc
+                time.sleep(0.05 * (2 ** min(attempt, 5)))
+        if last_exc is not None:
+            raise last_exc
+        return None
+
+    def begin_immediate(self) -> None:
+        if not self.enabled:
+            return
+        assert self.conn is not None
+        self.conn.execute("BEGIN IMMEDIATE")
+        self._transaction_open = True
+
+    def commit(self) -> None:
+        if not self.enabled:
+            return
+        assert self.conn is not None
+        self.conn.execute("COMMIT")
+        self._transaction_open = False
+
+    def rollback(self) -> None:
+        if not self.enabled or not self._transaction_open:
+            return
+        assert self.conn is not None
+        self.conn.execute("ROLLBACK")
+        self._transaction_open = False
+
+    @staticmethod
+    def _bucket_key(bucket: Optional[str]) -> str:
+        return json.dumps(bucket, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+
+    def load_scope_records(
+        self,
+        *,
+        caller: str,
+        tenant_id: Optional[str],
+        dataset_id: Optional[str],
+        purpose: Optional[str],
+    ) -> List[Dict[str, Any]]:
+        if not self.enabled:
+            return []
+        assert self.conn is not None
+        scope_key = privacy_scope_key(caller=caller, tenant_id=tenant_id, dataset_id=dataset_id, purpose=purpose)
+        rows = self.conn.execute(
+            """
+            SELECT payload_json
+            FROM privacy_budget_consumption_events
+            WHERE scope_key = ?
+              AND status IN ('reserved', 'committed')
+            ORDER BY id
+            """,
+            (scope_key,),
+        ).fetchall()
+        return [json.loads(str(row["payload_json"])) for row in rows]
+
+    def insert_approval_request(self, record: Dict[str, Any]) -> None:
+        if not self.enabled:
+            return
+        assert self.conn is not None
+        now = utc_now_iso()
+        self.conn.execute(
+            """
+            INSERT OR IGNORE INTO privacy_budget_approval_events(
+              created_at_utc, updated_at_utc, request_id, status, caller,
+              tenant_id, dataset_id, purpose, job_id, correlation_id,
+              policy_version, query_fingerprint, query_payload_sha256,
+              matched_prior_fingerprint, matched_prior_job_id,
+              matched_prior_relation, requested_at_utc, request_payload_json
+            ) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                record.get("created_at_utc") or now,
+                now,
+                record["request_id"],
+                record["status"],
+                record["caller"],
+                record.get("tenant_id"),
+                record.get("dataset_id"),
+                record.get("purpose"),
+                record.get("job_id"),
+                record.get("correlation_id"),
+                record.get("policy_version"),
+                record.get("query_fingerprint"),
+                record.get("query_payload_sha256"),
+                record.get("matched_prior_fingerprint"),
+                record.get("matched_prior_job_id"),
+                record.get("matched_prior_relation"),
+                record.get("created_at_utc") or now,
+                json.dumps(record, ensure_ascii=False, sort_keys=True),
+            ),
+        )
+
+    def load_approval_request(self, request_id: str) -> Optional[Dict[str, Any]]:
+        if not self.enabled:
+            return None
+        assert self.conn is not None
+        row = self.conn.execute(
+            """
+            SELECT *
+            FROM privacy_budget_approval_events
+            WHERE request_id = ?
+            """,
+            (request_id,),
+        ).fetchone()
+        if row is None:
+            return None
+        payload = json.loads(str(row["request_payload_json"]))
+        latest_decision = None
+        if row["latest_decision_json"]:
+            latest_decision = json.loads(str(row["latest_decision_json"]))
+        return {
+            **payload,
+            "status": row["status"],
+            "decided_at_utc": row["decided_at_utc"],
+            "decided_by": row["decided_by"],
+            "decision_reason": row["decision_reason"],
+            "expires_at_utc": row["expires_at_utc"],
+            "consumed_at_utc": row["consumed_at_utc"],
+            "consumed_by_job_id": row["consumed_by_job_id"],
+            "consuming_event_id": row["consuming_event_id"],
+            "latest_decision": latest_decision,
+        }
+
+    def list_approval_requests(self, *, status: Optional[str] = None) -> List[Dict[str, Any]]:
+        if not self.enabled:
+            return []
+        assert self.conn is not None
+        if status:
+            rows = self.conn.execute(
+                "SELECT request_id FROM privacy_budget_approval_events WHERE status = ? ORDER BY updated_at_utc DESC",
+                (status,),
+            ).fetchall()
+        else:
+            rows = self.conn.execute(
+                "SELECT request_id FROM privacy_budget_approval_events ORDER BY updated_at_utc DESC"
+            ).fetchall()
+        return [
+            item for item in (self.load_approval_request(str(row["request_id"])) for row in rows)
+            if item is not None
+        ]
+
+    def transition_approval_request(
+        self,
+        *,
+        request_id: str,
+        action: str,
+        actor: str,
+        reason: Optional[str] = None,
+        expires_at_utc: Optional[str] = None,
+        consuming_job_id: Optional[str] = None,
+        consuming_event_id: Optional[int] = None,
+        decision_record: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Any]:
+        if not self.enabled:
+            raise RuntimeError("privacy budget approval transition requires transactional store")
+        current = self.load_approval_request(request_id)
+        if current is None:
+            raise RuntimeError(f"privacy budget approval request not found: {request_id}")
+        status = str(current.get("status") or "")
+        now = utc_now_iso()
+        decision_json = json.dumps(decision_record, ensure_ascii=False, sort_keys=True) if decision_record else None
+
+        if action == "approve":
+            if status != "pending_approval":
+                raise RuntimeError(f"approval request is not pending_approval: {status}")
+            if actor and actor == str(current.get("caller") or ""):
+                raise PermissionError("same_identity_self_approval")
+            new_status = "approved"
+            self.conn.execute(
+                """
+                UPDATE privacy_budget_approval_events
+                SET status = ?, updated_at_utc = ?, decided_at_utc = ?,
+                    decided_by = ?, decision_reason = ?, expires_at_utc = ?,
+                    latest_decision_json = ?
+                WHERE request_id = ?
+                """,
+                (new_status, now, now, actor, reason, expires_at_utc, decision_json, request_id),
+            )
+        elif action == "reject":
+            if status != "pending_approval":
+                raise RuntimeError(f"approval request is not pending_approval: {status}")
+            new_status = "rejected"
+            self.conn.execute(
+                """
+                UPDATE privacy_budget_approval_events
+                SET status = ?, updated_at_utc = ?, decided_at_utc = ?,
+                    decided_by = ?, decision_reason = ?, latest_decision_json = ?
+                WHERE request_id = ?
+                """,
+                (new_status, now, now, actor, reason, decision_json, request_id),
+            )
+        elif action == "expire":
+            if status not in {"pending_approval", "approved"}:
+                raise RuntimeError(f"approval request cannot expire from status: {status}")
+            new_status = "expired"
+            self.conn.execute(
+                """
+                UPDATE privacy_budget_approval_events
+                SET status = ?, updated_at_utc = ?, decided_at_utc = ?,
+                    decided_by = ?, decision_reason = ?, expires_at_utc = ?,
+                    latest_decision_json = ?
+                WHERE request_id = ?
+                """,
+                (new_status, now, now, actor, reason, expires_at_utc or now, decision_json, request_id),
+            )
+        elif action == "consume":
+            if status != "approved":
+                raise RuntimeError(f"approval request is not approved: {status}")
+            if approval_is_expired(current.get("expires_at_utc")):
+                raise RuntimeError("privacy budget approval is expired")
+            new_status = "consumed"
+            self.conn.execute(
+                """
+                UPDATE privacy_budget_approval_events
+                SET status = ?, updated_at_utc = ?, consumed_at_utc = ?,
+                    consumed_by_job_id = ?, consuming_event_id = ?,
+                    latest_decision_json = ?
+                WHERE request_id = ?
+                """,
+                (new_status, now, now, consuming_job_id, consuming_event_id, decision_json, request_id),
+            )
+        else:
+            raise ValueError(f"unsupported privacy budget approval action: {action}")
+
+        updated = self.load_approval_request(request_id)
+        assert updated is not None
+        return updated
+
+    def bootstrap_approval_requests(self, queue_path: Optional[str]) -> None:
+        if not self.enabled or not queue_path or not os.path.exists(queue_path):
+            return
+        with open(queue_path, "r", encoding="utf-8") as f:
+            for line in f:
+                raw = line.strip()
+                if not raw:
+                    continue
+                try:
+                    record = json.loads(raw)
+                except Exception:
+                    continue
+                if record.get("schema") == "privacy_budget_approval_request/v1":
+                    self.insert_approval_request(record)
+
+    def bootstrap_approval_decisions(self, decisions_path: Optional[str]) -> None:
+        if not self.enabled or not decisions_path or not os.path.exists(decisions_path):
+            return
+        with open(decisions_path, "r", encoding="utf-8") as f:
+            for line in f:
+                raw = line.strip()
+                if not raw:
+                    continue
+                try:
+                    record = json.loads(raw)
+                except Exception:
+                    continue
+                if record.get("schema") != "privacy_budget_approval_decision/v1":
+                    continue
+                action = str(record.get("action") or "")
+                request_id = str(record.get("request_id") or "")
+                if not request_id:
+                    continue
+                current = self.load_approval_request(request_id)
+                if current is None:
+                    continue
+                if current.get("status") == record.get("status"):
+                    continue
+                try:
+                    self.transition_approval_request(
+                        request_id=request_id,
+                        action=action,
+                        actor=str(record.get("actor") or ""),
+                        reason=record.get("reason"),
+                        expires_at_utc=record.get("expires_at_utc"),
+                        consuming_job_id=record.get("consuming_job_id"),
+                        consuming_event_id=record.get("consuming_event_id"),
+                        decision_record=record,
+                    )
+                except Exception:
+                    continue
+
+    def insert_event(
+        self,
+        *,
+        record: Dict[str, Any],
+        ledger_path: Optional[str],
+        privacy_budget: Dict[str, Any],
+        status: str,
+        public_report_sha256: Optional[str] = None,
+        failure_reason: Optional[str] = None,
+        source_record_sha256: Optional[str] = None,
+        or_ignore: bool = False,
+    ) -> int:
+        if not self.enabled:
+            return 0
+        assert self.conn is not None
+        scope_key = privacy_scope_key(
+            caller=str(record["caller"]),
+            tenant_id=record.get("tenant_id"),
+            dataset_id=record.get("dataset_id"),
+            purpose=record.get("purpose"),
+        )
+        now = utc_now_iso()
+        window = record.get("window") if isinstance(record.get("window"), dict) else {}
+        bucket = record.get("bucket")
+        budget = record.get("budget") if isinstance(record.get("budget"), dict) else {}
+        insert_verb = "INSERT OR IGNORE" if or_ignore else "INSERT"
+        cursor = self.conn.execute(
+            f"""
+            {insert_verb} INTO privacy_budget_consumption_events(
+              created_at_utc, updated_at_utc, scope_key, caller, tenant_id,
+              dataset_id, purpose, job_id, correlation_id, policy_version,
+              query_fingerprint, query_payload_sha256, window_start, window_end,
+              window_json, bucket_json, bucket_key, value_mode, threshold_k,
+              decision, reason_code, reason, abuse_signal,
+              matched_prior_fingerprint, matched_prior_job_id,
+              matched_prior_relation, budget_limit, budget_cost,
+              budget_used_before, budget_used_after, budget_consumed,
+              approval_request_id, public_report_sha256, ledger_path, status,
+              failure_reason, source_record_sha256, payload_json
+            ) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                now,
+                now,
+                scope_key,
+                record["caller"],
+                record.get("tenant_id"),
+                record.get("dataset_id"),
+                record.get("purpose"),
+                record.get("job_id"),
+                record.get("correlation_id"),
+                record.get("policy_version"),
+                record.get("query_fingerprint"),
+                record.get("query_payload_sha256"),
+                window.get("start"),
+                window.get("end"),
+                json.dumps(window, ensure_ascii=False, sort_keys=True),
+                json.dumps(bucket, ensure_ascii=False, sort_keys=True),
+                self._bucket_key(bucket),
+                record.get("value_mode"),
+                int(record.get("threshold_k") or 0),
+                record.get("decision"),
+                record.get("reason_code"),
+                record.get("reason"),
+                record.get("abuse_signal"),
+                record.get("matched_prior_fingerprint"),
+                record.get("matched_prior_job_id"),
+                record.get("matched_prior_relation"),
+                budget.get("limit"),
+                budget.get("cost"),
+                budget.get("used_before"),
+                budget.get("used_after"),
+                1 if budget.get("consumed") is True else 0,
+                privacy_budget.get("approval_request_id"),
+                public_report_sha256,
+                os.path.abspath(ledger_path) if ledger_path else None,
+                status,
+                failure_reason,
+                source_record_sha256,
+                json.dumps(record, ensure_ascii=False, sort_keys=True),
+            ),
+        )
+        return int(cursor.lastrowid)
+
+    def update_event_status(
+        self,
+        event_id: int,
+        *,
+        status: str,
+        record: Optional[Dict[str, Any]] = None,
+        public_report_sha256: Optional[str] = None,
+        failure_reason: Optional[str] = None,
+        source_record_sha256: Optional[str] = None,
+    ) -> None:
+        if not self.enabled or event_id <= 0:
+            return
+        assert self.conn is not None
+        updates = [
+            "updated_at_utc = ?",
+            "status = ?",
+            "public_report_sha256 = ?",
+            "failure_reason = ?",
+        ]
+        params: list[Any] = [utc_now_iso(), status, public_report_sha256, failure_reason]
+        if record is not None:
+            updates.append("payload_json = ?")
+            params.append(json.dumps(record, ensure_ascii=False, sort_keys=True))
+        if source_record_sha256 is not None:
+            updates.append("source_record_sha256 = ?")
+            params.append(source_record_sha256)
+        params.append(event_id)
+        self.conn.execute(
+            f"UPDATE privacy_budget_consumption_events SET {', '.join(updates)} WHERE id = ?",
+            tuple(params),
+        )
+
+    def bootstrap_from_jsonl_ledger(self, ledger_path: Optional[str]) -> None:
+        if not self.enabled or not ledger_path or not os.path.exists(ledger_path):
+            return
+        with open(ledger_path, "r", encoding="utf-8") as f:
+            for line in f:
+                raw = line.strip()
+                if not raw:
+                    continue
+                try:
+                    record = json.loads(raw)
+                except Exception:
+                    continue
+                if record.get("schema") != "privacy_budget_ledger/v1":
+                    continue
+                record_hash = privacy_budget_record_sha256(record)
+                self.insert_event(
+                    record=record,
+                    ledger_path=ledger_path,
+                    privacy_budget={"approval_request_id": None},
+                    status="committed",
+                    public_report_sha256=record.get("public_report_sha256"),
+                    source_record_sha256=record_hash,
+                    or_ignore=True,
+                )
+
+    def write_report_and_commit(
+        self,
+        *,
+        report: Dict[str, Any],
+        out_path: str,
+        operator_report: Optional[Dict[str, Any]],
+        operator_report_path: Optional[str],
+        audit_record: Dict[str, Any],
+        audit_log_path: str,
+        ledger_record: Optional[Dict[str, Any]],
+        ledger_path: Optional[str],
+        event_id: int,
+        approval_request_record: Optional[Dict[str, Any]] = None,
+        approval_queue_path: Optional[str] = None,
+        approval_decision_record: Optional[Dict[str, Any]] = None,
+        approval_decisions_path: Optional[str] = None,
+        approval_consume_request_id: Optional[str] = None,
+    ) -> None:
+        public_report_sha = json_payload_sha256(report)
+        ledger_hash = privacy_budget_record_sha256(ledger_record) if ledger_record else None
+        try:
+            write_json_atomic(out_path, report)
+            if operator_report is not None and operator_report_path:
+                write_json_atomic(operator_report_path, operator_report)
+            if ledger_record is not None and ledger_path:
+                append_jsonl(ledger_path, ledger_record)
+            if approval_request_record is not None and approval_queue_path:
+                append_jsonl(approval_queue_path, approval_request_record)
+            append_jsonl(audit_log_path, audit_record)
+            if approval_decision_record is not None and approval_decisions_path:
+                append_jsonl(approval_decisions_path, approval_decision_record)
+            if approval_consume_request_id and approval_decision_record is not None:
+                self.transition_approval_request(
+                    request_id=approval_consume_request_id,
+                    action="consume",
+                    actor=str(approval_decision_record.get("actor") or "policy_release"),
+                    consuming_job_id=approval_decision_record.get("consuming_job_id"),
+                    consuming_event_id=approval_decision_record.get("consuming_event_id"),
+                    decision_record=approval_decision_record,
+                )
+        except Exception as exc:
+            if event_id:
+                self.update_event_status(
+                    event_id,
+                    status="failed_after_reserve",
+                    record=ledger_record,
+                    public_report_sha256=public_report_sha,
+                    failure_reason=str(exc),
+                )
+                self.commit()
+            raise
+
+        if event_id:
+            self.update_event_status(
+                event_id,
+                status="committed",
+                record=ledger_record,
+                public_report_sha256=public_report_sha,
+                source_record_sha256=ledger_hash,
+            )
+        self.commit()
+
+
 def _load_privacy_budget_config(path: Optional[str]) -> Dict[str, Any]:
     if not path:
         return {}
@@ -512,6 +1254,7 @@ def _window_relation(a: Dict[str, Optional[str]], b: Dict[str, Optional[str]]) -
 def evaluate_privacy_budget(
     *,
     ledger_path: Optional[str],
+    prior_records_override: Optional[List[Dict[str, Any]]] = None,
     caller: str,
     tenant_id: Optional[str],
     dataset_id: Optional[str],
@@ -547,13 +1290,16 @@ def evaluate_privacy_budget(
         bridge_meta=bridge_meta,
     )
     query_fingerprint = canonical_query_signature(payload)
-    prior_records = _load_privacy_budget_records(
-        ledger_path,
-        caller=caller,
-        tenant_id=tenant_id,
-        dataset_id=dataset_id,
-        purpose=purpose,
-    )
+    if prior_records_override is None:
+        prior_records = _load_privacy_budget_records(
+            ledger_path,
+            caller=caller,
+            tenant_id=tenant_id,
+            dataset_id=dataset_id,
+            purpose=purpose,
+        )
+    else:
+        prior_records = prior_records_override
     consumed_records = [
         rec for rec in prior_records
         if rec.get("budget", {}).get("consumed") is True and rec.get("decision") == "allow"
@@ -657,44 +1403,26 @@ def append_privacy_budget_ledger_record(
 ) -> None:
     if not ledger_path or not privacy_budget.get("enabled"):
         return
-    consumed = policy_out.get("decision") == "allow" and privacy_budget.get("decision") == "allow"
-    record = {
-        "schema": "privacy_budget_ledger/v1",
-        "ts_utc": utc_now_iso(),
-        "policy_version": policy_version,
-        "job_id": job_id,
-        "correlation_id": job_id,
-        "caller": caller,
-        "tenant_id": tenant_id,
-        "dataset_id": dataset_id,
-        "purpose": purpose,
-        "window": window,
-        "bucket": bucket,
-        "value_mode": value_mode,
-        "threshold_k": threshold_k,
-        "query_fingerprint": privacy_budget.get("query_fingerprint"),
-        "query_payload_sha256": canonical_query_signature(privacy_budget.get("query_payload") or {}),
-        "decision": policy_out.get("decision"),
-        "reason_code": policy_out.get("reason_code"),
-        "reason": policy_out.get("reason"),
-        "abuse_signal": privacy_budget.get("abuse_signal"),
-        "matched_prior_fingerprint": privacy_budget.get("matched_prior_fingerprint"),
-        "matched_prior_job_id": privacy_budget.get("matched_prior_job_id"),
-        "matched_prior_relation": privacy_budget.get("matched_prior_relation"),
-        "budget": {
-            "limit": privacy_budget.get("budget_limit"),
-            "cost": privacy_budget.get("budget_cost"),
-            "used_before": privacy_budget.get("budget_used_before"),
-            "used_after": privacy_budget.get("budget_used_after") if consumed else privacy_budget.get("budget_used_before"),
-            "consumed": consumed,
-        },
-        "parsed_metrics": metrics,
-        "public_report_sha256": sha256_file(public_report_path) if os.path.exists(public_report_path) else None,
-    }
+    record = privacy_budget_ledger_record(
+        policy_version=policy_version,
+        job_id=job_id,
+        caller=caller,
+        tenant_id=tenant_id,
+        dataset_id=dataset_id,
+        purpose=purpose,
+        window=window,
+        bucket=bucket,
+        value_mode=value_mode,
+        threshold_k=threshold_k,
+        privacy_budget=privacy_budget,
+        policy_out=policy_out,
+        metrics=metrics,
+        public_report_path=public_report_path,
+    )
     append_jsonl(ledger_path, record)
 
 
-def append_privacy_budget_approval_request(
+def build_privacy_budget_approval_request(
     *,
     queue_path: Optional[str],
     policy_version: str,
@@ -711,13 +1439,12 @@ def append_privacy_budget_approval_request(
     policy_out: Dict[str, Any],
     metrics: Dict[str, Optional[int]],
     public_report_path: str,
+    public_report_sha256: Optional[str] = None,
 ) -> Optional[Dict[str, Any]]:
     if not queue_path or not privacy_budget.get("enabled"):
         return None
     if privacy_budget.get("reason_code") != "privacy_budget_near_duplicate":
         return None
-
-    queue_abs = os.path.abspath(queue_path)
     request_basis = {
         "policy_version": policy_version,
         "job_id": job_id,
@@ -764,14 +1491,55 @@ def append_privacy_budget_approval_request(
             "consumed": False,
         },
         "parsed_metrics": metrics,
-        "public_report_sha256": sha256_file(public_report_path) if os.path.exists(public_report_path) else None,
+        "public_report_sha256": public_report_sha256 if public_report_sha256 is not None else (sha256_file(public_report_path) if os.path.exists(public_report_path) else None),
         "approval_recommendation": "manual_review_required",
     }
+    return record
+
+
+def append_privacy_budget_approval_request(
+    *,
+    queue_path: Optional[str],
+    policy_version: str,
+    job_id: Optional[str],
+    caller: str,
+    tenant_id: Optional[str],
+    dataset_id: Optional[str],
+    purpose: Optional[str],
+    window: Dict[str, Optional[str]],
+    bucket: Optional[str],
+    value_mode: Optional[str],
+    threshold_k: int,
+    privacy_budget: Dict[str, Any],
+    policy_out: Dict[str, Any],
+    metrics: Dict[str, Optional[int]],
+    public_report_path: str,
+) -> Optional[Dict[str, Any]]:
+    record = build_privacy_budget_approval_request(
+        queue_path=queue_path,
+        policy_version=policy_version,
+        job_id=job_id,
+        caller=caller,
+        tenant_id=tenant_id,
+        dataset_id=dataset_id,
+        purpose=purpose,
+        window=window,
+        bucket=bucket,
+        value_mode=value_mode,
+        threshold_k=threshold_k,
+        privacy_budget=privacy_budget,
+        policy_out=policy_out,
+        metrics=metrics,
+        public_report_path=public_report_path,
+    )
+    if not record or not queue_path:
+        return None
+    queue_abs = os.path.abspath(queue_path)
     append_jsonl(queue_abs, record)
     return {
-        "request_id": request_id,
+        "request_id": record["request_id"],
         "queue_path": queue_abs,
-        "status": "pending_approval",
+        "status": record["status"],
     }
 
 
@@ -1186,6 +1954,52 @@ def _maybe_write_operator_report(
         json.dump(full_report, f, ensure_ascii=False, indent=2)
 
 
+def build_operator_report_if_needed(
+    *,
+    args,
+    out_path: str,
+    policy_version: str,
+    job_id: Optional[str],
+    caller: str,
+    window: Dict[str, Optional[str]],
+    bucket: Optional[str],
+    value_mode: Optional[str],
+    bridge_meta: Dict[str, Any],
+    input_sizes: Dict[str, Optional[int]],
+    threshold_k: int,
+    rate_limit_out: Dict[str, Any],
+    policy_out: Dict[str, Any],
+    bucket_size: bool = False,
+) -> Tuple[Optional[str], Optional[Dict[str, Any]]]:
+    redacted = bool(args.public_report_redact_operator_fields)
+    explicit = bool(args.operator_report_path)
+    if not redacted and not explicit:
+        return None, None
+    if args.operator_report_path:
+        op_path = args.operator_report_path
+    else:
+        base, _ = os.path.splitext(out_path)
+        op_path = base + ".operator.json"
+    full_report = build_public_report(
+        policy_version=policy_version,
+        job_id=job_id,
+        caller=caller,
+        window=window,
+        bucket=bucket,
+        value_mode=value_mode,
+        bridge_meta=bridge_meta,
+        input_sizes=input_sizes,
+        threshold_k=threshold_k,
+        rate_limit_out=rate_limit_out,
+        policy_out=policy_out,
+        bucket_size=bucket_size,
+        redact_operator_fields=False,
+    )
+    full_report["schema"] = "operator_release_report/v1"
+    full_report["public_report_was_redacted"] = redacted
+    return op_path, full_report
+
+
 def build_audit_record(
     *,
     policy_version: str,
@@ -1257,6 +2071,83 @@ def build_audit_record(
     return record
 
 
+def evaluate_policy_and_budget(
+    *,
+    args: argparse.Namespace,
+    caller: str,
+    privacy_scope: Dict[str, Optional[str]],
+    privacy_budget_scope_resolution: Optional[Dict[str, Any]],
+    effective_privacy_budget_limit: Optional[float],
+    rate_limit_out: Dict[str, Any],
+    query_sig: str,
+    audit_log_path: str,
+    job_id: Optional[str],
+    window: Dict[str, Optional[str]],
+    bucket: Optional[str],
+    value_mode: Optional[str],
+    bridge_meta: Dict[str, Any],
+    metrics: Dict[str, Optional[int]],
+    prior_records_override: Optional[List[Dict[str, Any]]] = None,
+) -> Tuple[Dict[str, Any], Dict[str, Any]]:
+    privacy_budget_out = privacy_budget_default()
+
+    if args.deny_duplicate_query and seen_query_signature(audit_log_path, caller, query_sig):
+        return {
+            "decision": "deny",
+            "reason_code": "duplicate_query",
+            "reason": "duplicate canonical query signature for caller",
+            "released": None,
+        }, privacy_budget_out
+
+    if not rate_limit_out["allowed"]:
+        return {
+            "decision": "deny",
+            "reason_code": "rate_limit_exceeded",
+            "reason": rate_limit_out["reason"],
+            "released": None,
+        }, privacy_budget_out
+
+    privacy_budget_out = evaluate_privacy_budget(
+        ledger_path=args.privacy_budget_ledger,
+        prior_records_override=prior_records_override,
+        caller=caller,
+        tenant_id=privacy_scope["tenant_id"],
+        dataset_id=privacy_scope["dataset_id"],
+        purpose=privacy_scope["purpose"],
+        job_id=job_id,
+        window=window,
+        bucket=bucket,
+        value_mode=value_mode,
+        threshold_k=args.threshold_k,
+        bridge_meta=bridge_meta,
+        budget_limit=effective_privacy_budget_limit,
+        budget_cost=args.privacy_budget_cost,
+        scope_resolution=privacy_budget_scope_resolution,
+    )
+    if privacy_budget_out.get("decision") == "deny":
+        if (
+            args.privacy_budget_approval_queue
+            and privacy_budget_out.get("reason_code") == "privacy_budget_near_duplicate"
+        ):
+            privacy_budget_out = {
+                **privacy_budget_out,
+                "approval_required": True,
+                "approval_queue_path": os.path.abspath(args.privacy_budget_approval_queue),
+            }
+        return {
+            "decision": "deny",
+            "reason_code": privacy_budget_out["reason_code"],
+            "reason": privacy_budget_out["reason"],
+            "released": None,
+        }, privacy_budget_out
+
+    return apply_threshold_policy(
+        metrics, args.threshold_k, args.round_sum_to,
+        dp_epsilon=args.dp_epsilon,
+        dp_sensitivity=args.dp_sensitivity,
+    ), privacy_budget_out
+
+
 # ---------- main ----------
 
 def main() -> None:
@@ -1280,6 +2171,15 @@ def main() -> None:
     ap.add_argument("--deny-duplicate-query", action="store_true", help="Deny an exact repeated canonical query signature for the caller")
     ap.add_argument("--privacy-budget-ledger", default=None,
                     help="Optional JSONL privacy_budget_ledger/v1 path. Enables budget, duplicate, and overlapping-window checks before release.")
+    ap.add_argument("--privacy-budget-store", default=None,
+                    help=(
+                        "Optional SQLite transactional privacy-budget store. "
+                        "Defaults to <privacy-budget-ledger>.sqlite when "
+                        "--privacy-budget-ledger is set. Use --privacy-budget-disable-transactional-store "
+                        "only for legacy JSONL-only compatibility tests."
+                    ))
+    ap.add_argument("--privacy-budget-disable-transactional-store", action="store_true",
+                    help="Disable the SQLite transactional privacy-budget source of truth and use legacy JSONL evaluation only.")
     ap.add_argument("--privacy-budget-config", default=None,
                     help="Optional privacy_budget_config/v1 JSON path. In production mode it selects caller/tenant/dataset/purpose budget scopes.")
     ap.add_argument("--privacy-budget-required", action="store_true",
@@ -1294,6 +2194,16 @@ def main() -> None:
                         "When set, near-duplicate privacy-budget denials are also "
                         "queued for manual review; release still fails closed."
                     ))
+    ap.add_argument("--privacy-budget-approval-decisions", default=None,
+                    help=(
+                        "Optional JSONL privacy_budget_approval_decision/v1 path. "
+                        "Approved near-duplicate releases consume the approval and "
+                        "append a consumed decision record after the release commits."
+                    ))
+    ap.add_argument("--privacy-budget-approval-id", default=None,
+                    help="Approved privacy-budget approval request id to consume for a near-duplicate release.")
+    ap.add_argument("--privacy-budget-approval-actor", default=None,
+                    help="Actor consuming --privacy-budget-approval-id. Defaults to caller when omitted.")
 
     # signed result delivery
     ap.add_argument("--result-callback-url", default=None,
@@ -1343,6 +2253,15 @@ def main() -> None:
 
     args = ap.parse_args()
     started_at = perf_counter()
+
+    if args.privacy_budget_approval_id and not args.privacy_budget_approval_queue:
+        raise SystemExit("policy_release: --privacy-budget-approval-id requires --privacy-budget-approval-queue")
+    if args.privacy_budget_approval_id and not args.privacy_budget_ledger:
+        raise SystemExit("policy_release: --privacy-budget-approval-id requires --privacy-budget-ledger")
+    if args.privacy_budget_approval_id and args.privacy_budget_disable_transactional_store:
+        raise SystemExit("policy_release: --privacy-budget-approval-id requires the transactional privacy-budget store")
+    if args.privacy_budget_approval_id and not args.privacy_budget_approval_decisions:
+        raise SystemExit("policy_release: --privacy-budget-approval-id requires --privacy-budget-approval-decisions")
 
     # Fail-closed DP enforcement (A.11). If the operator asked for DP-enforced
     # mode, refuse to run unless both knobs are present and positive. We do
@@ -1516,166 +2435,283 @@ def main() -> None:
         effective_privacy_budget_limit = float(privacy_budget_scope_resolution["max_queries"])
 
     rate_limit_out = apply_rate_limit(audit_log_path, caller, window, args.max_queries)
-    privacy_budget_out = privacy_budget_default()
+    store_path = resolve_privacy_budget_store_path(args)
 
-    if args.deny_duplicate_query and seen_query_signature(audit_log_path, caller, query_sig):
-        policy_out = {
-            "decision": "deny",
-            "reason_code": "duplicate_query",
-            "reason": "duplicate canonical query signature for caller",
-            "released": None,
-        }
-    elif not rate_limit_out["allowed"]:
-        policy_out = {
-            "decision": "deny",
-            "reason_code": "rate_limit_exceeded",
-            "reason": rate_limit_out["reason"],
-            "released": None,
-        }
-    else:
-        privacy_budget_out = evaluate_privacy_budget(
-            ledger_path=args.privacy_budget_ledger,
+    with PrivacyBudgetStore(store_path) as budget_store:
+        event_id = 0
+        ledger_record = None
+        approval_request_record = None
+        approval_request = None
+        approval_decision_record = None
+        approval_consume_request_id = None
+        if budget_store.enabled:
+            budget_store.begin_immediate()
+            budget_store.bootstrap_from_jsonl_ledger(args.privacy_budget_ledger)
+            budget_store.bootstrap_approval_requests(args.privacy_budget_approval_queue)
+            budget_store.bootstrap_approval_decisions(args.privacy_budget_approval_decisions)
+            prior_records = budget_store.load_scope_records(
+                caller=caller,
+                tenant_id=privacy_scope["tenant_id"],
+                dataset_id=privacy_scope["dataset_id"],
+                purpose=privacy_scope["purpose"],
+            )
+        else:
+            prior_records = None
+
+        policy_out, privacy_budget_out = evaluate_policy_and_budget(
+            args=args,
             caller=caller,
-            tenant_id=privacy_scope["tenant_id"],
-            dataset_id=privacy_scope["dataset_id"],
-            purpose=privacy_scope["purpose"],
+            privacy_scope=privacy_scope,
+            privacy_budget_scope_resolution=privacy_budget_scope_resolution,
+            effective_privacy_budget_limit=effective_privacy_budget_limit,
+            rate_limit_out=rate_limit_out,
+            query_sig=query_sig,
+            audit_log_path=audit_log_path,
             job_id=job_id,
             window=window,
             bucket=bucket,
             value_mode=value_mode,
-            threshold_k=args.threshold_k,
             bridge_meta=bridge_meta,
-            budget_limit=effective_privacy_budget_limit,
-            budget_cost=args.privacy_budget_cost,
-            scope_resolution=privacy_budget_scope_resolution,
+            metrics=metrics,
+            prior_records_override=prior_records,
         )
-        if privacy_budget_out.get("decision") == "deny":
-            if (
-                args.privacy_budget_approval_queue
-                and privacy_budget_out.get("reason_code") == "privacy_budget_near_duplicate"
-            ):
-                privacy_budget_out = {
-                    **privacy_budget_out,
-                    "approval_required": True,
-                    "approval_queue_path": os.path.abspath(args.privacy_budget_approval_queue),
-                }
-            policy_out = {
-                "decision": "deny",
-                "reason_code": privacy_budget_out["reason_code"],
-                "reason": privacy_budget_out["reason"],
-                "released": None,
+
+        report = build_public_report(
+            policy_version=args.policy_version,
+            job_id=job_id,
+            caller=caller,
+            window=window,
+            bucket=bucket,
+            value_mode=value_mode,
+            bridge_meta=bridge_meta,
+            input_sizes=input_sizes,
+            threshold_k=args.threshold_k,
+            rate_limit_out=rate_limit_out,
+            policy_out=policy_out,
+            bucket_size=args.bucket_intersection_size,
+            redact_operator_fields=bool(args.public_report_redact_operator_fields),
+        )
+        report_sha = json_payload_sha256(report)
+
+        if (
+            args.privacy_budget_approval_id
+            and privacy_budget_out.get("decision") == "deny"
+            and privacy_budget_out.get("reason_code") == "privacy_budget_near_duplicate"
+        ):
+            if not budget_store.enabled:
+                raise RuntimeError("approved privacy-budget release requires transactional store")
+            approval = budget_store.load_approval_request(args.privacy_budget_approval_id)
+            if approval is None:
+                raise RuntimeError(f"privacy budget approval request not found: {args.privacy_budget_approval_id}")
+            approval_status = str(approval.get("status") or "")
+            if approval_status != "approved":
+                raise RuntimeError(f"privacy budget approval request is not approved: {approval_status}")
+            if approval_is_expired(approval.get("expires_at_utc")):
+                raise RuntimeError("privacy budget approval request is expired")
+            approval_actor = args.privacy_budget_approval_actor or caller
+            if approval_actor == str(approval.get("caller") or ""):
+                raise PermissionError("same_identity_self_approval")
+            approval_scope = {
+                "caller": approval.get("caller"),
+                "tenant_id": approval.get("tenant_id"),
+                "dataset_id": approval.get("dataset_id"),
+                "purpose": approval.get("purpose"),
             }
-        else:
+            if approval_scope != {
+                "caller": caller,
+                "tenant_id": privacy_scope["tenant_id"],
+                "dataset_id": privacy_scope["dataset_id"],
+                "purpose": privacy_scope["purpose"],
+            }:
+                raise RuntimeError("privacy budget approval scope does not match release scope")
+            if approval.get("query_fingerprint") != privacy_budget_out.get("query_fingerprint"):
+                raise RuntimeError("privacy budget approval fingerprint does not match release query")
+            approved_used_after = (privacy_budget_out.get("budget_used_before") or 0) + args.privacy_budget_cost
+            approved_limit = privacy_budget_out.get("budget_limit")
+            if approved_limit is not None and approved_used_after > float(approved_limit):
+                raise RuntimeError("approved privacy-budget release exceeds budget limit")
             policy_out = apply_threshold_policy(
                 metrics, args.threshold_k, args.round_sum_to,
                 dp_epsilon=args.dp_epsilon,
                 dp_sensitivity=args.dp_sensitivity,
             )
+            privacy_budget_out = {
+                **privacy_budget_out,
+                "decision": "allow",
+                "reason_code": "privacy_budget_approved",
+                "reason": "near-duplicate release approved and budget consume reserved",
+                "budget_used_after": approved_used_after,
+                "approval_required": False,
+                "approval_request_id": approval["request_id"],
+                "approval": {
+                    "request_id": approval["request_id"],
+                    "status": "approved",
+                    "decided_by": approval.get("decided_by"),
+                    "decided_at_utc": approval.get("decided_at_utc"),
+                    "expires_at_utc": approval.get("expires_at_utc"),
+                },
+            }
+            report = build_public_report(
+                policy_version=args.policy_version,
+                job_id=job_id,
+                caller=caller,
+                window=window,
+                bucket=bucket,
+                value_mode=value_mode,
+                bridge_meta=bridge_meta,
+                input_sizes=input_sizes,
+                threshold_k=args.threshold_k,
+                rate_limit_out=rate_limit_out,
+                policy_out=policy_out,
+                bucket_size=args.bucket_intersection_size,
+                redact_operator_fields=bool(args.public_report_redact_operator_fields),
+            )
+            report_sha = json_payload_sha256(report)
+            approval_decision_record = {
+                "schema": "privacy_budget_approval_decision/v1",
+                "created_at_utc": utc_now_iso(),
+                "action": "consume",
+                "status": "consumed",
+                "request_id": approval["request_id"],
+                "actor": approval_actor,
+                "caller": caller,
+                "tenant_id": privacy_scope["tenant_id"],
+                "dataset_id": privacy_scope["dataset_id"],
+                "purpose": privacy_scope["purpose"],
+                "job_id": approval.get("job_id"),
+                "consuming_job_id": job_id,
+                "query_fingerprint": privacy_budget_out.get("query_fingerprint"),
+                "query_payload_sha256": canonical_query_signature(privacy_budget_out.get("query_payload") or {}),
+                "reason": "approved near-duplicate privacy-budget release consumed",
+                "expires_at_utc": approval.get("expires_at_utc"),
+                "public_report_sha256": report_sha,
+                "budget_consumed": True,
+                "consuming_event_id": None,
+            }
+            approval_consume_request_id = approval["request_id"]
+        elif args.privacy_budget_approval_id:
+            raise RuntimeError("privacy budget approval id can only be consumed for a near-duplicate privacy-budget denial")
 
-    report = build_public_report(
-        policy_version=args.policy_version,
-        job_id=job_id,
-        caller=caller,
-        window=window,
-        bucket=bucket,
-        value_mode=value_mode,
-        bridge_meta=bridge_meta,
-        input_sizes=input_sizes,
-        threshold_k=args.threshold_k,
-        rate_limit_out=rate_limit_out,
-        policy_out=policy_out,
-        bucket_size=args.bucket_intersection_size,
-        redact_operator_fields=bool(args.public_report_redact_operator_fields),
-    )
+        approval_request_record = build_privacy_budget_approval_request(
+            queue_path=args.privacy_budget_approval_queue,
+            policy_version=args.policy_version,
+            job_id=job_id,
+            caller=caller,
+            tenant_id=privacy_scope["tenant_id"],
+            dataset_id=privacy_scope["dataset_id"],
+            purpose=privacy_scope["purpose"],
+            window=window,
+            bucket=bucket,
+            value_mode=value_mode,
+            threshold_k=args.threshold_k,
+            privacy_budget=privacy_budget_out,
+            policy_out=policy_out,
+            metrics=metrics,
+            public_report_path=out_path,
+            public_report_sha256=report_sha,
+        )
+        if approval_request_record and budget_store.enabled:
+            budget_store.insert_approval_request(approval_request_record)
+        if approval_request_record and args.privacy_budget_approval_queue:
+            queue_abs = os.path.abspath(args.privacy_budget_approval_queue)
+            approval_request = {
+                "request_id": approval_request_record["request_id"],
+                "queue_path": queue_abs,
+                "status": approval_request_record["status"],
+            }
+            privacy_budget_out = {
+                **privacy_budget_out,
+                "approval_request_id": approval_request["request_id"],
+                "approval_request": approval_request,
+            }
 
-    ensure_dir(os.path.dirname(out_path) or ".")
-    with open(out_path, "w", encoding="utf-8") as f:
-        json.dump(report, f, ensure_ascii=False, indent=2)
+        if args.privacy_budget_ledger and privacy_budget_out.get("enabled"):
+            ledger_record = privacy_budget_ledger_record(
+                policy_version=args.policy_version,
+                job_id=job_id,
+                caller=caller,
+                tenant_id=privacy_scope["tenant_id"],
+                dataset_id=privacy_scope["dataset_id"],
+                purpose=privacy_scope["purpose"],
+                window=window,
+                bucket=bucket,
+                value_mode=value_mode,
+                threshold_k=args.threshold_k,
+                privacy_budget=privacy_budget_out,
+                policy_out=policy_out,
+                metrics=metrics,
+                public_report_path=out_path,
+                public_report_sha256=report_sha,
+            )
+            event_status = "reserved" if ledger_record["budget"]["consumed"] is True else "committed"
+            event_id = budget_store.insert_event(
+                record=ledger_record,
+                ledger_path=args.privacy_budget_ledger,
+                privacy_budget=privacy_budget_out,
+                status=event_status,
+                public_report_sha256=report_sha,
+            )
+            if approval_decision_record is not None:
+                approval_decision_record["consuming_event_id"] = event_id
 
-    _maybe_write_operator_report(
-        args=args,
-        out_path=out_path,
-        policy_version=args.policy_version,
-        job_id=job_id,
-        caller=caller,
-        window=window,
-        bucket=bucket,
-        value_mode=value_mode,
-        bridge_meta=bridge_meta,
-        input_sizes=input_sizes,
-        threshold_k=args.threshold_k,
-        rate_limit_out=rate_limit_out,
-        policy_out=policy_out,
-        bucket_size=args.bucket_intersection_size,
-    )
+        operator_report_path, operator_report = build_operator_report_if_needed(
+            args=args,
+            out_path=out_path,
+            policy_version=args.policy_version,
+            job_id=job_id,
+            caller=caller,
+            window=window,
+            bucket=bucket,
+            value_mode=value_mode,
+            bridge_meta=bridge_meta,
+            input_sizes=input_sizes,
+            threshold_k=args.threshold_k,
+            rate_limit_out=rate_limit_out,
+            policy_out=policy_out,
+            bucket_size=args.bucket_intersection_size,
+        )
 
-    approval_request = append_privacy_budget_approval_request(
-        queue_path=args.privacy_budget_approval_queue,
-        policy_version=args.policy_version,
-        job_id=job_id,
-        caller=caller,
-        tenant_id=privacy_scope["tenant_id"],
-        dataset_id=privacy_scope["dataset_id"],
-        purpose=privacy_scope["purpose"],
-        window=window,
-        bucket=bucket,
-        value_mode=value_mode,
-        threshold_k=args.threshold_k,
-        privacy_budget=privacy_budget_out,
-        policy_out=policy_out,
-        metrics=metrics,
-        public_report_path=out_path,
-    )
-    if approval_request:
-        privacy_budget_out = {
-            **privacy_budget_out,
-            "approval_request_id": approval_request["request_id"],
-            "approval_request": approval_request,
-        }
+        audit_record = build_audit_record(
+            policy_version=args.policy_version,
+            job_id=job_id,
+            caller=caller,
+            key_id=args.key_id,
+            timestamp=args.timestamp,
+            nonce=args.nonce,
+            query_sig=query_sig,
+            window=window,
+            bucket=bucket,
+            value_mode=value_mode,
+            bridge_meta=bridge_meta,
+            input_sizes=input_sizes,
+            input_path=input_path,
+            out_path=out_path,
+            threshold_k=args.threshold_k,
+            round_sum_to=args.round_sum_to,
+            rate_limit_out=rate_limit_out,
+            metrics=metrics,
+            policy_out=policy_out,
+            auth_result=auth_result,
+            duration_ms=elapsed_ms(started_at),
+            privacy_budget=privacy_budget_out,
+        )
 
-    append_privacy_budget_ledger_record(
-        ledger_path=args.privacy_budget_ledger,
-        policy_version=args.policy_version,
-        job_id=job_id,
-        caller=caller,
-        tenant_id=privacy_scope["tenant_id"],
-        dataset_id=privacy_scope["dataset_id"],
-        purpose=privacy_scope["purpose"],
-        window=window,
-        bucket=bucket,
-        value_mode=value_mode,
-        threshold_k=args.threshold_k,
-        privacy_budget=privacy_budget_out,
-        policy_out=policy_out,
-        metrics=metrics,
-        public_report_path=out_path,
-    )
-
-    audit_record = build_audit_record(
-        policy_version=args.policy_version,
-        job_id=job_id,
-        caller=caller,
-        key_id=args.key_id,
-        timestamp=args.timestamp,
-        nonce=args.nonce,
-        query_sig=query_sig,
-        window=window,
-        bucket=bucket,
-        value_mode=value_mode,
-        bridge_meta=bridge_meta,
-        input_sizes=input_sizes,
-        input_path=input_path,
-        out_path=out_path,
-        threshold_k=args.threshold_k,
-        round_sum_to=args.round_sum_to,
-        rate_limit_out=rate_limit_out,
-        metrics=metrics,
-        policy_out=policy_out,
-        auth_result=auth_result,
-        duration_ms=elapsed_ms(started_at),
-        privacy_budget=privacy_budget_out,
-    )
-    append_jsonl(audit_log_path, audit_record)
+        budget_store.write_report_and_commit(
+            report=report,
+            out_path=out_path,
+            operator_report=operator_report,
+            operator_report_path=operator_report_path,
+            audit_record=audit_record,
+            audit_log_path=audit_log_path,
+            ledger_record=ledger_record,
+            ledger_path=args.privacy_budget_ledger,
+            event_id=event_id,
+            approval_request_record=approval_request_record,
+            approval_queue_path=args.privacy_budget_approval_queue,
+            approval_decision_record=approval_decision_record,
+            approval_decisions_path=args.privacy_budget_approval_decisions,
+            approval_consume_request_id=approval_consume_request_id,
+        )
 
     print(f"[ok] public report: {os.path.abspath(out_path)}")
     print(f"[ok] audit log:     {os.path.abspath(audit_log_path)}")

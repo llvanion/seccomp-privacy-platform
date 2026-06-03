@@ -7,7 +7,8 @@ import { healthApi } from "@/api/sidecars";
 import { useApiQuery } from "@/hooks/useApi";
 import { Button, Card, CardHeader, EmptyState, ErrorBanner, JsonBlock, PageHeader, Skeleton, StatTile, StatusPill, TagList, inferStatusKind } from "@/components/ui";
 import { DataTable, type Column } from "@/components/data-table";
-import type { OperatorDashboardData, OperatorJob, PlatformHealth } from "@/api/types";
+import type { OperatorDashboardData, OperatorDashboardPublicSummary, OperatorJob, PlatformHealth } from "@/api/types";
+import { isOperatorDashboardPublicSummary } from "@/api/types";
 import { formatDuration, formatNumber, formatRelativeTime, shortHash, truncate } from "@/lib/format";
 
 export function HomeRoute() {
@@ -21,7 +22,12 @@ export function HomeRoute() {
   });
 
   const data = dashboardQ.data;
-  const recentJobs: OperatorJob[] = data?.recent_runs ?? data?.jobs ?? [];
+  const publicSummary = isOperatorDashboardPublicSummary(data) ? data : null;
+  const fullDashboard = data && !isOperatorDashboardPublicSummary(data) ? data : null;
+  const recentJobs: OperatorJob[] = fullDashboard?.recent_runs ?? fullDashboard?.jobs ?? [];
+  const alerts = fullDashboard?.alerts ?? [];
+  const activeJobCount = publicSummary ? countPublicActiveJob(publicSummary) : countJobsByState(recentJobs, ["running", "preparing", "queued"]);
+  const tenantLabel = publicSummary?.scope.tenant_id ?? publicSummary?.authenticated_identity?.tenant_id ?? fullDashboard?.tenant_id ?? "default";
 
   return (
     <div className="space-y-6">
@@ -48,32 +54,34 @@ export function HomeRoute() {
         <StatTile
           label="活跃作业"
           icon={<GanttChartSquare className="w-4 h-4" />}
-          value={dashboardQ.isLoading ? <Skeleton className="h-7 w-20" /> : formatNumber(countJobsByState(recentJobs, ["running", "preparing", "queued"]))}
-          hint="running / preparing"
+          value={dashboardQ.isLoading ? <Skeleton className="h-7 w-20" /> : formatNumber(activeJobCount)}
+          hint={publicSummary ? "current job only" : "running / preparing"}
           kind="warn"
         />
         <StatTile
           label="近 24h 成功率"
           icon={<ShieldCheck className="w-4 h-4" />}
-          value={dashboardQ.isLoading ? <Skeleton className="h-7 w-20" /> : `${calcSuccessRate(recentJobs)}%`}
-          hint="基于最近 runs"
-          kind={calcSuccessRate(recentJobs) >= 90 ? "ok" : "warn"}
+          value={dashboardQ.isLoading ? <Skeleton className="h-7 w-20" /> : publicSummary ? "—" : `${calcSuccessRate(recentJobs)}%`}
+          hint={publicSummary ? "redacted" : "基于最近 runs"}
+          kind={publicSummary || calcSuccessRate(recentJobs) >= 90 ? "ok" : "warn"}
         />
         <StatTile
           label="告警"
           icon={<AlertTriangle className="w-4 h-4" />}
-          value={dashboardQ.isLoading ? <Skeleton className="h-7 w-20" /> : formatNumber((data?.alerts ?? []).filter((a) => a.state === "firing").length)}
-          hint="firing"
-          kind={(data?.alerts ?? []).some((a) => a.state === "firing") ? "err" : "ok"}
+          value={dashboardQ.isLoading ? <Skeleton className="h-7 w-20" /> : publicSummary ? "—" : formatNumber(alerts.filter((a) => a.state === "firing").length)}
+          hint={publicSummary ? "redacted" : "firing"}
+          kind={alerts.some((a) => a.state === "firing") ? "err" : "ok"}
         />
         <StatTile
           label="租户"
           icon={<Network className="w-4 h-4" />}
-          value={dashboardQ.isLoading ? <Skeleton className="h-7 w-20" /> : truncate(data?.tenant_id ?? "default", 20)}
+          value={dashboardQ.isLoading ? <Skeleton className="h-7 w-20" /> : truncate(tenantLabel, 20)}
           hint="active tenant"
           kind="info"
         />
       </section>
+
+      {publicSummary && <DashboardPublicSummaryNotice summary={publicSummary} />}
 
       <section className="grid grid-cols-1 lg:grid-cols-3 gap-4">
         <Card className="lg:col-span-2">
@@ -116,11 +124,13 @@ export function HomeRoute() {
           />
           {dashboardQ.isLoading ? (
             <Skeleton className="h-24" />
-          ) : (data?.alerts ?? []).length === 0 ? (
+          ) : publicSummary ? (
+            <EmptyState title="告警已隐藏" description="当前身份只返回 caller-safe dashboard summary。" />
+          ) : alerts.length === 0 ? (
             <EmptyState title="无告警" description="所有 alert rules 当前都处于 resolved。" />
           ) : (
             <ul className="divide-y divide-line-subtle">
-              {(data!.alerts ?? []).slice(0, 6).map((a) => (
+              {alerts.slice(0, 6).map((a) => (
                 <li key={a.id} className="py-2 flex items-start gap-3">
                   <StatusPill kind={a.state === "firing" ? "err" : "ok"}>{a.state}</StatusPill>
                   <div className="flex-1 min-w-0">
@@ -140,8 +150,10 @@ export function HomeRoute() {
           <CardHeader title="主链路 contract 摘要" description="audit_chain.json 中嵌入的 mainline_contract_check/v1。" />
           {dashboardQ.isLoading ? (
             <Skeleton className="h-24" />
-          ) : data?.audit_center ? (
-            <JsonBlock data={data.audit_center} maxHeight="240px" />
+          ) : publicSummary ? (
+            <DashboardPublicSummaryPanel summary={publicSummary} />
+          ) : fullDashboard?.audit_center ? (
+            <JsonBlock data={fullDashboard.audit_center} maxHeight="240px" />
           ) : (
             <EmptyState title="无 contract 摘要" description="还没有完成的运行，或当前 history root 里没有 audit_chain.json。" />
           )}
@@ -173,6 +185,11 @@ export function HomeRoute() {
 function countJobsByState(rows: OperatorJob[], states: string[]): number {
   const set = new Set(states.map((s) => s.toLowerCase()));
   return rows.filter((r) => set.has((r.status ?? r.terminal_state ?? "").toLowerCase())).length;
+}
+
+function countPublicActiveJob(summary: OperatorDashboardPublicSummary): number {
+  const state = (summary.job.state ?? summary.workflow.state ?? "").toLowerCase();
+  return ["running", "preparing", "queued", "in_progress"].includes(state) ? 1 : 0;
 }
 
 function calcSuccessRate(rows: OperatorJob[]): number {
@@ -237,6 +254,56 @@ function HealthComponents({ data }: { data: PlatformHealth }) {
         </li>
       ))}
     </ul>
+  );
+}
+
+function DashboardPublicSummaryNotice({ summary }: { summary: OperatorDashboardPublicSummary }) {
+  return (
+    <Card>
+      <CardHeader
+        title="Caller-safe dashboard"
+        description="当前身份收到 public summary；operator-only fields 已在后端 redaction。"
+        actions={<StatusPill kind="ok">redacted</StatusPill>}
+      />
+      <div className="grid grid-cols-1 sm:grid-cols-4 gap-3 text-2xs">
+        <SummaryItem label="Job" value={summary.scope.job_id ? shortHash(summary.scope.job_id, 10, 6) : "—"} />
+        <SummaryItem label="Workflow" value={summary.workflow.state ?? "—"} />
+        <SummaryItem label="Health" value={summary.health.status ?? "—"} />
+        <SummaryItem label="Artifacts" value={`${formatNumber(summary.artifacts.available_count)} / ${formatNumber(summary.artifacts.total_count)}`} />
+      </div>
+    </Card>
+  );
+}
+
+function DashboardPublicSummaryPanel({ summary }: { summary: OperatorDashboardPublicSummary }) {
+  return (
+    <div className="space-y-3">
+      <div className="grid grid-cols-2 gap-3 text-2xs">
+        <SummaryItem label="overall" value={summary.overall_status ?? "—"} />
+        <SummaryItem label="job_state" value={summary.job.state ?? "—"} />
+        <SummaryItem label="workflow" value={summary.workflow.state ?? "—"} />
+        <SummaryItem label="health" value={summary.health.status ?? "—"} />
+      </div>
+      {summary.job.stage_statuses.length > 0 && (
+        <ul className="divide-y divide-line-subtle">
+          {summary.job.stage_statuses.map((stage, idx) => (
+            <li key={`${stage.name ?? "stage"}-${idx}`} className="py-2 flex items-center justify-between gap-3">
+              <span className="text-2xs text-ink-muted">{stage.name ?? "stage"}</span>
+              <StatusPill kind={inferStatusKind(stage.status)}>{stage.status ?? "—"}</StatusPill>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+}
+
+function SummaryItem({ label, value }: { label: string; value: ReactNode }) {
+  return (
+    <div className="panel-soft p-3 rounded-lg">
+      <div className="field-label">{label}</div>
+      <div className="text-sm font-semibold text-ink mt-1">{value}</div>
+    </div>
   );
 }
 

@@ -87,7 +87,10 @@ function GenericEntity({ entity }: { entity: "callers" | "policies" | "policy-bi
       ) : !q.data?.entries || q.data.entries.length === 0 ? (
         <EmptyState title="无数据" description="metadata sidecar 尚未导入相关条目。" />
       ) : (
-        <DataTable rows={q.data.entries} columns={columns} rowKey={(r, i) => `${Object.values(r)[0] ?? i}`} />
+        <div className="space-y-3">
+          {q.data.redaction?.view === "caller_safe_metadata_summary" && <MetadataRedactionNotice />}
+          <DataTable rows={q.data.entries} columns={columns} rowKey={(r, i) => `${Object.values(r)[0] ?? i}`} />
+        </div>
       )}
     </Card>
   );
@@ -99,7 +102,16 @@ function CallerPermissionsTab() {
     <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
       <Card>
         <CardHeader title="权限矩阵摘要" description="permission_summary：caller 数、租户、平台角色统计。" />
-        {q.isLoading ? <Skeleton className="h-24" /> : q.data?.permission_summary ? <JsonBlock data={q.data.permission_summary} maxHeight="320px" /> : <EmptyState title="无摘要" />}
+        {q.isLoading ? (
+          <Skeleton className="h-24" />
+        ) : q.data?.permission_summary ? (
+          <div className="space-y-3">
+            {q.data.redaction?.view === "caller_safe_metadata_summary" && <MetadataRedactionNotice />}
+            <JsonBlock data={q.data.permission_summary} maxHeight="320px" />
+          </div>
+        ) : (
+          <EmptyState title="无摘要" />
+        )}
       </Card>
       <Card className="lg:col-span-2">
         <CardHeader title="权限条目" description="caller × permission_key 的展开视图。" />
@@ -120,6 +132,17 @@ function CallerPermissionsTab() {
           />
         )}
       </Card>
+    </div>
+  );
+}
+
+function MetadataRedactionNotice() {
+  return (
+    <div className="panel-soft p-3 rounded-lg">
+      <div className="text-sm font-semibold text-ink">caller-safe metadata summary</div>
+      <div className="text-2xs text-ink-muted mt-1">
+        Operator paths, hashes, source files, raw binding JSON, exact result metrics, and timing fields are redacted for this identity.
+      </div>
     </div>
   );
 }

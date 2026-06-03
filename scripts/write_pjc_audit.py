@@ -45,6 +45,8 @@ def build_record(args: argparse.Namespace) -> Dict[str, Any]:
         "server_csv_sha256": sha256_file_if_exists(args.server_csv),
         "client_csv": os.path.abspath(args.client_csv),
         "client_csv_sha256": sha256_file_if_exists(args.client_csv),
+        "input_commitment_file": abspath_or_none(args.input_commitment),
+        "input_commitment_sha256": sha256_file_if_exists(args.input_commitment),
         "server_log": abspath_or_none(args.server_log),
         "server_log_sha256": sha256_file_if_exists(args.server_log),
         "client_log": abspath_or_none(args.client_log),
@@ -69,6 +71,7 @@ def main() -> int:
     ap.add_argument("--out-dir", required=True)
     ap.add_argument("--server-csv", required=True)
     ap.add_argument("--client-csv", required=True)
+    ap.add_argument("--input-commitment", default="")
     ap.add_argument("--server-log", default="")
     ap.add_argument("--client-log", default="")
     ap.add_argument("--result-file", default="")

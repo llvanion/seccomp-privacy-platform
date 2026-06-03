@@ -7,7 +7,8 @@
     "rate_limit",
     "multi_tenant_quota",
     "external_anchor",
-    "approval_workflow"
+    "approval_workflow",
+    "privacy_budget_approval_workflow"
   ],
   "sections": [
     {
@@ -30,14 +31,16 @@
     {
       "section": "jobs",
       "title": "Jobs",
-      "description": "Submit privacy queries, monitor running jobs, drill into the per-job audit chain.",
+      "description": "Submit privacy queries through the request/workflow path, monitor caller-safe dashboard state, and let privileged operators drill into per-job evidence.",
       "endpoints": [
         {"method": "POST", "path": "/v1/query-workflow", "service": "serve_query_workflow_api", "role": "query_submitter"},
         {"method": "POST", "path": "/v1/request/submit", "service": "serve_operator_dashboard", "role": "query_submitter"},
-        {"method": "POST", "path": "/v1/jobs/start", "service": "serve_operator_dashboard", "role": "query_submitter"},
-        {"method": "GET", "path": "/v1/dashboard", "service": "serve_operator_dashboard", "role": "any_authenticated"},
-        {"method": "GET", "path": "/v1/jobs/{job_id}", "service": "serve_operator_dashboard", "role": "any_authenticated"},
-        {"method": "POST", "path": "/v1/jobs/{job_id}/relaunch", "service": "serve_operator_dashboard", "role": "query_submitter"},
+        {"method": "POST", "path": "/v1/jobs/start", "service": "serve_operator_dashboard", "role": "privacy_operator"},
+        {"method": "GET", "path": "/v1/dashboard", "service": "serve_operator_dashboard", "role": "any_authenticated_public_summary"},
+        {"method": "GET", "path": "/v1/runs", "service": "serve_operator_dashboard", "role": "platform_auditor"},
+        {"method": "GET", "path": "/v1/jobs/{job_id}", "service": "serve_operator_dashboard", "role": "platform_auditor"},
+        {"method": "GET", "path": "/v1/jobs/{job_id}/result", "service": "serve_operator_dashboard", "role": "platform_auditor"},
+        {"method": "POST", "path": "/v1/jobs/{job_id}/relaunch", "service": "serve_operator_dashboard", "role": "privacy_operator"},
         {"method": "GET", "path": "/v1/audit-chain", "service": "serve_audit_query_api", "role": "any_authenticated"}
       ],
       "feature_flags": ["multi_tenant_quota"],
@@ -45,6 +48,9 @@
         "commerce_ops_owner",
         "campaign_analyst",
         "fraud_analyst",
+        "privacy_operator",
+        "platform_admin",
+        "platform_auditor",
         "compliance_auditor"
       ]
     },
@@ -70,6 +76,24 @@
       ]
     },
     {
+      "section": "privacy_budget_approvals",
+      "title": "Privacy Budget Approvals",
+      "description": "Review near-duplicate privacy-budget approval requests and approve, reject, or expire them with decision evidence.",
+      "endpoints": [
+        {"method": "GET", "path": "/v1/privacy-budget/approvals", "service": "serve_operator_dashboard", "role": "privacy_budget_approval_reviewer"},
+        {"method": "POST", "path": "/v1/privacy-budget/approval/{request_id}/approve", "service": "serve_operator_dashboard", "role": "privacy_operator"},
+        {"method": "POST", "path": "/v1/privacy-budget/approval/{request_id}/reject", "service": "serve_operator_dashboard", "role": "privacy_operator"},
+        {"method": "POST", "path": "/v1/privacy-budget/approval/{request_id}/expire", "service": "serve_operator_dashboard", "role": "privacy_operator"}
+      ],
+      "feature_flags": ["privacy_budget_approval_workflow"],
+      "roles_allowed": [
+        "privacy_operator",
+        "platform_admin",
+        "platform_auditor",
+        "compliance_auditor"
+      ]
+    },
+    {
       "section": "audit",
       "title": "Audit & Public Reports",
       "description": "Browse public reports, verify sealed audit bundles, run tamper-resistance spot checks.",
@@ -84,6 +108,28 @@
         "commerce_ops_owner",
         "campaign_analyst",
         "fraud_analyst",
+        "compliance_auditor"
+      ]
+    },
+    {
+      "section": "pjc_two_party",
+      "title": "PJC Two-Party Evidence",
+      "description": "Run PJC preflight, sign party run manifests, merge two-party evidence, and execute required negative cases.",
+      "endpoints": [
+        {"method": "POST", "path": "/v1/pjc-mtls/preflight", "service": "serve_operator_dashboard", "role": "privacy_operator"},
+        {"method": "POST", "path": "/v1/pjc/run-manifest/sign", "service": "serve_operator_dashboard", "role": "privacy_operator"},
+        {"method": "POST", "path": "/v1/pjc/role-package/export", "service": "serve_operator_dashboard", "role": "privacy_operator"},
+        {"method": "POST", "path": "/v1/pjc/role-package/import", "service": "serve_operator_dashboard", "role": "privacy_operator"},
+        {"method": "POST", "path": "/v1/pjc/roles/{role}/start", "service": "serve_operator_dashboard", "role": "privacy_operator"},
+        {"method": "POST", "path": "/v1/pjc/roles/{role}/cancel", "service": "serve_operator_dashboard", "role": "privacy_operator"},
+        {"method": "POST", "path": "/v1/pjc/evidence/verify-merge", "service": "serve_operator_dashboard", "role": "privacy_operator"},
+        {"method": "POST", "path": "/v1/pjc-mtls/negative-cases/run", "service": "serve_operator_dashboard", "role": "privacy_operator"},
+        {"method": "POST", "path": "/v1/pjc-mtls/tls-diagnostic", "service": "serve_operator_dashboard", "role": "privacy_operator"}
+      ],
+      "feature_flags": ["mtls"],
+      "roles_allowed": [
+        "privacy_operator",
+        "platform_admin",
         "compliance_auditor"
       ]
     },

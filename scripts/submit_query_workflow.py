@@ -35,10 +35,15 @@ PATH_FIELDS = {
     "privacy_budget_config",
     "privacy_budget_ledger",
     "privacy_budget_approval_queue",
+    "release_policy_gate_config",
+    "release_policy_gate_report",
+    "pjc_evidence_merge",
+    "operator_report_path",
     "out_base",
     "key_access_audit_log",
     "audit_archive_dir",
     "pjc_audit_log",
+    "pjc_resource_limits",
     "sse_export_audit_log",
     "record_recovery_service_audit_log",
     "record_recovery_service_log",
@@ -152,6 +157,10 @@ def validate_request(payload: dict[str, Any]) -> None:
         value = optional_int(payload, int_field, default=default)
         if value is not None and value <= 0:
             raise SystemExit(f"[ERROR] {int_field} must be > 0")
+    client_value_min = optional_int(payload, "client_value_min")
+    client_value_max = optional_int(payload, "client_value_max")
+    if client_value_min is not None and client_value_max is not None and client_value_min > client_value_max:
+        raise SystemExit("[ERROR] client_value_min cannot be greater than client_value_max")
 
     for bool_field in (
         "deny_duplicate_query",
@@ -159,6 +168,9 @@ def validate_request(payload: dict[str, Any]) -> None:
         "unsafe_allow_no_sse_export_policy",
         "cleanup_sse_export_handoff_files_after_bridge",
         "privacy_budget_required",
+        "policy_require_dp",
+        "public_report_redact_operator_fields",
+        "client_value_allow_negative",
     ):
         optional_bool(payload, bool_field)
     handoff_retention_reason = payload.get("handoff_retention_reason")
@@ -233,6 +245,35 @@ def validate_request(payload: dict[str, Any]) -> None:
     privacy_budget_cost = optional_number(payload, "privacy_budget_cost")
     if privacy_budget_cost is not None and privacy_budget_cost <= 0:
         raise SystemExit("[ERROR] privacy_budget_cost must be > 0")
+    if payload.get("release_policy_gate_config") not in (None, ""):
+        require_nonempty_str(payload, "release_policy_gate_config")
+    if payload.get("release_policy_gate_report") not in (None, ""):
+        require_nonempty_str(payload, "release_policy_gate_report")
+    if payload.get("pjc_evidence_merge") not in (None, ""):
+        require_nonempty_str(payload, "pjc_evidence_merge")
+    if payload.get("operator_report_path") not in (None, ""):
+        require_nonempty_str(payload, "operator_report_path")
+    dp_epsilon = optional_number(payload, "dp_epsilon")
+    if dp_epsilon is not None and dp_epsilon <= 0:
+        raise SystemExit("[ERROR] dp_epsilon must be > 0")
+    dp_sensitivity = optional_int(payload, "dp_sensitivity")
+    if dp_sensitivity is not None and dp_sensitivity <= 0:
+        raise SystemExit("[ERROR] dp_sensitivity must be > 0")
+    if optional_bool(payload, "policy_require_dp"):
+        if dp_epsilon is None:
+            raise SystemExit("[ERROR] policy_require_dp=true requires dp_epsilon")
+        if dp_sensitivity is None:
+            raise SystemExit("[ERROR] policy_require_dp=true requires dp_sensitivity")
+    if optional_bool(payload, "production_mode") and not payload.get("pjc_resource_limits"):
+        raise SystemExit("[ERROR] production_mode requires pjc_resource_limits")
+    if optional_bool(payload, "production_mode") and not payload.get("release_policy_gate_config"):
+        raise SystemExit("[ERROR] production_mode requires release_policy_gate_config")
+    if (
+        optional_bool(payload, "production_mode")
+        and payload.get("client_value_mode", "count") == "raw-int"
+        and client_value_max is None
+    ):
+        raise SystemExit("[ERROR] production_mode raw-int requires client_value_max")
 
 
 def build_command(payload: dict[str, Any]) -> list[str]:
@@ -257,6 +298,9 @@ def build_command(payload: dict[str, Any]) -> list[str]:
     add_arg("server-normalizer", payload.get("server_normalizer", "identity"))
     add_arg("client-normalizer", payload.get("client_normalizer", "identity"))
     add_arg("client-value-mode", payload.get("client_value_mode", "count"))
+    add_arg("client-value-min", payload.get("client_value_min"))
+    add_arg("client-value-max", payload.get("client_value_max"))
+    add_flag("client-value-allow-negative", optional_bool(payload, "client_value_allow_negative") is True)
     add_arg("server-sse-keyword", payload.get("server_sse_keyword"))
     add_arg("client-sse-keyword", payload.get("client_sse_keyword"))
     add_arg("server-record-id-field", payload.get("server_record_id_field"))
@@ -293,6 +337,7 @@ def build_command(payload: dict[str, Any]) -> list[str]:
     add_arg("key-access-audit-log", payload.get("key_access_audit_log"))
     add_arg("audit-archive-dir", payload.get("audit_archive_dir"))
     add_arg("pjc-audit-log", payload.get("pjc_audit_log"))
+    add_arg("pjc-resource-limits", payload.get("pjc_resource_limits"))
     add_arg("sse-export-policy-config", payload.get("sse_export_policy_config"))
     add_arg("sse-export-audit-log", payload.get("sse_export_audit_log"))
     add_arg("sse-export-handoff-mode", payload.get("sse_export_handoff_mode", "file"))
@@ -308,6 +353,12 @@ def build_command(payload: dict[str, Any]) -> list[str]:
     add_arg("privacy-budget-purpose", payload.get("privacy_budget_purpose"))
     add_arg("privacy-budget-limit", payload.get("privacy_budget_limit"))
     add_arg("privacy-budget-cost", payload.get("privacy_budget_cost"))
+    add_arg("release-policy-gate-config", payload.get("release_policy_gate_config"))
+    add_arg("release-policy-gate-report", payload.get("release_policy_gate_report"))
+    add_arg("pjc-evidence-merge", payload.get("pjc_evidence_merge"))
+    add_arg("dp-epsilon", payload.get("dp_epsilon"))
+    add_arg("dp-sensitivity", payload.get("dp_sensitivity"))
+    add_arg("operator-report-path", payload.get("operator_report_path"))
     add_arg("k", payload.get("k", 20))
     add_arg("n", payload.get("n", 5))
     for item in optional_str_list(payload, "server_filters"):
@@ -316,6 +367,8 @@ def build_command(payload: dict[str, Any]) -> list[str]:
         add_arg("client-filter", item)
     add_flag("deny-duplicate-query", optional_bool(payload, "deny_duplicate_query"))
     add_flag("privacy-budget-required", optional_bool(payload, "privacy_budget_required"))
+    add_flag("require-dp", optional_bool(payload, "policy_require_dp"))
+    add_flag("public-report-redact-operator-fields", optional_bool(payload, "public_report_redact_operator_fields"))
     add_flag("production-mode", optional_bool(payload, "production_mode"))
     add_flag("unsafe-allow-no-sse-export-policy", optional_bool(payload, "unsafe_allow_no_sse_export_policy"))
     cleanup_handoff = optional_bool(payload, "cleanup_sse_export_handoff_files_after_bridge")

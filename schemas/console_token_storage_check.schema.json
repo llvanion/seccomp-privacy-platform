@@ -1,0 +1,37 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "console_token_storage_check/v1",
+  "title": "Operator console token storage regression check",
+  "type": "object",
+  "required": [
+    "schema",
+    "generated_at_utc",
+    "status",
+    "scanned_files",
+    "finding_count",
+    "findings"
+  ],
+  "properties": {
+    "schema": { "const": "console_token_storage_check/v1" },
+    "generated_at_utc": { "type": "string" },
+    "status": { "enum": ["ok", "fail"] },
+    "scanned_files": { "type": "integer", "minimum": 0 },
+    "fetch_credentials_same_origin": { "type": "boolean" },
+    "finding_count": { "type": "integer", "minimum": 0 },
+    "findings": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["path", "line_no", "message", "line"],
+        "properties": {
+          "path": { "type": "string" },
+          "line_no": { "type": "integer", "minimum": 1 },
+          "message": { "type": "string" },
+          "line": { "type": "string" }
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  "additionalProperties": false
+}

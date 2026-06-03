@@ -41,6 +41,69 @@ def require_error_contains(
     require(text in (payload.get("error") or ""), f"{label} returned wrong error payload: {payload}")
 
 
+AUDIT_PUBLIC_FORBIDDEN_KEYS = {
+    "paths",
+    "path",
+    "display_path",
+    "out_base",
+    "output_file",
+    "input_file",
+    "source_file",
+    "record_store_file",
+    "socket_path",
+    "endpoint_url",
+    "policy_config",
+    "authz_policy_config",
+    "pjc_result_file",
+    "release_file",
+    "ledger_path",
+    "audit_chain_path",
+    "public_report_path",
+    "bridge",
+    "details",
+    "input_sizes",
+    "rate_limit_used",
+    "rate_limit_max",
+    "duration_ms",
+    "row_count",
+    "output_rows",
+    "input_rows",
+    "candidate_count",
+    "artifact_sha256",
+    "sha256",
+    "output_sha256",
+    "input_sha256",
+    "record_store_sha256",
+    "release_sha256",
+    "pjc_result_sha256",
+    "server_input_sha256",
+    "client_input_sha256",
+    "query_fingerprint",
+    "query_payload_sha256",
+    "canonical_query_signature",
+    "key_access_audit",
+    "sse_export_audit",
+    "record_recovery_service_audit",
+    "bridge_audit",
+    "bridge_job_meta",
+    "pjc_audit",
+    "pjc_result",
+    "policy_audit",
+    "release_policy_gate",
+    "mainline_contract_check",
+}
+
+
+def require_no_audit_public_leaks(value: Any, *, label: str, path: str = "$") -> None:
+    if isinstance(value, dict):
+        for key, child in value.items():
+            require(key not in AUDIT_PUBLIC_FORBIDDEN_KEYS, f"{label} leaked operator-only key {path}.{key}: {value}")
+            require_no_audit_public_leaks(child, label=label, path=f"{path}.{key}")
+    elif isinstance(value, list):
+        for index, child in enumerate(value):
+            require_no_audit_public_leaks(child, label=label, path=f"{path}[{index}]")
+
+
 def require_mainline_summary(summary: dict[str, Any], *, label: str) -> None:
     require(
         summary.get("schema") == "mainline_contract_check/v1"
@@ -742,11 +805,18 @@ def validate_platform_health_cli(tmp_dir: Path) -> None:
 
 def validate_identity_api_authz(tmp_dir: Path) -> None:
     metadata_identity = load(tmp_dir / "metadata_api_identity.json")
+    metadata_identity_jobs = load(tmp_dir / "metadata_api_identity_jobs.json")
+    metadata_identity_job = load(tmp_dir / "metadata_api_identity_job.json")
+    metadata_identity_permissions = load(tmp_dir / "metadata_api_identity_permissions.json")
+    metadata_identity_policy_bindings = load(tmp_dir / "metadata_api_identity_policy_bindings.json")
     metadata_policies_forbidden = load(tmp_dir / "metadata_api_identity_forbidden_policies.json")
     query_identity_dry_run = load(tmp_dir / "query_workflow_identity_dry_run.json")
     query_identity_status = load(tmp_dir / "query_workflow_identity_status.json")
     query_identity_execute_forbidden = load(tmp_dir / "query_workflow_identity_execute_forbidden.json")
     audit_identity_public_report = load(tmp_dir / "audit_query_api_identity_public_report.json")
+    audit_identity_audit_chain = load(tmp_dir / "audit_query_api_identity_audit_chain.json")
+    audit_identity_observability = load(tmp_dir / "audit_query_api_identity_observability.json")
+    audit_identity_catalog_lineage = load(tmp_dir / "audit_query_api_identity_catalog_lineage.json")
     audit_identity_include_paths_forbidden = load(tmp_dir / "audit_query_api_identity_include_paths_forbidden.json")
     platform_health_identity_forbidden = load(tmp_dir / "platform_health_api_identity_forbidden.json")
 
@@ -755,9 +825,19 @@ def validate_identity_api_authz(tmp_dir: Path) -> None:
     require(identity_result.get("schema") == "api_identity_resolution/v1", f"metadata identity endpoint returned wrong result: {metadata_identity}")
     resolved = identity_result.get("identity") or {}
     access_summary = identity_result.get("access_summary") or {}
-    require(resolved.get("caller") == "commerce_ops_demo", f"metadata identity endpoint returned wrong caller: {metadata_identity}")
+    require(resolved.get("caller") == "auto_demo", f"metadata identity endpoint returned wrong caller: {metadata_identity}")
     require(access_summary.get("query_execute_allowed") is True, f"metadata identity endpoint returned wrong execute scope: {metadata_identity}")
     require(access_summary.get("metadata_privileged") is False, f"metadata identity endpoint returned wrong metadata scope: {metadata_identity}")
+    for label, payload in (
+        ("metadata identity jobs", metadata_identity_jobs),
+        ("metadata identity job", metadata_identity_job),
+        ("metadata identity permissions", metadata_identity_permissions),
+        ("metadata identity policy bindings", metadata_identity_policy_bindings),
+    ):
+        result = payload.get("result") or {}
+        redaction = result.get("redaction") or {}
+        require(redaction.get("view") == "caller_safe_metadata_summary", f"{label} missing caller-safe redaction marker: {payload}")
+        require(redaction.get("operator_fields_redacted") is True, f"{label} did not redact operator fields: {payload}")
 
     require_error_contains(
         metadata_policies_forbidden,
@@ -791,6 +871,30 @@ def validate_identity_api_authz(tmp_dir: Path) -> None:
     require(audit_identity_public_report.get("schema") == "audit_query_api_response/v1", f"identity audit public report returned wrong schema: {audit_identity_public_report}")
     audit_identity = audit_identity_public_report.get("authenticated_identity") or {}
     require(audit_identity.get("caller") == "auto_demo", f"identity audit public report returned wrong identity: {audit_identity_public_report}")
+    audit_public_result = audit_identity_public_report.get("result") or {}
+    require(audit_identity_public_report.get("result_schema") == "public_report/v2", f"identity audit public report returned wrong result schema: {audit_identity_public_report}")
+    require(audit_public_result.get("operator_fields_redacted") is True, f"identity audit public report did not mark redaction: {audit_identity_public_report}")
+    require_no_audit_public_leaks(audit_public_result, label="identity audit public report")
+
+    require(audit_identity_audit_chain.get("schema") == "audit_query_api_response/v1", f"identity audit-chain returned wrong envelope: {audit_identity_audit_chain}")
+    chain_result = audit_identity_audit_chain.get("result") or {}
+    require(audit_identity_audit_chain.get("result_schema") == "audit_chain_public_summary/v1", f"identity audit-chain did not return public summary: {audit_identity_audit_chain}")
+    require(chain_result.get("schema") == "audit_chain_public_summary/v1", f"identity audit-chain result schema mismatch: {audit_identity_audit_chain}")
+    require(((chain_result.get("privacy") or {}).get("operator_fields_redacted")) is True, f"identity audit-chain was not redacted: {audit_identity_audit_chain}")
+    require_no_audit_public_leaks(chain_result, label="identity audit-chain public summary")
+
+    require(audit_identity_observability.get("schema") == "audit_query_api_response/v1", f"identity observability returned wrong envelope: {audit_identity_observability}")
+    observability_result = audit_identity_observability.get("result") or {}
+    require(audit_identity_observability.get("result_schema") == "pipeline_observability_public_summary/v1", f"identity observability did not return public summary: {audit_identity_observability}")
+    require(observability_result.get("schema") == "pipeline_observability_public_summary/v1", f"identity observability result schema mismatch: {audit_identity_observability}")
+    require_no_audit_public_leaks(observability_result, label="identity observability public summary")
+
+    require(audit_identity_catalog_lineage.get("schema") == "audit_query_api_response/v1", f"identity catalog-lineage returned wrong envelope: {audit_identity_catalog_lineage}")
+    catalog_result = audit_identity_catalog_lineage.get("result") or {}
+    require(audit_identity_catalog_lineage.get("result_schema") == "catalog_lineage_public_summary/v1", f"identity catalog-lineage did not return public summary: {audit_identity_catalog_lineage}")
+    require(catalog_result.get("schema") == "catalog_lineage_public_summary/v1", f"identity catalog-lineage result schema mismatch: {audit_identity_catalog_lineage}")
+    require(((catalog_result.get("privacy") or {}).get("paths_included")) is False, f"identity catalog-lineage exposed paths: {audit_identity_catalog_lineage}")
+    require_no_audit_public_leaks(catalog_result, label="identity catalog-lineage public summary")
 
     require_error_contains(
         audit_identity_include_paths_forbidden,

@@ -67,6 +67,15 @@
       "type": "string",
       "minLength": 1
     },
+    "client_value_min": {
+      "type": "integer"
+    },
+    "client_value_max": {
+      "type": "integer"
+    },
+    "client_value_allow_negative": {
+      "type": "boolean"
+    },
     "server_sse_keyword": {
       "type": "string",
       "minLength": 1
@@ -215,6 +224,10 @@
       "type": "string",
       "minLength": 1
     },
+    "pjc_resource_limits": {
+      "type": "string",
+      "minLength": 1
+    },
     "sse_export_policy_config": {
       "type": "string",
       "minLength": 1
@@ -283,6 +296,36 @@
     "privacy_budget_cost": {
       "type": "number",
       "exclusiveMinimum": 0
+    },
+    "release_policy_gate_config": {
+      "type": "string",
+      "minLength": 1
+    },
+    "release_policy_gate_report": {
+      "type": "string",
+      "minLength": 1
+    },
+    "pjc_evidence_merge": {
+      "type": "string",
+      "minLength": 1
+    },
+    "policy_require_dp": {
+      "type": "boolean"
+    },
+    "dp_epsilon": {
+      "type": "number",
+      "exclusiveMinimum": 0
+    },
+    "dp_sensitivity": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "public_report_redact_operator_fields": {
+      "type": "boolean"
+    },
+    "operator_report_path": {
+      "type": "string",
+      "minLength": 1
     },
     "k": {
       "type": "integer",

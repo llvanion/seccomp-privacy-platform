@@ -42,6 +42,70 @@
 
 原因不是“不能存在这些人”，而是当前平台边界更聚焦于隐私查询和审计链路，优先建模的是能发起、审核、运维这条链路的人。
 
+## 业务字段级访问策略（2026-06-01）
+
+为了补上“商户不能拿用户地址、快递员只能拿下一站、客服只能拿受保护信息”这一类 reviewer 会直接追问的缺口，仓库新增独立的业务字段级策略层：
+
+1. 策略 schema：[schemas/business_access_policy.schema.json](/home/llvanion/Desktop/seccomp-privacy-platform/schemas/business_access_policy.schema.json)
+2. 检查报告 schema：[schemas/business_access_check_report.schema.json](/home/llvanion/Desktop/seccomp-privacy-platform/schemas/business_access_check_report.schema.json)
+3. 电商示例策略：[config/business_access_policy.ecommerce.example.json](/home/llvanion/Desktop/seccomp-privacy-platform/config/business_access_policy.ecommerce.example.json)
+4. 检查器：[scripts/check_business_access_policy.py](/home/llvanion/Desktop/seccomp-privacy-platform/scripts/check_business_access_policy.py)
+5. 反例 smoke：[scripts/check_business_access_policy_smoke.py](/home/llvanion/Desktop/seccomp-privacy-platform/scripts/check_business_access_policy_smoke.py)
+6. 受策略保护的 metadata API 读取预览：`POST /v1/business-data/read-preview`
+7. 读取预览 schema：[schemas/business_data_read_preview.schema.json](/home/llvanion/Desktop/seccomp-privacy-platform/schemas/business_data_read_preview.schema.json)
+8. API smoke schema：[schemas/business_access_api_smoke.schema.json](/home/llvanion/Desktop/seccomp-privacy-platform/schemas/business_access_api_smoke.schema.json)
+9. 候选事实导入校验：[scripts/validate_ecommerce_fact_import.py](/home/llvanion/Desktop/seccomp-privacy-platform/scripts/validate_ecommerce_fact_import.py)
+10. 验证优先的事务导入：[scripts/import_ecommerce_fact_rows.py](/home/llvanion/Desktop/seccomp-privacy-platform/scripts/import_ecommerce_fact_rows.py)
+
+这层是 repo-side field-level contract，不改变冻结的 `SSE -> record recovery -> bridge -> PJC -> policy release` 主链路，也不替代平台 caller 权限。它用于把业务角色的字段级 allow/mask/deny 明确下来，并让 CI 能发现策略漂移。
+
+2026-06-02 更新：metadata API 已有一个受策略保护的事实表读取路径 `POST /v1/business-data/read-preview`。该入口在 SELECT 前复用同一个 `business_access_policy/v1` 和 identity-token 角色绑定：
+
+1. deny 字段直接 HTTP 403，不进入事实表读取。
+2. mask 字段只返回 `{ "masked": true, "masking": "...", "value": null }` marker，不选择原始列值。
+3. `scope` 是授权上下文；只有显式 `filters` 和安全投影后的 `tenant_id` / `dataset_id` / `order_id` 等字段进入 SQL `WHERE`。
+4. `scope` 中已授权的 `tenant_id` / `order_id` 不能被 `filters` 覆盖；冲突会 HTTP 403。
+5. 敏感字段不能作为查询 filter，例如 `orders.buyer_email` / `buyer_email` 会被拒绝，避免通过存在性查询绕过 mask/deny。
+6. role spoofing 在 check endpoint 和 read-preview endpoint 都会被拒绝。
+
+当前策略覆盖：
+
+| 角色 | 当前字段级结果 |
+| --- | --- |
+| `buyer` | 仅在 `relationship=self` 且 purpose 合法时允许自助订单/自助联系方式字段。 |
+| `merchant_staff` | 允许订单、商品、履约状态；拒绝买家地址、联系方式、快递路线、operator-only 字段。 |
+| `customer_service_agent` | 允许工单/履约状态；买家联系方式只能 mask；拒绝地址、内部 operator 字段。 |
+| `courier` | 只允许 `delivery_route.next_stop_*` 和履约状态；拒绝完整路线、最终地址、收件电话、订单/买家字段。 |
+| `field_marketer` | 只允许 campaign attribution 字段；拒绝买家、物流、客服和 operator-only 字段。 |
+| `compliance_auditor` | 允许审计目的下的业务元数据；买家地址/联系方式只能 mask；拒绝 raw operator-only 和完整路线。 |
+
+验证命令：
+
+```bash
+python3 scripts/check_business_access_policy_smoke.py
+python3 scripts/check_business_access_api_smoke.py --out-dir tmp/business_access_api_smoke
+python3 scripts/check_ecommerce_fact_import_validation.py --out-dir tmp/ecommerce_fact_import_validation
+python3 scripts/check_ecommerce_fact_import.py --out-dir tmp/ecommerce_fact_import_smoke
+python3 scripts/validate_json_contract.py \
+  --schema schemas/business_data_read_preview.schema.json \
+  --json tmp/business_access_api_smoke/business_read_preview_masked.json
+python3 scripts/validate_json_contract.py \
+  --schema schemas/ecommerce_fact_import_validation.schema.json \
+  --json tmp/ecommerce_fact_import_validation/orders_address_report.json
+python3 scripts/validate_json_contract.py \
+  --schema schemas/ecommerce_fact_import_result.schema.json \
+  --json tmp/ecommerce_fact_import_smoke/orders_duplicate_rollback_import.json
+bash scripts/check_json_contracts.sh
+```
+
+边界仍然保留：
+
+1. 这还不是完整业务 API ABAC；当前强制读取路径是 metadata API 的 read-preview。
+2. 新增业务读 endpoint 必须复用 read-preview 的 pre-SELECT policy gate 和安全 filter allowlist，否则会重新打开绕过面。
+3. repo-side 已有验证优先的事务批量导入命令；生产外部 ETL、事件流或数据仓库任务仍必须调用该命令或实现等价 policy gate，才能支撑生产 ingest 声明。
+4. 还需要 OpenFGA/ABAC 决策，才能支撑外部化生产授权声明。
+5. 真实地址、物流路线、客服 transcript 仍未进入当前 fact-layer；如果加入，必须先扩展策略、schema、read gate、import validator 和事务 importer。
+
 ## 业务身份扩展（Track-E2，2026-05-08 落基线）
 
 为了把上面这五类业务身份接入隐私平台、又不破坏 `caller_permissions` 已经冻结的 schema，新增一张 `business_identities` 表（迁移 [`migrations/metadata/011_add_business_identities.sql`](/home/llvanion/Desktop/seccomp-privacy-platform/migrations/metadata/011_add_business_identities.sql)），把"业务一线身份"作为 `caller` 的可选画像挂在已有的 `caller_permissions` 上。

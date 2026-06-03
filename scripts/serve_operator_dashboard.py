@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Operator dashboard server — serves a web UI over local pipeline sidecar artifacts."""
 import argparse
+import base64
 import hashlib
 import json
 import os
@@ -22,14 +23,23 @@ from urllib import request as urllib_request
 from urllib.parse import parse_qs, unquote, urlencode, urlparse
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
+POLICY_SCRIPTS = REPO_ROOT / "a-psi" / "moduleA_psi" / "scripts"
 sys.path.insert(0, str(REPO_ROOT / "scripts"))
+sys.path.insert(0, str(POLICY_SCRIPTS))
 
-from api_identity import bind_query_request_to_identity, identity_has_any_role, resolve_request_identity
+from api_identity import (
+    DEFAULT_IDENTITY_SESSION_COOKIE_NAME,
+    bind_query_request_to_identity,
+    identity_has_any_role,
+    resolve_identity_context,
+    resolve_request_identity,
+)
 from archive_audit_bundle import summarize_mainline_contract
 from build_observability_dashboard import build_dashboard
 from check_observability_alerts import build_alert_report
 from list_query_workflow_status import scan_status_files
 from metadata_db import apply_migrations, connect_db, table_exists
+import policy_release
 from submit_query_workflow import (
     STATUS_SCHEMA as QUERY_WORKFLOW_STATUS_SCHEMA,
     append_jsonl,
@@ -50,10 +60,18 @@ from validate_json_contract import ValidationError, load_json as load_schema_jso
 CACHE_TTL = 5.0
 UNSPECIFIED_TENANT_ID = "__unspecified__"
 REQUEST_SUBMISSION_SCHEMA = "operator_request_submission/v1"
+PRIVACY_BUDGET_APPROVAL_LIST_SCHEMA = "privacy_budget_approval_list/v1"
 REQUEST_SCHEMA_PATH = REPO_ROOT / "schemas" / "query_workflow_request.schema.json"
 APPROVER_ROLES = ("privacy_operator", "platform_admin")
 REQUEST_REVIEW_ROLES = ("privacy_operator", "platform_admin", "compliance_auditor", "commerce_ops_owner")
 REQUEST_REJECT_ROLES = ("privacy_operator", "platform_admin", "compliance_auditor")
+PRIVACY_BUDGET_APPROVAL_REVIEW_ROLES = ("privacy_operator", "platform_admin", "platform_auditor", "compliance_auditor")
+PRIVACY_BUDGET_APPROVAL_APPROVE_ROLES = ("privacy_operator", "platform_admin")
+PRIVACY_BUDGET_APPROVAL_REJECT_ROLES = ("privacy_operator", "platform_admin", "compliance_auditor")
+PRIVACY_BUDGET_APPROVAL_EXPIRE_ROLES = ("privacy_operator", "platform_admin", "compliance_auditor")
+DASHBOARD_FULL_VIEW_ROLES = ("platform_admin", "platform_auditor", "privacy_operator", "compliance_auditor")
+DASHBOARD_JOB_MUTATION_ROLES = ("platform_admin", "privacy_operator")
+SESSION_COOKIE_SCHEMA = "operator_console_session/v1"
 PJC_MTLS_SCRIPT_DIR = REPO_ROOT / "a-psi" / "moduleA_psi" / "scripts"
 PJC_MTLS_CERT_DIR = REPO_ROOT / "tmp" / "pjc_mtls_shared" / "certs"
 PJC_MTLS_BUNDLE_DIR = REPO_ROOT / "tmp" / "pjc_mtls_shared" / "party_b_bundle"
@@ -78,6 +96,43 @@ _DEFAULT_CONSOLE_DIST_CANDIDATES = (
     REPO_ROOT / "console-dist",
     Path("/opt/seccomp/platform/console/dist"),
 )
+CONSOLE_CONTENT_SECURITY_POLICY = "; ".join(
+    [
+        "default-src 'self'",
+        "script-src 'self'",
+        "style-src 'self'",
+        "img-src 'self' data:",
+        "font-src 'self' data:",
+        "connect-src 'self'",
+        "object-src 'none'",
+        "base-uri 'self'",
+        "frame-ancestors 'none'",
+        "form-action 'self'",
+        "worker-src 'self'",
+    ]
+)
+CONSOLE_PERMISSIONS_POLICY = ", ".join(
+    [
+        "camera=()",
+        "microphone=()",
+        "geolocation=()",
+        "payment=()",
+        "usb=()",
+    ]
+)
+
+
+def _console_security_headers(*, secure_transport: bool = False) -> dict[str, str]:
+    headers = {
+        "Content-Security-Policy": CONSOLE_CONTENT_SECURITY_POLICY,
+        "X-Content-Type-Options": "nosniff",
+        "X-Frame-Options": "DENY",
+        "Referrer-Policy": "no-referrer",
+        "Permissions-Policy": CONSOLE_PERMISSIONS_POLICY,
+    }
+    if secure_transport:
+        headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
+    return headers
 
 
 def _resolve_console_dist(explicit: str) -> Path | None:
@@ -811,6 +866,7 @@ def _bucketed_scale_test_execute(resolved: dict[str, Any]) -> dict[str, Any]:
     for name, path in {
         "attribution": out_dir / "attribution_result.json",
         "bucket_public_report": out_dir / "bucket_public_report.json",
+        "operator_bucket_report": out_dir / "operator_bucket_report.json",
         "public_report": out_dir / "public_report.json",
         "expected": out_dir / "expected_result.json",
     }.items():
@@ -1450,6 +1506,76 @@ def get_dashboard_data(out_base: Path, *, history_root: Path, history_limit: int
         return _cache_data
 
 
+def _safe_stage_rows(job_control: dict[str, Any] | None) -> list[dict[str, Any]]:
+    rows = []
+    stages = job_control.get("stages") if isinstance(job_control, dict) else None
+    if not isinstance(stages, list):
+        return rows
+    for stage in stages:
+        if not isinstance(stage, dict):
+            continue
+        rows.append({
+            "name": stage.get("name"),
+            "status": stage.get("status"),
+        })
+    return rows
+
+
+def build_dashboard_public_summary(data: dict[str, Any], *, identity: dict[str, Any] | None) -> dict[str, Any]:
+    job_control = data.get("job_control") if isinstance(data.get("job_control"), dict) else None
+    audit_center = data.get("audit_center") if isinstance(data.get("audit_center"), dict) else {}
+    artifact_inventory = audit_center.get("artifact_inventory") if isinstance(audit_center, dict) else {}
+    health = data.get("health") if isinstance(data.get("health"), dict) else {}
+    health_summary = health.get("summary") if isinstance(health, dict) and isinstance(health.get("summary"), dict) else {}
+    workflow_status = data.get("workflow_status") if isinstance(data.get("workflow_status"), dict) else {}
+    return {
+        "schema": "operator_dashboard_public_summary/v1",
+        "generated_at_utc": data.get("generated_at_utc"),
+        "authenticated_identity": {
+            "caller": identity.get("caller"),
+            "tenant_id": identity.get("tenant_id"),
+            "platform_roles": identity.get("platform_roles") or [],
+        } if isinstance(identity, dict) else None,
+        "scope": {
+            "job_id": data.get("job_id") or (job_control or {}).get("job_id"),
+            "correlation_id": data.get("correlation_id"),
+            "caller": data.get("caller"),
+            "tenant_id": data.get("tenant_id") or (job_control or {}).get("tenant_id"),
+            "dataset_id": data.get("dataset_id"),
+            "service_id": data.get("service_id"),
+        },
+        "overall_status": data.get("overall_status"),
+        "job": {
+            "state": (job_control or {}).get("state"),
+            "terminal": (job_control or {}).get("terminal"),
+            "last_updated_at_utc": (job_control or {}).get("last_updated_at_utc"),
+            "stage_statuses": _safe_stage_rows(job_control),
+        },
+        "workflow": {
+            "available": bool(workflow_status.get("available")) if isinstance(workflow_status, dict) else False,
+            "state": workflow_status.get("state") if isinstance(workflow_status, dict) else None,
+            "terminal": workflow_status.get("terminal") if isinstance(workflow_status, dict) else None,
+            "recommended_action": workflow_status.get("recommended_action") if isinstance(workflow_status, dict) else None,
+        },
+        "health": {
+            "status": health_summary.get("status"),
+            "ok": health_summary.get("ok"),
+            "warn": health_summary.get("warn"),
+            "error": health_summary.get("error"),
+        },
+        "artifacts": {
+            "available_count": artifact_inventory.get("available_count") if isinstance(artifact_inventory, dict) else None,
+            "total_count": artifact_inventory.get("total_count") if isinstance(artifact_inventory, dict) else None,
+        },
+        "redaction": {
+            "operator_fields_redacted": True,
+            "paths_redacted": True,
+            "hashes_redacted": True,
+            "exact_results_redacted": True,
+        },
+    }
+
+
 def _load_start_request(body: dict[str, Any], *, default_out_base: Path) -> tuple[dict[str, Any], str, Path]:
     overrides = body.get("overrides")
     if overrides is None:
@@ -1698,6 +1824,183 @@ def _assert_request_view_allowed(identity: dict[str, Any] | None, submission: di
         if identity_tenant and identity_tenant == str(submission.get("tenant_id") or ""):
             return
     raise PermissionError("request submission access denied")
+
+
+def _assert_privacy_budget_approval_view_allowed(identity: dict[str, Any], request: dict[str, Any]) -> None:
+    if identity_has_any_role(identity, "platform_admin", "platform_auditor"):
+        return
+    if str(request.get("caller") or "") == str(identity.get("caller") or ""):
+        return
+    if identity_has_any_role(identity, "privacy_operator", "compliance_auditor"):
+        identity_tenant = str(identity.get("tenant_id") or "")
+        request_tenant = str(request.get("tenant_id") or "")
+        if identity_tenant and request_tenant and identity_tenant == request_tenant:
+            return
+    raise PermissionError("privacy budget approval access denied")
+
+
+def _privacy_budget_approval_store_path(server: "DashboardServer") -> str:
+    if not server.privacy_budget_store:
+        raise RuntimeError("privacy budget approval API requires --privacy-budget-store")
+    return server.privacy_budget_store
+
+
+def _append_privacy_budget_decision_jsonl(path: str, record: dict[str, Any]) -> None:
+    if not path:
+        return
+    append_jsonl(Path(path), record)
+
+
+def _build_privacy_budget_decision_record(
+    *,
+    request: dict[str, Any],
+    action: str,
+    actor: str,
+    reason: str,
+    expires_at_utc: str | None,
+) -> dict[str, Any]:
+    status = {
+        "approve": "approved",
+        "reject": "rejected",
+        "expire": "expired",
+    }[action]
+    return {
+        "schema": "privacy_budget_approval_decision/v1",
+        "created_at_utc": policy_release.utc_now_iso(),
+        "action": action,
+        "status": status,
+        "request_id": request["request_id"],
+        "actor": actor,
+        "caller": request["caller"],
+        "tenant_id": request.get("tenant_id"),
+        "dataset_id": request.get("dataset_id"),
+        "purpose": request.get("purpose"),
+        "job_id": request.get("job_id"),
+        "consuming_job_id": None,
+        "query_fingerprint": request.get("query_fingerprint"),
+        "query_payload_sha256": request.get("query_payload_sha256"),
+        "reason": reason or f"privacy budget approval {action}",
+        "expires_at_utc": expires_at_utc,
+        "public_report_sha256": request.get("public_report_sha256"),
+        "budget_consumed": False,
+        "consuming_event_id": None,
+    }
+
+
+def _validate_privacy_budget_expires_at(value: str | None) -> str | None:
+    if value in (None, ""):
+        return None
+    try:
+        policy_release.parse_iso8601_utc(str(value))
+    except Exception as exc:
+        raise ValueError("expires_at_utc must be an ISO8601 UTC timestamp") from exc
+    return str(value)
+
+
+def _list_privacy_budget_approvals(
+    server: "DashboardServer",
+    *,
+    identity: dict[str, Any] | None,
+    status: str,
+    tenant_id: str,
+    caller: str,
+    limit: int,
+) -> dict[str, Any]:
+    resolved_identity = _require_resolved_identity(identity)
+    if not identity_has_any_role(resolved_identity, *PRIVACY_BUDGET_APPROVAL_REVIEW_ROLES):
+        caller = caller or str(resolved_identity.get("caller") or "")
+    store_path = _privacy_budget_approval_store_path(server)
+    with policy_release.PrivacyBudgetStore(store_path) as store:
+        store.begin_immediate()
+        store.bootstrap_approval_requests(server.privacy_budget_approval_queue or None)
+        store.bootstrap_approval_decisions(server.privacy_budget_approval_decisions or None)
+        requests = store.list_approval_requests(status=status or None)
+        store.commit()
+
+    filtered: list[dict[str, Any]] = []
+    for request in requests:
+        try:
+            _assert_privacy_budget_approval_view_allowed(resolved_identity, request)
+        except PermissionError:
+            continue
+        if tenant_id and str(request.get("tenant_id") or "") != tenant_id:
+            continue
+        if caller and str(request.get("caller") or "") != caller:
+            continue
+        filtered.append(request)
+        if len(filtered) >= limit:
+            break
+    return {
+        "schema": PRIVACY_BUDGET_APPROVAL_LIST_SCHEMA,
+        "status": "ok",
+        "filter_status": status or None,
+        "tenant_id": tenant_id or None,
+        "caller": caller or None,
+        "returned_count": len(filtered),
+        "limit": limit,
+        "requests": filtered,
+    }
+
+
+def _transition_privacy_budget_approval(
+    server: "DashboardServer",
+    *,
+    request_id: str,
+    action: str,
+    identity: dict[str, Any] | None,
+    reason: str,
+    expires_at_utc: str | None,
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    resolved_identity = _require_resolved_identity(identity)
+    actor = _actor(resolved_identity)
+    expires_at_utc = _validate_privacy_budget_expires_at(expires_at_utc)
+    if not actor:
+        raise PermissionError("privacy budget approval transition requires resolved actor")
+    if action == "approve":
+        if not identity_has_any_role(resolved_identity, *PRIVACY_BUDGET_APPROVAL_APPROVE_ROLES):
+            raise PermissionError("privacy budget approval requires privacy_operator or platform_admin role")
+    elif action == "reject":
+        if not identity_has_any_role(resolved_identity, *PRIVACY_BUDGET_APPROVAL_REJECT_ROLES):
+            raise PermissionError("privacy budget rejection requires privacy_operator, platform_admin, or compliance_auditor role")
+        if not reason.strip():
+            raise ValueError("privacy budget rejection reason is required")
+    elif action == "expire":
+        if not identity_has_any_role(resolved_identity, *PRIVACY_BUDGET_APPROVAL_EXPIRE_ROLES):
+            raise PermissionError("privacy budget expiry requires privacy_operator, platform_admin, or compliance_auditor role")
+        if not reason.strip():
+            raise ValueError("privacy budget expiry reason is required")
+    else:
+        raise ValueError(f"unsupported privacy budget approval transition: {action}")
+
+    store_path = _privacy_budget_approval_store_path(server)
+    with policy_release.PrivacyBudgetStore(store_path) as store:
+        store.begin_immediate()
+        store.bootstrap_approval_requests(server.privacy_budget_approval_queue or None)
+        store.bootstrap_approval_decisions(server.privacy_budget_approval_decisions or None)
+        request = store.load_approval_request(request_id)
+        if request is None:
+            raise FileNotFoundError(f"privacy budget approval request not found: {request_id}")
+        _assert_privacy_budget_approval_view_allowed(resolved_identity, request)
+        if action == "approve" and actor == str(request.get("caller") or ""):
+            raise PermissionError("same_identity_self_approval")
+        record = _build_privacy_budget_decision_record(
+            request=request,
+            action=action,
+            actor=actor,
+            reason=reason.strip(),
+            expires_at_utc=expires_at_utc,
+        )
+        updated = store.transition_approval_request(
+            request_id=request_id,
+            action=action,
+            actor=actor,
+            reason=reason.strip(),
+            expires_at_utc=expires_at_utc,
+            decision_record=record,
+        )
+        _append_privacy_budget_decision_jsonl(server.privacy_budget_approval_decisions, record)
+        store.commit()
+    return updated, record
 
 
 def _append_transition(transitions: list[Any], *, state: str, event: str, actor: str | None, at_utc: str, reason: str | None = None) -> list[dict[str, Any]]:
@@ -2124,6 +2427,7 @@ def _start_job_thread(server: "DashboardServer", *, payload: dict[str, Any], req
 PJC_TWO_PARTY_PREFLIGHT_SCHEMA = "pjc_two_party_preflight/v1"
 PJC_ROLE_PACKAGE_SCHEMA = "pjc_role_package/v1"
 PJC_ROLE_STATUS_SCHEMA = "pjc_role_status/v1"
+PJC_TWO_PARTY_SIGNED_RUN_MANIFEST_SCHEMA = "pjc_two_party_signed_run_manifest/v1"
 PJC_TWO_PARTY_EVIDENCE_MERGE_SCHEMA = "pjc_two_party_evidence_merge/v1"
 PJC_TWO_PARTY_NEGATIVE_CASES_SCHEMA = "pjc_two_party_negative_cases/v1"
 
@@ -2154,6 +2458,9 @@ PJC_ROLE_ENV_ALLOWLIST: tuple[str, ...] = (
     "RUN_PJC_CLIENT_SH",
     "SERVER_ADDR",
     "PJC_GRPC_STREAM_CHUNK_ELEMENTS",
+    "PJC_PRODUCTION_MODE",
+    "PJC_ALLOW_LEGACY_UNARY",
+    "PJC_ALLOW_PRODUCTION_WIDE_BIND",
     "PJC_MTLS_REQUIRE_SESSION_MANIFEST",
     "PJC_RESOURCE_LIMITS",
     "PJC_PREFLIGHT_REQUIRED",
@@ -2163,6 +2470,9 @@ PJC_ROLE_ENV_ALLOWLIST: tuple[str, ...] = (
     "PJC_PREFLIGHT_PURPOSE",
     "PJC_PREFLIGHT_CLIENT_CSV",
     "PJC_PREFLIGHT_CLIENT_ROWS",
+    "PJC_INPUT_COMMITMENT",
+    "PJC_JOB_META",
+    "PJC_REQUIRE_INPUT_COMMITMENT",
 )
 
 PJC_REQUIRED_NEGATIVE_CASES: tuple[str, ...] = (
@@ -2191,6 +2501,59 @@ def _sha256_file(path: Path) -> str:
 
 def _sha256_bytes(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
+
+
+def _canonical_json_bytes(payload: dict[str, Any]) -> bytes:
+    return json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
+
+
+def _b64encode(data: bytes) -> str:
+    return base64.b64encode(data).decode("ascii")
+
+
+def _b64decode(value: str) -> bytes:
+    return base64.b64decode(str(value or "").encode("ascii"), validate=True)
+
+
+def _load_ed25519_private_key(path: Path):
+    try:
+        from cryptography.hazmat.primitives import serialization
+        from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+    except ImportError as exc:  # pragma: no cover - dependency gate
+        raise RuntimeError("cryptography package is required for signed PJC run manifests") from exc
+    key_bytes = path.read_bytes()
+    try:
+        key = serialization.load_pem_private_key(key_bytes, password=None)
+    except ValueError:
+        key = Ed25519PrivateKey.from_private_bytes(key_bytes)
+    if not isinstance(key, Ed25519PrivateKey):
+        raise ValueError("signing key must be an Ed25519 private key")
+    return key
+
+
+def _load_ed25519_public_key_from_pem(pem: str):
+    try:
+        from cryptography.hazmat.primitives import serialization
+        from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
+    except ImportError as exc:  # pragma: no cover - dependency gate
+        raise RuntimeError("cryptography package is required for signed PJC run manifest verification") from exc
+    key = serialization.load_pem_public_key(str(pem or "").encode("utf-8"))
+    if not isinstance(key, Ed25519PublicKey):
+        raise ValueError("manifest public_key_pem must be Ed25519")
+    return key
+
+
+def _ed25519_public_key_pem(private_key: Any) -> str:
+    from cryptography.hazmat.primitives import serialization
+
+    return private_key.public_key().public_bytes(
+        encoding=serialization.Encoding.PEM,
+        format=serialization.PublicFormat.SubjectPublicKeyInfo,
+    ).decode("ascii")
+
+
+def _ed25519_public_key_fingerprint(public_key_pem: str) -> str:
+    return _sha256_bytes(str(public_key_pem or "").encode("utf-8"))
 
 
 def _ensure_two_party_dir() -> Path:
@@ -2917,6 +3280,8 @@ def _role_command(role: str, *, body: dict[str, Any]) -> tuple[list[str], dict[s
         env["LC_ALL"] = os.environ["LC_ALL"]
     if body.get("pjc_grpc_stream_chunk_elements") is not None:
         env["PJC_GRPC_STREAM_CHUNK_ELEMENTS"] = str(body["pjc_grpc_stream_chunk_elements"])
+    if body.get("production_mode"):
+        env["PJC_PRODUCTION_MODE"] = "1"
     if body.get("require_session_manifest"):
         env["PJC_MTLS_REQUIRE_SESSION_MANIFEST"] = "1"
     if body.get("grpc_max_message_mb") is not None:
@@ -2924,6 +3289,12 @@ def _role_command(role: str, *, body: dict[str, Any]) -> tuple[list[str], dict[s
     if body.get("pjc_resource_limits"):
         env["PJC_RESOURCE_LIMITS"] = str(_repo_path(str(body["pjc_resource_limits"])))
         env["PJC_PREFLIGHT_REQUIRED"] = "1"
+    elif body.get("production_mode"):
+        env["PJC_PREFLIGHT_REQUIRED"] = "1"
+    if body.get("allow_legacy_unary"):
+        env["PJC_ALLOW_LEGACY_UNARY"] = "1"
+    if body.get("allow_production_wide_bind"):
+        env["PJC_ALLOW_PRODUCTION_WIDE_BIND"] = "1"
     if body.get("shared_result_dir"):
         env["SHARED_RESULT_DIR"] = str(_repo_path(str(body["shared_result_dir"])))
 
@@ -3172,10 +3543,205 @@ def _maybe_load_jsonl(path: Path) -> list[dict[str, Any]]:
     return items
 
 
+def _manifest_hash_value(value: Any) -> str | None:
+    text = str(value or "").strip().lower()
+    if len(text) == 64 and all(ch in "0123456789abcdef" for ch in text):
+        return text
+    return None
+
+
+def _first_manifest_hash(*values: Any) -> str | None:
+    for value in values:
+        parsed = _manifest_hash_value(value)
+        if parsed:
+            return parsed
+    return None
+
+
+def _signable_run_manifest_payload(body: dict[str, Any]) -> dict[str, Any]:
+    job_id = str(body.get("job_id") or "").strip()
+    party = str(body.get("party") or body.get("role") or "").strip().lower()
+    peer_party = str(body.get("peer_party") or "").strip().lower()
+    if party not in ("party_a", "party_b", "server", "client"):
+        raise ValueError("party must be party_a, party_b, server, or client")
+    if not peer_party:
+        peer_party = "party_b" if party in ("party_a", "server") else "party_a"
+    if peer_party not in ("party_a", "party_b", "server", "client"):
+        raise ValueError("peer_party must be party_a, party_b, server, or client")
+    if not job_id:
+        raise ValueError("job_id is required")
+
+    pjc_result_path_raw = str(body.get("pjc_result_path") or body.get("result_path") or "").strip()
+    pjc_result_sha = _first_manifest_hash(body.get("pjc_result_sha256"))
+    if pjc_result_path_raw and not pjc_result_sha:
+        pjc_result_path = _repo_path(pjc_result_path_raw)
+        if not pjc_result_path.is_file():
+            raise FileNotFoundError(f"pjc result file not found: {pjc_result_path}")
+        pjc_result_sha = _sha256_file(pjc_result_path)
+    if not pjc_result_sha:
+        raise ValueError("pjc_result_sha256 or pjc_result_path is required")
+
+    public_report_path_raw = str(body.get("public_report_path") or "").strip()
+    public_report_sha = _first_manifest_hash(body.get("public_report_sha256"))
+    if public_report_path_raw and not public_report_sha:
+        public_report_path = _repo_path(public_report_path_raw)
+        if public_report_path.is_file():
+            public_report_sha = _sha256_file(public_report_path)
+
+    audit_chain_path_raw = str(body.get("audit_chain_path") or "").strip()
+    audit_chain_sha = _first_manifest_hash(body.get("audit_chain_sha256"))
+    if audit_chain_path_raw and not audit_chain_sha:
+        audit_chain_path = _repo_path(audit_chain_path_raw)
+        if audit_chain_path.is_file():
+            audit_chain_sha = _sha256_file(audit_chain_path)
+
+    policy_decision = str(body.get("policy_decision") or "").strip()
+    if not policy_decision and public_report_path_raw:
+        public = _maybe_load_json(_repo_path(public_report_path_raw)) or {}
+        if public:
+            policy_decision = "release" if public.get("released") else f"deny:{public.get('reason_code') or 'unknown'}"
+    if not policy_decision:
+        policy_decision = "unknown"
+
+    payload = {
+        "job_id": job_id,
+        "party": party,
+        "peer_party": peer_party,
+        "repo_commit": str(body.get("repo_commit") or body.get("commit") or _read_repo_commit() or "").strip() or None,
+        "input_commitment_sha256": _first_manifest_hash(body.get("input_commitment_sha256"), body.get("local_input_commitment_sha256")),
+        "peer_input_commitment_sha256": _first_manifest_hash(body.get("peer_input_commitment_sha256")),
+        "pjc_result_sha256": pjc_result_sha,
+        "policy_decision": policy_decision,
+        "public_report_sha256": public_report_sha,
+        "audit_chain_sha256": audit_chain_sha,
+        "tls_identity": str(body.get("tls_identity") or "").strip() or None,
+        "peer_tls_identity": str(body.get("peer_tls_identity") or "").strip() or None,
+        "ca_fingerprint_sha256": _normalize_fingerprint(str(body.get("ca_fingerprint_sha256") or body.get("ca_fingerprint") or "")) or None,
+        "generated_at_utc": str(body.get("generated_at_utc") or _utc_now_iso()),
+    }
+    if not payload["input_commitment_sha256"]:
+        raise ValueError("input_commitment_sha256 is required")
+    if not payload["peer_input_commitment_sha256"]:
+        raise ValueError("peer_input_commitment_sha256 is required")
+    if not payload["repo_commit"]:
+        raise ValueError("repo_commit is required")
+    return payload
+
+
+def _sign_two_party_run_manifest(body: dict[str, Any]) -> dict[str, Any]:
+    signing_key_raw = str(body.get("signing_key_path") or "").strip()
+    if not signing_key_raw:
+        raise ValueError("signing_key_path is required")
+    signing_key_path = _repo_path(signing_key_raw)
+    if not signing_key_path.is_file():
+        raise FileNotFoundError(f"signing key not found: {signing_key_path}")
+    private_key = _load_ed25519_private_key(signing_key_path)
+    public_key_pem = _ed25519_public_key_pem(private_key)
+    payload = _signable_run_manifest_payload(body)
+    payload_bytes = _canonical_json_bytes(payload)
+    signature = private_key.sign(payload_bytes)
+    manifest = {
+        "schema": PJC_TWO_PARTY_SIGNED_RUN_MANIFEST_SCHEMA,
+        "signature_algorithm": "ed25519",
+        "canonicalization": "json/sort_keys/separators=comma-colon/utf8",
+        "payload_sha256": _sha256_bytes(payload_bytes),
+        "payload": payload,
+        "signature": _b64encode(signature),
+        "public_key_pem": public_key_pem,
+        "public_key_fingerprint_sha256": _ed25519_public_key_fingerprint(public_key_pem),
+    }
+    out_dir_raw = str(body.get("output_dir") or "").strip()
+    out_dir = _repo_path(out_dir_raw) if out_dir_raw else (_ensure_two_party_dir() / "signed_manifests")
+    out_dir.mkdir(parents=True, exist_ok=True)
+    safe_party = payload["party"].replace("/", "_")
+    out_path = out_dir / f"{payload['job_id']}_{safe_party}_{_utc_suffix()}.json"
+    out_path.write_text(json.dumps(manifest, ensure_ascii=False, sort_keys=True, indent=2) + "\n", encoding="utf-8")
+    return {"status": "ok", "manifest_path": str(out_path), "manifest": manifest}
+
+
+def _verify_two_party_run_manifest(manifest: dict[str, Any], *, expected_public_key_fingerprint: str | None = None) -> tuple[dict[str, Any] | None, dict[str, Any]]:
+    result = {
+        "status": "deny",
+        "reason_code": "manifest_signature_invalid",
+        "message": None,
+        "public_key_fingerprint_sha256": None,
+        "payload_sha256": None,
+    }
+    try:
+        if manifest.get("schema") != PJC_TWO_PARTY_SIGNED_RUN_MANIFEST_SCHEMA:
+            result["reason_code"] = "manifest_schema_invalid"
+            result["message"] = f"unsupported schema: {manifest.get('schema')}"
+            return None, result
+        if manifest.get("signature_algorithm") != "ed25519":
+            result["reason_code"] = "manifest_signature_algorithm_unsupported"
+            result["message"] = f"unsupported signature algorithm: {manifest.get('signature_algorithm')}"
+            return None, result
+        payload = manifest.get("payload")
+        if not isinstance(payload, dict):
+            result["reason_code"] = "manifest_payload_invalid"
+            result["message"] = "manifest payload must be an object"
+            return None, result
+        public_key_pem = str(manifest.get("public_key_pem") or "")
+        public_key_fp = _ed25519_public_key_fingerprint(public_key_pem)
+        result["public_key_fingerprint_sha256"] = public_key_fp
+        if expected_public_key_fingerprint and public_key_fp != _normalize_fingerprint(expected_public_key_fingerprint):
+            result["reason_code"] = "manifest_public_key_mismatch"
+            result["message"] = "manifest public key fingerprint does not match expected fingerprint"
+            return None, result
+        payload_bytes = _canonical_json_bytes(payload)
+        payload_sha = _sha256_bytes(payload_bytes)
+        result["payload_sha256"] = payload_sha
+        expected_payload_sha = str(manifest.get("payload_sha256") or "")
+        if expected_payload_sha and expected_payload_sha != payload_sha:
+            result["reason_code"] = "manifest_payload_hash_mismatch"
+            result["message"] = "manifest payload_sha256 does not match canonical payload"
+            return None, result
+        public_key = _load_ed25519_public_key_from_pem(public_key_pem)
+        public_key.verify(_b64decode(str(manifest.get("signature") or "")), payload_bytes)
+        result["status"] = "ok"
+        result["reason_code"] = "ok"
+        result["message"] = None
+        return payload, result
+    except Exception as exc:  # noqa: BLE001
+        result["message"] = str(exc)
+        return None, result
+
+
+def _maybe_load_signed_run_manifest(root: Path) -> tuple[dict[str, Any] | None, Path | None]:
+    candidates = [
+        root / "pjc_two_party_run_manifest.json",
+        root / "signed_run_manifest.json",
+        root / "run_manifest.json",
+        root / "a_psi_run" / "pjc_two_party_run_manifest.json",
+        root / "a_psi_run" / "signed_run_manifest.json",
+    ]
+    for path in candidates:
+        payload = _maybe_load_json(path)
+        if payload is not None:
+            return payload, path
+    for pattern in ("*run_manifest*.json", "*signed*manifest*.json", "*manifest*.json"):
+        for path in sorted(root.glob(pattern)):
+            payload = _maybe_load_json(path)
+            if payload is not None and payload.get("schema") == PJC_TWO_PARTY_SIGNED_RUN_MANIFEST_SCHEMA:
+                return payload, path
+    manifest_dir = root / "signed_manifests"
+    if manifest_dir.is_dir():
+        for path in sorted(manifest_dir.glob("*.json")):
+            payload = _maybe_load_json(path)
+            if payload is not None:
+                return payload, path
+    return None, None
+
+
 def _extract_party_evidence(root: Path, *, label: str) -> dict[str, Any]:
     missing: list[str] = []
     if not root.is_dir():
         return {"source": str(root), "missing_files": ["<dir>"]}
+    signed_manifest, signed_manifest_path = _maybe_load_signed_run_manifest(root)
+    signed_payload: dict[str, Any] | None = None
+    signed_manifest_verification: dict[str, Any] | None = None
+    if signed_manifest is not None:
+        signed_payload, signed_manifest_verification = _verify_two_party_run_manifest(signed_manifest)
     public = _maybe_load_json(root / "a_psi_run" / "public_report.json") or _maybe_load_json(root / "public_report.json")
     if public is None:
         missing.append("public_report.json")
@@ -3207,25 +3773,59 @@ def _extract_party_evidence(root: Path, *, label: str) -> dict[str, Any]:
     tls_identity, ca_fp = _tls_identity()
     input_commit = None
     if bridge_meta is not None:
-        input_commit = bridge_meta.get("input_commitment_sha256") or bridge_meta.get("input_csv_sha256")
+        bridge_inputs = bridge_meta.get("inputs") if isinstance(bridge_meta.get("inputs"), dict) else {}
+        input_commit = (
+            bridge_meta.get("input_commitment_sha256")
+            or bridge_inputs.get("input_commitment_sha256")
+            or bridge_meta.get("input_csv_sha256")
+        )
     if not input_commit and pjc_audits:
         input_commit = pjc_audits[-1].get("input_commitment_sha256")
+    local_input_commit = (
+        signed_payload.get("input_commitment_sha256")
+        if isinstance(signed_payload, dict)
+        else input_commit
+    )
+    peer_input_commit = (
+        signed_payload.get("peer_input_commitment_sha256")
+        if isinstance(signed_payload, dict)
+        else None
+    )
     policy_decision = None
     if public is not None:
         policy_decision = "release" if public.get("released") else f"deny:{public.get('reason_code') or 'unknown'}"
     audit_chain_sha = None
     if audit_chain is not None:
         audit_chain_sha = _sha256_bytes(json.dumps(audit_chain, sort_keys=True, ensure_ascii=False).encode("utf-8"))
+    if isinstance(signed_payload, dict):
+        job_id = signed_payload.get("job_id") or job_id
+        commit = signed_payload.get("repo_commit") or commit
+        tls_identity = signed_payload.get("tls_identity") or tls_identity
+        ca_fp = signed_payload.get("ca_fingerprint_sha256") or ca_fp
+        result_sha = signed_payload.get("pjc_result_sha256") or _result_hash()
+        policy_decision = signed_payload.get("policy_decision") or policy_decision
+        audit_chain_sha = signed_payload.get("audit_chain_sha256") or audit_chain_sha
+    else:
+        result_sha = _result_hash()
     return {
         "source": str(root),
         "job_id": job_id,
         "commit": commit,
-        "input_commitment_sha256": input_commit,
+        "input_commitment_sha256": local_input_commit,
+        "peer_input_commitment_sha256": peer_input_commit,
+        "commitment_pair": {
+            "local": local_input_commit,
+            "peer": peer_input_commit,
+        },
         "tls_identity": tls_identity,
+        "peer_tls_identity": signed_payload.get("peer_tls_identity") if isinstance(signed_payload, dict) else None,
         "ca_fingerprint_sha256": ca_fp,
-        "result_sha256": _result_hash(),
+        "result_sha256": result_sha,
         "policy_decision": policy_decision,
+        "public_report_sha256": signed_payload.get("public_report_sha256") if isinstance(signed_payload, dict) else None,
         "audit_chain_sha256": audit_chain_sha,
+        "signed_manifest_path": str(signed_manifest_path) if signed_manifest_path is not None else None,
+        "signed_manifest_verification": signed_manifest_verification,
         "missing_files": missing,
     }
 
@@ -3236,6 +3836,7 @@ def _two_party_evidence_merge(body: dict[str, Any]) -> dict[str, Any]:
         raise ValueError("job_id is required")
     party_a_dir = _resolve_repo_path_strict(body.get("party_a_dir"), label="party_a_dir")
     party_b_dir = _resolve_repo_path_strict(body.get("party_b_dir"), label="party_b_dir")
+    require_signed_manifests = bool(body.get("require_signed_manifests") or body.get("require_signed_run_manifests"))
     a = _extract_party_evidence(party_a_dir, label="party_a")
     b = _extract_party_evidence(party_b_dir, label="party_b")
     if a.get("missing_files") or b.get("missing_files"):
@@ -3244,7 +3845,7 @@ def _two_party_evidence_merge(body: dict[str, Any]) -> dict[str, Any]:
         reason = f"missing files: A={a.get('missing_files')!r}, B={b.get('missing_files')!r}"
         findings = [{"kind": "missing_party_artifacts", "message": reason, "expected": [], "actual": [a.get("missing_files"), b.get("missing_files")]}]
         checks = {k: "missing" for k in (
-            "job_id_match", "commit_match", "input_commitment_match", "tls_identity_match",
+            "manifest_signature_valid", "job_id_match", "commit_match", "input_commitment_match", "commitment_exchange_match", "tls_identity_match",
             "ca_fingerprint_match", "result_hash_match", "policy_decision_match", "audit_chain_match",
         )}
     else:
@@ -3260,20 +3861,116 @@ def _two_party_evidence_merge(body: dict[str, Any]) -> dict[str, Any]:
             findings.append({"kind": mismatch_reason, "message": f"{key} differs", "expected": av, "actual": bv})
             return "mismatch"
 
+        def _manifest_status(party: dict[str, Any], label: str) -> str:
+            verification = party.get("signed_manifest_verification")
+            if verification is None:
+                return "missing"
+            if isinstance(verification, dict) and verification.get("status") == "ok":
+                return "match"
+            findings.append({
+                "kind": "manifest_signature_invalid",
+                "message": f"{label} signed run manifest is invalid",
+                "expected": "valid ed25519 signature",
+                "actual": verification,
+            })
+            return "mismatch"
+
+        def _exchange_status() -> str:
+            a_local = a.get("input_commitment_sha256")
+            a_peer = a.get("peer_input_commitment_sha256")
+            b_local = b.get("input_commitment_sha256")
+            b_peer = b.get("peer_input_commitment_sha256")
+            if a_peer is None and b_peer is None:
+                return "missing"
+            if None in (a_local, a_peer, b_local, b_peer):
+                findings.append({
+                    "kind": "commitment_exchange_mismatch",
+                    "message": "signed run manifests do not carry a complete local/peer commitment pair",
+                    "expected": {"party_a_local": a_local, "party_a_peer": b_local, "party_b_local": b_local, "party_b_peer": a_local},
+                    "actual": {"party_a_local": a_local, "party_a_peer": a_peer, "party_b_local": b_local, "party_b_peer": b_peer},
+                })
+                return "mismatch"
+            if a_peer == b_local and b_peer == a_local:
+                return "match"
+            findings.append({
+                "kind": "commitment_exchange_mismatch",
+                "message": "party-local and peer commitment hashes do not cross-match",
+                "expected": {"party_a_peer": b_local, "party_b_peer": a_local},
+                "actual": {"party_a_peer": a_peer, "party_b_peer": b_peer},
+            })
+            return "mismatch"
+
+        def _tls_identity_status() -> str:
+            a_local = a.get("tls_identity")
+            a_peer = a.get("peer_tls_identity")
+            b_local = b.get("tls_identity")
+            b_peer = b.get("peer_tls_identity")
+            if a_peer is None and b_peer is None:
+                return _cmp("tls_identity_match", "tls_identity", "tls_identity_mismatch")
+            if None in (a_local, a_peer, b_local, b_peer):
+                findings.append({
+                    "kind": "tls_identity_mismatch",
+                    "message": "signed run manifests do not carry a complete local/peer TLS identity pair",
+                    "expected": {"party_a_peer": b_local, "party_b_peer": a_local},
+                    "actual": {"party_a_peer": a_peer, "party_b_peer": b_peer},
+                })
+                return "mismatch"
+            if a_peer == b_local and b_peer == a_local:
+                return "match"
+            findings.append({
+                "kind": "tls_identity_mismatch",
+                "message": "party-local and peer TLS identities do not cross-match",
+                "expected": {"party_a_peer": b_local, "party_b_peer": a_local},
+                "actual": {"party_a_peer": a_peer, "party_b_peer": b_peer},
+            })
+            return "mismatch"
+
+        manifest_a = _manifest_status(a, "party_a")
+        manifest_b = _manifest_status(b, "party_b")
+        manifest_status = (
+            "match"
+            if manifest_a == "match" and manifest_b == "match"
+            else "mismatch"
+            if manifest_a == "mismatch" or manifest_b == "mismatch"
+            else "missing"
+        )
+        exchange_status = _exchange_status()
+        if require_signed_manifests and manifest_status == "missing":
+            findings.append({
+                "kind": "manifest_signature_missing",
+                "message": "signed run manifests are required for this evidence merge",
+                "expected": "party_a and party_b signed run manifest",
+                "actual": {
+                    "party_a": a.get("signed_manifest_path"),
+                    "party_b": b.get("signed_manifest_path"),
+                },
+            })
+
+        def _input_commitment_status() -> str:
+            if exchange_status == "match":
+                return "match"
+            if exchange_status == "mismatch":
+                return "missing"
+            return _cmp("input_commitment_match", "input_commitment_sha256", "input_manifest_mismatch")
+
         checks = {
+            "manifest_signature_valid": manifest_status,
             "job_id_match": _cmp("job_id_match", "job_id", "job_id_mismatch"),
             "commit_match": _cmp("commit_match", "commit", "commit_mismatch"),
-            "input_commitment_match": _cmp("input_commitment_match", "input_commitment_sha256", "input_manifest_mismatch"),
-            "tls_identity_match": _cmp("tls_identity_match", "tls_identity", "tls_identity_mismatch"),
+            "input_commitment_match": _input_commitment_status(),
+            "commitment_exchange_match": exchange_status,
+            "tls_identity_match": _tls_identity_status(),
             "ca_fingerprint_match": _cmp("ca_fingerprint_match", "ca_fingerprint_sha256", "ca_fingerprint_mismatch"),
             "result_hash_match": _cmp("result_hash_match", "result_sha256", "result_hash_mismatch"),
             "policy_decision_match": _cmp("policy_decision_match", "policy_decision", "policy_decision_mismatch"),
             "audit_chain_match": _cmp("audit_chain_match", "audit_chain_sha256", "audit_chain_hash_mismatch"),
         }
         priority = [
+            ("manifest_signature_valid", "manifest_signature_invalid"),
             ("job_id_match", "job_id_mismatch"),
             ("commit_match", "commit_mismatch"),
             ("input_commitment_match", "input_manifest_mismatch"),
+            ("commitment_exchange_match", "commitment_exchange_mismatch"),
             ("tls_identity_match", "tls_identity_mismatch"),
             ("ca_fingerprint_match", "ca_fingerprint_mismatch"),
             ("result_hash_match", "result_hash_mismatch"),
@@ -3288,6 +3985,11 @@ def _two_party_evidence_merge(body: dict[str, Any]) -> dict[str, Any]:
                 decision = "deny"
                 reason_code = code
                 reason = f"{name} mismatch"
+                break
+            if name == "manifest_signature_valid" and require_signed_manifests and checks[name] == "missing":
+                decision = "deny"
+                reason_code = "manifest_signature_missing"
+                reason = "signed run manifests are required"
                 break
 
     report = {
@@ -3789,12 +4491,16 @@ def _release_policy_gate_endpoint(body: dict[str, Any]) -> dict[str, Any]:
         raise FileNotFoundError(f"policy_config not found: {policy_config}")
     operator_report = _repo_path(str(body["operator_report_path"])) if body.get("operator_report_path") else None
     budget_ledger = _repo_path(str(body["privacy_budget_ledger"])) if body.get("privacy_budget_ledger") else None
+    pjc_evidence_merge = _repo_path(str(body["pjc_evidence_merge_path"])) if body.get("pjc_evidence_merge_path") else None
+    policy_audit_log = _repo_path(str(body["policy_audit_log_path"])) if body.get("policy_audit_log_path") else None
 
     report = run_gate(
         public_report_path=public_report,
         policy_config_path=policy_config,
         operator_report_path=operator_report,
         budget_ledger_path=budget_ledger,
+        pjc_evidence_merge_path=pjc_evidence_merge,
+        policy_audit_log_path=policy_audit_log,
     )
     out_dir = _ensure_two_party_dir() / "release_policy_gate"
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -3827,8 +4533,13 @@ class DashboardServer(ThreadingHTTPServer):
         metadata_db_dsn: str = "",
         metadata_db_read_dsn: str = "",
         identity_token_config: str = "",
+        privacy_budget_store: str = "",
+        privacy_budget_approval_queue: str = "",
+        privacy_budget_approval_decisions: str = "",
         mtls_enrollment_only_mode: bool = False,
         console_dist: Path | None = None,
+        session_cookie_name: str = DEFAULT_IDENTITY_SESSION_COOKIE_NAME,
+        session_cookie_secure: bool = False,
     ) -> None:
         self.out_base = out_base
         self.history_root = history_root
@@ -3841,8 +4552,17 @@ class DashboardServer(ThreadingHTTPServer):
         self.metadata_db_dsn = metadata_db_dsn
         self.metadata_db_read_dsn = metadata_db_read_dsn
         self.identity_token_config = str(Path(identity_token_config).resolve()) if identity_token_config else ""
+        self.privacy_budget_store = str(Path(privacy_budget_store).resolve()) if privacy_budget_store else ""
+        self.privacy_budget_approval_queue = (
+            str(Path(privacy_budget_approval_queue).resolve()) if privacy_budget_approval_queue else ""
+        )
+        self.privacy_budget_approval_decisions = (
+            str(Path(privacy_budget_approval_decisions).resolve()) if privacy_budget_approval_decisions else ""
+        )
         self.mtls_enrollment_only_mode = bool(mtls_enrollment_only_mode)
         self.console_dist = console_dist
+        self.session_cookie_name = session_cookie_name.strip() or DEFAULT_IDENTITY_SESSION_COOKIE_NAME
+        self.session_cookie_secure = bool(session_cookie_secure)
         self.job_lock = threading.Lock()
         self.current_job: dict[str, Any] | None = _seed_job_from_out_base(out_base)
         self.jobs: dict[str, dict[str, Any]] = {}
@@ -4037,17 +4757,36 @@ class DashboardHandler(BaseHTTPRequestHandler):
     def log_message(self, fmt: str, *args: Any) -> None:
         pass  # suppress default access log
 
-    def _send(self, status: int, content_type: str, body: bytes) -> None:
+    def _send(
+        self,
+        status: int,
+        content_type: str,
+        body: bytes,
+        *,
+        extra_headers: dict[str, str] | None = None,
+    ) -> None:
         self.send_response(status)
         self.send_header("Content-Type", content_type)
         self.send_header("Content-Length", str(len(body)))
         self.send_header("Cache-Control", "no-store")
+        headers = {
+            **_console_security_headers(secure_transport=bool(getattr(self.server, "session_cookie_secure", False))),
+            **(extra_headers or {}),
+        }
+        for key, value in headers.items():
+            self.send_header(key, value)
         self.end_headers()
         self.wfile.write(body)
 
-    def _send_json(self, status: int, payload: dict[str, Any]) -> None:
+    def _send_json(
+        self,
+        status: int,
+        payload: dict[str, Any],
+        *,
+        extra_headers: dict[str, str] | None = None,
+    ) -> None:
         body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
-        self._send(status, "application/json; charset=utf-8", body)
+        self._send(status, "application/json; charset=utf-8", body, extra_headers=extra_headers)
 
     def _read_json_body(self) -> dict[str, Any]:
         content_length = int(self.headers.get("Content-Length", "0") or "0")
@@ -4063,6 +4802,8 @@ class DashboardHandler(BaseHTTPRequestHandler):
     def _require_auth(self) -> dict[str, Any] | None:
         return resolve_request_identity(
             auth_header=self.headers.get("Authorization", ""),
+            cookie_header=self.headers.get("Cookie", ""),
+            session_cookie_name=self.server.session_cookie_name,
             expected_bearer_token=self.server.auth_token,
             db_path=self.server.metadata_db_path,
             db_dsn=self.server.metadata_db_dsn,
@@ -4070,6 +4811,135 @@ class DashboardHandler(BaseHTTPRequestHandler):
             identity_token_config=self.server.identity_token_config,
             auth_failure_label="operator dashboard",
         )
+
+    def _auth_configured(self) -> bool:
+        return bool(self.server.auth_token or self.server.identity_token_config)
+
+    def _session_cookie_header(self, token: str, *, max_age: int | None) -> str:
+        name = self.server.session_cookie_name
+        parts = [
+            f"{name}={token}",
+            "Path=/",
+            "HttpOnly",
+            "SameSite=Strict",
+        ]
+        if max_age is not None:
+            parts.append(f"Max-Age={max_age}")
+        if self.server.session_cookie_secure:
+            parts.append("Secure")
+        return "; ".join(parts)
+
+    def _session_payload(self, identity: dict[str, Any] | None, *, status: str) -> dict[str, Any]:
+        payload: dict[str, Any] = {
+            "schema": SESSION_COOKIE_SCHEMA,
+            "status": status,
+            "auth_required": self._auth_configured(),
+            "session_cookie": {
+                "name": self.server.session_cookie_name,
+                "httponly": True,
+                "same_site": "Strict",
+                "secure": bool(self.server.session_cookie_secure),
+                "path": "/",
+            },
+        }
+        if identity is not None:
+            payload["authenticated_identity"] = {
+                "caller": identity.get("caller"),
+                "tenant_id": identity.get("tenant_id"),
+                "service_id": identity.get("service_id"),
+                "platform_roles": identity.get("platform_roles") or [],
+                "auth_source": identity.get("auth_source"),
+            }
+        return payload
+
+    def _handle_session_status(self) -> None:
+        if not self._auth_configured():
+            self._send_json(200, self._session_payload(None, status="disabled"))
+            return
+        try:
+            identity = self._require_auth()
+            self._send_json(200, self._session_payload(identity, status="authenticated"))
+        except PermissionError as exc:
+            self._send_json(
+                401,
+                {
+                    "schema": SESSION_COOKIE_SCHEMA,
+                    "status": "unauthenticated",
+                    "auth_required": True,
+                    "message": str(exc),
+                    "session_cookie": {
+                        "name": self.server.session_cookie_name,
+                        "httponly": True,
+                        "same_site": "Strict",
+                        "secure": bool(self.server.session_cookie_secure),
+                        "path": "/",
+                    },
+                },
+            )
+
+    def _handle_session_login(self) -> None:
+        if not self.server.identity_token_config:
+            self._send_json(
+                400,
+                {
+                    "schema": SESSION_COOKIE_SCHEMA,
+                    "status": "unsupported",
+                    "message": "identity-token auth is required for browser HttpOnly cookie login",
+                },
+            )
+            return
+        try:
+            body = self._read_json_body()
+            token = str(body.get("bearer_token") or body.get("token") or "").strip()
+            if not token:
+                raise ValueError("bearer_token is required")
+            identity = resolve_identity_context(
+                db_path=self.server.metadata_db_path,
+                db_dsn=self.server.metadata_db_dsn,
+                db_read_dsn=self.server.metadata_db_read_dsn,
+                identity_token_config=self.server.identity_token_config,
+                bearer_token=token,
+            )
+            identity["auth_source"] = "login_exchange"
+            max_age = int(body.get("max_age_seconds") or 0)
+            if max_age <= 0:
+                max_age = 8 * 60 * 60
+            self._send_json(
+                200,
+                self._session_payload(identity, status="authenticated"),
+                extra_headers={"Set-Cookie": self._session_cookie_header(token, max_age=max_age)},
+            )
+        except PermissionError as exc:
+            self._send_json(403, {"schema": SESSION_COOKIE_SCHEMA, "status": "rejected", "message": str(exc)})
+        except ValueError as exc:
+            self._send_json(400, {"schema": SESSION_COOKIE_SCHEMA, "status": "rejected", "message": str(exc)})
+
+    def _handle_session_logout(self) -> None:
+        self._send_json(
+            200,
+            self._session_payload(None, status="cleared"),
+            extra_headers={"Set-Cookie": self._session_cookie_header("", max_age=0)},
+        )
+
+    def _require_roles_if_auth_configured(self, *roles: str) -> bool:
+        if not self._auth_configured():
+            return True
+        try:
+            identity = self._require_auth()
+            if identity is not None and not identity_has_any_role(identity, *roles):
+                self._send_json(
+                    403,
+                    {
+                        "error": "authz_rejected",
+                        "message": "operator dashboard privileged role required",
+                        "required_roles": list(roles),
+                    },
+                )
+                return False
+            return True
+        except PermissionError as exc:
+            self._send_json(403, {"error": "authz_rejected", "message": str(exc)})
+            return False
 
     def _current_job_snapshot(self) -> dict[str, Any] | None:
         job = self.server.get_job()
@@ -4218,21 +5088,40 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 {
                     "status": "ok",
                     "schema": "operator_dashboard_health/v1",
-                    "request_submission_enabled": bool(self.server.metadata_db_path or self.server.metadata_db_dsn),
-                    "auth_required": bool(self.server.auth_token or self.server.identity_token_config),
-                    "spa_available": self.server.console_dist is not None,
-                    "spa_dist": str(self.server.console_dist) if self.server.console_dist else None,
-                },
-            )
+                        "request_submission_enabled": bool(self.server.metadata_db_path or self.server.metadata_db_dsn),
+                        "privacy_budget_approval_enabled": bool(self.server.privacy_budget_store),
+                        "auth_required": bool(self.server.auth_token or self.server.identity_token_config),
+                        "browser_session_cookie_supported": bool(self.server.identity_token_config),
+                        "session_cookie_name": self.server.session_cookie_name,
+                        "session_cookie_secure": bool(self.server.session_cookie_secure),
+                        "spa_available": self.server.console_dist is not None,
+                        "spa_dist": str(self.server.console_dist) if self.server.console_dist else None,
+                    },
+                )
+        elif path == "/v1/session":
+            self._handle_session_status()
         elif path == "/v1/dashboard":
-            data = get_dashboard_data(
-                self.server.out_base,
-                history_root=self.server.history_root,
-                history_limit=self.server.history_limit,
-            )
-            data = dict(data)
-            data["job_control"] = self._current_job_snapshot()
-            self._send_json(200, data)
+            try:
+                identity = self._require_auth() if (self.server.auth_token or self.server.identity_token_config) else None
+                data = get_dashboard_data(
+                    self.server.out_base,
+                    history_root=self.server.history_root,
+                    history_limit=self.server.history_limit,
+                )
+                data = dict(data)
+                data["job_control"] = self._current_job_snapshot()
+                if identity is not None and not identity_has_any_role(identity, *DASHBOARD_FULL_VIEW_ROLES):
+                    self._send_json(200, build_dashboard_public_summary(data, identity=identity))
+                else:
+                    if identity is not None:
+                        data["authenticated_identity"] = {
+                            "caller": identity.get("caller"),
+                            "tenant_id": identity.get("tenant_id"),
+                            "platform_roles": identity.get("platform_roles") or [],
+                        }
+                    self._send_json(200, data)
+            except PermissionError as exc:
+                self._send_json(403, {"error": "authz_rejected", "message": str(exc)})
         elif path == "/v1/bucketed-scale-test":
             self._send_json(200, {"jobs": _list_bucketed_scale_test_jobs()})
         elif path.startswith("/v1/bucketed-scale-test/"):
@@ -4246,6 +5135,8 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 return
             self._send_json(200, snapshot)
         elif path == "/v1/runs":
+            if not self._require_roles_if_auth_configured(*DASHBOARD_FULL_VIEW_ROLES):
+                return
             limit_raw = query.get("limit", [""])[0]
             state = query.get("state", [""])[0] or None
             job_id = query.get("job_id", [""])[0] or None
@@ -4279,6 +5170,29 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 self._send_json(400, {"error": "invalid_request", "message": str(exc)})
             except RuntimeError as exc:
                 self._send_json(503, {"error": "metadata_sidecar_unavailable", "message": str(exc)})
+        elif path == "/v1/privacy-budget/approvals":
+            try:
+                identity = self._require_auth()
+                limit_raw = query.get("limit", ["50"])[0]
+                try:
+                    limit = min(200, max(1, int(limit_raw)))
+                except ValueError:
+                    raise ValueError(f"invalid limit: {limit_raw}")
+                payload = _list_privacy_budget_approvals(
+                    self.server,
+                    identity=identity,
+                    status=query.get("status", [""])[0],
+                    tenant_id=query.get("tenant_id", [""])[0],
+                    caller=query.get("caller", [""])[0],
+                    limit=limit,
+                )
+                self._send_json(200, payload)
+            except PermissionError as exc:
+                self._send_json(403, {"error": "authz_rejected", "message": str(exc)})
+            except ValueError as exc:
+                self._send_json(400, {"error": "invalid_request", "message": str(exc)})
+            except RuntimeError as exc:
+                self._send_json(503, {"error": "privacy_budget_approval_unavailable", "message": str(exc)})
         elif path.startswith("/v1/requests/"):
             submission_id = unquote(path[len("/v1/requests/") :]).strip("/")
             try:
@@ -4307,6 +5221,8 @@ class DashboardHandler(BaseHTTPRequestHandler):
             payload.pop("_log_handle", None)
             self._send_json(200, payload)
         elif path.startswith("/v1/jobs/") and path.endswith("/result"):
+            if not self._require_roles_if_auth_configured(*DASHBOARD_FULL_VIEW_ROLES):
+                return
             job_id = unquote(path[len("/v1/jobs/") : -len("/result")]).strip("/")
             snapshot = self._job_snapshot_or_404(job_id)
             if snapshot is None:
@@ -4328,6 +5244,8 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 "out_base": snapshot.get("out_base"),
             })
         elif path.startswith("/v1/jobs/"):
+            if not self._require_roles_if_auth_configured(*DASHBOARD_FULL_VIEW_ROLES):
+                return
             job_id = unquote(path[len("/v1/jobs/") :]).strip("/")
             snapshot = self._job_snapshot_or_404(job_id)
             if snapshot is None:
@@ -4369,6 +5287,8 @@ class DashboardHandler(BaseHTTPRequestHandler):
             })
             return
         if path == "/v1/runs/select":
+            if not self._require_roles_if_auth_configured(*DASHBOARD_FULL_VIEW_ROLES):
+                return
             try:
                 body = self._read_json_body()
                 out_base_value = body.get("out_base")
@@ -4385,6 +5305,12 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 self._send_json(409, {"error": "run_switch_blocked", "message": str(exc)})
             except ValueError as exc:
                 self._send_json(400, {"error": "invalid_request", "message": str(exc)})
+            return
+        if path == "/v1/session/login":
+            self._handle_session_login()
+            return
+        if path == "/v1/session/logout":
+            self._handle_session_logout()
             return
         if path == "/v1/request/submit":
             try:
@@ -4463,7 +5389,57 @@ class DashboardHandler(BaseHTTPRequestHandler):
             except RuntimeError as exc:
                 self._send_json(409, {"error": "request_transition_failed", "message": str(exc), "submission_id": submission_id})
             return
+        if path.startswith("/v1/privacy-budget/approval/") and (
+            path.endswith("/approve") or path.endswith("/reject") or path.endswith("/expire")
+        ):
+            if path.endswith("/approve"):
+                action = "approve"
+            elif path.endswith("/reject"):
+                action = "reject"
+            else:
+                action = "expire"
+            suffix = f"/{action}"
+            request_id = unquote(path[len("/v1/privacy-budget/approval/") : -len(suffix)]).strip("/")
+            try:
+                identity = self._require_auth()
+                body = self._read_json_body()
+                reason = str(body.get("reason") or "").strip()
+                expires_at_utc = str(body.get("expires_at_utc") or "").strip() or None
+                updated, decision = _transition_privacy_budget_approval(
+                    self.server,
+                    request_id=request_id,
+                    action=action,
+                    identity=identity,
+                    reason=reason,
+                    expires_at_utc=expires_at_utc,
+                )
+                self._send_json(
+                    200,
+                    {
+                        "schema": "privacy_budget_approval_transition/v1",
+                        "status": "ok",
+                        "action": action,
+                        "request_id": request_id,
+                        "approval": updated,
+                        "decision": decision,
+                    },
+                )
+            except FileNotFoundError as exc:
+                self._send_json(404, {"error": "not_found", "message": str(exc), "request_id": request_id})
+            except PermissionError as exc:
+                error = "same_identity_self_approval" if str(exc) == "same_identity_self_approval" else "authz_rejected"
+                self._send_json(403, {"error": error, "message": str(exc), "request_id": request_id})
+            except ValueError as exc:
+                self._send_json(400, {"error": "invalid_request", "message": str(exc), "request_id": request_id})
+            except RuntimeError as exc:
+                self._send_json(
+                    409,
+                    {"error": "privacy_budget_approval_transition_failed", "message": str(exc), "request_id": request_id},
+                )
+            return
         if path.startswith("/v1/jobs/") and path.endswith("/relaunch"):
+            if not self._require_roles_if_auth_configured(*DASHBOARD_JOB_MUTATION_ROLES):
+                return
             job_id = unquote(path[len("/v1/jobs/") : -len("/relaunch")]).strip("/")
             current = self.server.get_job(job_id)
             if current is None or str(current.get("job_id") or "") != job_id:
@@ -4555,6 +5531,18 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 self._send_json(400, {"status": "error", "error": "invalid_request", "message": str(exc)})
             except RuntimeError as exc:
                 self._send_json(500, {"status": "error", "error": "preflight_failed", "message": str(exc)})
+            return
+        if path == "/v1/pjc/run-manifest/sign":
+            try:
+                body = self._read_json_body()
+                payload = _sign_two_party_run_manifest(body)
+                self._send_json(200, payload)
+            except FileNotFoundError as exc:
+                self._send_json(404, {"status": "error", "error": "not_found", "message": str(exc)})
+            except ValueError as exc:
+                self._send_json(400, {"status": "error", "error": "invalid_request", "message": str(exc)})
+            except RuntimeError as exc:
+                self._send_json(500, {"status": "error", "error": "manifest_sign_failed", "message": str(exc)})
             return
         if path == "/v1/pjc/role-package/export":
             try:
@@ -4728,6 +5716,8 @@ class DashboardHandler(BaseHTTPRequestHandler):
         if path != "/v1/jobs/start":
             self._send_json(404, {"error": "not_found", "path": path})
             return
+        if not self._require_roles_if_auth_configured(*DASHBOARD_JOB_MUTATION_ROLES):
+            return
         try:
             body = self._read_json_body()
             payload, request_source, request_dir = _load_start_request(body, default_out_base=self.server.out_base)
@@ -4825,6 +5815,30 @@ def build_parser() -> argparse.ArgumentParser:
     )
     ap.add_argument("--identity-token-config", default="", help="Optional bearer-token to caller-identity mapping config")
     ap.add_argument(
+        "--session-cookie-name",
+        default=DEFAULT_IDENTITY_SESSION_COOKIE_NAME,
+        help=(
+            "HttpOnly cookie name used by /v1/session/login and cookie-aware API auth "
+            f"(default: {DEFAULT_IDENTITY_SESSION_COOKIE_NAME})"
+        ),
+    )
+    ap.add_argument(
+        "--session-cookie-secure",
+        action="store_true",
+        help="Add the Secure attribute to the browser session cookie; enable behind HTTPS/TLS.",
+    )
+    ap.add_argument("--privacy-budget-store", default="", help="SQLite privacy-budget store for approval list/transition API")
+    ap.add_argument(
+        "--privacy-budget-approval-queue",
+        default="",
+        help="Optional privacy_budget_approval_request/v1 JSONL queue to bootstrap into the store",
+    )
+    ap.add_argument(
+        "--privacy-budget-approval-decisions",
+        default="",
+        help="Optional privacy_budget_approval_decision/v1 JSONL decision log written by approval API",
+    )
+    ap.add_argument(
         "--console-dist",
         default="",
         help=(
@@ -4852,6 +5866,8 @@ def main() -> int:
     args = build_parser().parse_args()
     if args.identity_token_config and not args.metadata_db_path and not args.metadata_db_dsn:
         raise SystemExit("[ERROR] --identity-token-config requires --metadata-db-path or --metadata-db-dsn")
+    if (args.privacy_budget_approval_queue or args.privacy_budget_approval_decisions) and not args.privacy_budget_store:
+        raise SystemExit("[ERROR] privacy-budget approval queue/decisions require --privacy-budget-store")
     auth_token = read_auth_token(args.auth_token_env)
     out_base = Path(args.out_base).expanduser().resolve()
     if not out_base.is_dir():
@@ -4876,8 +5892,13 @@ def main() -> int:
         metadata_db_dsn=args.metadata_db_dsn,
         metadata_db_read_dsn=args.metadata_db_dsn_read_replica,
         identity_token_config=args.identity_token_config,
+        privacy_budget_store=args.privacy_budget_store,
+        privacy_budget_approval_queue=args.privacy_budget_approval_queue,
+        privacy_budget_approval_decisions=args.privacy_budget_approval_decisions,
         mtls_enrollment_only_mode=bool(args.mtls_enrollment_only_mode),
         console_dist=console_dist,
+        session_cookie_name=args.session_cookie_name,
+        session_cookie_secure=bool(args.session_cookie_secure),
     )
 
     def _shutdown(sig: int, frame: Any) -> None:

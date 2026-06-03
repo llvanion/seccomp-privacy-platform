@@ -331,15 +331,28 @@ export function PageHeader({
 
 // ---------- JSON viewer ----------
 
+const JSON_BLOCK_MAX_HEIGHT_CLASS: Record<string, string> = {
+  "160px": "max-h-[160px]",
+  "220px": "max-h-[220px]",
+  "240px": "max-h-[240px]",
+  "260px": "max-h-[260px]",
+  "280px": "max-h-[280px]",
+  "320px": "max-h-[320px]",
+  "360px": "max-h-[360px]",
+  "380px": "max-h-[380px]",
+  "420px": "max-h-[420px]",
+  "480px": "max-h-[480px]",
+};
+
 export function JsonBlock({ data, className, maxHeight }: { data: unknown; className?: string; maxHeight?: string }) {
   const text = typeof data === "string" ? data : JSON.stringify(data, null, 2);
   return (
     <pre
       className={cx(
         "panel p-3 font-mono text-2xs whitespace-pre-wrap break-words overflow-auto text-ink-muted",
+        maxHeight && JSON_BLOCK_MAX_HEIGHT_CLASS[maxHeight],
         className,
       )}
-      style={maxHeight ? { maxHeight } : undefined}
     >
       {text}
     </pre>

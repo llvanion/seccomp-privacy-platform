@@ -4,7 +4,8 @@ import { Filter, Plus, RefreshCw } from "lucide-react";
 
 import { operatorApi } from "@/api/operator";
 import { useApiQuery } from "@/hooks/useApi";
-import type { OperatorDashboardData, OperatorJob } from "@/api/types";
+import type { OperatorDashboardData, OperatorDashboardPublicSummary, OperatorJob } from "@/api/types";
+import { isOperatorDashboardPublicSummary } from "@/api/types";
 import {
   Button,
   Card,
@@ -42,12 +43,16 @@ export function JobsRoute() {
     refetchInterval: 15_000,
   });
 
-  const jobs: OperatorJob[] = dashboardQ.data?.jobs ?? dashboardQ.data?.recent_runs ?? [];
+  const publicSummary = isOperatorDashboardPublicSummary(dashboardQ.data) ? dashboardQ.data : null;
+  const fullDashboard = dashboardQ.data && !isOperatorDashboardPublicSummary(dashboardQ.data) ? dashboardQ.data : null;
+  const jobs: OperatorJob[] = fullDashboard?.jobs ?? fullDashboard?.recent_runs ?? [];
+  const publicJob = publicSummary ? publicSummaryToJob(publicSummary) : null;
+  const rows: OperatorJob[] = publicJob ? [publicJob] : jobs;
 
   const filtered = useMemo(() => {
     const lcSearch = search.trim().toLowerCase();
     const lcTenant = tenantFilter.trim().toLowerCase();
-    return jobs.filter((j) => {
+    return rows.filter((j) => {
       const status = (j.status ?? j.terminal_state ?? "").toLowerCase();
       if (statusFilter !== "all" && status !== statusFilter) return false;
       if (lcSearch) {
@@ -57,7 +62,7 @@ export function JobsRoute() {
       if (lcTenant && (j.tenant_id ?? "").toLowerCase() !== lcTenant) return false;
       return true;
     });
-  }, [jobs, statusFilter, search, tenantFilter]);
+  }, [rows, statusFilter, search, tenantFilter]);
 
   return (
     <div className="space-y-5">
@@ -111,8 +116,9 @@ export function JobsRoute() {
 
       <Card>
         <CardHeader
-          title={`作业列表（${filtered.length} / ${jobs.length}）`}
-          description="点击 job_id 进入详细 stage 时序、mainline contract 摘要、结果 JSON 视图。"
+          title={`作业列表（${filtered.length} / ${rows.length}）`}
+          description={publicSummary ? "当前身份只返回 caller-safe dashboard summary；列表仅展示 coarse current-job 状态。" : "点击 job_id 进入详细 stage 时序、mainline contract 摘要、结果 JSON 视图。"}
+          actions={publicSummary ? <StatusPill kind="ok">redacted</StatusPill> : undefined}
         />
         {dashboardQ.isLoading ? (
           <div className="space-y-2">
@@ -124,7 +130,7 @@ export function JobsRoute() {
         ) : filtered.length === 0 ? (
           <EmptyState
             title="无匹配作业"
-            description={jobs.length === 0 ? "history root 当前为空。" : "调整过滤器或换个时间窗口。"}
+            description={rows.length === 0 ? "history root 当前为空。" : "调整过滤器或换个时间窗口。"}
             action={
               <Link to="/jobs/start">
                 <Button variant="primary">启动一个作业</Button>
@@ -139,16 +145,40 @@ export function JobsRoute() {
   );
 }
 
+function publicSummaryToJob(summary: OperatorDashboardPublicSummary): OperatorJob {
+  return {
+    job_id: summary.scope.job_id ?? "redacted-current-job",
+    status: summary.job.state ?? summary.workflow.state ?? summary.overall_status ?? "redacted",
+    terminal_state: summary.job.terminal === null ? undefined : summary.job.terminal ? "terminal" : "running",
+    started_at_utc: null,
+    finished_at_utc: null,
+    elapsed_seconds: null,
+    caller: summary.scope.caller,
+    tenant_id: summary.scope.tenant_id,
+    dataset_id: summary.scope.dataset_id,
+    service_id: summary.scope.service_id,
+    stages: summary.job.stage_statuses.map((stage) => ({
+      stage: stage.name ?? "stage",
+      status: stage.status ?? undefined,
+      duration_ms: null,
+      started_at_utc: null,
+      finished_at_utc: null,
+    })),
+  };
+}
+
 function JobsTable({ rows }: { rows: OperatorJob[] }) {
   const columns: Column<OperatorJob>[] = [
     {
       id: "job_id",
       header: "Job",
-      cell: (r) => (
-        <Link to={`/jobs/${encodeURIComponent(r.job_id)}`} className="text-brand hover:underline font-mono text-2xs">
-          {shortHash(r.job_id, 12, 6)}
-        </Link>
-      ),
+      cell: (r) => r.job_id === "redacted-current-job" ? (
+        <span className="font-mono text-2xs text-ink-muted">redacted</span>
+      ) : (
+          <Link to={`/jobs/${encodeURIComponent(r.job_id)}`} className="text-brand hover:underline font-mono text-2xs">
+            {shortHash(r.job_id, 12, 6)}
+          </Link>
+        ),
       sortKey: (r) => r.job_id,
     },
     {

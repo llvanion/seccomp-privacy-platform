@@ -20,7 +20,7 @@ the current scripts.
 | Client certificate reuse across jobs | Repo-side solved | `scripts/create_pjc_mtls_session.py` creates per-job CA/server/client certs plus `session_manifest.json`; `run_pjc_server_tls.sh` and `run_pjc_client_tls.sh` validate the manifest when present and can fail closed with `PJC_MTLS_REQUIRE_SESSION_MANIFEST=1`. Regression: `bash scripts/verify_pjc_mtls_reuse_defense.sh`. |
 | Enrollment endpoint public exposure | Solved | Dashboard server auto-shuts down after `MAX_ENROLLMENTS`, TTL expiry, or `PJC_MTLS_ENROLLMENT_IDLE_TIMEOUT_SECONDS`, AND `serve_pjc_mtls_enrollment_party_a.sh` now launches the dashboard with `--mtls-enrollment-only-mode` — every endpoint except `/healthz` and `POST /v1/pjc-mtls/enroll` returns 404 `enrollment_only_mode`. |
 | Synchronous bucketed-scale-test HTTP endpoint | Solved | `POST /v1/bucketed-scale-test/run` is now async by default (returns 202 + `job_id`); state via `GET /v1/bucketed-scale-test/{job_id}` and `GET /v1/bucketed-scale-test`. `?sync=1` or `{"sync": true}` is the explicit opt-in for the legacy blocking path. |
-| Small bucket leakage | Solved at report layer | `policy_postprocess_buckets.py` suppresses bucket results below configurable `k`, with `--require-dp` fail-closed enforcement. |
+| Small bucket leakage | Solved at report layer | `policy_postprocess_buckets.py` now writes release-safe `bucket_public_report/v1`: below-k bucket labels are omitted, exact bucket sizes and `dp_noise` are redacted, and full raw/noise evidence moves to `operator_bucket_report/v1`. `--require-dp` remains fail-closed. |
 | Basic differencing resistance | Partially solved | Total and per-bucket reports support Laplace DP noise. `--require-dp` is now available on `policy_release.py` and `policy_postprocess_buckets.py` and is on by default in `run_bucketed_scale_test.sh`. Exact duplicate query denial and optional privacy budget ledger exist. Tenant-wide enforcement and metadata-read-model integration are still pending (S3). |
 
 ## Open Risks
@@ -228,6 +228,9 @@ DP noise is implemented for total and bucket-level reports, the RNG uses
   or non-positive).
 - `policy_postprocess_buckets.py` applies per-bucket Laplace noise and also
   supports `--require-dp` for bucket reports.
+- Public bucket reports redact the sampled `dp_noise`, below-k labels, and
+  exact bucket sizes. Operator-only bucket reports retain raw/noise evidence for
+  audit.
 - `run_bucketed_scale_test.sh` now passes `--require-dp` to both stages by
   default, so the bundled bucketed scale test cannot accidentally release
   un-DP'd bucket sums.
@@ -281,7 +284,7 @@ or production network identity systems supplied by an operator.
 | Public `10502` TLS EOF | `pjc_tls_diagnostic/v1` records TCP/TLS category, peer cert when available, local cert/key/CA presence, and server-log tail. | Re-run against the VPS and close the live root cause. |
 | Malicious or malformed participant input | Input manifests, package hashes, preflight CSV/hash checks, and negative cases catch tampering at the wrapper layer. | S8 commit-and-prove / malicious-secure PSI-SUM remains a protocol-hardening path for adversarial participants. |
 | Public release bypass | `release_policy_gate/v1` enforces DP/k/privacy-budget conditions before release. | Ensure every deployed public-release path calls the gate; no direct bypass to lower-level scripts. |
-| Metadata / side-channel leakage | Public-report redaction, bucket suppression, DP metadata, and min-row side-channel controls exist. | Small-shard merge/padding and role-gated detailed dashboard views still need live/operator review. |
+| Metadata / side-channel leakage | Public-report redaction, bucket suppression, DP metadata, min-row side-channel controls, audit API caller-safe summaries, and repo-side dashboard role-gated public summaries exist. | Small-shard merge/padding, console route-level caller-safe views, and live/operator review of the deployed dashboard auth path remain open. |
 | Resource exhaustion / DoS | Role lifecycle uses controlled env allowlists, timeout/cancel state, preflight resource fields, and role status logs. | Real large-input and timeout evidence on the deployment hosts. |
 | Audit credibility | The project produces structured evidence, hashes, merge reports, policy-gate reports, and external-anchor interfaces. | The immutable trust root is operator-provided: Rekor/Sigstore, S3 Object Lock, enterprise WORM storage, timestamp authority, or internal audit platform. AWS S3 Object Lock is not required for student validation when no enterprise account is available. |
 
@@ -424,7 +427,8 @@ work; see `docs/CONTROL_PLANE_HARDENING_LOG.md` § Items left open.
   `<out>.operator.json`).
 - `policy_postprocess_buckets.py --public-report-redact-operator-fields`
   skips writing `debug.per_bucket_results` / `debug.bucket_policy` into the
-  public report; the dedicated `bucket_public_report.json` is unaffected.
+  public report; `bucket_public_report.json` is release-safe, while
+  `operator_bucket_report.json` carries full per-bucket raw/noise evidence.
 - `run_bucketed_scale_test.sh` passes both flags by default.
 - `scripts/check_bucket_dp_smoke.py` was extended with a second-pass redacted
   run that asserts (a) no operator-only keys leak into `public_report.json`,

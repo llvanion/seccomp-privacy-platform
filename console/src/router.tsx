@@ -11,6 +11,7 @@ import { JobStartRoute } from "./routes/jobs.start";
 import { RequestsRoute } from "./routes/requests";
 import { RequestDetailRoute } from "./routes/requests.detail";
 import { RequestSubmitRoute } from "./routes/requests.submit";
+import { PrivacyBudgetApprovalsRoute } from "./routes/privacy-budget-approvals";
 import { SseQueryRoute } from "./routes/sse-query";
 import { PjcOnlyRoute } from "./routes/pjc-only";
 import { AuditRoute } from "./routes/audit";
@@ -36,6 +37,7 @@ export const router: RouteObject[] = [
       { path: "requests", element: <RequestsRoute /> },
       { path: "requests/submit", element: <RequestSubmitRoute /> },
       { path: "requests/:submissionId", element: <RequestDetailRoute /> },
+      { path: "privacy-budget-approvals", element: <PrivacyBudgetApprovalsRoute /> },
       { path: "sse-query", element: <SseQueryRoute /> },
       { path: "pjc-only", element: <PjcOnlyRoute /> },
       { path: "audit/*", element: <AuditRoute /> },

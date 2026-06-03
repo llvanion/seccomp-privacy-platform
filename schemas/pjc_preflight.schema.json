@@ -28,6 +28,9 @@
         "estimated_memory_over_limit",
         "estimated_frame_count_over_limit",
         "missing_input_file",
+        "missing_input_commitment",
+        "input_commitment_mismatch",
+        "value_policy_violation",
         "missing_resource_scope",
         "config_error"
       ]
@@ -50,6 +53,38 @@
       "properties": {
         "mode": { "enum": ["streaming_grpc", "unary_grpc"] },
         "chunk_size_elements": { "type": "integer", "minimum": 0 }
+      },
+      "additionalProperties": false
+    },
+    "input_commitment": {
+      "type": ["object", "null"],
+      "properties": {
+        "file": { "type": "string" },
+        "sha256": { "type": "string" },
+        "job_id": { "type": ["string", "null"] },
+        "job_meta_file": { "type": "string" },
+        "job_meta_sha256": { "type": "string" },
+        "server_csv_sha256": { "type": "string" },
+        "client_csv_sha256": { "type": "string" },
+        "client_value_policy": {
+          "type": "object",
+          "properties": {
+            "min_value": { "type": ["integer", "null"] },
+            "max_value": { "type": ["integer", "null"] },
+            "allow_negative": { "type": "boolean" }
+          },
+          "additionalProperties": false
+        },
+        "client_value_summary": {
+          "type": "object",
+          "properties": {
+            "sum": { "type": "integer" },
+            "min": { "type": ["integer", "null"] },
+            "max": { "type": ["integer", "null"] },
+            "non_negative": { "type": "boolean" }
+          },
+          "additionalProperties": false
+        }
       },
       "additionalProperties": false
     },
@@ -106,6 +141,9 @@
               "estimated_memory_over_limit",
               "estimated_frame_count_over_limit",
               "missing_input_file",
+              "missing_input_commitment",
+              "input_commitment_mismatch",
+              "value_policy_violation",
               "missing_resource_scope",
               "config_error"
             ]

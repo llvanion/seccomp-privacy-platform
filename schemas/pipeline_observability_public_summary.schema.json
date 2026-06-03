@@ -1,0 +1,62 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "pipeline_observability_public_summary/v1",
+  "title": "Caller-safe summary of pipeline observability",
+  "type": "object",
+  "required": [
+    "schema",
+    "generated_at_utc",
+    "job_id",
+    "correlation_id",
+    "caller",
+    "tenant_id",
+    "dataset_id",
+    "service_id",
+    "summary",
+    "privacy"
+  ],
+  "properties": {
+    "schema": { "const": "pipeline_observability_public_summary/v1" },
+    "generated_at_utc": { "type": ["string", "null"], "format": "date-time" },
+    "job_id": { "type": ["string", "null"] },
+    "correlation_id": { "type": ["string", "null"] },
+    "caller": { "type": ["string", "null"] },
+    "tenant_id": { "type": ["string", "null"] },
+    "dataset_id": { "type": ["string", "null"] },
+    "service_id": { "type": ["string", "null"] },
+    "summary": {
+      "type": "object",
+      "required": ["status", "events_available", "stages"],
+      "properties": {
+        "status": { "type": ["string", "null"] },
+        "events_available": { "type": "boolean" },
+        "stages": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["name", "statuses"],
+            "properties": {
+              "name": { "type": "string" },
+              "statuses": {
+                "type": "array",
+                "items": { "type": "string" }
+              }
+            },
+            "additionalProperties": false
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "privacy": {
+      "type": "object",
+      "required": ["view", "operator_fields_redacted"],
+      "properties": {
+        "view": { "const": "caller_safe_summary" },
+        "operator_fields_redacted": { "const": true }
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false
+}

@@ -33,6 +33,21 @@
       "type": "string",
       "minLength": 1
     },
+    "production_mode": {
+      "type": "boolean"
+    },
+    "pjc_resource_limits": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "release_policy_gate_config": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
     "expected_result": {
       "type": "object",
       "required": [

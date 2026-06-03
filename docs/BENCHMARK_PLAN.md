@@ -399,6 +399,8 @@ python3 scripts/benchmark_pipeline.py \
   --output tmp/pipeline_benchmark.json
 ```
 
+Use `--production-mode --pjc-resource-limits "$PWD/config/pjc_resource_limits.example.json"` for production-compatible pipeline benchmark runs. In that mode `file_handoff_retained` is excluded because retained plaintext handoff is intentionally non-production.
+
 What it validates on each successful run:
 
 1. the pipeline command exits successfully

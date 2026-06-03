@@ -1,5 +1,10 @@
 # 生产级安全完整解决方案
 
+> 2026-06-01 note: this document keeps production-security task-package history
+> and completion principles. The implementation-level backlog for all remaining
+> work now lives in
+> [REMAINING_WORK_IMPLEMENTATION_BACKLOG.md](REMAINING_WORK_IMPLEMENTATION_BACKLOG.md).
+
 本文档把当前项目从“比赛版隐私计算平台基线”推进到“生产级隐私计算安全平台”所需的安全方案落成可执行任务。这里不再使用“缓解”口径；每一项都以完整解决一个安全问题为目标。
 
 ## 1. 总目标
@@ -152,6 +157,12 @@ repo-side 已交付：
 
 状态（2026-05-27 v3）：approval queue 路径已接入 query workflow / operator submission repo-side 透传。`query_workflow_request/v1` 新增可选 `privacy_budget_approval_queue`；`submit_query_workflow.py` 会做路径归一化并要求它必须搭配 `privacy_budget_ledger`；`run_sse_bridge_pipeline.sh` 会把该路径透传给 Stage4 `policy_release.py --privacy-budget-approval-queue`。默认 contract smoke 的 privacy-budget dry-run command 断言已覆盖该参数。S3 仍保持 `partial`：approval queue 的真实人工消费闭环、VPS/公网证据和三人联合认证未完成。
 
+状态（2026-06-01）：默认 release 路径的 privacy-budget 消费已从 JSONL-only 推进到事务化 SQLite store。`policy_release.py` 新增 `--privacy-budget-store` 和 `--privacy-budget-disable-transactional-store`；开启 `--privacy-budget-ledger` 时默认使用 `<ledger>.sqlite`，在 `BEGIN IMMEDIATE` 内导入既有 JSONL ledger、读取同 scope 历史、裁决 duplicate/overlap/exhausted/missing-scope、预留消费、写 public/operator report 与 audit/ledger 后提交。新增 `privacy_budget_consumption_events` 表、`migrations/metadata/014_add_privacy_budget_consumption.sql`、PostgreSQL DDL parity，以及 `scripts/check_privacy_budget_concurrency.py` 并发门禁：两个并发 release 在只有一个 budget headroom 时必须产生一个 allow 和一个 deterministic deny。S3 仍保持 `partial`：operator HTTP API、live PostgreSQL/HA 证据、VPS/公网证据和三人联合认证未完成。
+
+状态（2026-06-01 v2）：approval queue 的 repo-side approve/reject/expire/consume 闭环已落地。新增 `privacy_budget_approval_events` store 表、`privacy_budget_approval_decision/v1` schema、`scripts/manage_privacy_budget_approval.py` 和 `scripts/check_privacy_budget_approval_flow.py`。near-duplicate deny 仍先 fail closed 并写 pending request；不同 actor approve 后，`policy_release.py --privacy-budget-approval-id` 会在同一个 SQLite transaction 内校验 approved 状态、scope、query fingerprint、expiry 和 self-approval，然后把 near-duplicate release 转为 allow、扣减 budget、写 ledger/audit/report，并把 approval 标记为 consumed。rejected、expired、consumed approval 都不可再次消费。S3 仍保持 `partial`：一等 operator HTTP API、live PostgreSQL/HA 证据、VPS/公网证据和三人联合认证未完成。
+
+状态（2026-06-01 v3）：privacy-budget approval 的一等 operator HTTP API 和 repo-side browser console 控件已落地。`serve_operator_dashboard.py` 新增 `GET /v1/privacy-budget/approvals` 和 `POST /v1/privacy-budget/approval/{request_id}/{approve|reject|expire}`，使用 identity-token 解析后的真实身份，不接受匿名/shared-token 直接审批；平台 admin/auditor 可全局 review，租户内 privacy operator / compliance auditor 只能处理同 tenant request，普通 caller 只能看自己相关 request；approve 阻止 same-identity self-approval，reject/expire 必须给 reason，成功 transition 写入 `privacy_budget_approval_decision/v1` JSONL，并复用同一个 `privacy_budget_approval_events` store。新增 `privacy_budget_approval_list/v1`、`privacy_budget_approval_transition/v1`、`scripts/check_privacy_budget_approval_api_smoke.py`，以及 console SPA `/privacy-budget-approvals` 页面和 `console_manifest/v1` 的 `privacy_budget_approvals` section。默认 contract/CI 已覆盖 list、self-approval 403、approve、reject、expire、decision log schema 和 console manifest。S3 仍保持 `partial`：live PostgreSQL/HA 证据、VPS/公网部署证据和三人联合认证未完成。
+
 repo-side 已交付：
 
 1. `policy_release.py` 新增可选 `--privacy-budget-ledger`、`--privacy-budget-limit`、`--privacy-budget-cost`。默认不启用，不改变既有 demo / pipeline 行为；显式启用后，release 前会计算不含 `job_id` 的预算查询 fingerprint。
@@ -164,13 +175,17 @@ repo-side 已交付：
 8. consolidated attack-surface gate 已包含 `s3_privacy_budget_production_evidence`，最近运行结果 `tmp/attack_surface_hardening_evidence/verification_summary.json` 为 `status=pass`、`case_count=12`、`pass_count=12`、`fail_count=0`。
 9. metadata sidecar read model 已完成 repo-side：`migrations/metadata/013_add_privacy_budget_ledger_read_model.sql`、PostgreSQL DDL parity、`import_run_metadata.py` ledger import、`query_metadata.py --list-entity privacy-budget-ledger`，以及 default contract smoke 查询断言。
 10. operator/query submission wiring 已完成 repo-side：`query_workflow_request/v1`、`submit_query_workflow.py`、`run_sse_bridge_pipeline.sh` 和 default contract smoke 会把 privacy budget required/config/ledger/approval_queue/scope/limit/cost 送入 Stage4 release，并断言 required 模式缺 config / ledger 会在提交入口 fail closed；HTTP dry-run smoke 也覆盖缺 config/ledger 时的 `query_workflow_api_error/v1` 拒绝响应。
-11. near-duplicate 人工审批分支已有 repo-side 起点：可选 `privacy_budget_approval_request/v1` JSONL 队列记录 overlap/near-duplicate deny，release 仍 fail closed，approval queue 路径已可从 query workflow/operator submission 透传；真实运营流转后续再接。
+11. near-duplicate 人工审批分支已有 repo-side 闭环：`privacy_budget_approval_request/v1` 记录 pending；`privacy_budget_approval_decision/v1` 记录 approve/reject/expire/consume；`policy_release.py --privacy-budget-approval-id` 在同一 budget transaction 中消费已批准 request；`scripts/check_privacy_budget_approval_flow.py` 覆盖 self-approval 拒绝、一次性 consume、rejected/expired 不可消费。
+12. 事务化消费已完成默认 release 路径：`privacy_budget_consumption_events` 作为 SQL 写入模型，SQLite `BEGIN IMMEDIATE` 串行化同 ledger/store 的预算裁决，JSONL ledger 降级为 audit/export 兼容格式，并发门禁已加入 `scripts/check_ci_smoke.sh`。
+13. privacy-budget approval operator API + browser console 已完成 repo-side：`serve_operator_dashboard.py` 暴露 list/approve/reject/expire endpoint，使用 identity-token 身份和租户/调用方 scope，阻止 self-approval，并把人工 decision 写入 JSONL evidence；console SPA `/privacy-budget-approvals` 提供队列过滤、详情查看和 approve/reject/expire 操作；`scripts/check_privacy_budget_approval_api_smoke.py` 与新增 list/transition schemas 已进入默认 gate。
 
 仍需后续完成：
 
-1. 更丰富的集合包含 / 窗口差分样例，以及 approval queue 与实际 operator 审批/复核流的完整消费闭环。
-2. 在 VPS/公网部署运行同一闭环证据，确认生产部署路径与本机证据一致。
-3. Person 1 / Person 2 / Person 3 联合认证。
+1. 把 approval list/approve/reject/expire 接入一等 operator HTTP API/dashboard，而不只依赖管理脚本。
+2. 在 live PostgreSQL/HA 或 metadata sidecar 生产存储上运行同一并发消费和 approval lifecycle 证据。
+3. 更丰富的集合包含 / 窗口差分样例。
+4. 在 VPS/公网部署运行同一闭环证据，确认生产部署路径与本机证据一致。
+5. Person 1 / Person 2 / Person 3 联合认证。
 
 目标：结果发布不只依赖 `k-threshold`、rate limit 和 exact duplicate deny，而是由隐私预算系统统一裁决。
 
@@ -185,11 +200,11 @@ repo-side 已交付：
 最安全实现方式：
 
 1. 把 `privacy_budget_config/v1` 作为 release 的强制输入，而不是可选 CLI 参数；生产 release 缺 config 或 ledger 一律 fail closed。
-2. budget ledger 从 JSONL 过渡到 metadata sidecar / PostgreSQL read-write model：按 `caller_id + tenant_id + dataset_id + purpose + query_fingerprint` 建唯一索引，避免并发重复扣减。
+2. budget ledger 从 JSONL 过渡到 SQL read-write model：当前默认 release 路径已使用 SQLite transactional store，下一步是在 metadata sidecar / PostgreSQL live 存储中运行同一 consume transaction；按 `caller_id + tenant_id + dataset_id + purpose + query_fingerprint` 建唯一索引，避免并发重复扣减。
 3. query submission API 必须透传并冻结 `tenant_id`、`dataset_id`、`purpose`、filter window、bucket/shard scope；release 侧只接受由 submission manifest 派生的 canonical budget payload。
 4. exact duplicate、窗口 overlap、集合包含、相邻时间窗、低 k/high epsilon 统一进入 budget evaluator；低风险合并计费，高风险进入 approval queue 或直接 deny。
 5. budget decision 写入 `policy_audit/v1`，operator 侧可看 matched prior query 摘要；public report 只暴露 `released/denied` 和公开 reason，不暴露 ledger path、prior fingerprint 或剩余额度。
-6. 回归证据必须包含：首次通过、exact duplicate、overlap、subset/superset、budget exhausted、missing scope、concurrent duplicate 两请求只有一个扣减成功。
+6. 回归证据必须包含：首次通过、exact duplicate、overlap、subset/superset、budget exhausted、missing scope、concurrent duplicate 两请求只有一个扣减成功；当前 SQLite 并发门禁已覆盖 concurrent duplicate/budget headroom case，live PostgreSQL 证据仍需补齐。
 
 需要修改：
 
@@ -239,6 +254,8 @@ repo-side 已交付：
 5. worker 必须支持 timeout/cancel：超时后终止 PJC child、清理 socat/proxy、写 terminal failure，并保留 server/client log hash。
 6. 证据包固定保存：preflight allow/deny report、resource limit config、PJC audit、server/client logs、worker status transitions、1M streaming benchmark、oversized negative case。
 
+状态（2026-06-01）：PJC wrapper 的生产 fail-closed 已 repo-side 落地。`run_pjc.sh`、`run_pjc_server_tls.sh`、`run_pjc_client_tls.sh` 支持 `PJC_PRODUCTION_MODE=1`；生产模式缺 `PJC_RESOURCE_LIMITS`、`PJC_GRPC_STREAM_CHUNK_ELEMENTS=0`、二进制缺 streaming flag、TLS wrapper 缺 `PJC_MTLS_REQUIRE_SESSION_MANIFEST=1`、plain gRPC 非 loopback、TLS server 宽绑定缺 `PJC_ALLOW_PRODUCTION_WIDE_BIND=1` 都会在启动 PJC/socat 前拒绝。`run_sse_bridge_pipeline.sh --production-mode` 现在要求 `--pjc-resource-limits`，并把 `PJC_PRODUCTION_MODE=1`、resource limits 与 preflight scope 透传给 Stage3 PJC wrapper；如果当前 PJC 二进制不支持 streaming flag，主 pipeline 也会在生产模式下直接 fail closed。legacy unary 只允许在显式 `PJC_ALLOW_LEGACY_UNARY=1` 的本地 demo/replay 下 fallback。新增 `scripts/verify_pjc_production_fail_closed.sh` 并接入 `scripts/check_ci_smoke.sh`。S4 仍保持 `partial`：真实 systemd/Kubernetes/worker 资源隔离、timeout/cancel drill、1M streaming 成功证据和公网/VPS 联合认证仍未完成。
+
 需要修改：
 
 1. `a-psi/moduleA_psi/scripts/run_pjc*.sh`：继续保留 CLI，但 production wrapper 统一设置 limits。
@@ -269,6 +286,107 @@ repo-side 已交付：
 § Round 7）；小 shard 自动合并 / padding 仍为 Owner / Engineer B 任务。整体仍标记为
 `partial`，待两半都完成并联合认证后才能升级为 `Completed`。
 
+状态（2026-06-01）：audit/public-report read API 的 caller-safe 视图已 repo-side
+落地。`scripts/serve_audit_query_api.py` 对 identity-backed 普通 caller 返回
+`audit_chain_public_summary/v1`、`pipeline_observability_public_summary/v1` 和
+`catalog_lineage_public_summary/v1`，完整 `audit_chain/v1` /
+`pipeline_observability/v1` / `catalog_lineage/v1` 只保留给
+`platform_admin` / `platform_auditor` 或 legacy local shared-token smoke。
+`/v1/public-report` 走 allowlist 并添加 `operator_fields_redacted: true`。
+`scripts/check_audit_api_public_redaction.py` 会递归拒绝 raw audit arrays、
+artifact paths、hashes、exact row counts、detailed timing、`bridge`、`details`
+和 query fingerprints 出现在 caller-safe audit API 响应里；该检查已接入
+`scripts/check_json_contracts.sh` 和 `scripts/check_platform_api_smoke_reports.py`。
+
+状态（2026-06-02）：operator dashboard HTTP read path 的 caller-safe 视图已
+repo-side 落地。`scripts/serve_operator_dashboard.py GET /v1/dashboard` 在配置
+dashboard auth 或 identity-token auth 时先鉴权；普通 identity caller 只能获得
+`operator_dashboard_public_summary/v1`，完整 dashboard 输出只保留给
+`platform_admin`、`platform_auditor`、`privacy_operator` 和
+`compliance_auditor`。`scripts/check_operator_dashboard_public_summary.py` 覆盖
+未鉴权 403、普通 caller redaction、privileged full-view 三个路径，并递归拒绝
+artifact paths、hashes、raw artifact lists、exact intersection metrics、`details`
+和 `bridge` 出现在普通 caller dashboard 响应里。
+
+状态（2026-06-02 v2）：operator dashboard 的 full-read/direct-job 旁路已
+repo-side 关闭。配置 dashboard auth 或 identity-token auth 时，普通 identity
+caller 不能再通过 `/v1/runs`、`/v1/jobs/{job_id}`、
+`/v1/jobs/{job_id}/result` 或直接 `POST /v1/jobs/start` 绕过 public summary；
+这些路径由 `scripts/check_operator_dashboard_public_summary.py` 覆盖。Console
+SPA 的 home/jobs 路由也已把 `/v1/dashboard` 建模为 full/public union，
+`operator_dashboard_public_summary/v1` 分支只渲染 coarse job/workflow、health、
+artifact count 和 redaction marker；`scripts/check_console_dashboard_public_summary.py`
+冻结该路由级 guard。S5 在该时间点仍为 `partial`：remaining audit/metadata
+console route payload、metadata 小桶 coarsening/padding 和联合认证仍未完成；
+audit route payload 部分已由后续 v3 状态收口。
+
+状态（2026-06-02 v3）：console audit/observability/catalog route-level guard 已
+repo-side 落地。`console/src/api/sidecars.ts` 会解开
+`audit_query_api_response/v1.result`，`console/src/routes/audit.tsx`、
+`console/src/routes/observability.tsx` 和 `console/src/routes/catalog.tsx`
+分别识别 `audit_chain_public_summary/v1`、
+`pipeline_observability_public_summary/v1`、
+`catalog_lineage_public_summary/v1`，普通 caller 只看到 caller-safe summary，
+不会在 SPA 内读取 raw audit events、paths、hashes、row/timing fields 或
+lineage artifacts。`scripts/check_console_audit_public_summary.py` 与
+`console_audit_public_summary_check/v1` 已接入 JSON contracts 和 CI smoke。S5
+在该时间点仍为 `partial`：remaining metadata route payload、metadata 小桶
+coarsening/padding、当时的 browser session/HttpOnly-cookie auth 和联合认证仍未完成；
+metadata route payload 已由后续 v4 状态收口，browser session 已由后续 v6
+repo-side 状态收口。
+
+状态（2026-06-02 v4）：identity-backed metadata API / console metadata
+route-level guard 已 repo-side 落地。`scripts/serve_metadata_api.py` 对普通
+identity caller 的 job list、job detail、caller-permissions、policy-bindings
+响应返回 `caller_safe_metadata_summary` redacted payload，去除 paths、hashes、
+exact timing、raw counts、secret/backend refs、artifact payloads 和 operator-only
+fields；`scripts/check_metadata_api_public_redaction.py` 与
+`metadata_api_public_redaction_check/v1` 已接入 JSON contracts 和 CI smoke。
+`console/src/api/sidecars.ts` 会解开 `metadata_api_response/v1.result`，catalog /
+permissions metadata routes 显示 redaction notice，而不是把 envelope 当 full
+operator payload 渲染。S5 仍为 `partial`：metadata 小桶 coarsening/padding、
+当时的 browser session/HttpOnly-cookie auth、未来 metadata entity 默认 redaction
+discipline 和联合认证仍未完成；browser session 已由后续 v6 repo-side 状态收口。
+
+状态（2026-06-02 v5）：bucket public report 的小桶存在性和 DP-noise 泄漏已
+repo-side 收口。`policy_postprocess_buckets.py` 现在写两份 bucket 证据：
+`bucket_public_report/v1` 是 release-safe 视图，只包含 released bucket 的
+label、coarse `intersection_size_bucket`、DP 后 `intersection_sum` 和 redaction
+marker；below-k bucket label/count 被省略，exact bucket size 和 `dp_noise` 不
+公开。`operator_bucket_report/v1` 保留 full per-bucket raw size/sum/noise 供
+operator/auditor 审计。`scripts/check_bucket_dp_smoke.py` 会拒绝 public bucket
+report 泄露 below-k label 或 `dp_noise`，并且 `scripts/check_json_contracts.sh`
+验证两份新 schema。S5 仍为 `partial` 的原因缩小为：高敏场景的 padding /
+延迟发布 / 自动 bucket 合并策略、真实 HTTPS/Secure-cookie + CSP 部署证据和
+联合认证。
+
+状态（2026-06-02 v6）：repo-side browser session / identity-proxy auth 已落地。
+`serve_operator_dashboard.py` 新增 `/v1/session/login|logout` 和 `/v1/session`，
+把 identity token 换成 `seccomp_identity_session` HttpOnly/SameSite cookie；
+`api_identity.py`、metadata/query/audit/platform-health/dashboard adapters 和
+`serve_identity_proxy.py` 都能解析同名 cookie。`console/src/api/client.ts` 使用
+`credentials: "same-origin"`，settings 页面可建立/清除 session 并清空 fallback
+operator token。`serve_identity_proxy.py` 现在在配置 identity/admin auth 时
+fail-closed，覆盖伪造 `X-Identity-*` header 后再注入解析后的身份。新增
+`scripts/check_console_browser_session.py` 和
+`scripts/check_identity_proxy_auth_smoke.py`，并进入 JSON contracts / CI smoke。
+这证明的是 repo-side same-origin browser session 行为；生产仍需 HTTPS 下开启
+`--session-cookie-secure`、CSP/no-inline-script gate、真实 OIDC/reverse-proxy 和
+部署浏览器证据。
+
+状态（2026-06-02 v7）：repo-side CSP/security-header gate 已落地。
+`serve_operator_dashboard.py` 对 JSON API 和 SPA 静态响应统一发送 CSP、
+`X-Content-Type-Options=nosniff`、`X-Frame-Options=DENY`、
+`Referrer-Policy=no-referrer` 和 restrictive `Permissions-Policy`。CSP 现在要求
+`script-src 'self'` / `style-src 'self'`，无 `unsafe-inline`/`unsafe-eval`，
+`connect-src` 只允许 same-origin，禁止 object/frame/base/form 等高风险入口；开启
+`--session-cookie-secure` 时发送 HSTS。新增
+`scripts/check_console_security_headers.py` 和
+`console_security_headers_check/v1`，覆盖 `/healthz`、`/v1/dashboard`、SPA index/
+asset、console source inline-style/raw-HTML scan 和 Secure-cookie/HSTS 模式，并
+进入 JSON contracts / CI smoke。生产仍需真实 HTTPS、reverse-proxy/OIDC、
+依赖锁定/审计和部署浏览器证据。
+
 repo-side 已交付（Round 7 / 2026-05-17）：
 
 1. `a-psi/moduleA_psi/scripts/policy_release.py` 新增 `--public-report-redact-operator-fields`：
@@ -278,13 +396,41 @@ repo-side 已交付（Round 7 / 2026-05-17）：
    （路径由 `--operator-report-path` 指定，缺省 `<out>.operator.json`），完整字段仍可由 operator 控制台读取。
 3. `policy_postprocess_buckets.py` 新增同名开关：开启后不再把 `debug.per_bucket_results` /
    `debug.bucket_policy` 注入 `public_report.json`，只留 `debug.bucket_results_redacted: true` 标记；
-   独立的 `bucket_public_report.json` 不受影响，operator 控制台仍可看到完整 per-bucket 数据。
+   `bucket_public_report/v1` 现在是 release-safe 视图，below-k bucket label/count、
+   exact bucket size 和 `dp_noise` 不公开；完整 per-bucket raw/noise 证据写入
+   `operator_bucket_report/v1`。
 4. `run_bucketed_scale_test.sh` 默认带 `--public-report-redact-operator-fields` 与
    `--operator-report-path "$OUT_DIR/operator_report.json"`，所以打包的 bucket 化 scale test 不会再无意泄露。
 5. `scripts/check_bucket_dp_smoke.py` 扩展出第二轮 redacted run：断言
    redacted `public_report.json` 不含任何 operator-only key、sibling `operator_report.json`
-   仍带完整集合且 schema 为 `operator_release_report/v1`、bucket 后处理在 redacted 模式下不写 per-bucket 详情。
-   该 smoke 默认通过 `scripts/check_json_contracts.sh` 在每次 contract smoke 都执行。
+   仍带完整集合且 schema 为 `operator_release_report/v1`、public bucket report
+   不泄露 below-k label 或 `dp_noise`、operator bucket report 保留完整审计证据。
+   `bucket_public_report/v1` / `operator_bucket_report/v1` 两个 schema 默认通过
+   `scripts/check_json_contracts.sh` 验证。
+6. Audit/public-report read API 增加 caller-safe schemas 和 recursive redaction gate：
+   `audit_chain_public_summary/v1`、`pipeline_observability_public_summary/v1`、
+   `catalog_lineage_public_summary/v1`、`scripts/check_audit_api_public_redaction.py`。
+   普通 identity caller 不能通过 `/v1/audit-chain`、`/v1/observability`、
+   `/v1/catalog-lineage` 或 `/v1/public-report` 取得 raw audit arrays、paths、
+   hashes、exact row/timing/debug fields。
+7. Operator dashboard read API 增加 caller-safe schema 和 recursive redaction gate：
+   `operator_dashboard_public_summary/v1`、
+   `scripts/check_operator_dashboard_public_summary.py`。普通 identity caller
+   不能通过 `/v1/dashboard` 取得 artifact paths、hashes、raw artifact lists、
+   exact intersection metrics、`details` 或 `bridge`。
+8. Operator dashboard full-read/direct-job bypasses 关闭：普通 identity caller
+   不能通过 `/v1/runs`、job detail、job result 或 direct start 取得 full
+   operator payload；console home/jobs 路由有 public-summary branch 和静态 gate。
+9. Console audit/observability/catalog 路由有 public-summary branch 和静态
+   gate：普通 identity caller 不会在 SPA 内看到 raw audit events、artifact
+   paths/hashes、exact row/timing fields 或 full lineage artifacts。
+10. Metadata API/console metadata 路由有 caller-safe redaction branch 和递归
+    gate：普通 identity caller 不会通过 job list、job detail、
+    caller-permissions 或 policy-bindings 取得 paths、hashes、exact timing、
+    raw counts、secret/backend refs 或 artifact payloads。
+11. Console browser session / identity proxy auth repo-side 闭环：same-origin
+    console 使用 HttpOnly/SameSite cookie；identity proxy cookie-aware，配置
+    identity/admin auth 时 fail-closed，并覆盖伪造 `X-Identity-*` headers。
 
 目标（保持不变）：行数、frame 数、bucket/shard 分布等运行元数据不对普通 caller 暴露。
 
@@ -292,24 +438,36 @@ repo-side 已交付（Round 7 / 2026-05-17）：
 
 1. ~~public report 不显示 raw row count、frame count、shard distribution。~~ ✓ repo-side 完成。
 2. ~~安全管理员可查看详细运行指标。~~ ✓ 经由 `operator_release_report/v1` + 现有 audit chain / dashboard。
-3. 小 shard 自动合并或拒绝。**仍未完成**（Owner / Engineer B 任务）。
-4. 可选 padding 用于高敏场景。**仍未完成**。
+3. ~~小 shard 低于公开阈值时不暴露原 label/exact size。~~ ✓ repo-side
+   `bucket_public_report/v1` 完成；operator-only 证据进入
+   `operator_bucket_report/v1`。
+4. 可选 padding / 延迟发布 / 自动 bucket 合并用于高敏场景。**仍未完成**。
 5. ~~threat model 明确区分 public metadata 与 operator metadata。~~ ✓
    `docs/THREAT_MODEL_AND_LEAKAGE_MODEL.md` §8 已更新。
+6. ~~same-origin console 不再要求 JavaScript 持有 bearer token。~~ ✓
+   repo-side HttpOnly/SameSite session-cookie path 完成；HTTPS/Secure-cookie
+   和 CSP 仍需生产部署证据。
 
 最安全实现方式：
 
 1. public report schema 采用 allowlist，只输出 release-safe 聚合字段；任何新增字段默认只能进 operator report，不能自动进入 public report。
 2. dashboard / metadata API 按 identity role 分层：普通 caller 只能读 public report；`platform_auditor` 可读 audit 摘要；`privacy_operator` / `platform_admin` 才能读 raw row count、bucket distribution、timing 和 debug fields。
-3. bucket/shard 低于公开阈值时，不仅结果 suppression，还要在 metadata 层合并到 `other` bucket、延迟发布或 padding；不能暴露“某个小 bucket 被 suppressed”的精确规模侧信道。
-4. bucketed reports 分两份：`bucket_public_report.json` 只含 release-safe bucket labels 与 DP 后结果；`operator_bucket_report.json` 含原始 per-bucket debug，仅 role-gated。
-5. contract smoke 增加普通 caller API 请求负例：不能通过 `/v1/dashboard`、metadata job detail、audit include-paths 或 public-report API 拿到 operator-only 字段。
+3. bucket/shard 低于公开阈值时，public bucket report 不暴露原 label、exact size
+   或 sampled DP noise；高敏部署再选择合并到 `other` bucket、延迟发布或 padding。
+4. bucketed reports 分两份：`bucket_public_report.json` 只含 released bucket 的
+   release-safe label、coarse size bucket 与 DP 后结果；`operator_bucket_report.json`
+   含原始 per-bucket debug，仅 role-gated。
+5. browser session / proxy auth 分层：同源 console 使用 HttpOnly/SameSite
+   cookie；identity proxy 在 auth-configured 模式必须 fail-closed，且覆盖
+   来路伪造的 `X-Identity-*` headers。
+6. contract smoke 增加普通 caller API 请求负例：不能通过 `/v1/dashboard`、dashboard runs/job detail/job result/direct start、metadata job/entity reads、audit include-paths 或 public-report API 拿到 operator-only 字段。Audit API、dashboard API、metadata API、console home/jobs/audit/observability/catalog/metadata route-level guards、public bucket report label/noise redaction、browser session 和 identity proxy auth smoke 已完成；padding/自动合并仍需生产策略。
 
 仍需修改：
 
 1. ~~`policy_release.py`：public report 只输出 release-safe fields。~~ ✓ repo-side 完成。
-2. `serve_operator_dashboard.py`：按 role 控制 detailed metrics。**仍未完成** — 当前 redacted
-   字段直接走 sibling JSON，没有按 dashboard role gate。
+2. ~~`serve_operator_dashboard.py`：按 role 控制 detailed metrics。~~ ✓ repo-side 完成
+   — 普通 identity caller 得到 `operator_dashboard_public_summary/v1`，privileged
+   operator/auditor roles 才能读 full dashboard。
 3. `schemas/public_report.schema.json`：确认不加入细粒度运行分布。需要核对 schema 是否需要把
    `operator_fields_redacted` 列入可选字段。
 4. ~~`docs/THREAT_MODEL_AND_LEAKAGE_MODEL.md`：新增 metadata leakage target state。~~ ✓
@@ -317,16 +475,22 @@ repo-side 已交付（Round 7 / 2026-05-17）：
 验收标准：
 
 1. ~~普通 caller 的 public report 不含 frame/shard/raw row distribution。~~ ✓ — 经 `check_bucket_dp_smoke.py` 断言。
-2. ~~platform auditor 能从 audit chain 或 dashboard 查看详细指标。~~ ✓ — operator_release_report/v1 + audit。
-3. 小 shard 低于阈值时被合并、padding 或拒绝。**仍未完成**。
+2. ~~platform auditor 能从 audit chain 或 dashboard 查看详细指标。~~ ✓ —
+   operator_release_report/v1 + audit + privileged dashboard full view。
+3. ~~小 shard 低于阈值时不在 public bucket report 中泄露 label/exact size。~~ ✓
+   `check_bucket_dp_smoke.py` + `bucket_public_report/v1`。Padding / 延迟发布 /
+   自动合并仍为高敏生产策略项。
+4. ~~same-origin browser session 使用 HttpOnly/SameSite cookie，identity proxy
+   auth-configured fail-closed。~~ ✓ `check_console_browser_session.py` +
+   `check_identity_proxy_auth_smoke.py`。
 
 联合认证：
 
 | 角色 | 认证内容 |
 | --- | --- |
 | Person 1 | 报告中只展示允许公开的聚合指标（字段级 redaction 已 repo-side 完成） |
-| Person 2 | dashboard/API role-based view 生效（仍待 Engineer B） |
-| Person 3 | 普通 caller 无法获得细粒度规模侧信道（字段级已闭环；小 shard 仍待 Owner） |
+| Person 2 | dashboard/API role-based view 生效（repo-side dashboard/audit/metadata API 与 console route guards 已完成） |
+| Person 3 | 普通 caller 无法获得细粒度规模侧信道（字段级、dashboard/audit/metadata API、console route guards、public bucket report 小桶 label/noise redaction 已 repo-side 闭环；padding/自动合并仍待生产策略） |
 
 ### S6. 外部不可篡改审计
 
@@ -446,20 +610,32 @@ Rekor/Sigstore、AWS S3 Object Lock、企业 WORM storage、timestamp authority
 5. 短期采用 commit-and-verify 防篡改；长期评估 malicious-secure PSI-SUM 或 ZK/range-proof 方案。未完成协议升级前，报告必须写明仍假设 PJC 参与方半诚实。
 6. 负例证据必须覆盖：改 input CSV、改 value、改 token_scope、改 normalizer version、替换 result hash，均在 PJC 前或 release 前被拒绝。
 
-需要修改：
+状态（2026-06-01）：repo-side input commitment gate 已落地，但 S8 仍不是 production-complete。`bridge/src/main.rs` 生成 `input_commitments.json`（`pjc_input_commitment/v1`），`bridge_job_meta/v1`、`bridge_audit/v1`、`pjc_audit/v1` 记录 commitment 路径和 hash；`validate_bridge_job.py` 和 `preflight_pjc_job.py` 验证 commitment 文件 hash、CSV hash、row count、normalizer、join-key 元数据和 client value 元数据；production PJC wrapper 在 `PJC_PRODUCTION_MODE=1` 时通过 `PJC_REQUIRE_INPUT_COMMITMENT=1` 要求 commitment，`run_sse_bridge_pipeline.sh` 将 bridge commitment 和 `job_meta.json` 传入 Stage3 PJC preflight 并写入 PJC audit。`scripts/check_pjc_input_commitment.py` 已覆盖正常路径、改 CSV、改 commitment hash、token scope mismatch、normalizer mismatch 和 normalizer schema version mismatch 的负例。剩余缺口是 live two-host signed manifest/release-gate evidence、live role-package value-policy denial evidence、以及是否升级到 malicious-secure PSI-SUM 的明确协议选择。
+
+状态（2026-06-02 v2）：repo-side signed two-party evidence 和 release binding 已落地。`schemas/pjc_two_party_signed_run_manifest.schema.json` 定义 Ed25519 签名 run manifest；`serve_operator_dashboard.py` 新增 `POST /v1/pjc/run-manifest/sign`，并在 `pjc_two_party_evidence_merge/v1` 中验证签名、A/B local/peer commitment 交叉一致、TLS identity 交叉一致、result hash、policy decision 和 audit-chain hash。`check_release_policy_gate.py` 新增 `require_pjc_evidence_merge`，生产示例 `config/release_policy_gate.example.json` 默认开启；gate 读取 `policy_audit/v1` 的 `pjc_result_sha256`，要求两方 merge 的 result/public-report 绑定到本次 release。`scripts/check_pjc_two_party_smoke.py` 覆盖签名 manifest 正常路径、篡改签名拒绝、commitment exchange 不一致拒绝；`scripts/check_release_policy_gate_smoke.py` 覆盖 result hash 替换在 release 前拒绝。仍不是 malicious-secure PSI-SUM：它证明的是 repo-side evidence/result substitution resistance，不证明参与方源数据真实，也没有 value range ZK/proof。
+
+状态（2026-06-02 v3）：repo-side raw-int value policy 已落地。`bridge/src/main.rs` 为 `client_value_mode=raw-int` 生成 `value_policy`、`source_value_summary`、去重后 `value_summary`；`--production-mode` 下 raw-int 必须提供 `--client-value-max`，默认不允许负数。`validate_bridge_job.py` 会复算 source hash/source summary/output summary，`scripts/preflight_pjc_job.py` 会在 PJC 启动前复算 client CSV summary 并用 `value_policy_violation` 拒绝负数或超上限值；`scripts/check_pjc_input_commitment.py` 覆盖负数和超上限篡改。该能力是软件层 operational validation，不是 ZK/range proof，也不证明业务源系统填报真实。
+
+已修改：
 
 1. 新增 `schemas/pjc_input_commitment.schema.json`。
 2. bridge 生成 commitment manifest。
 3. PJC runner 在执行前验证双方 commitment。
-4. policy release 验证 result hash 与 commitment 链接。
-5. `docs/CRYPTO_COMPETITION_INSTRUCTIONS.md`：记录从半诚实到抗恶意的协议升级路径。
+
+仍需修改：
+
+1. 在两台真实机器/VPS 上归档 signed run manifest exchange、evidence merge、release gate binding 的 live 证据。
+2. 增加 value range/单位/bucket allowlist 的生产策略，或添加 range proof。
+3. `docs/CRYPTO_COMPETITION_INSTRUCTIONS.md`：记录从半诚实到抗恶意的协议升级路径。
 
 验收标准：
 
 1. 正常 commitment job 通过。
 2. 改动 input CSV 后 PJC 前置验证失败。
-3. 改动 value range 或 token scope 后失败。
-4. public report 能引用 commitment hash。
+3. 改动 commitment hash 后 PJC 前置验证失败。
+4. 改动 value range 或 token scope 后失败。
+5. release policy gate 拒绝未绑定或 result hash 替换的 PJC release。
+6. public report 能引用 commitment hash。
 
 联合认证：
 
@@ -513,7 +689,7 @@ Repo-side 状态（2026-05-23）：S9 控制面代码已在
 7. ~~待完成：前端把这些接口做成同一个 guided wizard~~ Repo-side done (2026-05-23 v2)：`scripts/serve_operator_dashboard.py` 的 `#s9-wizard` 把 `Invite → Enroll → Preflight → Run → Verify → Negative cases → Archive` 串成同一个流程，按 endpoint 返回的 `decision=allow` / `status=ok` 才能进入下一步；所有 typed reports 在面板内直显。
 8. ~~待完成：生产部署模板~~ Repo-side done (2026-05-23 v2)：`deploy/spiffe_envoy/` 提供 SPIRE Server/Agent、Envoy Party A/B、`peer_spiffe_allowlist.json`（`spiffe_envoy_peer_allowlist/v1`）和 `rotation_notes.md`；`scripts/check_spiffe_envoy_templates.py` 输出 `spiffe_envoy_template_check/v1`，已接入 `scripts/check_json_contracts.sh --assert-allow`。
 9. Repo-side done (2026-05-23 v2)：`POST /v1/pjc-mtls/tls-diagnostic` + `pjc_tls_diagnostic/v1` 把 VPS `10502` TLS EOF 的 TCP / TLS / 本地证书 / 服务端日志症状捕成 typed report；`scripts/check_pjc_tls_diagnostic_smoke.py` 覆盖 closed-port、`tls_eof`、缺失本地证书三种确定性本地场景。
-10. Repo-side done (2026-05-23 v2)：服务端 release policy gate `POST /v1/release/policy-gate` + `scripts/check_release_policy_gate.py` 通过 `config/release_policy_gate.example.json`（`release_policy_gate_config/v1`）强制 `require_dp` + DP epsilon 范围 + `min_k` + privacy budget ledger + duplicate-query 防护，关闭 `policy_release.py --require-dp` CLI 旁路；`scripts/check_release_policy_gate_smoke.py` 覆盖缺 ledger / 低 k / 缺 DP / allow / duplicate leak 五种场景。
+10. Repo-side done (2026-06-01 v3)：服务端 release policy gate `POST /v1/release/policy-gate` + `scripts/check_release_policy_gate.py` 通过 `config/release_policy_gate.example.json`（`release_policy_gate_config/v1`）强制 `require_dp` + DP epsilon 范围 + `min_k` + privacy budget ledger + duplicate-query 防护 + public report redaction，关闭 `policy_release.py --require-dp` CLI 旁路；`scripts/check_release_policy_gate_smoke.py` 覆盖缺 ledger / 低 k / 缺 DP / allow / duplicate leak / operator-only public-field leak 六种场景。`scripts/run_sse_bridge_pipeline.sh --production-mode` 现在要求 `--release-policy-gate-config`，Stage4 后生成 `a_psi_run/release_policy_gate.json` 并 `--assert-allow`；`audit_chain/v1` 嵌入该 gate report 和 hash；`query_workflow_request/v1` / `submit_query_workflow.py` 透传 release gate、DP 和 redaction 字段。`scripts/verify_release_policy_gate_pipeline.sh` 覆盖生产 pipeline 缺 gate config 的 fail-closed 反例。
 
 需要修改：
 

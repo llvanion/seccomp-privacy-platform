@@ -11,8 +11,9 @@ LIB-SSE CODE
 @description:
 """
 import asyncio
-import pickle
 import typing
+
+from frontend.common.wire import dumps_message
 
 if typing.TYPE_CHECKING:
     from websockets import WebSocketServerProtocol
@@ -33,4 +34,4 @@ def send_message(
         'content': content
     }
     msg_dict.update(additional_field)
-    return asyncio.create_task(websocket.send(pickle.dumps(msg_dict)))
+    return asyncio.create_task(websocket.send(dumps_message(msg_dict)))

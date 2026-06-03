@@ -47,6 +47,8 @@ def validate_pipeline_surface(pipeline_module: Any) -> None:
         raise SystemExit(
             f"pipeline benchmark mode set mismatch: expected {EXPECTED_PIPELINE_MODES}, got {tuple(pipeline_module.MODES)}"
         )
+    production_limits = REPO_ROOT / "config" / "pjc_resource_limits.example.json"
+    release_policy_gate_config = REPO_ROOT / "config" / "release_policy_gate.example.json"
     for mode in pipeline_module.MODES:
         command = pipeline_module.build_pipeline_command(
             mode=mode,
@@ -55,6 +57,8 @@ def validate_pipeline_surface(pipeline_module: Any) -> None:
             server_source=Path("/tmp/seccomp_pipeline_benchmark_example/server.csv"),
             client_source=Path("/tmp/seccomp_pipeline_benchmark_example/client.csv"),
         )
+        if "--production-mode" in command or "--pjc-resource-limits" in command:
+            raise SystemExit(f"pipeline default benchmark should not use production flags: {command}")
         if mode == "file_handoff_retained":
             if (
                 "--keep-sse-export-handoff-files" not in command
@@ -68,6 +72,51 @@ def validate_pipeline_surface(pipeline_module: Any) -> None:
         else:
             if "--keep-sse-export-handoff-files" in command or "--sse-export-handoff-mode" in command:
                 raise SystemExit(f"pipeline default file benchmark command mismatch: {command}")
+        if mode != "file_handoff_retained":
+            production_command = pipeline_module.build_pipeline_command(
+                mode=mode,
+                out_base=Path("/tmp/seccomp_pipeline_benchmark_example"),
+                job_id=f"contract_prod_{mode}",
+                server_source=Path("/tmp/seccomp_pipeline_benchmark_example/server.csv"),
+                client_source=Path("/tmp/seccomp_pipeline_benchmark_example/client.csv"),
+                production_mode=True,
+                pjc_resource_limits=production_limits,
+                release_policy_gate_config=release_policy_gate_config,
+            )
+            required_prod_flags = {
+                "--production-mode",
+                "--pjc-resource-limits",
+                "--release-policy-gate-config",
+                "--privacy-budget-required",
+                "--privacy-budget-config",
+                "--privacy-budget-ledger",
+                "--require-dp",
+                "--dp-epsilon",
+                "--dp-sensitivity",
+                "--public-report-redact-operator-fields",
+            }
+            missing_prod_flags = sorted(required_prod_flags - set(production_command))
+            if missing_prod_flags:
+                raise SystemExit(f"pipeline production benchmark command missing production flags: {production_command}")
+            if str(production_limits) not in production_command:
+                raise SystemExit(f"pipeline production benchmark command missing limits path: {production_command}")
+            if str(release_policy_gate_config) not in production_command:
+                raise SystemExit(f"pipeline production benchmark command missing release gate config path: {production_command}")
+    try:
+        pipeline_module.build_pipeline_command(
+            mode="file_handoff_retained",
+            out_base=Path("/tmp/seccomp_pipeline_benchmark_example"),
+            job_id="contract_prod_file_handoff_retained",
+            server_source=Path("/tmp/seccomp_pipeline_benchmark_example/server.csv"),
+            client_source=Path("/tmp/seccomp_pipeline_benchmark_example/client.csv"),
+            production_mode=True,
+            pjc_resource_limits=production_limits,
+            release_policy_gate_config=release_policy_gate_config,
+        )
+    except ValueError:
+        pass
+    else:
+        raise SystemExit("pipeline retained benchmark unexpectedly accepted production_mode")
 
 
 def validate_live_surface(live_module: Any) -> None:
@@ -195,6 +244,8 @@ def build_pipeline_fixture(pipeline_module: Any) -> dict[str, Any]:
         "repo_root": str(REPO_ROOT),
         "bridge_bin": "cargo run --",
         "pjc_bin_dir": str(REPO_ROOT / "a-psi" / "private-join-and-compute" / "bazel-bin"),
+        "production_mode": False,
+        "pjc_resource_limits": None,
         "expected_result": {
             "intersection_size": pipeline_module.EXPECTED_INTERSECTION_SIZE,
             "intersection_sum": pipeline_module.EXPECTED_INTERSECTION_SUM,

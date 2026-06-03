@@ -26,6 +26,7 @@
         "sections_present",
         "sections_missing",
         "endpoints_total",
+        "endpoint_roles",
         "roles_referenced",
         "static_index_links_count"
       ],
@@ -36,6 +37,10 @@
         "sections_present": {"type": "array", "items": {"type": "string"}},
         "sections_missing": {"type": "array", "items": {"type": "string"}},
         "endpoints_total": {"type": "integer", "minimum": 0},
+        "endpoint_roles": {
+          "type": "object",
+          "additionalProperties": {"type": ["string", "null"]}
+        },
         "roles_referenced": {"type": "array", "items": {"type": "string"}},
         "static_index_links_count": {"type": "integer", "minimum": 0},
         "static_index_references_manifest": {"type": "boolean"},

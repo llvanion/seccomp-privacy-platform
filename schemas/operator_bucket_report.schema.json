@@ -1,0 +1,64 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "operator_bucket_report/v1",
+  "title": "Operator-only bucket report",
+  "type": "object",
+  "required": [
+    "schema",
+    "job_id",
+    "bucket_field",
+    "bucket_count",
+    "k",
+    "dp_noise_applied",
+    "public_report_path",
+    "buckets"
+  ],
+  "properties": {
+    "schema": { "const": "operator_bucket_report/v1" },
+    "job_id": { "type": ["string", "null"] },
+    "bucket_field": { "type": ["string", "null"] },
+    "bucket_count": { "type": "integer", "minimum": 0 },
+    "k": { "type": "integer", "minimum": 0 },
+    "dp_noise_applied": { "type": "boolean" },
+    "dp_epsilon": { "type": ["number", "null"] },
+    "dp_sensitivity": { "type": ["integer", "null"], "minimum": 1 },
+    "round_sum_to": { "type": ["integer", "null"], "minimum": 1 },
+    "public_report_path": { "type": "string" },
+    "buckets": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "bucket",
+          "intersection_size",
+          "intersection_size_bucket",
+          "intersection_sum_raw",
+          "intersection_sum",
+          "suppressed",
+          "reason_code",
+          "dp_noise_applied",
+          "public_label_redacted"
+        ],
+        "properties": {
+          "bucket": { "type": ["string", "number", "integer", "boolean", "null"] },
+          "intersection_size": { "type": "integer", "minimum": 0 },
+          "intersection_size_bucket": {
+            "type": "string",
+            "enum": ["<10", "10-49", "50-199", "200+"]
+          },
+          "intersection_sum_raw": { "type": ["integer", "number"] },
+          "intersection_sum": { "type": ["integer", "number", "null"] },
+          "suppressed": { "type": "boolean" },
+          "reason_code": { "type": "string", "enum": ["below_k", "released"] },
+          "dp_noise_applied": { "type": "boolean" },
+          "dp_epsilon": { "type": ["number", "null"] },
+          "dp_sensitivity": { "type": ["integer", "null"], "minimum": 1 },
+          "dp_noise": { "type": ["number", "null"] },
+          "public_label_redacted": { "type": "boolean" }
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  "additionalProperties": false
+}

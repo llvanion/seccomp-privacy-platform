@@ -50,6 +50,9 @@
         "public_report_sha256": {
           "type": ["string", "null"]
         },
+        "release_policy_gate_sha256": {
+          "type": ["string", "null"]
+        },
         "mainline_contract_check_sha256": {
           "type": ["string", "null"]
         }
@@ -118,6 +121,9 @@
     },
     "policy_audit": {
       "type": "array"
+    },
+    "release_policy_gate": {
+      "type": ["object", "null"]
     },
     "mainline_contract_check": {
       "type": ["object", "null"]

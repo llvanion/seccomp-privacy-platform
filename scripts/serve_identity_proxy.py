@@ -42,6 +42,8 @@ from typing import Any
 from urllib.parse import urlparse
 
 from api_identity import (
+    DEFAULT_IDENTITY_SESSION_COOKIE_NAME,
+    bearer_or_session_cookie_token,
     resolve_identity_context,
     build_identity_resolution_payload,
 )
@@ -172,8 +174,9 @@ class IdentityProxyHandler(BaseHTTPRequestHandler):
         }
 
     def _resolve_and_inject(self, raw_headers: dict[str, str]) -> tuple[dict[str, Any] | None, dict[str, str]]:
-        """Resolve identity from Authorization header and build forwarding headers."""
+        """Resolve identity from Authorization header or session cookie."""
         auth_header = ""
+        cookie_header = ""
         fwd_headers: dict[str, str] = {}
         for k, v in raw_headers.items():
             lk = k.lower()
@@ -185,13 +188,20 @@ class IdentityProxyHandler(BaseHTTPRequestHandler):
             if lk == "authorization":
                 auth_header = v
                 continue
+            if lk == "cookie":
+                cookie_header = v
             fwd_headers[k] = v
 
         identity: dict[str, Any] | None = None
-        if auth_header:
-            bearer = _extract_bearer(auth_header)
-            if bearer:
-                identity = self.server.resolve_identity(bearer)
+        bearer, auth_source = bearer_or_session_cookie_token(
+            auth_header=auth_header,
+            cookie_header=cookie_header,
+            session_cookie_name=DEFAULT_IDENTITY_SESSION_COOKIE_NAME,
+        )
+        if bearer:
+            identity = self.server.resolve_identity(bearer)
+            if identity is not None:
+                identity["auth_source"] = auth_source
 
         if identity:
             fwd_headers["X-Identity-Caller"] = str(identity.get("caller") or "")
@@ -201,8 +211,10 @@ class IdentityProxyHandler(BaseHTTPRequestHandler):
                 identity.get("platform_roles") or [], ensure_ascii=False
             )
             fwd_headers["X-Identity-Resolved"] = "true"
-            # Forward the original Authorization so the backend can also validate
-            fwd_headers["Authorization"] = auth_header
+            # Forward the original Authorization only when the browser supplied
+            # one. Cookie-auth requests should stay token-blind to JavaScript.
+            if auth_header:
+                fwd_headers["Authorization"] = auth_header
 
         return identity, fwd_headers
 
@@ -288,11 +300,15 @@ class IdentityProxyHandler(BaseHTTPRequestHandler):
             self._send(status_code, resp_body)
             return
 
-        # Require authentication if auth config is present
+        # Require authentication if auth config is present. Without this, a
+        # misconfigured upstream could receive unauthenticated proxied traffic.
         auth_header = raw_headers.get("Authorization", "")
-        if auth_header and not identity:
+        auth_configured = bool(self.server.admin_token or self.server.identity_token_config)
+        if auth_configured and not identity:
             status_code, resp_body = _error_response(
-                HTTPStatus.UNAUTHORIZED, "identity_not_resolved", "bearer token did not match any registered identity"
+                HTTPStatus.UNAUTHORIZED,
+                "identity_not_resolved",
+                "request did not resolve to an authenticated identity",
             )
             self._send(status_code, resp_body)
             return

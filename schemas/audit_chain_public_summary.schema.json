@@ -1,0 +1,102 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "audit_chain_public_summary/v1",
+  "title": "Caller-safe summary of an audit chain",
+  "type": "object",
+  "required": [
+    "schema",
+    "generated_at_utc",
+    "job_id",
+    "correlation_id",
+    "caller",
+    "tenant_id",
+    "dataset_id",
+    "service_id",
+    "release",
+    "stage_record_counts",
+    "audit_chain",
+    "mainline_contract",
+    "privacy"
+  ],
+  "properties": {
+    "schema": { "const": "audit_chain_public_summary/v1" },
+    "generated_at_utc": { "type": ["string", "null"], "format": "date-time" },
+    "job_id": { "type": ["string", "null"] },
+    "correlation_id": { "type": ["string", "null"] },
+    "caller": { "type": ["string", "null"] },
+    "tenant_id": { "type": ["string", "null"] },
+    "dataset_id": { "type": ["string", "null"] },
+    "service_id": { "type": ["string", "null"] },
+    "release": {
+      "type": "object",
+      "required": [
+        "released",
+        "reason_code",
+        "policy_version",
+        "k_threshold",
+        "dp_noise_applied",
+        "dp_epsilon",
+        "operator_fields_redacted"
+      ],
+      "properties": {
+        "released": { "type": ["boolean", "null"] },
+        "reason_code": { "type": ["string", "null"] },
+        "policy_version": { "type": ["string", "null"] },
+        "k_threshold": { "type": ["integer", "null"], "minimum": 0 },
+        "dp_noise_applied": { "type": ["boolean", "null"] },
+        "dp_epsilon": { "type": ["number", "null"] },
+        "operator_fields_redacted": { "type": ["boolean", "null"] }
+      },
+      "additionalProperties": false
+    },
+    "stage_record_counts": {
+      "type": "object",
+      "additionalProperties": { "type": ["integer", "null"], "minimum": 0 }
+    },
+    "audit_chain": {
+      "type": "object",
+      "required": ["counts_available", "complete_stage_count"],
+      "properties": {
+        "counts_available": { "type": "boolean" },
+        "complete_stage_count": { "type": "integer", "minimum": 0 }
+      },
+      "additionalProperties": false
+    },
+    "mainline_contract": {
+      "type": "object",
+      "required": [
+        "status",
+        "embedded_in_audit_chain",
+        "handoff_mode",
+        "plaintext_exposure_risk"
+      ],
+      "properties": {
+        "status": { "type": ["string", "null"] },
+        "embedded_in_audit_chain": { "type": ["boolean", "null"] },
+        "handoff_mode": { "type": ["string", "null"] },
+        "plaintext_exposure_risk": { "type": ["string", "null"] }
+      },
+      "additionalProperties": false
+    },
+    "release_gate_summary": {
+      "type": ["object", "null"],
+      "required": ["decision", "reason_code"],
+      "properties": {
+        "decision": { "type": ["string", "null"] },
+        "reason_code": { "type": ["string", "null"] }
+      },
+      "additionalProperties": false
+    },
+    "privacy": {
+      "type": "object",
+      "required": ["view", "operator_fields_redacted", "notes"],
+      "properties": {
+        "view": { "const": "caller_safe_summary" },
+        "operator_fields_redacted": { "const": true },
+        "notes": { "type": "string" }
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false
+}

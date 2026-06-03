@@ -145,6 +145,10 @@ The fact tables exist so the demo expected result can be traced end-to-end:
 
 [`scripts/render_ecommerce_fact_layer.py`](/home/llvanion/Desktop/seccomp-privacy-platform/scripts/render_ecommerce_fact_layer.py) parses migration `010_*.sql`, asserts the six expected tables and their primary indexes, and emits `ecommerce_fact_layer_report/v1` (frozen schema). Default contract smoke validates that report so the fact-layer baseline cannot drift silently.
 
+[`scripts/validate_ecommerce_fact_import.py`](/home/llvanion/Desktop/seccomp-privacy-platform/scripts/validate_ecommerce_fact_import.py) validates candidate JSONL fact imports before rows are loaded. It checks the table-specific column allowlist, required columns, basic types, non-negative monetary fields, `business_access_policy/v1` field classification, and a denylist for unsupported sensitive column names such as address, phone, raw transcript, full route, card/account, and geo/postal fields. `orders.buyer_email` remains allowed only as the classified/protected join key. The smoke script [`scripts/check_ecommerce_fact_import_validation.py`](/home/llvanion/Desktop/seccomp-privacy-platform/scripts/check_ecommerce_fact_import_validation.py) freezes one valid import and three rejects: hidden address, negative amount, and raw support transcript.
+
+[`scripts/import_ecommerce_fact_rows.py`](/home/llvanion/Desktop/seccomp-privacy-platform/scripts/import_ecommerce_fact_rows.py) is the repo-side validator-first importer. It applies metadata migrations, reuses the same validation report, inserts allowed JSONL batches in one transaction, rejects denied batches before insert, and rolls back database-level failures such as duplicate `orders(tenant_id, order_id)` rows. [`scripts/check_ecommerce_fact_import.py`](/home/llvanion/Desktop/seccomp-privacy-platform/scripts/check_ecommerce_fact_import.py) proves all three outcomes and emits `ecommerce_fact_import_smoke/v1`.
+
 ## 6. Out of Scope (Phase-2 follow-up)
 
 These are deliberately *not* in the current baseline; they are flagged here so a future tranche can pick them up coherently:
@@ -153,6 +157,7 @@ These are deliberately *not* in the current baseline; they are flagged here so a
 2. Inventory / stock movement tables.
 3. Real-time event stream feeding the fact layer (Kafka, Debezium). The current expectation is batch import only.
 4. Vendor / merchant master data — the `ECOMMERCE_BUSINESS_IDENTITIES_PLAN.md` (E2) covers identities, not catalog.
+5. Production ETL/event-stream wiring. The repo now has a validator-first batch importer, but external warehouse jobs, Kafka/Debezium flows, or managed ETL systems must call it or enforce an equivalent policy gate before writing rows.
 
 ## 7. Operator Onboarding
 
@@ -163,8 +168,27 @@ python3 scripts/init_metadata_db.py --db tmp/metadata.sqlite
 # 2. Validate the fact-layer baseline.
 python3 scripts/render_ecommerce_fact_layer.py --output tmp/ecommerce_fact_layer_report.json
 
-# 3. Validate against the schema.
+# 3. Validate candidate fact imports.
+python3 scripts/check_ecommerce_fact_import_validation.py --out-dir tmp/ecommerce_fact_import_validation
+
+# 4. Run the validator-first transactional importer smoke.
+python3 scripts/check_ecommerce_fact_import.py --out-dir tmp/ecommerce_fact_import_smoke
+
+# 5. Import a candidate JSONL file into a metadata DB.
+python3 scripts/import_ecommerce_fact_rows.py \
+  --table orders \
+  --input tmp/ecommerce_fact_import_smoke/orders_allow.jsonl \
+  --metadata-db tmp/metadata.sqlite \
+  --output tmp/orders_import_result.json
+
+# 6. Validate against the schemas.
 python3 scripts/validate_json_contract.py \
   --schema schemas/ecommerce_fact_layer_report.schema.json \
   --json tmp/ecommerce_fact_layer_report.json
+python3 scripts/validate_json_contract.py \
+  --schema schemas/ecommerce_fact_import_validation.schema.json \
+  --json tmp/ecommerce_fact_import_validation/orders_good_report.json
+python3 scripts/validate_json_contract.py \
+  --schema schemas/ecommerce_fact_import_result.schema.json \
+  --json tmp/orders_import_result.json
 ```

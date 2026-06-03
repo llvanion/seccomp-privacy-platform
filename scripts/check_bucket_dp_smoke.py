@@ -5,11 +5,11 @@ Asserts six invariants against ``a-psi/moduleA_psi/scripts/policy_release.py``
 and ``policy_postprocess_buckets.py``:
 
 1. With DP knobs set and a two-bucket attribution fixture (one above k, one
-   below k), the protected ``bucket_public_report.json``:
-     - has the below-k bucket marked ``suppressed=true`` and its
-       ``intersection_size`` / ``intersection_sum`` nulled,
-     - has the above-k bucket released with ``dp_noise_applied=true`` and an
-       integer ``dp_noise`` value distinct from zero (rng-dependent).
+   below k), the release-safe ``bucket_public_report.json``:
+     - omits the below-k bucket label instead of publishing a
+       ``suppressed=true`` existence signal,
+     - redacts exact released-bucket size and DP noise while preserving the
+       DP-protected released sum and coarse size bucket.
 2. ``policy_release.py --require-dp`` exits non-zero when DP knobs are absent.
 3. ``policy_release.py --require-dp`` exits non-zero when ``--dp-epsilon`` is
    set but ``--dp-sensitivity`` is missing.
@@ -17,9 +17,9 @@ and ``policy_postprocess_buckets.py``:
    are absent.
 5. With DP knobs set on ``policy_release.py``, the ``public_report.json``
    surfaces ``dp_noise_applied=true`` and a positive ``dp_epsilon``.
-6. The released bucket sum in the protected report differs from the raw input
-   sum by exactly the recorded ``dp_noise`` (modulo the ``max(0, ...)`` clip
-   and rounding the implementation applies).
+6. The operator-only bucket report records the DP noise/raw sum needed to audit
+   the public released sum, but the public bucket report does not expose that
+   noise.
 
 The harness is self-contained — it generates its own attribution fixture and
 job-meta, writes a temp report, runs the two CLIs, and validates outputs in
@@ -122,6 +122,7 @@ def main() -> int:
     job_meta_path = out_dir / "job_meta.json"
     public_report_path = out_dir / "public_report.json"
     bucket_report_path = out_dir / "bucket_public_report.json"
+    operator_bucket_report_path = out_dir / "operator_bucket_report.json"
     audit_log = out_dir / "policy_audit.jsonl"
 
     _build_attribution_fixture(attribution_path)
@@ -212,9 +213,13 @@ def main() -> int:
     if not bucket_report_path.is_file():
         sys.stderr.write(f"[ERROR] bucket_public_report.json missing at {bucket_report_path}\n")
         return 1
+    if not operator_bucket_report_path.is_file():
+        sys.stderr.write(f"[ERROR] operator_bucket_report.json missing at {operator_bucket_report_path}\n")
+        return 1
 
     public_report = json.loads(public_report_path.read_text(encoding="utf-8"))
     bucket_report = json.loads(bucket_report_path.read_text(encoding="utf-8"))
+    operator_bucket_report = json.loads(operator_bucket_report_path.read_text(encoding="utf-8"))
 
     # --- Invariant 5: public_report.json surfaces DP metadata.
     if not public_report.get("dp_noise_applied"):
@@ -224,22 +229,28 @@ def main() -> int:
         sys.stderr.write(f"[ERROR] public_report.dp_epsilon missing/non-positive: {public_report}\n")
         return 1
 
-    # --- Invariant 1: bucket suppression respects k threshold.
+    # --- Invariant 1: below-k bucket labels are not published.
     buckets = bucket_report.get("buckets") or []
-    if len(buckets) != 2:
-        sys.stderr.write(f"[ERROR] expected 2 buckets, got {len(buckets)}: {bucket_report}\n")
+    if len(buckets) != 1:
+        sys.stderr.write(f"[ERROR] expected only released bucket in public report, got {len(buckets)}: {bucket_report}\n")
         return 1
     by_name = {b.get("bucket"): b for b in buckets}
     above_k = by_name.get("campaign-a")
-    below_k = by_name.get("campaign-b")
-    if above_k is None or below_k is None:
-        sys.stderr.write(f"[ERROR] missing expected bucket names: {bucket_report}\n")
+    if above_k is None:
+        sys.stderr.write(f"[ERROR] missing expected released bucket name: {bucket_report}\n")
         return 1
-    if not below_k.get("suppressed") or below_k.get("intersection_size") is not None or below_k.get("intersection_sum") is not None:
-        sys.stderr.write(f"[ERROR] below-k bucket should be suppressed with nulls: {below_k}\n")
+    if "campaign-b" in by_name:
+        sys.stderr.write(f"[ERROR] below-k bucket label leaked in public report: {bucket_report}\n")
         return 1
-    if above_k.get("suppressed") or above_k.get("intersection_size") is None or above_k.get("intersection_sum") is None:
-        sys.stderr.write(f"[ERROR] above-k bucket should be released with size+sum present: {above_k}\n")
+    redaction = bucket_report.get("redaction") or {}
+    if redaction.get("view") != "release_safe_bucket_report" or redaction.get("suppressed_bucket_labels_redacted") is not True:
+        sys.stderr.write(f"[ERROR] bucket_public_report missing release-safe redaction marker: {bucket_report}\n")
+        return 1
+    if above_k.get("suppressed") or above_k.get("intersection_size") is not None or above_k.get("intersection_sum") is None:
+        sys.stderr.write(f"[ERROR] public released bucket should redact exact size and release sum: {above_k}\n")
+        return 1
+    if above_k.get("intersection_size_bucket") != "50-199":
+        sys.stderr.write(f"[ERROR] public released bucket missing coarse size bucket: {above_k}\n")
         return 1
     if not above_k.get("dp_noise_applied"):
         sys.stderr.write(f"[ERROR] above-k bucket should have dp_noise_applied=true: {above_k}\n")
@@ -247,13 +258,26 @@ def main() -> int:
     if above_k.get("dp_epsilon") is None:
         sys.stderr.write(f"[ERROR] above-k bucket missing dp_epsilon: {above_k}\n")
         return 1
+    if "dp_noise" in above_k:
+        sys.stderr.write(f"[ERROR] public released bucket leaked dp_noise: {above_k}\n")
+        return 1
 
-    # --- Invariant 6: released sum = clip(raw + noise, 0).
+    # --- Invariant 6: operator report audits released sum = clip(raw + noise, 0).
+    op_buckets = operator_bucket_report.get("buckets") or []
+    op_by_name = {b.get("bucket"): b for b in op_buckets}
+    op_above_k = op_by_name.get("campaign-a")
+    op_below_k = op_by_name.get("campaign-b")
+    if op_above_k is None or op_below_k is None:
+        sys.stderr.write(f"[ERROR] operator bucket report missing full bucket evidence: {operator_bucket_report}\n")
+        return 1
+    if not op_below_k.get("suppressed") or op_below_k.get("intersection_size") != 3:
+        sys.stderr.write(f"[ERROR] operator bucket report should retain below-k evidence: {op_below_k}\n")
+        return 1
     raw_sum = 9_000  # from the fixture above
-    noise = above_k.get("dp_noise")
+    noise = op_above_k.get("dp_noise")
     released = above_k.get("intersection_sum")
     if noise is None or released is None:
-        sys.stderr.write(f"[ERROR] above-k bucket missing dp_noise or intersection_sum: {above_k}\n")
+        sys.stderr.write(f"[ERROR] operator/public bucket reports missing dp_noise or intersection_sum: public={above_k} operator={op_above_k}\n")
         return 1
     expected_released = max(0, int(round(raw_sum + float(noise))))
     if int(released) != expected_released:
@@ -274,6 +298,8 @@ def main() -> int:
     redacted_meta = redacted_dir / "job_meta.json"
     _write_json(redacted_meta, json.loads(job_meta_path.read_text(encoding="utf-8")))
     redacted_public = redacted_dir / "public_report.json"
+    redacted_bucket_public = redacted_dir / "bucket_public_report.json"
+    redacted_operator_bucket = redacted_dir / "operator_bucket_report.json"
     redacted_operator = redacted_dir / "operator_report.json"
     redacted_audit = redacted_dir / "policy_audit.jsonl"
     _must_succeed(
@@ -307,6 +333,8 @@ def main() -> int:
     )
     redacted_public_report = json.loads(redacted_public.read_text(encoding="utf-8"))
     redacted_operator_report = json.loads(redacted_operator.read_text(encoding="utf-8"))
+    redacted_bucket_report = json.loads(redacted_bucket_public.read_text(encoding="utf-8"))
+    redacted_operator_bucket_report = json.loads(redacted_operator_bucket.read_text(encoding="utf-8"))
     leaked = [k for k in ("input_sizes", "rate_limit_used", "rate_limit_max", "bridge", "details") if k in redacted_public_report]
     if leaked:
         sys.stderr.write(f"[ERROR] redacted public_report still carries operator-only keys: {leaked}\n")
@@ -327,31 +355,41 @@ def main() -> int:
     if not debug.get("bucket_results_redacted"):
         sys.stderr.write(f"[ERROR] redacted public_report.debug missing bucket_results_redacted marker: {debug}\n")
         return 1
+    if any(item.get("bucket") == "campaign-b" for item in redacted_bucket_report.get("buckets") or []):
+        sys.stderr.write(f"[ERROR] redacted bucket_public_report leaked below-k label: {redacted_bucket_report}\n")
+        return 1
+    if any("dp_noise" in item for item in redacted_bucket_report.get("buckets") or []):
+        sys.stderr.write(f"[ERROR] redacted bucket_public_report leaked dp_noise: {redacted_bucket_report}\n")
+        return 1
+    if not any(item.get("bucket") == "campaign-b" for item in redacted_operator_bucket_report.get("buckets") or []):
+        sys.stderr.write(f"[ERROR] operator_bucket_report should retain below-k evidence: {redacted_operator_bucket_report}\n")
+        return 1
 
     summary = {
         "status": "ok",
         "schema": "bucket_dp_smoke_report/v1",
         "out_dir": str(out_dir),
-        "below_k_suppressed": True,
+        "below_k_suppressed_label_redacted": True,
         "above_k_released_with_dp": True,
         "public_report_dp_noise_applied": True,
         "policy_release_require_dp_fail_closed": True,
         "policy_postprocess_buckets_require_dp_fail_closed": True,
         "released_sum_equals_raw_plus_noise_clipped": True,
+        "public_bucket_report_dp_noise_redacted": True,
+        "operator_bucket_report_carries_full_set": True,
         "public_report_operator_fields_redacted": True,
         "operator_report_carries_full_set": True,
         "checked_buckets": [
             {
                 "bucket": "campaign-a",
-                "raw_sum": raw_sum,
                 "released_sum": int(released),
-                "dp_noise": float(noise),
                 "dp_epsilon": float(above_k["dp_epsilon"]),
+                "public_size_bucket": above_k.get("intersection_size_bucket"),
             },
             {
-                "bucket": "campaign-b",
+                "bucket": "<suppressed-label-redacted>",
                 "suppressed": True,
-                "reason_code": below_k.get("reason_code"),
+                "reason_code": "below_k",
             },
         ],
     }

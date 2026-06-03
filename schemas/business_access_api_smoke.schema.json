@@ -1,0 +1,37 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "business_access_api_smoke/v1",
+  "title": "Business access API smoke report",
+  "type": "object",
+  "required": [
+    "schema",
+    "status",
+    "business_identity_count",
+    "merchant_public_decision",
+    "merchant_address_decision",
+    "merchant_read_preview_count",
+    "merchant_filter_conflict_status",
+    "merchant_tenant_filter_conflict_status",
+    "merchant_read_preview_denied_status",
+    "support_masked_preview_decision",
+    "sensitive_filter_status",
+    "role_spoof_status",
+    "read_preview_role_spoof_status"
+  ],
+  "properties": {
+    "schema": { "const": "business_access_api_smoke/v1" },
+    "status": { "const": "ok" },
+    "business_identity_count": { "type": "integer", "minimum": 1 },
+    "merchant_public_decision": { "const": "allow" },
+    "merchant_address_decision": { "const": "deny" },
+    "merchant_read_preview_count": { "type": "integer", "minimum": 1 },
+    "merchant_filter_conflict_status": { "const": 403 },
+    "merchant_tenant_filter_conflict_status": { "const": 403 },
+    "merchant_read_preview_denied_status": { "const": 403 },
+    "support_masked_preview_decision": { "const": "mask" },
+    "sensitive_filter_status": { "const": 400 },
+    "role_spoof_status": { "const": 403 },
+    "read_preview_role_spoof_status": { "const": 403 }
+  },
+  "additionalProperties": false
+}

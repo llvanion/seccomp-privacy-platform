@@ -55,6 +55,15 @@ struct GenerateArgs {
     #[arg(long, value_enum, default_value_t = ValueMode::Count)]
     value_mode: ValueMode,
 
+    #[arg(long)]
+    value_min: Option<i64>,
+
+    #[arg(long)]
+    value_max: Option<i64>,
+
+    #[arg(long)]
+    value_allow_negative: bool,
+
     #[arg(long, value_enum, default_value_t = Normalizer::Identity)]
     normalizer: Normalizer,
 
@@ -117,6 +126,15 @@ struct PrepareJobArgs {
 
     #[arg(long, value_enum, default_value_t = ValueMode::Count)]
     client_value_mode: ValueMode,
+
+    #[arg(long)]
+    client_value_min: Option<i64>,
+
+    #[arg(long)]
+    client_value_max: Option<i64>,
+
+    #[arg(long)]
+    client_value_allow_negative: bool,
 
     #[arg(long, value_enum, default_value_t = Normalizer::Identity)]
     client_normalizer: Normalizer,
@@ -189,6 +207,13 @@ struct InputRow {
     value: Option<i64>,
 }
 
+#[derive(Debug, Clone, Serialize)]
+struct ValuePolicy {
+    min_value: Option<i64>,
+    max_value: Option<i64>,
+    allow_negative: bool,
+}
+
 #[derive(Debug, Clone)]
 struct InputSpec {
     input: PathBuf,
@@ -223,6 +248,8 @@ struct SingleJobMeta {
     token_scope: String,
     token_key_version: String,
     dedup_policy: String,
+    value_policy: Option<ValuePolicy>,
+    value_summary: Option<Value>,
     outputs: Vec<OutputInfo>,
     counts: BTreeMap<String, usize>,
 }
@@ -287,6 +314,17 @@ fn run_generate(args: GenerateArgs, started_at: Instant) -> Result<()> {
         value_column: args.value_column.clone(),
         normalizer: args.normalizer,
     };
+    let client_value_policy = if matches!(args.role, Role::Client) {
+        Some(build_value_policy(
+            args.value_mode,
+            args.value_min,
+            args.value_max,
+            args.value_allow_negative,
+            production_mode,
+        )?)
+    } else {
+        None
+    };
     let rows = load_rows(&spec, args.role)?;
 
     if rows.is_empty() {
@@ -300,6 +338,7 @@ fn run_generate(args: GenerateArgs, started_at: Instant) -> Result<()> {
         )
     })?;
 
+    let mut output_value_summary: Option<Value> = None;
     let (output_info, counts) = match args.role {
         Role::Server => {
             let tokens = build_server_tokens(&rows, &args.token_scope, &token_secret)?;
@@ -320,8 +359,17 @@ fn run_generate(args: GenerateArgs, started_at: Instant) -> Result<()> {
             )
         }
         Role::Client => {
-            let token_values =
-                build_client_values(&rows, &args.token_scope, &token_secret, args.value_mode)?;
+            let policy = client_value_policy
+                .as_ref()
+                .context("client value policy missing for client role")?;
+            let token_values = build_client_values(
+                &rows,
+                &args.token_scope,
+                &token_secret,
+                args.value_mode,
+                policy,
+            )?;
+            output_value_summary = Some(value_summary(&token_values)?);
             let client_path = args.out_dir.join("client.csv");
             write_client_csv(&client_path, &token_values)?;
 
@@ -357,6 +405,8 @@ fn run_generate(args: GenerateArgs, started_at: Instant) -> Result<()> {
         token_scope: args.token_scope,
         token_key_version: args.token_key_version,
         dedup_policy: args.dedup_policy,
+        value_policy: client_value_policy,
+        value_summary: output_value_summary,
         outputs: vec![output_info],
         counts,
     };
@@ -491,6 +541,21 @@ fn run_prepare_job(args: PrepareJobArgs, started_at: Instant) -> Result<()> {
     })?;
 
     let phase_started = Instant::now();
+    let client_value_policy = build_value_policy(
+        args.client_value_mode,
+        args.client_value_min,
+        args.client_value_max,
+        args.client_value_allow_negative,
+        production_mode,
+    )?;
+    let client_source_value_summary =
+        source_value_summary(&client_rows, args.client_value_mode, &client_value_policy)?;
+    phase_timings_ms.insert(
+        "build_client_value_policy".to_string(),
+        phase_started.elapsed().as_millis() as u64,
+    );
+
+    let phase_started = Instant::now();
     let server_tokens = build_server_tokens(&server_rows, &args.token_scope, &token_secret)?;
     phase_timings_ms.insert(
         "build_server_tokens".to_string(),
@@ -502,6 +567,7 @@ fn run_prepare_job(args: PrepareJobArgs, started_at: Instant) -> Result<()> {
         &args.token_scope,
         &token_secret,
         args.client_value_mode,
+        &client_value_policy,
     )?;
     phase_timings_ms.insert(
         "build_client_values".to_string(),
@@ -518,6 +584,74 @@ fn run_prepare_job(args: PrepareJobArgs, started_at: Instant) -> Result<()> {
     write_client_csv(&args.out_dir.join("client.csv"), &client_values)?;
     phase_timings_ms.insert(
         "write_client_csv".to_string(),
+        phase_started.elapsed().as_millis() as u64,
+    );
+
+    let phase_started = Instant::now();
+    let server_csv_path = args.out_dir.join("server.csv");
+    let client_csv_path = args.out_dir.join("client.csv");
+    let server_input_file = canonicalize_display(&server_spec.input)?;
+    let server_input_file_type = path_file_type_label(&server_spec.input)?;
+    let server_input_sha256 = sha256_regular_file_json(&server_spec.input)?;
+    let client_input_file = canonicalize_display(&client_spec.input)?;
+    let client_input_file_type = path_file_type_label(&client_spec.input)?;
+    let client_input_sha256 = sha256_regular_file_json(&client_spec.input)?;
+    let server_csv = canonicalize_display(&server_csv_path)?;
+    let server_csv_sha256 = sha256_file(&server_csv_path)?;
+    let client_csv = canonicalize_display(&client_csv_path)?;
+    let client_csv_sha256 = sha256_file(&client_csv_path)?;
+    let client_output_value_summary = value_summary(&client_values)?;
+    let input_commitment_path = args.out_dir.join("input_commitments.json");
+    let input_commitment_file = canonicalize_display(&input_commitment_path)?;
+    let input_commitment = json!({
+        "schema": "pjc_input_commitment/v1",
+        "job_id": args.job_id,
+        "generated_by": "bridge-rust-v0",
+        "token_scheme": args.token_scheme,
+        "token_scope": args.token_scope,
+        "token_key_version": args.token_key_version,
+        "normalize_version": args.normalize_version,
+        "normalizer_schema_version": NORMALIZER_SCHEMA_VERSION,
+        "dedup_policy": args.dedup_policy,
+        "parties": {
+            "server": {
+                "role": "server",
+                "input_file": server_input_file,
+                "input_format": input_format_label(server_spec.input_format),
+                "source_input_sha256": server_input_sha256,
+                "join_key_column": server_spec.join_key_column,
+                "normalizer": server_spec.normalizer,
+                "value_column": Value::Null,
+                "value_mode": Value::Null,
+                "value_policy": Value::Null,
+                "source_value_summary": Value::Null,
+                "output_csv": server_csv,
+                "output_csv_sha256": server_csv_sha256,
+                "output_row_count": server_tokens.len(),
+                "value_summary": Value::Null
+            },
+            "client": {
+                "role": "client",
+                "input_file": client_input_file,
+                "input_format": input_format_label(client_spec.input_format),
+                "source_input_sha256": client_input_sha256,
+                "join_key_column": client_spec.join_key_column,
+                "normalizer": client_spec.normalizer,
+                "value_column": client_spec.value_column,
+                "value_mode": args.client_value_mode,
+                "value_policy": client_value_policy.clone(),
+                "source_value_summary": client_source_value_summary.clone(),
+                "output_csv": client_csv,
+                "output_csv_sha256": client_csv_sha256,
+                "output_row_count": client_values.len(),
+                "value_summary": client_output_value_summary.clone()
+            }
+        }
+    });
+    write_json_pretty(&input_commitment_path, &input_commitment)?;
+    let input_commitment_sha256 = sha256_file(&input_commitment_path)?;
+    phase_timings_ms.insert(
+        "write_input_commitment".to_string(),
         phase_started.elapsed().as_millis() as u64,
     );
 
@@ -556,12 +690,15 @@ fn run_prepare_job(args: PrepareJobArgs, started_at: Instant) -> Result<()> {
                 "join_key_column": client_spec.join_key_column,
                 "value_column": client_spec.value_column,
                 "value_mode": args.client_value_mode,
+                "value_policy": client_value_policy.clone(),
                 "normalizer": client_spec.normalizer
             }
         },
         "inputs": {
-            "server_csv": canonicalize_display(&args.out_dir.join("server.csv"))?,
-            "client_csv": canonicalize_display(&args.out_dir.join("client.csv"))?
+            "server_csv": server_csv,
+            "client_csv": client_csv,
+            "input_commitment_file": input_commitment_file,
+            "input_commitment_sha256": input_commitment_sha256
         },
         "counts": {
             "server_input_rows": server_rows.len(),
@@ -586,16 +723,6 @@ fn run_prepare_job(args: PrepareJobArgs, started_at: Instant) -> Result<()> {
         .clone()
         .unwrap_or_else(|| args.out_dir.join("bridge_audit.jsonl"));
     let phase_started = Instant::now();
-    let server_input_file = canonicalize_display(&server_spec.input)?;
-    let server_input_file_type = path_file_type_label(&server_spec.input)?;
-    let server_input_sha256 = sha256_regular_file_json(&server_spec.input)?;
-    let client_input_file = canonicalize_display(&client_spec.input)?;
-    let client_input_file_type = path_file_type_label(&client_spec.input)?;
-    let client_input_sha256 = sha256_regular_file_json(&client_spec.input)?;
-    let server_csv = canonicalize_display(&args.out_dir.join("server.csv"))?;
-    let server_csv_sha256 = sha256_file(&args.out_dir.join("server.csv"))?;
-    let client_csv = canonicalize_display(&args.out_dir.join("client.csv"))?;
-    let client_csv_sha256 = sha256_file(&args.out_dir.join("client.csv"))?;
     let job_meta_file = canonicalize_display(&args.out_dir.join("job_meta.json"))?;
     let job_meta_sha256 = sha256_file(&args.out_dir.join("job_meta.json"))?;
     phase_timings_ms.insert(
@@ -618,9 +745,14 @@ fn run_prepare_job(args: PrepareJobArgs, started_at: Instant) -> Result<()> {
             "server_csv_sha256": server_csv_sha256,
             "client_csv": client_csv,
             "client_csv_sha256": client_csv_sha256,
+            "input_commitment_file": meta.pointer("/inputs/input_commitment_file").and_then(Value::as_str).unwrap_or(""),
+            "input_commitment_sha256": meta.pointer("/inputs/input_commitment_sha256").and_then(Value::as_str).unwrap_or(""),
             "job_meta_file": job_meta_file,
             "job_meta_sha256": job_meta_sha256,
             "counts": meta.get("counts").cloned().unwrap_or(Value::Null),
+            "client_value_policy": client_value_policy,
+            "client_source_value_summary": client_source_value_summary,
+            "client_output_value_summary": client_output_value_summary,
             "token_scheme": meta.pointer("/bridge/token_scheme").and_then(Value::as_str).unwrap_or(""),
             "token_scope": meta.pointer("/bridge/token_scope").and_then(Value::as_str).unwrap_or(""),
             "token_key_version": meta.pointer("/bridge/token_key_version").and_then(Value::as_str).unwrap_or(""),
@@ -821,11 +953,12 @@ fn build_client_values(
     token_scope: &str,
     token_secret: &str,
     value_mode: ValueMode,
+    value_policy: &ValuePolicy,
 ) -> Result<BTreeMap<String, i64>> {
     let mut token_values = BTreeMap::new();
     for row in rows {
         let token = join_token(&row.join_key, token_scope, token_secret)?;
-        let value = client_value_for_row(row, value_mode)?;
+        let value = client_value_for_row(row, value_mode, value_policy)?;
         match token_values.get_mut(&token) {
             Some(existing) => {
                 if value > *existing {
@@ -862,6 +995,81 @@ fn write_client_csv(path: &Path, token_values: &BTreeMap<String, i64>) -> Result
     }
     writer.flush()?;
     Ok(())
+}
+
+fn build_value_policy(
+    value_mode: ValueMode,
+    min_value: Option<i64>,
+    max_value: Option<i64>,
+    allow_negative: bool,
+    production_mode: bool,
+) -> Result<ValuePolicy> {
+    if matches!(value_mode, ValueMode::Count) {
+        if min_value.is_some() || max_value.is_some() || allow_negative {
+            bail!("value policy flags are only valid with value-mode raw-int");
+        }
+        return Ok(ValuePolicy {
+            min_value: Some(1),
+            max_value: Some(1),
+            allow_negative: false,
+        });
+    }
+
+    if let (Some(min), Some(max)) = (min_value, max_value) {
+        if min > max {
+            bail!("value policy min cannot be greater than max");
+        }
+    }
+    if production_mode && max_value.is_none() {
+        bail!("production raw-int value policy requires --client-value-max/--value-max");
+    }
+    if !allow_negative && min_value.map_or(false, |min| min < 0) {
+        bail!("value policy min is negative but negative values are not allowed");
+    }
+
+    Ok(ValuePolicy {
+        min_value: Some(min_value.unwrap_or(0)),
+        max_value,
+        allow_negative,
+    })
+}
+
+fn source_value_summary(
+    rows: &[InputRow],
+    value_mode: ValueMode,
+    policy: &ValuePolicy,
+) -> Result<Value> {
+    let mut values = BTreeMap::new();
+    for (idx, row) in rows.iter().enumerate() {
+        values.insert(
+            idx.to_string(),
+            client_value_for_row(row, value_mode, policy)?,
+        );
+    }
+    value_summary(&values)
+}
+
+fn value_summary(token_values: &BTreeMap<String, i64>) -> Result<Value> {
+    let mut sum: i64 = 0;
+    let mut min_value: Option<i64> = None;
+    let mut max_value: Option<i64> = None;
+    let mut non_negative = true;
+    for value in token_values.values() {
+        sum = sum
+            .checked_add(*value)
+            .context("value summary sum overflowed i64")?;
+        min_value = Some(min_value.map_or(*value, |current| current.min(*value)));
+        max_value = Some(max_value.map_or(*value, |current| current.max(*value)));
+        if *value < 0 {
+            non_negative = false;
+        }
+    }
+    Ok(json!({
+        "sum": sum,
+        "min": min_value,
+        "max": max_value,
+        "non_negative": non_negative
+    }))
 }
 
 fn write_json_pretty<T: Serialize>(path: &Path, value: &T) -> Result<()> {
@@ -1024,12 +1232,50 @@ fn join_token(join_key: &str, token_scope: &str, token_secret: &str) -> Result<S
     Ok(hex_encode(&digest))
 }
 
-fn client_value_for_row(row: &InputRow, value_mode: ValueMode) -> Result<i64> {
-    match value_mode {
+fn client_value_for_row(
+    row: &InputRow,
+    value_mode: ValueMode,
+    policy: &ValuePolicy,
+) -> Result<i64> {
+    let value = match value_mode {
         ValueMode::Count => Ok(1),
         ValueMode::RawInt => row.value.with_context(|| {
             "client role with value-mode raw-int requires --value-column".to_string()
         }),
+    }?;
+    if !policy.allow_negative && value < 0 {
+        bail!(
+            "client value {} violates value policy: negative values are not allowed",
+            value
+        );
+    }
+    if let Some(min_value) = policy.min_value {
+        if value < min_value {
+            bail!(
+                "client value {} violates value policy: below minimum {}",
+                value,
+                min_value
+            );
+        }
+    }
+    if let Some(max_value) = policy.max_value {
+        if value > max_value {
+            bail!(
+                "client value {} violates value policy: above maximum {}",
+                value,
+                max_value
+            );
+        }
+    }
+    Ok(value)
+}
+
+#[cfg(test)]
+fn test_value_policy() -> ValuePolicy {
+    ValuePolicy {
+        min_value: Some(0),
+        max_value: Some(10_000),
+        allow_negative: false,
     }
 }
 
@@ -1158,7 +1404,30 @@ mod tests {
             join_key: "user".to_string(),
             value: None,
         };
-        assert!(client_value_for_row(&row, ValueMode::RawInt).is_err());
+        assert!(client_value_for_row(&row, ValueMode::RawInt, &test_value_policy()).is_err());
+    }
+
+    #[test]
+    fn raw_int_policy_rejects_negative_by_default() {
+        let row = InputRow {
+            join_key: "user".to_string(),
+            value: Some(-1),
+        };
+        assert!(client_value_for_row(&row, ValueMode::RawInt, &test_value_policy()).is_err());
+    }
+
+    #[test]
+    fn raw_int_policy_rejects_above_max() {
+        let row = InputRow {
+            join_key: "user".to_string(),
+            value: Some(10_001),
+        };
+        assert!(client_value_for_row(&row, ValueMode::RawInt, &test_value_policy()).is_err());
+    }
+
+    #[test]
+    fn production_raw_int_requires_max_value_policy() {
+        assert!(build_value_policy(ValueMode::RawInt, None, None, false, true).is_err());
     }
 
     #[test]
@@ -1173,7 +1442,14 @@ mod tests {
                 value: Some(8),
             },
         ];
-        let out = build_client_values(&rows, "job", "secret", ValueMode::RawInt).unwrap();
+        let out = build_client_values(
+            &rows,
+            "job",
+            "secret",
+            ValueMode::RawInt,
+            &test_value_policy(),
+        )
+        .unwrap();
         assert_eq!(out.len(), 1);
         assert_eq!(out.values().next().copied(), Some(8));
     }

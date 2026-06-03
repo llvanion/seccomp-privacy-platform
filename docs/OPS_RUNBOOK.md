@@ -667,9 +667,9 @@ Endpoints:
 
 | Route | Returns |
 | ----- | ------- |
-| `GET /` | The `PJC X-UI` admin HTML shell (no auth, loopback only) |
+| `GET /` | The `PJC X-UI` admin HTML shell. Use loopback-only unless dashboard auth is explicitly configured. |
 | `GET /healthz` | `{"status":"ok","schema":"operator_dashboard_health/v1"}` |
-| `GET /v1/dashboard` | Aggregated JSON: dashboard panels + alerts + health + workflow status + current `job_control` snapshot + `audit_center` |
+| `GET /v1/dashboard` | Aggregated dashboard JSON. With auth configured, unauthenticated reads are denied, normal identity callers receive `operator_dashboard_public_summary/v1`, and privileged operator/auditor roles receive the full dashboard. |
 | `GET /v1/runs` | Recent-run list derived from `query_workflow/status.json` discovery under `--history-root` |
 | `POST /v1/runs/select` | Switches the active admin-shell `out_base` to another discovered run |
 | `POST /v1/jobs/{job_id}/relaunch` | Retry / re-submit a selected terminal run using its recorded request file and retry-eligibility recommendation |
@@ -677,7 +677,22 @@ Endpoints:
 | `GET /v1/jobs/{job_id}` | Live job state, elapsed seconds, per-stage status list |
 | `GET /v1/jobs/{job_id}/result` | Terminal result summary (`intersection_size`, `intersection_sum`, `released`, `reason_code`) |
 
-The `/v1/dashboard` response is cached for 5 seconds. The server has no auth requirement and should only run on loopback. Historical dashboard reads remain sidecar-only, but `POST /v1/jobs/start` now launches a local background pipeline job and the UI now exposes SSE audit + artifact inventory directly, so do not expose this server outside a trusted admin environment.
+The `/v1/dashboard` response is cached for 5 seconds. If neither
+`--auth-token-env` nor identity-token auth is configured, the dashboard is a
+local admin-only sidecar and must stay on loopback. If auth is configured,
+`/v1/dashboard` first authenticates the caller: normal identity callers get a
+caller-safe public summary with paths, hashes, raw artifact inventory, and exact
+intersection metrics redacted; `platform_admin`, `platform_auditor`,
+`privacy_operator`, and `compliance_auditor` can read the full dashboard. A
+shared bearer token remains an admin channel, so do not distribute it to normal
+business callers. With auth configured, the full-read/admin endpoints
+`/v1/runs`, `/v1/jobs/{job_id}`, `/v1/jobs/{job_id}/result`, `/v1/runs/select`,
+`/v1/jobs/{job_id}/relaunch`, and direct `/v1/jobs/start` require privileged
+operator/auditor roles or the shared admin bearer token. Historical dashboard
+reads remain sidecar-only, but `POST /v1/jobs/start` now launches a local
+background pipeline job and the UI exposes SSE audit + artifact inventory
+directly, so do not expose this server outside a trusted admin environment
+without identity-backed auth.
 
 Phase-1 start example:
 

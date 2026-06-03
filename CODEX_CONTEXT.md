@@ -2,6 +2,8 @@
 
 Purpose: read this file first to understand the project with low token cost. Keep it short and current; use `review.md` only for detailed review history.
 
+2026-06-01 update: for current protocol safety, production completeness, realistic attack coverage, and open-risk status, read `docs/CURRENT_SECURITY_AND_COMPLETION_AUDIT.md` before relying on older baseline-complete wording.
+
 ## Project Shape
 
 This repo is a privacy-computing database-platform prototype:

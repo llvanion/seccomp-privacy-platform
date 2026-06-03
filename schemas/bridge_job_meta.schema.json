@@ -81,6 +81,15 @@
             "join_key_column": { "type": "string", "minLength": 1 },
             "value_column": { "type": "string" },
             "value_mode": { "type": "string" },
+            "value_policy": {
+              "type": "object",
+              "properties": {
+                "min_value": { "type": ["integer", "null"] },
+                "max_value": { "type": ["integer", "null"] },
+                "allow_negative": { "type": "boolean" }
+              },
+              "additionalProperties": false
+            },
             "normalizer": {
               "type": "string",
               "enum": ["identity", "email", "phone"]
@@ -90,7 +99,14 @@
       }
     },
     "inputs": {
-      "type": "object"
+      "type": "object",
+      "properties": {
+        "server_csv": { "type": "string" },
+        "client_csv": { "type": "string" },
+        "input_commitment_file": { "type": "string" },
+        "input_commitment_sha256": { "type": "string" }
+      },
+      "additionalProperties": true
     },
     "counts": {
       "type": "object"

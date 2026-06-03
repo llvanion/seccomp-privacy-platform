@@ -1,0 +1,63 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "business_access_policy/v1",
+  "title": "Business field-level access policy",
+  "type": "object",
+  "required": ["schema", "policy_id", "version", "default_decision", "roles", "field_classes", "protected_fields"],
+  "properties": {
+    "schema": { "const": "business_access_policy/v1" },
+    "policy_id": { "type": "string", "minLength": 1 },
+    "version": { "type": "string", "minLength": 1 },
+    "default_decision": { "enum": ["deny"] },
+    "roles": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "required": ["description", "allowed_entities", "allowed_field_classes", "masked_field_classes", "denied_field_classes", "conditions"],
+        "properties": {
+          "description": { "type": "string" },
+          "allowed_entities": { "type": "array", "items": { "type": "string", "minLength": 1 } },
+          "allowed_field_classes": { "type": "array", "items": { "type": "string", "minLength": 1 } },
+          "masked_field_classes": { "type": "array", "items": { "type": "string", "minLength": 1 } },
+          "denied_field_classes": { "type": "array", "items": { "type": "string", "minLength": 1 } },
+          "conditions": {
+            "type": "object",
+            "required": ["scope_required", "relationship_required", "purpose_required"],
+            "properties": {
+              "scope_required": { "type": "boolean" },
+              "relationship_required": { "type": ["string", "null"] },
+              "purpose_required": { "type": "array", "items": { "type": "string", "minLength": 1 } }
+            },
+            "additionalProperties": false
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    "field_classes": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "required": ["description", "fields"],
+        "properties": {
+          "description": { "type": "string" },
+          "fields": { "type": "array", "items": { "type": "string", "minLength": 1 } }
+        },
+        "additionalProperties": false
+      }
+    },
+    "protected_fields": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "required": ["classification", "masking"],
+        "properties": {
+          "classification": { "type": "string", "minLength": 1 },
+          "masking": { "type": "string", "minLength": 1 }
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  "additionalProperties": false
+}

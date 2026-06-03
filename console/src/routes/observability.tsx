@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import { Navigate, Route, Routes, useLocation } from "react-router-dom";
 import { Activity, AlertTriangle, ExternalLink, Radar, Zap } from "lucide-react";
 
@@ -22,7 +22,8 @@ import {
 import { RouteTabs } from "@/components/tabs";
 import { DataTable, type Column } from "@/components/data-table";
 import { formatDuration, formatNumber, formatTimestamp } from "@/lib/format";
-import type { Json, ObservabilityFeed, PlatformHealth } from "@/api/types";
+import type { Json, ObservabilityData, ObservabilityFeed, PlatformHealth } from "@/api/types";
+import { isPipelineObservabilityPublicSummary } from "@/api/types";
 
 export function ObservabilityRoute() {
   const location = useLocation();
@@ -94,16 +95,17 @@ function OverviewTab() {
 
 function EventsTab() {
   const [outBase, setOutBase] = useState("");
-  const q = useApiQuery<ObservabilityFeed>(["obs", "events", outBase], () => auditApi.observability({ out_base: outBase || undefined }), { retry: 0 });
+  const q = useApiQuery<ObservabilityData>(["obs", "events", outBase], () => auditApi.observability({ out_base: outBase || undefined }), { retry: 0 });
 
   const columns: Column<NonNullable<ObservabilityFeed["events"]>[number]>[] = [
     { id: "stage", header: "stage", cell: (e) => <span className="font-mono text-2xs">{e.stage ?? "—"}</span>, sortKey: (e) => e.stage ?? "" },
-    { id: "event", header: "event", cell: (e) => <span className="text-2xs">{e.event ?? "—"}</span>, sortKey: (e) => e.event ?? "" },
+    { id: "event", header: "event", cell: (e) => <span className="text-2xs">{e.event ?? e.source_event ?? "—"}</span>, sortKey: (e) => e.event ?? e.source_event ?? "" },
     { id: "status", header: "status", cell: (e) => <StatusPill kind={inferStatusKind(e.status)}>{e.status ?? "—"}</StatusPill>, sortKey: (e) => e.status ?? "" },
     { id: "role", header: "role", cell: (e) => <span className="text-2xs text-ink-muted">{e.role ?? "—"}</span>, sortKey: (e) => e.role ?? "" },
     { id: "duration", header: "duration", cell: (e) => formatDuration(e.duration_ms), sortKey: (e) => e.duration_ms ?? 0 },
-    { id: "started", header: "started_at", cell: (e) => <span className="text-2xs">{formatTimestamp(e.started_at_utc)}</span>, sortKey: (e) => e.started_at_utc ?? "" },
+    { id: "started", header: "started_at", cell: (e) => <span className="text-2xs">{formatTimestamp(e.started_at_utc ?? e.ts_utc)}</span>, sortKey: (e) => e.started_at_utc ?? e.ts_utc ?? "" },
   ];
+  const fullEvents = fullObservabilityEvents(q.data);
 
   return (
     <div className="space-y-4">
@@ -119,15 +121,63 @@ function EventsTab() {
         </div>
       </Card>
       <Card>
-        <CardHeader title={`events ${q.data?.events ? `(${q.data.events.length})` : ""}`} />
+        <CardHeader title={isPipelineObservabilityPublicSummary(q.data) ? "caller-safe observability summary" : `events ${fullEvents.length ? `(${fullEvents.length})` : ""}`} />
         {q.isLoading ? (
           <Skeleton className="h-48" />
         ) : q.error ? (
           <ErrorBanner title="加载失败" message={q.error.message} />
+        ) : isPipelineObservabilityPublicSummary(q.data) ? (
+          <CallerSafeObservabilitySummary data={q.data} />
         ) : (
-          <DataTable rows={q.data?.events ?? []} columns={columns} rowKey={(_, i) => String(i)} empty="无事件" initialSort={{ id: "started", dir: "desc" }} />
+          <DataTable rows={fullEvents} columns={columns} rowKey={(_, i) => String(i)} empty="无事件" initialSort={{ id: "started", dir: "desc" }} />
         )}
       </Card>
+    </div>
+  );
+}
+
+function fullObservabilityEvents(data: ObservabilityData | null | undefined): NonNullable<ObservabilityFeed["events"]> {
+  if (!data || isPipelineObservabilityPublicSummary(data)) {
+    return [];
+  }
+  return data.events ?? [];
+}
+
+function CallerSafeObservabilitySummary({ data }: { data: Extract<ObservabilityData, { schema: "pipeline_observability_public_summary/v1" }> }) {
+  return (
+    <div className="space-y-3">
+      <div className="panel-soft p-3 rounded-lg">
+        <div className="text-sm font-semibold text-ink">caller-safe summary</div>
+        <div className="text-2xs text-ink-muted mt-1">
+          Event rows, timing, row counts, and artifact hashes are redacted for this identity.
+        </div>
+      </div>
+      <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 text-2xs">
+        <StatMini label="status" value={data.summary.status ?? "—"} />
+        <StatMini label="events_available" value={String(data.summary.events_available)} />
+        <StatMini label="stages" value={formatNumber(data.summary.stages.length)} />
+      </div>
+      <div className="space-y-2">
+        {data.summary.stages.map((stage) => (
+          <div key={stage.name} className="panel-soft p-3 rounded-lg flex items-center justify-between gap-3">
+            <span className="font-mono text-2xs text-brand">{stage.name}</span>
+            <div className="flex flex-wrap gap-1 justify-end">
+              {stage.statuses.map((status) => (
+                <StatusPill key={status} kind={inferStatusKind(status)}>{status}</StatusPill>
+              ))}
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function StatMini({ label, value }: { label: string; value: ReactNode }) {
+  return (
+    <div className="panel-soft p-3 rounded-lg">
+      <div className="field-label">{label}</div>
+      <div className="text-sm font-semibold text-ink mt-1">{value}</div>
     </div>
   );
 }

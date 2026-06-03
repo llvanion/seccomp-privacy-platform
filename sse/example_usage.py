@@ -17,8 +17,8 @@
 
 import asyncio
 import itertools
-import pickle
 
+from frontend.common.wire import decode_content
 from frontend.client.services.service import Service, ClientServiceState
 
 
@@ -170,7 +170,7 @@ async def example_delete(sid: str, db: dict):
     print(f">>> 正在删除 keyword (hex): {keyword.hex()[:16]}...")
 
     def delete_callback(fut: asyncio.Future):
-        content = pickle.loads(fut.result())
+        content = decode_content(fut.result())
         if not content.get("ok", False):
             reason = content.get("reason", "")
             print(f">>> 删除结果: {reason}")
@@ -204,7 +204,7 @@ async def example_update(sid: str, db: dict):
     print(f">>> 正在更新 keyword (hex): {keyword.hex()[:16]}...")
 
     def update_callback(fut: asyncio.Future):
-        content = pickle.loads(fut.result())
+        content = decode_content(fut.result())
         if not content.get("ok", False):
             reason = content.get("reason", "")
             print(f">>> 更新结果: {reason}")

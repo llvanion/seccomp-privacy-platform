@@ -1,0 +1,45 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "identity_proxy_auth_smoke/v1",
+  "title": "Identity proxy authentication smoke check",
+  "type": "object",
+  "required": [
+    "schema",
+    "generated_at_utc",
+    "status",
+    "checks",
+    "finding_count",
+    "findings"
+  ],
+  "properties": {
+    "schema": { "const": "identity_proxy_auth_smoke/v1" },
+    "generated_at_utc": { "type": "string" },
+    "status": { "enum": ["ok", "fail"] },
+    "checks": {
+      "type": "object",
+      "properties": {
+        "unauth_status": { "type": "integer" },
+        "spoof_status": { "type": "integer" },
+        "spoofed_header_overwritten": { "type": "boolean" },
+        "cookie_status": { "type": "integer" },
+        "cookie_identity_caller": { "type": ["string", "null"] },
+        "cookie_forwarded_authorization": { "type": "boolean" }
+      },
+      "additionalProperties": true
+    },
+    "finding_count": { "type": "integer", "minimum": 0 },
+    "findings": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["message"],
+        "properties": {
+          "message": { "type": "string" },
+          "actual": {}
+        },
+        "additionalProperties": true
+      }
+    }
+  },
+  "additionalProperties": false
+}

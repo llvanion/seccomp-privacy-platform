@@ -2,15 +2,30 @@ import { api } from "./client";
 import type {
   Json,
   OperatorDashboardData,
+  OperatorConsoleSession,
   OperatorJob,
   PjcRunOnlyRequest,
   PjcRunOnlyResponse,
+  PrivacyBudgetApprovalList,
+  PrivacyBudgetApprovalTransition,
   RequestSubmission,
   SseSearchRequest,
   SseSearchResponse,
 } from "./types";
 
 export const operatorApi = {
+  sessionStatus(opts?: { signal?: AbortSignal }): Promise<OperatorConsoleSession> {
+    return api.get<OperatorConsoleSession>("operator", "/v1/session", { signal: opts?.signal });
+  },
+
+  sessionLogin(payload: { bearer_token: string; max_age_seconds?: number }): Promise<OperatorConsoleSession> {
+    return api.post("operator", "/v1/session/login", payload);
+  },
+
+  sessionLogout(): Promise<OperatorConsoleSession> {
+    return api.post("operator", "/v1/session/logout", {});
+  },
+
   dashboard(opts?: { signal?: AbortSignal }): Promise<OperatorDashboardData> {
     return api.get<OperatorDashboardData>("operator", "/v1/dashboard", { signal: opts?.signal });
   },
@@ -57,6 +72,22 @@ export const operatorApi = {
 
   rejectRequest(submissionId: string, payload: Record<string, Json>): Promise<RequestSubmission> {
     return api.post("operator", `/v1/request/${encodeURIComponent(submissionId)}/reject`, payload);
+  },
+
+  listPrivacyBudgetApprovals(query?: { status?: string; caller?: string; tenant_id?: string; limit?: number }): Promise<PrivacyBudgetApprovalList> {
+    return api.get("operator", "/v1/privacy-budget/approvals", { query });
+  },
+
+  approvePrivacyBudgetApproval(requestId: string, payload: Record<string, Json>): Promise<PrivacyBudgetApprovalTransition> {
+    return api.post("operator", `/v1/privacy-budget/approval/${encodeURIComponent(requestId)}/approve`, payload);
+  },
+
+  rejectPrivacyBudgetApproval(requestId: string, payload: Record<string, Json>): Promise<PrivacyBudgetApprovalTransition> {
+    return api.post("operator", `/v1/privacy-budget/approval/${encodeURIComponent(requestId)}/reject`, payload);
+  },
+
+  expirePrivacyBudgetApproval(requestId: string, payload: Record<string, Json>): Promise<PrivacyBudgetApprovalTransition> {
+    return api.post("operator", `/v1/privacy-budget/approval/${encodeURIComponent(requestId)}/expire`, payload);
   },
 
   bucketedScaleTestList(): Promise<Record<string, Json>> {

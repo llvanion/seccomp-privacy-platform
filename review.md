@@ -1,5 +1,8 @@
 # SSE + Bridge + A-PSI Platform Review
 
+> 2026-06-01 note: this file is retained as detailed historical review context.
+> Current status is tracked in `docs/CURRENT_SECURITY_AND_COMPLETION_AUDIT.md`.
+
 ## 1. Current Status
 
 The repository has a working demo-level end-to-end privacy-computing pipeline:

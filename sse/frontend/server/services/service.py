@@ -14,11 +14,11 @@ LIB-SSE CODE
 """
 import abc
 import asyncio
-import pickle
 import time
 
 from frontend.common.constants import MsgType
 from frontend.common.utils import shorten_sid
+from frontend.common.wire import decode_content, encode_content, loads_message
 from frontend.server.services.comm import send_message
 from toolkit.logger.logger import getSSELogger
 from websockets.legacy.server import WebSocketServerProtocol
@@ -120,13 +120,17 @@ class Service:
 
     async def _recv_message(self):
         async for message_bytes in self.websocket:
-            message_dict = pickle.loads(message_bytes)
+            message_dict = loads_message(message_bytes)
             msg_type = message_dict.get("type")
             sid = message_dict.get("sid")
             if msg_type is None or sid is None or sid != self.sid:
                 continue
             content_byte = message_dict.get("content")
-            self.recv_msg_handler[msg_type](content_byte, message_dict)
+            handler = self.recv_msg_handler.get(msg_type)
+            if handler is None:
+                logger.warning(f"Ignore unsupported message type {msg_type!r} for service {self.short_sid}.")
+                continue
+            handler(content_byte, message_dict)
 
     def _load_sse_module(self):
         """load SSE module by service config.
@@ -209,7 +213,7 @@ class Service:
         return self.service_meta["state"]
 
     def send_init_echo(self):
-        self.send_message(MsgType.INIT, pickle.dumps({"ok": True, "state": self.get_current_service_state()}))
+        self.send_message(MsgType.INIT, encode_content({"ok": True, "state": self.get_current_service_state()}))
         logger.info(f"Send initialization echo of service {self.short_sid}.")
 
     def handle_upload_config(self, config_bytes: bytes, raw_msg_dict: dict):
@@ -218,14 +222,16 @@ class Service:
         if self.get_current_service_state() != SERVICE_STATE.NOT_EXISTS:
             logger.info(f"Config of service {self.short_sid} already exists, overwriting...")
 
-        config = pickle.loads(config_bytes)
+        config = decode_content(config_bytes)
+        if not isinstance(config, dict):
+            raise ValueError("config content must decode to a dictionary")
         # INIT SERVICE
         FileManager.create_sid_folder(self.sid)
         FileManager.write_service_config(self.sid, config)
         self.config = config
         self.service_meta["state"] = SERVICE_STATE.CONFIG_UPLOADED_BUT_EDB_NOT_UPLOADED
         FileManager.write_service_meta(self.sid, self.service_meta)
-        self.send_message(MsgType.CONFIG, pickle.dumps({"ok": True}))
+        self.send_message(MsgType.CONFIG, encode_content({"ok": True}))
         logger.info(f"Store config for service {self.short_sid} successfully.")
 
     def handle_upload_encrypted_database(self, edb_bytes: bytes, raw_msg_dict: dict):
@@ -233,7 +239,7 @@ class Service:
 
         if self.get_current_service_state() == SERVICE_STATE.NOT_EXISTS:
             reason = f"The config of service {self.short_sid} has not been uploaded."
-            self.send_message(MsgType.UPLOAD_DB, pickle.dumps({"ok": False, "reason": reason}))
+            self.send_message(MsgType.UPLOAD_DB, encode_content({"ok": False, "reason": reason}))
             logger.error(reason)
             raise ValueError(reason)
 
@@ -243,7 +249,7 @@ class Service:
         FileManager.write_encrypted_database(self.sid, edb_bytes)
         self.service_meta["state"] = SERVICE_STATE.ALL_READY
         FileManager.write_service_meta(self.sid, self.service_meta)
-        self.send_message(MsgType.UPLOAD_DB, pickle.dumps({"ok": True}))
+        self.send_message(MsgType.UPLOAD_DB, encode_content({"ok": True}))
         logger.info(f"Store encrypted database for service {self.short_sid} successfully.")
 
 
@@ -252,13 +258,13 @@ class Service:
 
         if self.get_current_service_state() == SERVICE_STATE.NOT_EXISTS:
             reason = f"The config of service {self.short_sid} has not been uploaded."
-            self.send_message(MsgType.RESULT, pickle.dumps({"ok": False, "reason": reason}))
+            self.send_message(MsgType.RESULT, encode_content({"ok": False, "reason": reason}))
             logger.error(reason)
             raise ValueError(reason)
 
         if self.get_current_service_state() == SERVICE_STATE.CONFIG_UPLOADED_BUT_EDB_NOT_UPLOADED:
             reason = f"The encrypted database of service {self.short_sid} has not been uploaded."
-            self.send_message(MsgType.RESULT, pickle.dumps({"ok": False, "reason": reason}))
+            self.send_message(MsgType.RESULT, encode_content({"ok": False, "reason": reason}))
             logger.error(reason)
             raise ValueError(reason)
 
@@ -283,20 +289,20 @@ class Service:
 
         if self.get_current_service_state() == SERVICE_STATE.NOT_EXISTS:
             reason = f"The config of service {self.short_sid} has not been uploaded."
-            self.send_message(MsgType.MULTI_RESULT, pickle.dumps({"ok": False, "reason": reason}))
+            self.send_message(MsgType.MULTI_RESULT, encode_content({"ok": False, "reason": reason}))
             logger.error(reason)
             raise ValueError(reason)
 
         if self.get_current_service_state() == SERVICE_STATE.CONFIG_UPLOADED_BUT_EDB_NOT_UPLOADED:
             reason = f"The encrypted database of service {self.short_sid} has not been uploaded."
-            self.send_message(MsgType.MULTI_RESULT, pickle.dumps({"ok": False, "reason": reason}))
+            self.send_message(MsgType.MULTI_RESULT, encode_content({"ok": False, "reason": reason}))
             logger.error(reason)
             raise ValueError(reason)
 
         self._load_sse_scheme()
         self._load_sse_encrypted_database()
 
-        content = pickle.loads(content_bytes)
+        content = decode_content(content_bytes)
         tokens_data = content.get("tokens", [])
         request_id = raw_msg_dict.get("request_id")
         results = []
@@ -314,7 +320,7 @@ class Service:
         total_end_time = time.perf_counter()
         total_elapsed_ms = (total_end_time - total_start_time) * 1000
         debug_logger.debug(f"[{self.short_sid}] Multi-search total decryption time for {len(tokens_data)} tokens: {total_elapsed_ms:.3f} ms")
-        response_content = pickle.dumps({"ok": True, "results": results})
+        response_content = encode_content({"ok": True, "results": results})
         self.send_message(MsgType.MULTI_RESULT, content=response_content, request_id=request_id)
         logger.info(f"Multi-search for service {self.short_sid} successfully. Processed {len(tokens_data)} tokens.")
 
@@ -322,12 +328,12 @@ class Service:
         logger.info(f"Receive delete request from service {self.short_sid}.")
         if self.get_current_service_state() != SERVICE_STATE.ALL_READY:
             reason = f"The service {self.short_sid} is not ready for delete operation."
-            self.send_message(MsgType.DELETE_RESULT, pickle.dumps({"ok": False, "reason": reason}))
+            self.send_message(MsgType.DELETE_RESULT, encode_content({"ok": False, "reason": reason}))
             logger.error(reason)
             raise ValueError(reason)
         self._load_sse_scheme()
         self._load_sse_encrypted_database()
-        content = pickle.loads(content_bytes)
+        content = decode_content(content_bytes)
         delete_token_bytes = content.get("token_bytes")
         delete_indices = content.get("indices", [])
         request_id = raw_msg_dict.get("request_id")
@@ -359,31 +365,31 @@ class Service:
                                 deleted_count += 1
                 else:
                     reason = f"The encrypted database does not support direct delete operation."
-                    self.send_message(MsgType.DELETE_RESULT, pickle.dumps({"ok": False, "reason": reason}))
+                    self.send_message(MsgType.DELETE_RESULT, encode_content({"ok": False, "reason": reason}))
                     logger.warning(reason)
                     return
             end_time = time.perf_counter()
             elapsed_ms = (end_time - start_time) * 1000
             debug_logger.debug(f"[{self.short_sid}] Delete operation time: {elapsed_ms:.3f} ms, deleted {deleted_count} items")
             self._save_sse_encrypted_database()
-            response_content = pickle.dumps({"ok": True, "deleted_count": deleted_count})
+            response_content = encode_content({"ok": True, "deleted_count": deleted_count})
             self.send_message(MsgType.DELETE_RESULT, content=response_content, request_id=request_id)
             logger.info(f"Delete for service {self.short_sid} successfully. Deleted {deleted_count} items.")
         except Exception as e:
             reason = f"Delete operation failed: {str(e)}"
-            self.send_message(MsgType.DELETE_RESULT, pickle.dumps({"ok": False, "reason": reason}))
+            self.send_message(MsgType.DELETE_RESULT, encode_content({"ok": False, "reason": reason}))
             logger.error(reason)
 
     def handle_update_data(self, content_bytes: bytes, raw_msg_dict: dict):
         logger.info(f"Receive update request from service {self.short_sid}.")
         if self.get_current_service_state() != SERVICE_STATE.ALL_READY:
             reason = f"The service {self.short_sid} is not ready for update operation."
-            self.send_message(MsgType.UPDATE_RESULT, pickle.dumps({"ok": False, "reason": reason}))
+            self.send_message(MsgType.UPDATE_RESULT, encode_content({"ok": False, "reason": reason}))
             logger.error(reason)
             raise ValueError(reason)
         self._load_sse_scheme()
         self._load_sse_encrypted_database()
-        content = pickle.loads(content_bytes)
+        content = decode_content(content_bytes)
         update_token_bytes = content.get("token_bytes")
         update_data = content.get("encrypted_data")
         update_entries = content.get("entries", [])
@@ -431,19 +437,19 @@ class Service:
                         updated_count += 1
             else:
                 reason = f"The SSE scheme or encrypted database does not support update operation."
-                self.send_message(MsgType.UPDATE_RESULT, pickle.dumps({"ok": False, "reason": reason}))
+                self.send_message(MsgType.UPDATE_RESULT, encode_content({"ok": False, "reason": reason}))
                 logger.warning(reason)
                 return
             end_time = time.perf_counter()
             elapsed_ms = (end_time - start_time) * 1000
             debug_logger.debug(f"[{self.short_sid}] Update operation time: {elapsed_ms:.3f} ms, updated {updated_count} items")
             self._save_sse_encrypted_database()
-            response_content = pickle.dumps({"ok": True, "updated_count": updated_count})
+            response_content = encode_content({"ok": True, "updated_count": updated_count})
             self.send_message(MsgType.UPDATE_RESULT, content=response_content, request_id=request_id)
             logger.info(f"Update for service {self.short_sid} successfully. Updated {updated_count} items.")
         except Exception as e:
             reason = f"Update operation failed: {str(e)}"
-            self.send_message(MsgType.UPDATE_RESULT, pickle.dumps({"ok": False, "reason": reason}))
+            self.send_message(MsgType.UPDATE_RESULT, encode_content({"ok": False, "reason": reason}))
             logger.error(reason)
 
     def close_service(self):

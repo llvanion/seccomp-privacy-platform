@@ -154,7 +154,16 @@ def build_pipeline_command(
     job_id: str,
     server_source: Path,
     client_source: Path,
+    production_mode: bool = False,
+    pjc_resource_limits: Path | None = None,
+    release_policy_gate_config: Path | None = None,
 ) -> list[str]:
+    if production_mode and mode == "file_handoff_retained":
+        raise ValueError("file_handoff_retained is incompatible with production_mode")
+    if production_mode and pjc_resource_limits is None:
+        raise ValueError("production_mode requires pjc_resource_limits")
+    if production_mode and release_policy_gate_config is None:
+        raise ValueError("production_mode requires release_policy_gate_config")
     command = [
         "bash",
         str(REPO_ROOT / "scripts" / "run_sse_bridge_pipeline.sh"),
@@ -182,7 +191,6 @@ def build_pipeline_command(
         f"benchmark-pipeline-{mode}",
         "--token-secret-env",
         "BRIDGE_TOKEN_SECRET",
-        "--production-mode",
         "--job-id",
         job_id,
         "--out-base",
@@ -200,6 +208,21 @@ def build_pipeline_command(
         "--n",
         "5",
     ]
+    if production_mode:
+        ledger_path = out_base / "privacy_budget_ledger.jsonl"
+        command.extend([
+            "--production-mode",
+            "--pjc-resource-limits", str(pjc_resource_limits),
+            "--privacy-budget-required",
+            "--privacy-budget-config", str((REPO_ROOT / "config" / "privacy_budget.example.json").resolve()),
+            "--privacy-budget-ledger", str(ledger_path),
+            "--privacy-budget-purpose", "campaign_measurement",
+            "--release-policy-gate-config", str(release_policy_gate_config),
+            "--require-dp",
+            "--dp-epsilon", "1.0",
+            "--dp-sensitivity", "500",
+            "--public-report-redact-operator-fields",
+        ])
     if mode == "file_handoff_retained":
         command.extend(["--keep-sse-export-handoff-files", "--handoff-retention-reason", "benchmark_file_handoff_retained"])
     elif mode == "fifo_handoff":
@@ -217,6 +240,9 @@ def run_pipeline_once(
     client_source: Path,
     expected_intersection_size: int,
     expected_intersection_sum: int,
+    production_mode: bool,
+    pjc_resource_limits: Path | None,
+    release_policy_gate_config: Path | None,
 ) -> dict[str, Any]:
     with tempfile.TemporaryDirectory(prefix=f"seccomp_pipeline_bench.{mode}.{iteration}.") as tmp_dir:
         out_base = Path(tmp_dir) / "run"
@@ -229,6 +255,9 @@ def run_pipeline_once(
             job_id=job_id,
             server_source=server_source,
             client_source=client_source,
+            production_mode=production_mode,
+            pjc_resource_limits=pjc_resource_limits,
+            release_policy_gate_config=release_policy_gate_config,
         )
         run_env = dict(env)
         run_env["HOME"] = str(benchmark_home)
@@ -337,6 +366,17 @@ def build_parser() -> argparse.ArgumentParser:
     ap.add_argument("--client-source", default=str((REPO_ROOT / "sse" / "examples" / "bridge_client_records.jsonl").resolve()))
     ap.add_argument("--expected-intersection-size", type=int, default=EXPECTED_INTERSECTION_SIZE)
     ap.add_argument("--expected-intersection-sum", type=int, default=EXPECTED_INTERSECTION_SUM)
+    ap.add_argument("--production-mode", action="store_true", help="Run production-compatible modes with pipeline --production-mode")
+    ap.add_argument(
+        "--pjc-resource-limits",
+        default=str((REPO_ROOT / "config" / "pjc_resource_limits.example.json").resolve()),
+        help="pjc_resource_limits/v1 config required when --production-mode is used",
+    )
+    ap.add_argument(
+        "--release-policy-gate-config",
+        default=str((REPO_ROOT / "config" / "release_policy_gate.example.json").resolve()),
+        help="release_policy_gate_config/v1 config required when --production-mode is used",
+    )
     ap.add_argument("--output", default="")
     ap.add_argument("--allow-failures", action="store_true")
     return ap
@@ -350,6 +390,8 @@ def main() -> int:
         raise SystemExit("[ERROR] --timeout-sec must be positive")
     if args.expected_intersection_size < 0 or args.expected_intersection_sum < 0:
         raise SystemExit("[ERROR] expected intersection metrics must be non-negative")
+    if args.production_mode and args.mode == "file_handoff_retained":
+        raise SystemExit("[ERROR] --production-mode is incompatible with --mode file_handoff_retained")
 
     server_source = Path(args.server_source).expanduser()
     client_source = Path(args.client_source).expanduser()
@@ -357,12 +399,20 @@ def main() -> int:
         raise SystemExit(f"[ERROR] server source does not exist: {server_source}")
     if not client_source.is_file():
         raise SystemExit(f"[ERROR] client source does not exist: {client_source}")
+    pjc_resource_limits = Path(args.pjc_resource_limits).expanduser()
+    if args.production_mode and not pjc_resource_limits.is_file():
+        raise SystemExit(f"[ERROR] pjc_resource_limits does not exist: {pjc_resource_limits}")
+    release_policy_gate_config = Path(args.release_policy_gate_config).expanduser()
+    if args.production_mode and not release_policy_gate_config.is_file():
+        raise SystemExit(f"[ERROR] release_policy_gate_config does not exist: {release_policy_gate_config}")
 
     pjc_bin_dir = Path(os.environ.get("PJC_BIN_DIR", str(REPO_ROOT / "a-psi" / "private-join-and-compute" / "bazel-bin")))
     if not pjc_bin_dir.is_dir():
         raise SystemExit(f"[ERROR] PJC_BIN_DIR does not exist: {pjc_bin_dir}")
 
     selected_modes = list(MODES) if args.mode == "all" else [args.mode]
+    if args.production_mode:
+        selected_modes = [mode for mode in selected_modes if mode != "file_handoff_retained"]
     env = dict(os.environ)
     env.setdefault("BRIDGE_TOKEN_SECRET", "benchmark-pipeline-secret")
 
@@ -378,6 +428,9 @@ def main() -> int:
                 client_source=client_source,
                 expected_intersection_size=args.expected_intersection_size,
                 expected_intersection_sum=args.expected_intersection_sum,
+                production_mode=args.production_mode,
+                pjc_resource_limits=pjc_resource_limits.resolve() if args.production_mode else None,
+                release_policy_gate_config=release_policy_gate_config.resolve() if args.production_mode else None,
             )
             for iteration in range(args.iterations)
         ]
@@ -390,6 +443,8 @@ def main() -> int:
                     job_id=f"benchmark_pipeline_{mode}_example",
                     server_source=server_source,
                     client_source=client_source,
+                    production_mode=args.production_mode,
+                    pjc_resource_limits=pjc_resource_limits.resolve() if args.production_mode else None,
                 ),
                 "summary": summarize(mode_results),
                 "results": mode_results,
@@ -402,6 +457,9 @@ def main() -> int:
         "repo_root": str(REPO_ROOT),
         "bridge_bin": env.get("BRIDGE_BIN", "cargo run --"),
         "pjc_bin_dir": str(pjc_bin_dir),
+        "production_mode": bool(args.production_mode),
+        "pjc_resource_limits": str(pjc_resource_limits.resolve()) if args.production_mode else None,
+        "release_policy_gate_config": str(release_policy_gate_config.resolve()) if args.production_mode else None,
         "expected_result": {
             "intersection_size": args.expected_intersection_size,
             "intersection_sum": args.expected_intersection_sum,

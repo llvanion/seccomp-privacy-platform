@@ -57,6 +57,12 @@
     "client_csv_sha256": {
       "type": ["string", "null"]
     },
+    "input_commitment_file": {
+      "type": ["string", "null"]
+    },
+    "input_commitment_sha256": {
+      "type": ["string", "null"]
+    },
     "server_log": {
       "type": ["string", "null"]
     },

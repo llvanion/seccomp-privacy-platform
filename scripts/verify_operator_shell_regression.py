@@ -112,6 +112,8 @@ def run_regression(*, out_dir: Path, output_path: str) -> dict[str, Any]:
         "server_normalizer": "email",
         "client_normalizer": "email",
         "client_value_mode": "raw-int",
+        "client_value_min": 0,
+        "client_value_max": 1000000,
         "server_filters": ["campaign=demo"],
         "client_filters": ["campaign=demo"],
         "token_scope": "b14-regression-scope",

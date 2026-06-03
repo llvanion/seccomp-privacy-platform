@@ -2,6 +2,12 @@
 
 This document consolidates the per-module code reviews into a platform-level assessment.
 
+> 2026-06-01 note: this summary preserves detailed module-review history. The
+> current status source of truth is
+> [CURRENT_SECURITY_AND_COMPLETION_AUDIT.md](CURRENT_SECURITY_AND_COMPLETION_AUDIT.md),
+> which supersedes older "complete" wording where production security is not yet
+> proven.
+
 Individual module reviews:
 1. [SSE Module](CODE_REVIEW_01_SSE.md)
 2. [Bridge (Rust) Module](CODE_REVIEW_02_BRIDGE.md)

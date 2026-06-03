@@ -478,9 +478,10 @@ def validate_platform_health(payload: dict[str, Any]) -> None:
 def validate_pipeline(payload: dict[str, Any]) -> None:
     expected_modes = {
         "file_handoff": ("cleaned", False),
-        "file_handoff_retained": ("retained", True),
         "fifo_handoff": ("removed", False),
     }
+    if not payload.get("production_mode"):
+        expected_modes["file_handoff_retained"] = ("retained", True)
     mode_entries = payload.get("modes") or []
     actual_modes = {entry.get("mode") for entry in mode_entries}
     if actual_modes != set(expected_modes):

@@ -65,6 +65,12 @@
     "client_csv_sha256": {
       "type": ["string", "null"]
     },
+    "input_commitment_file": {
+      "type": "string"
+    },
+    "input_commitment_sha256": {
+      "type": ["string", "null"]
+    },
     "job_meta_file": {
       "type": "string"
     },
@@ -73,6 +79,35 @@
     },
     "counts": {
       "type": ["object", "null"]
+    },
+    "client_value_policy": {
+      "type": ["object", "null"],
+      "properties": {
+        "min_value": { "type": ["integer", "null"] },
+        "max_value": { "type": ["integer", "null"] },
+        "allow_negative": { "type": "boolean" }
+      },
+      "additionalProperties": false
+    },
+    "client_source_value_summary": {
+      "type": ["object", "null"],
+      "properties": {
+        "sum": { "type": "integer" },
+        "min": { "type": ["integer", "null"] },
+        "max": { "type": ["integer", "null"] },
+        "non_negative": { "type": "boolean" }
+      },
+      "additionalProperties": false
+    },
+    "client_output_value_summary": {
+      "type": ["object", "null"],
+      "properties": {
+        "sum": { "type": "integer" },
+        "min": { "type": ["integer", "null"] },
+        "max": { "type": ["integer", "null"] },
+        "non_negative": { "type": "boolean" }
+      },
+      "additionalProperties": false
     },
     "token_scheme": {
       "type": "string"

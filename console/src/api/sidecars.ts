@@ -1,14 +1,18 @@
 import { api } from "./client";
 import type {
-  CatalogLineage,
+  AuditChainData,
+  AuditQueryApiResponse,
+  CatalogLineageData,
   Json,
+  MetadataApiResponse,
   MetadataEntityResponse,
   MetadataJobsResponse,
-  ObservabilityFeed,
+  ObservabilityData,
   PlatformHealth,
   PublicReport,
   RecoveryHealth,
 } from "./types";
+import { unwrapAuditQueryResult, unwrapMetadataApiResult } from "./types";
 
 // ---------- Metadata sidecar (default port 18090) ----------
 
@@ -16,14 +20,21 @@ export const metadataApi = {
   health(): Promise<Record<string, Json>> {
     return api.get("metadata", "/healthz");
   },
-  listJobs(query?: { caller?: string; tenant_id?: string; dataset_id?: string; service_id?: string; stage?: string; stage_status?: string; group_by?: string; limit?: number }): Promise<MetadataJobsResponse> {
-    return api.get("metadata", "/v1/jobs", { query });
+  async listJobs(query?: { caller?: string; tenant_id?: string; dataset_id?: string; service_id?: string; stage?: string; stage_status?: string; group_by?: string; limit?: number }): Promise<MetadataJobsResponse> {
+    const payload = await api.get<MetadataApiResponse<MetadataJobsResponse> | MetadataJobsResponse>("metadata", "/v1/jobs", { query });
+    return unwrapMetadataApiResult(payload);
   },
-  getJob(jobId: string): Promise<MetadataJobsResponse["jobs"][number]> {
-    return api.get("metadata", `/v1/jobs/${encodeURIComponent(jobId)}`);
+  async getJob(jobId: string): Promise<Record<string, Json>> {
+    const payload = await api.get<MetadataApiResponse<Record<string, Json>> | Record<string, Json>>("metadata", `/v1/jobs/${encodeURIComponent(jobId)}`);
+    return unwrapMetadataApiResult(payload);
   },
-  entities(entity: "tenants" | "datasets" | "services" | "callers" | "policies" | "policy-bindings" | "caller-permissions", query?: Record<string, string | number | boolean | null | undefined>): Promise<MetadataEntityResponse> {
-    return api.get("metadata", `/v1/entities/${entity}`, { query });
+  async entities(entity: "tenants" | "datasets" | "services" | "callers" | "policies" | "policy-bindings" | "caller-permissions", query?: Record<string, string | number | boolean | null | undefined>): Promise<MetadataEntityResponse> {
+    const payload = await api.get<MetadataApiResponse<MetadataEntityResponse> | MetadataEntityResponse>("metadata", `/v1/entities/${entity}`, { query });
+    const result = unwrapMetadataApiResult(payload);
+    if (!result.entries && result.items) {
+      return { ...result, entries: result.items };
+    }
+    return result;
   },
 };
 
@@ -51,17 +62,21 @@ export const auditApi = {
   health(): Promise<Record<string, Json>> {
     return api.get("audit", "/healthz");
   },
-  publicReport(query?: { out_base?: string }): Promise<PublicReport> {
-    return api.get("audit", "/v1/public-report", { query });
+  async publicReport(query?: { out_base?: string }): Promise<PublicReport> {
+    const payload = await api.get<AuditQueryApiResponse<PublicReport> | PublicReport>("audit", "/v1/public-report", { query });
+    return unwrapAuditQueryResult(payload);
   },
-  auditChain(query?: { out_base?: string; include_paths?: boolean }): Promise<Record<string, Json>> {
-    return api.get("audit", "/v1/audit-chain", { query });
+  async auditChain(query?: { out_base?: string; include_paths?: boolean }): Promise<AuditChainData> {
+    const payload = await api.get<AuditQueryApiResponse<AuditChainData> | AuditChainData>("audit", "/v1/audit-chain", { query });
+    return unwrapAuditQueryResult(payload);
   },
-  observability(query?: { out_base?: string }): Promise<ObservabilityFeed> {
-    return api.get("audit", "/v1/observability", { query });
+  async observability(query?: { out_base?: string }): Promise<ObservabilityData> {
+    const payload = await api.get<AuditQueryApiResponse<ObservabilityData> | ObservabilityData>("audit", "/v1/observability", { query });
+    return unwrapAuditQueryResult(payload);
   },
-  catalogLineage(query?: { out_base?: string; include_paths?: boolean }): Promise<CatalogLineage> {
-    return api.get("audit", "/v1/catalog-lineage", { query });
+  async catalogLineage(query?: { out_base?: string; include_paths?: boolean }): Promise<CatalogLineageData> {
+    const payload = await api.get<AuditQueryApiResponse<CatalogLineageData> | CatalogLineageData>("audit", "/v1/catalog-lineage", { query });
+    return unwrapAuditQueryResult(payload);
   },
 };
 

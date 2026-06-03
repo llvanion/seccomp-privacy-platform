@@ -14,6 +14,18 @@ SSE 候选导出  →  受控记录恢复  →  Rust Bridge 令牌化  →  A-PS
 
 ---
 
+## 当前状态
+
+本仓库的本地主链路和契约 smoke 已经可以完整运行，但这不是生产安全完成声明。当前权威判断见 [docs/CURRENT_SECURITY_AND_COMPLETION_AUDIT.md](docs/CURRENT_SECURITY_AND_COMPLETION_AUDIT.md)，全部剩余任务的实现级 backlog 见 [docs/REMAINING_WORK_IMPLEMENTATION_BACKLOG.md](docs/REMAINING_WORK_IMPLEMENTATION_BACKLOG.md)，文档入口见 [docs/README.md](docs/README.md)。
+
+简要结论：
+
+- 本地/半诚实 demo 假设下，`SSE -> recovery -> bridge -> PJC -> policy release` 主链路可用并可验证。
+- 生产安全仍有未闭环项：隐私预算 live Postgres/运营 API 证据、PJC 恶意参与者模型、PJC 资源 fail-closed、公网 mTLS 证据、真实 KMS/authority 运行证据、外部不可变审计 anchor、console 构建/类型检查门禁，以及 legacy SSE WebSocket 的生产级 auth/TLS/部署门禁或退役决策。legacy SSE WebSocket 的网络 pickle RCE 类问题已移除并由门禁覆盖；默认 policy release 路径的隐私预算并发扣减和 near-duplicate 审批消费已改为事务化 SQLite store 并由门禁覆盖。
+- 历史文档中的“平台基线完成”仅表示旧 baseline 范围完成，不等同于生产安全或功能完整。
+
+---
+
 ## 功能
 
 - **可搜索对称加密存储**（`sse/`）：加密记录存储（PBKDF2HMAC-SHA256 + AES-256-GCM）、SSE 关键字搜索、加密候选记录恢复服务（Unix socket / HTTP 双 transport）。
@@ -188,7 +200,7 @@ dist/release/
 | `/observability/*` | 组件健康、事件流、告警、Grafana/Tempo 入口、chaos drills |
 | `/compliance/*` | GDPR Article 5(1) / 15-22 矩阵、威胁模型、reviewer 8 步、许可证 |
 | `/security/*` | 篡改检测、异常输入 gate、mTLS benchmark、卫生扫描、契约 smoke、benchmark 画廊 |
-| `/settings` | 配置 6 个 sidecar 的 baseUrl + Bearer token（localStorage 本地） |
+| `/settings` | 配置 6 个 sidecar 的 baseUrl + Bearer token（baseUrl 存 localStorage；token 仅当前浏览器会话） |
 
 部署模式：
 

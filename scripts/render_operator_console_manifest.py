@@ -29,7 +29,9 @@ EXPECTED_SECTIONS = [
     "home",
     "jobs",
     "requests",
+    "privacy_budget_approvals",
     "audit",
+    "pjc_two_party",
     "catalog",
     "permissions",
     "recovery",
@@ -113,6 +115,12 @@ def main() -> int:
     sections_missing = [name for name in EXPECTED_SECTIONS if name not in sections_present]
 
     endpoints_total = sum(len(s.get("endpoints", [])) for s in manifest.get("sections", []))
+    endpoint_roles = {
+        f"{endpoint.get('method')} {endpoint.get('path')}": endpoint.get("role")
+        for section in manifest.get("sections", [])
+        for endpoint in section.get("endpoints", [])
+        if isinstance(endpoint, dict)
+    }
     roles_referenced = sorted({
         role
         for section in manifest.get("sections", [])
@@ -144,6 +152,7 @@ def main() -> int:
             "sections_present": sections_present,
             "sections_missing": sections_missing,
             "endpoints_total": endpoints_total,
+            "endpoint_roles": endpoint_roles,
             "roles_referenced": roles_referenced,
             "static_index_links_count": index_links_count,
             "static_index_references_manifest": static_references_manifest,

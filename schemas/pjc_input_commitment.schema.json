@@ -1,0 +1,90 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "pjc_input_commitment/v1",
+  "title": "PJC input commitment bundle",
+  "type": "object",
+  "required": [
+    "schema",
+    "job_id",
+    "generated_by",
+    "token_scheme",
+    "token_scope",
+    "token_key_version",
+    "normalize_version",
+    "normalizer_schema_version",
+    "dedup_policy",
+    "parties"
+  ],
+  "properties": {
+    "schema": { "const": "pjc_input_commitment/v1" },
+    "job_id": { "type": "string", "minLength": 1 },
+    "generated_by": { "type": "string", "minLength": 1 },
+    "token_scheme": { "type": "string", "minLength": 1 },
+    "token_scope": { "type": "string", "minLength": 1 },
+    "token_key_version": { "type": "string", "minLength": 1 },
+    "normalize_version": { "type": "string", "minLength": 1 },
+    "normalizer_schema_version": { "type": "string", "minLength": 1 },
+    "dedup_policy": { "type": "string", "minLength": 1 },
+    "parties": {
+      "type": "object",
+      "required": ["server", "client"],
+      "properties": {
+        "server": { "$ref": "#/$defs/party" },
+        "client": { "$ref": "#/$defs/party" }
+      },
+      "additionalProperties": false
+    }
+  },
+  "$defs": {
+    "party": {
+      "type": "object",
+      "required": [
+        "role",
+        "input_file",
+        "input_format",
+        "source_input_sha256",
+        "join_key_column",
+        "normalizer",
+        "output_csv",
+        "output_csv_sha256",
+        "output_row_count"
+      ],
+      "properties": {
+        "role": { "enum": ["server", "client"] },
+        "input_file": { "type": "string", "minLength": 1 },
+        "input_format": { "type": "string", "minLength": 1 },
+        "source_input_sha256": { "type": ["string", "null"] },
+        "join_key_column": { "type": "string", "minLength": 1 },
+        "normalizer": { "type": "string", "minLength": 1 },
+        "value_column": { "type": ["string", "null"] },
+        "value_mode": { "type": ["string", "null"] },
+        "value_policy": {
+          "type": ["object", "null"],
+          "properties": {
+            "min_value": { "type": ["integer", "null"] },
+            "max_value": { "type": ["integer", "null"] },
+            "allow_negative": { "type": "boolean" }
+          },
+          "additionalProperties": false
+        },
+        "source_value_summary": { "$ref": "#/$defs/value_summary" },
+        "output_csv": { "type": "string", "minLength": 1 },
+        "output_csv_sha256": { "type": "string", "minLength": 64 },
+        "output_row_count": { "type": "integer", "minimum": 0 },
+        "value_summary": { "$ref": "#/$defs/value_summary" }
+      },
+      "additionalProperties": false
+    },
+    "value_summary": {
+      "type": ["object", "null"],
+      "properties": {
+        "sum": { "type": "integer" },
+        "min": { "type": ["integer", "null"] },
+        "max": { "type": ["integer", "null"] },
+        "non_negative": { "type": "boolean" }
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false
+}

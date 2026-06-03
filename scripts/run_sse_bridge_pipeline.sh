@@ -38,6 +38,7 @@ VALIDATE_JSON_CONTRACT_PY="${VALIDATE_JSON_CONTRACT_PY:-$REPO_ROOT/scripts/valid
 VALIDATE_TABULAR_CONTRACT_PY="${VALIDATE_TABULAR_CONTRACT_PY:-$REPO_ROOT/scripts/validate_tabular_contract.py}"
 BUILD_AUDIT_CHAIN_PY="${BUILD_AUDIT_CHAIN_PY:-$REPO_ROOT/scripts/build_audit_chain.py}"
 CHECK_MAINLINE_CONTRACT_PY="${CHECK_MAINLINE_CONTRACT_PY:-$REPO_ROOT/scripts/check_mainline_contract.py}"
+CHECK_RELEASE_POLICY_GATE_PY="${CHECK_RELEASE_POLICY_GATE_PY:-$REPO_ROOT/scripts/check_release_policy_gate.py}"
 WRITE_PJC_AUDIT_PY="${WRITE_PJC_AUDIT_PY:-$REPO_ROOT/scripts/write_pjc_audit.py}"
 ARCHIVE_AUDIT_BUNDLE_PY="${ARCHIVE_AUDIT_BUNDLE_PY:-$REPO_ROOT/scripts/archive_audit_bundle.py}"
 RESOLVE_KEY_ACCESS_PY="${RESOLVE_KEY_ACCESS_PY:-$REPO_ROOT/scripts/resolve_key_access.py}"
@@ -58,6 +59,9 @@ CLIENT_SOURCE=""
 SERVER_JOIN_KEY_FIELD=""
 CLIENT_JOIN_KEY_FIELD=""
 CLIENT_VALUE_FIELD=""
+CLIENT_VALUE_MIN=""
+CLIENT_VALUE_MAX=""
+CLIENT_VALUE_ALLOW_NEGATIVE="0"
 SERVER_NORMALIZER="identity"
 CLIENT_NORMALIZER="identity"
 SERVER_SOURCE_FORMAT="jsonl"
@@ -113,6 +117,7 @@ EXTERNAL_KMS_LIFECYCLE_AUDIT_LOG=""
 AUDIT_SEAL_KEY_ENV=""
 AUDIT_ARCHIVE_DIR=""
 PJC_AUDIT_LOG=""
+PJC_RESOURCE_LIMITS=""
 JOB_ID=""
 OUT_BASE=""
 CALLER="bridge_demo"
@@ -125,6 +130,14 @@ PRIVACY_BUDGET_APPROVAL_QUEUE=""
 PRIVACY_BUDGET_PURPOSE=""
 PRIVACY_BUDGET_LIMIT=""
 PRIVACY_BUDGET_COST=""
+RELEASE_POLICY_GATE_CONFIG=""
+RELEASE_POLICY_GATE_REPORT=""
+PJC_EVIDENCE_MERGE_REPORT=""
+POLICY_REQUIRE_DP="0"
+POLICY_DP_EPSILON=""
+POLICY_DP_SENSITIVITY=""
+PUBLIC_REPORT_REDACT_OPERATOR_FIELDS="0"
+OPERATOR_REPORT_PATH=""
 K_THRESHOLD="20"
 RATE_N="5"
 DENY_DUPLICATE_QUERY="0"
@@ -157,6 +170,9 @@ Options:
   --server-normalizer identity|email|phone
   --client-normalizer identity|email|phone
   --client-value-mode count|raw-int  default: count
+  --client-value-min <int>           optional lower bound for raw-int client values (default: 0)
+  --client-value-max <int>           required for production raw-int; rejects values above this bound
+  --client-value-allow-negative      allow negative raw-int client values
   --server-sse-keyword <keyword>     optional SSE-backed server candidate keyword
   --client-sse-keyword <keyword>     optional SSE-backed client candidate keyword
   --server-record-id-field <field>   required with --server-sse-keyword
@@ -202,6 +218,7 @@ Options:
   --audit-seal-key-env <env>       optional env var used to HMAC-seal audit_chain.json
   --audit-archive-dir <dir>        optional local archive dir; resolved --tenant-id writes under <dir>/<tenant-id>
   --pjc-audit-log <path>           default: <out-base>/a_psi_run/pjc_audit.jsonl
+  --pjc-resource-limits <path>      pjc_resource_limits/v1 config passed to PJC preflight; required with --production-mode
   PJC_GRPC_STREAM_CHUNK_ELEMENTS env controls PJC streaming frame size; default: 4096; 0=legacy unary
   --sse-export-policy-config <path> SSE export policy config
   --sse-export-audit-log <path>     default: <out-base>/sse_exports/export_audit.jsonl
@@ -221,6 +238,14 @@ Options:
   --privacy-budget-purpose <purpose> optional purpose scope passed to policy release as --purpose
   --privacy-budget-limit <number>    optional budget limit override
   --privacy-budget-cost <number>     optional budget cost override
+  --release-policy-gate-config <path> release_policy_gate_config/v1; required with --production-mode
+  --release-policy-gate-report <path> default: <out-base>/a_psi_run/release_policy_gate.json
+  --pjc-evidence-merge <path>     optional pjc_two_party_evidence_merge/v1 report bound by release gate
+  --require-dp                       require DP knobs in Stage4 policy release
+  --dp-epsilon <number>              DP epsilon passed to policy_release.py
+  --dp-sensitivity <int>             DP sensitivity passed to policy_release.py
+  --public-report-redact-operator-fields strip operator-only fields from public_report.json
+  --operator-report-path <path>      default: <out-base>/a_psi_run/operator_report.json when redaction is on
   --k <int>                          release threshold, default: 20
   --n <int>                          rate limit, default: 5
   --deny-duplicate-query             deny exact repeated policy-release query signatures
@@ -236,6 +261,9 @@ while [[ $# -gt 0 ]]; do
     --server-join-key-field) SERVER_JOIN_KEY_FIELD="$2"; shift 2 ;;
     --client-join-key-field) CLIENT_JOIN_KEY_FIELD="$2"; shift 2 ;;
     --client-value-field) CLIENT_VALUE_FIELD="$2"; shift 2 ;;
+    --client-value-min) CLIENT_VALUE_MIN="$2"; shift 2 ;;
+    --client-value-max) CLIENT_VALUE_MAX="$2"; shift 2 ;;
+    --client-value-allow-negative) CLIENT_VALUE_ALLOW_NEGATIVE="1"; shift ;;
     --server-normalizer) SERVER_NORMALIZER="$2"; shift 2 ;;
     --client-normalizer) CLIENT_NORMALIZER="$2"; shift 2 ;;
     --client-value-mode) CLIENT_VALUE_MODE="$2"; shift 2 ;;
@@ -285,6 +313,7 @@ while [[ $# -gt 0 ]]; do
     --audit-seal-key-env) AUDIT_SEAL_KEY_ENV="$2"; shift 2 ;;
     --audit-archive-dir) AUDIT_ARCHIVE_DIR="$2"; shift 2 ;;
     --pjc-audit-log) PJC_AUDIT_LOG="$2"; shift 2 ;;
+    --pjc-resource-limits) PJC_RESOURCE_LIMITS="$2"; shift 2 ;;
     --sse-export-policy-config) SSE_EXPORT_POLICY_CONFIG="$2"; shift 2 ;;
     --sse-export-audit-log) SSE_EXPORT_AUDIT_LOG="$2"; shift 2 ;;
     --sse-export-handoff-mode) SSE_EXPORT_HANDOFF_MODE="$2"; shift 2 ;;
@@ -305,6 +334,14 @@ while [[ $# -gt 0 ]]; do
     --privacy-budget-purpose) PRIVACY_BUDGET_PURPOSE="$2"; shift 2 ;;
     --privacy-budget-limit) PRIVACY_BUDGET_LIMIT="$2"; shift 2 ;;
     --privacy-budget-cost) PRIVACY_BUDGET_COST="$2"; shift 2 ;;
+    --release-policy-gate-config) RELEASE_POLICY_GATE_CONFIG="$2"; shift 2 ;;
+    --release-policy-gate-report) RELEASE_POLICY_GATE_REPORT="$2"; shift 2 ;;
+    --pjc-evidence-merge) PJC_EVIDENCE_MERGE_REPORT="$2"; shift 2 ;;
+    --require-dp) POLICY_REQUIRE_DP="1"; shift ;;
+    --dp-epsilon) POLICY_DP_EPSILON="$2"; shift 2 ;;
+    --dp-sensitivity) POLICY_DP_SENSITIVITY="$2"; shift 2 ;;
+    --public-report-redact-operator-fields) PUBLIC_REPORT_REDACT_OPERATOR_FIELDS="1"; shift ;;
+    --operator-report-path) OPERATOR_REPORT_PATH="$2"; shift 2 ;;
     --k) K_THRESHOLD="$2"; shift 2 ;;
     --n) RATE_N="$2"; shift 2 ;;
     --deny-duplicate-query) DENY_DUPLICATE_QUERY="1"; shift ;;
@@ -336,14 +373,21 @@ KEY_MANIFEST="$(normalize_repo_path "$KEY_MANIFEST")"
 KEYRING="$(normalize_repo_path "$KEYRING")"
 EXTERNAL_KMS_CONFIG="$(normalize_repo_path "$EXTERNAL_KMS_CONFIG")"
 SSE_EXPORT_POLICY_CONFIG="$(normalize_repo_path "$SSE_EXPORT_POLICY_CONFIG")"
+PJC_RESOURCE_LIMITS="$(normalize_repo_path "$PJC_RESOURCE_LIMITS")"
 PRIVACY_BUDGET_CONFIG="$(normalize_repo_path "$PRIVACY_BUDGET_CONFIG")"
 PRIVACY_BUDGET_LEDGER="$(normalize_repo_path "$PRIVACY_BUDGET_LEDGER")"
+RELEASE_POLICY_GATE_CONFIG="$(normalize_repo_path "$RELEASE_POLICY_GATE_CONFIG")"
+RELEASE_POLICY_GATE_REPORT="$(normalize_repo_path "$RELEASE_POLICY_GATE_REPORT")"
+OPERATOR_REPORT_PATH="$(normalize_repo_path "$OPERATOR_REPORT_PATH")"
 
 [[ -n "$SERVER_SOURCE" || -n "$SERVER_RECORD_STORE_PATH" ]] || die "--server-source or --server-record-store-path required"
 [[ -n "$CLIENT_SOURCE" || -n "$CLIENT_RECORD_STORE_PATH" ]] || die "--client-source or --client-record-store-path required"
 [[ -n "$SERVER_JOIN_KEY_FIELD" ]] || die "--server-join-key-field required"
 [[ -n "$CLIENT_JOIN_KEY_FIELD" ]] || die "--client-join-key-field required"
 [[ -n "$CLIENT_VALUE_FIELD" ]] || [[ "$CLIENT_VALUE_MODE" == "count" ]] || die "--client-value-field required for raw-int"
+if [[ "$PRODUCTION_MODE" == "1" && "$CLIENT_VALUE_MODE" == "raw-int" && -z "$CLIENT_VALUE_MAX" ]]; then
+  die "--client-value-max is required for raw-int in --production-mode"
+fi
 [[ -n "$TOKEN_SCOPE" ]] || die "--token-scope required"
 [[ -n "$JOB_ID" ]] || die "--job-id required"
 [[ -n "$OUT_BASE" ]] || die "--out-base required"
@@ -378,6 +422,7 @@ command -v "$SSE_PY" >/dev/null 2>&1 || [[ -x "$SSE_PY" ]] || die "missing SSE p
 [[ -f "$VALIDATE_JSON_CONTRACT_PY" ]] || die "missing JSON contract validator: $VALIDATE_JSON_CONTRACT_PY"
 [[ -f "$VALIDATE_TABULAR_CONTRACT_PY" ]] || die "missing tabular contract validator: $VALIDATE_TABULAR_CONTRACT_PY"
 [[ -f "$BUILD_AUDIT_CHAIN_PY" ]] || die "missing audit chain builder: $BUILD_AUDIT_CHAIN_PY"
+[[ -f "$CHECK_RELEASE_POLICY_GATE_PY" ]] || die "missing release policy gate: $CHECK_RELEASE_POLICY_GATE_PY"
 [[ -f "$WRITE_PJC_AUDIT_PY" ]] || die "missing PJC audit writer: $WRITE_PJC_AUDIT_PY"
 [[ -f "$ARCHIVE_AUDIT_BUNDLE_PY" ]] || die "missing audit archive script: $ARCHIVE_AUDIT_BUNDLE_PY"
 [[ -f "$RESOLVE_KEY_ACCESS_PY" ]] || die "missing key access resolver: $RESOLVE_KEY_ACCESS_PY"
@@ -420,6 +465,18 @@ if [[ "$PRODUCTION_MODE" == "1" && -n "$TOKEN_SECRET" ]]; then
 fi
 if [[ "$PRODUCTION_MODE" == "1" && "$CLEANUP_SSE_EXPORT_HANDOFF_FILES_AFTER_BRIDGE" != "1" ]]; then
   die "--keep-sse-export-handoff-files is forbidden in --production-mode (S1: retained plaintext SSE handoff is rejected)"
+fi
+if [[ "$PRODUCTION_MODE" == "1" && -z "$PJC_RESOURCE_LIMITS" ]]; then
+  die "--pjc-resource-limits is required in --production-mode so PJC preflight cannot be skipped"
+fi
+if [[ "$PRODUCTION_MODE" == "1" && -z "$RELEASE_POLICY_GATE_CONFIG" ]]; then
+  die "--release-policy-gate-config is required in --production-mode so public release cannot bypass the central gate"
+fi
+if [[ -n "$PJC_RESOURCE_LIMITS" && ! -f "$PJC_RESOURCE_LIMITS" ]]; then
+  die "--pjc-resource-limits not found: $PJC_RESOURCE_LIMITS"
+fi
+if [[ -n "$RELEASE_POLICY_GATE_CONFIG" && ! -f "$RELEASE_POLICY_GATE_CONFIG" ]]; then
+  die "--release-policy-gate-config not found: $RELEASE_POLICY_GATE_CONFIG"
 fi
 
 if [[ -n "$SSE_EXPORT_POLICY_CONFIG" ]]; then
@@ -475,6 +532,11 @@ if [[ -n "$PRIVACY_BUDGET_CONFIG" ]]; then
     --schema "$REPO_ROOT/schemas/privacy_budget_config.schema.json" \
     --json "$PRIVACY_BUDGET_CONFIG"
 fi
+if [[ -n "$RELEASE_POLICY_GATE_CONFIG" ]]; then
+  python3 "$VALIDATE_JSON_CONTRACT_PY" \
+    --schema "$REPO_ROOT/schemas/release_policy_gate_config.schema.json" \
+    --json "$RELEASE_POLICY_GATE_CONFIG"
+fi
 
 OUT_BASE="$(mkdir -p "$OUT_BASE" && cd "$OUT_BASE" && pwd)"
 SSE_EXPORT_DIR="$OUT_BASE/sse_exports"
@@ -509,6 +571,12 @@ if [[ -z "$EXTERNAL_KMS_LIFECYCLE_AUDIT_LOG" ]]; then
 fi
 if [[ -z "$PJC_AUDIT_LOG" ]]; then
   PJC_AUDIT_LOG="$APSI_JOB_DIR/pjc_audit.jsonl"
+fi
+if [[ -z "$RELEASE_POLICY_GATE_REPORT" ]]; then
+  RELEASE_POLICY_GATE_REPORT="$APSI_JOB_DIR/release_policy_gate.json"
+fi
+if [[ "$PUBLIC_REPORT_REDACT_OPERATOR_FIELDS" == "1" && -z "$OPERATOR_REPORT_PATH" ]]; then
+  OPERATOR_REPORT_PATH="$APSI_JOB_DIR/operator_report.json"
 fi
 if [[ -z "$RECORD_RECOVERY_SERVICE_HEALTH_JSON" ]]; then
   RECORD_RECOVERY_SERVICE_HEALTH_JSON="$SSE_EXPORT_DIR/record_recovery_service_health.json"
@@ -1402,6 +1470,15 @@ fi
 if [[ -n "$CLIENT_VALUE_FIELD" ]]; then
   BRIDGE_CMD+=(--client-value-column "$CLIENT_VALUE_FIELD")
 fi
+if [[ -n "$CLIENT_VALUE_MIN" ]]; then
+  BRIDGE_CMD+=(--client-value-min "$CLIENT_VALUE_MIN")
+fi
+if [[ -n "$CLIENT_VALUE_MAX" ]]; then
+  BRIDGE_CMD+=(--client-value-max "$CLIENT_VALUE_MAX")
+fi
+if [[ "$CLIENT_VALUE_ALLOW_NEGATIVE" == "1" ]]; then
+  BRIDGE_CMD+=(--client-value-allow-negative)
+fi
 if [[ -n "$TOKEN_SECRET" ]]; then
   BRIDGE_CMD+=(--token-secret "$TOKEN_SECRET")
 else
@@ -1507,10 +1584,17 @@ if [[ "$PJC_GRPC_STREAM_CHUNK_ELEMENTS" != "0" ]]; then
   if [[ -x "$PJC_SERVER_BIN" && -x "$PJC_CLIENT_BIN" ]]; then
     if ! "$PJC_SERVER_BIN" --help 2>&1 | grep -q -- "--grpc_stream_chunk_elements" || \
        ! "$PJC_CLIENT_BIN" --help 2>&1 | grep -q -- "--grpc_stream_chunk_elements"; then
-      log "PJC binaries do not support --grpc_stream_chunk_elements; using legacy unary mode"
+      if [[ "$PRODUCTION_MODE" == "1" ]]; then
+        die "PJC binaries do not support --grpc_stream_chunk_elements; production mode forbids legacy unary fallback"
+      fi
+      log "PJC binaries do not support --grpc_stream_chunk_elements; using explicit local legacy unary mode"
       PJC_EFFECTIVE_GRPC_STREAM_CHUNK_ELEMENTS=0
     fi
   fi
+fi
+PJC_ALLOW_LEGACY_UNARY_FOR_STAGE3="0"
+if [[ "$PJC_EFFECTIVE_GRPC_STREAM_CHUNK_ELEMENTS" == "0" && "$PRODUCTION_MODE" != "1" ]]; then
+  PJC_ALLOW_LEGACY_UNARY_FOR_STAGE3="${PJC_ALLOW_LEGACY_UNARY:-1}"
 fi
 PJC_STARTED_MS="$(date +%s%3N)"
 PJC_RC=0
@@ -1522,6 +1606,17 @@ PJC_RC=0
   CLIENT_CSV="$BRIDGE_JOB_DIR/client.csv" \
   PJC_BIN_DIR="$PJC_BIN_DIR" \
   PJC_GRPC_STREAM_CHUNK_ELEMENTS="$PJC_EFFECTIVE_GRPC_STREAM_CHUNK_ELEMENTS" \
+  PJC_PRODUCTION_MODE="$PRODUCTION_MODE" \
+  PJC_ALLOW_LEGACY_UNARY="$PJC_ALLOW_LEGACY_UNARY_FOR_STAGE3" \
+  PJC_RESOURCE_LIMITS="$PJC_RESOURCE_LIMITS" \
+  PJC_PREFLIGHT_REQUIRED="$PRODUCTION_MODE" \
+  PJC_PREFLIGHT_CALLER="$CALLER" \
+  PJC_PREFLIGHT_TENANT_ID="$TENANT_ID" \
+  PJC_PREFLIGHT_DATASET_ID="$DATASET_ID" \
+  PJC_PREFLIGHT_PURPOSE="${PRIVACY_BUDGET_PURPOSE:-bridge_token}" \
+  PJC_INPUT_COMMITMENT="$BRIDGE_JOB_DIR/input_commitments.json" \
+  PJC_JOB_META="$BRIDGE_JOB_DIR/job_meta.json" \
+  PJC_REQUIRE_INPUT_COMMITMENT="$PRODUCTION_MODE" \
   bash "$RUN_PJC_SH"
 ) || PJC_RC=$?
 PJC_ENDED_MS="$(date +%s%3N)"
@@ -1534,6 +1629,7 @@ PJC_AUDIT_CMD=(
   --out-dir "$APSI_JOB_DIR"
   --server-csv "$BRIDGE_JOB_DIR/server.csv"
   --client-csv "$BRIDGE_JOB_DIR/client.csv"
+  --input-commitment "$BRIDGE_JOB_DIR/input_commitments.json"
   --server-log "$APSI_JOB_DIR/server.log"
   --client-log "$APSI_JOB_DIR/client.log"
   --result-file "$APSI_JOB_DIR/attribution_result.json"
@@ -1597,6 +1693,21 @@ fi
 if [[ -n "$PRIVACY_BUDGET_COST" ]]; then
   POLICY_RELEASE_CMD+=(--privacy-budget-cost "$PRIVACY_BUDGET_COST")
 fi
+if [[ "$POLICY_REQUIRE_DP" == "1" ]]; then
+  POLICY_RELEASE_CMD+=(--require-dp)
+fi
+if [[ -n "$POLICY_DP_EPSILON" ]]; then
+  POLICY_RELEASE_CMD+=(--dp-epsilon "$POLICY_DP_EPSILON")
+fi
+if [[ -n "$POLICY_DP_SENSITIVITY" ]]; then
+  POLICY_RELEASE_CMD+=(--dp-sensitivity "$POLICY_DP_SENSITIVITY")
+fi
+if [[ "$PUBLIC_REPORT_REDACT_OPERATOR_FIELDS" == "1" ]]; then
+  POLICY_RELEASE_CMD+=(--public-report-redact-operator-fields)
+fi
+if [[ -n "$OPERATOR_REPORT_PATH" ]]; then
+  POLICY_RELEASE_CMD+=(--operator-report-path "$OPERATOR_REPORT_PATH")
+fi
 (
   cd "$APSI_DIR"
   "${POLICY_RELEASE_CMD[@]}"
@@ -1610,6 +1721,32 @@ python3 "$VALIDATE_JSON_CONTRACT_PY" \
   --schema "$REPO_ROOT/schemas/policy_audit.schema.json" \
   --jsonl "$APSI_JOB_DIR/audit_log.jsonl"
 
+if [[ -n "$RELEASE_POLICY_GATE_CONFIG" ]]; then
+  RELEASE_GATE_CMD=(
+    python3 "$CHECK_RELEASE_POLICY_GATE_PY"
+    --public-report "$APSI_JOB_DIR/public_report.json"
+    --policy-config "$RELEASE_POLICY_GATE_CONFIG"
+    --output "$RELEASE_POLICY_GATE_REPORT"
+  )
+  if [[ -n "$OPERATOR_REPORT_PATH" ]]; then
+    RELEASE_GATE_CMD+=(--operator-report "$OPERATOR_REPORT_PATH")
+  fi
+  if [[ -n "$PRIVACY_BUDGET_LEDGER" ]]; then
+    RELEASE_GATE_CMD+=(--privacy-budget-ledger "$PRIVACY_BUDGET_LEDGER")
+  fi
+  if [[ -n "$PJC_EVIDENCE_MERGE_REPORT" ]]; then
+    RELEASE_GATE_CMD+=(--pjc-evidence-merge "$PJC_EVIDENCE_MERGE_REPORT")
+  fi
+  RELEASE_GATE_CMD+=(--policy-audit-log "$APSI_JOB_DIR/audit_log.jsonl")
+  if [[ "$PRODUCTION_MODE" == "1" ]]; then
+    RELEASE_GATE_CMD+=(--assert-allow)
+  fi
+  "${RELEASE_GATE_CMD[@]}"
+  python3 "$VALIDATE_JSON_CONTRACT_PY" \
+    --schema "$REPO_ROOT/schemas/release_policy_gate.schema.json" \
+    --json "$RELEASE_POLICY_GATE_REPORT"
+fi
+
 BUILD_AUDIT_CHAIN_CMD=(
   python3 "$BUILD_AUDIT_CHAIN_PY"
   --out-base "$OUT_BASE"
@@ -1619,6 +1756,9 @@ if [[ -n "$RECORD_RECOVERY_SERVICE_AUDIT_LOG" ]]; then
   BUILD_AUDIT_CHAIN_CMD+=(--record-recovery-service-audit "$RECORD_RECOVERY_SERVICE_AUDIT_LOG")
 fi
 BUILD_AUDIT_CHAIN_CMD+=(--pjc-audit "$PJC_AUDIT_LOG")
+if [[ -n "$RELEASE_POLICY_GATE_CONFIG" ]]; then
+  BUILD_AUDIT_CHAIN_CMD+=(--release-policy-gate "$RELEASE_POLICY_GATE_REPORT")
+fi
 MAINLINE_CONTRACT_CMD=(
   python3 "$CHECK_MAINLINE_CONTRACT_PY"
   --out-base "$OUT_BASE"

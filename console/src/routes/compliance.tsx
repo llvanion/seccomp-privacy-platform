@@ -69,7 +69,7 @@ function GdprMatrix() {
         <table className="data-grid">
           <thead>
             <tr>
-              <th style={{ width: "40px" }}>§</th>
+              <th className="w-[40px]">§</th>
               <th>原则</th>
               <th>本平台对应控制</th>
             </tr>
@@ -91,7 +91,7 @@ function GdprMatrix() {
         <table className="data-grid">
           <thead>
             <tr>
-              <th style={{ width: "60px" }}>Art.</th>
+              <th className="w-[60px]">Art.</th>
               <th>条款</th>
               <th>实现状态 / 备注</th>
             </tr>

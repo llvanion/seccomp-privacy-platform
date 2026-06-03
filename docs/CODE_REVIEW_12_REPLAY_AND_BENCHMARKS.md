@@ -142,7 +142,7 @@ These semantic checks catch the scenario where a benchmark runs and passes schem
 | Item | Severity | Note |
 |---|---|---|
 | Replay scripts use inline `python3 -c` for JSON field extraction | Low | Should use `runtime_service_helpers.py read-json-field` for consistency |
-| `benchmark_pipeline.py` requires `BRIDGE_TOKEN_SECRET` env var in production mode | Informational | Benchmarks always run in production mode; the env var must be set before invoking |
+| `benchmark_pipeline.py` requires `BRIDGE_TOKEN_SECRET` env var when `--production-mode` is used | Informational | Default benchmark mode is local compatibility coverage; production benchmark runs must also provide `--pjc-resource-limits` and omit retained-file handoff |
 | Benchmark iterations default is 1 for most benchmarks | Low | Single-iteration timing is noisy; manual benchmarking requires explicit `--iterations N` |
 | `percentile` uses linear interpolation | Informational | Correct but less intuitive than nearest-rank; both are valid for small samples |
 | `file_handoff_retained` mode embeds a hardcoded `retention_reason` string | Low | The string `"benchmark_file_handoff_retained"` is asserted in `validate_completed_run`; changing either the benchmark command or the assertion without updating both would fail silently |

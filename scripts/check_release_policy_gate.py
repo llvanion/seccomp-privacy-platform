@@ -26,6 +26,7 @@ sys.path.insert(0, str(REPO_ROOT / "scripts"))
 from validate_json_contract import load_json, validate_value  # noqa: E402
 
 SCHEMA = "release_policy_gate/v1"
+OPERATOR_ONLY_PUBLIC_FIELDS = ("input_sizes", "rate_limit_used", "rate_limit_max", "bridge", "details")
 
 
 def _utc_now() -> str:
@@ -70,12 +71,32 @@ def _read_jsonl(path: Path) -> list[dict]:
     return out
 
 
+def _load_json_object(path: Path) -> dict:
+    data = json.loads(path.read_text(encoding="utf-8"))
+    if not isinstance(data, dict):
+        raise ValueError(f"JSON object expected: {path}")
+    return data
+
+
+def _latest_policy_audit_record(path: Path, *, job_id: str | None) -> dict | None:
+    if not path.is_file():
+        return None
+    records = [
+        item
+        for item in _read_jsonl(path)
+        if item.get("event") == "policy_release" and (job_id is None or item.get("job_id") == job_id)
+    ]
+    return records[-1] if records else None
+
+
 def run_gate(
     *,
     public_report_path: Path,
     policy_config_path: Path,
     operator_report_path: Path | None,
     budget_ledger_path: Path | None,
+    pjc_evidence_merge_path: Path | None = None,
+    policy_audit_log_path: Path | None = None,
 ) -> dict:
     checks: list[dict] = []
     findings: list[dict] = []
@@ -174,6 +195,73 @@ def run_gate(
     else:
         checks.append({"name": "duplicate_query", "status": "skip", "expected": None, "actual": None, "message": "skipped"})
 
+    # 6. public report redaction for released reports
+    if config.get("require_public_report_redaction") and released:
+        leaked = [field for field in OPERATOR_ONLY_PUBLIC_FIELDS if field in public_report]
+        redaction_marker = bool(public_report.get("operator_fields_redacted"))
+        if leaked:
+            checks.append({"name": "public_report_redaction", "status": "deny", "expected": "no operator-only public fields", "actual": leaked, "message": "released public report contains operator-only fields"})
+            findings.append({"kind": "public_report_operator_fields_leaked", "message": "released public report contains operator-only fields", "expected": "redacted", "actual": leaked})
+        elif not redaction_marker:
+            checks.append({"name": "public_report_redaction", "status": "deny", "expected": "operator_fields_redacted=true", "actual": public_report.get("operator_fields_redacted"), "message": "released public report lacks redaction marker"})
+            findings.append({"kind": "public_report_redaction_missing", "message": "released public report lacks redaction marker", "expected": True, "actual": public_report.get("operator_fields_redacted")})
+        elif operator_report_path is not None and not operator_report_path.is_file():
+            checks.append({"name": "public_report_redaction", "status": "deny", "expected": "operator report exists", "actual": str(operator_report_path), "message": "redacted release did not preserve an operator report"})
+            findings.append({"kind": "operator_report_missing", "message": "redacted release did not preserve an operator report", "expected": "file", "actual": str(operator_report_path)})
+        else:
+            checks.append({"name": "public_report_redaction", "status": "ok", "expected": "redacted", "actual": True, "message": None})
+    else:
+        checks.append({"name": "public_report_redaction", "status": "skip", "expected": None, "actual": None, "message": "skipped (require_public_report_redaction false or release denied)"})
+
+    # 7. PJC two-party evidence merge binding. This is optional by config so
+    # existing local demos stay compatible, but production release configs can
+    # require that both parties signed the same result/commitment evidence.
+    if config.get("require_pjc_evidence_merge") and released:
+        if pjc_evidence_merge_path is None or not pjc_evidence_merge_path.is_file():
+            checks.append({"name": "pjc_evidence_merge", "status": "deny", "expected": "pjc_two_party_evidence_merge/v1", "actual": str(pjc_evidence_merge_path) if pjc_evidence_merge_path else None, "message": "PJC evidence merge report is required"})
+            findings.append({"kind": "pjc_evidence_merge_missing", "message": "PJC evidence merge report is required for release", "expected": "file", "actual": str(pjc_evidence_merge_path) if pjc_evidence_merge_path else None})
+        else:
+            try:
+                merge = _load_json_object(pjc_evidence_merge_path)
+            except (OSError, json.JSONDecodeError, ValueError) as exc:
+                merge = {}
+                checks.append({"name": "pjc_evidence_merge", "status": "deny", "expected": "valid JSON report", "actual": str(exc), "message": "PJC evidence merge report is invalid"})
+                findings.append({"kind": "pjc_evidence_merge_invalid", "message": "PJC evidence merge report is invalid", "expected": "valid JSON", "actual": str(exc)})
+            if merge:
+                merge_decision = str(merge.get("decision") or "")
+                merge_job_id = str(merge.get("job_id") or "") or None
+                party_a = merge.get("party_a") if isinstance(merge.get("party_a"), dict) else {}
+                party_b = merge.get("party_b") if isinstance(merge.get("party_b"), dict) else {}
+                public_sha = _sha256(public_report_path) if public_report_path.is_file() else None
+                policy_audit = _latest_policy_audit_record(policy_audit_log_path, job_id=job_id) if policy_audit_log_path is not None else None
+                pjc_result_sha = policy_audit.get("pjc_result_sha256") if isinstance(policy_audit, dict) else None
+                mismatches: list[dict] = []
+                if merge_decision != "allow":
+                    mismatches.append({"field": "decision", "expected": "allow", "actual": merge_decision})
+                if merge_job_id != job_id:
+                    mismatches.append({"field": "job_id", "expected": job_id, "actual": merge_job_id})
+                if policy_audit_log_path is None:
+                    mismatches.append({"field": "policy_audit_log", "expected": "configured", "actual": None})
+                elif policy_audit is None:
+                    mismatches.append({"field": "policy_audit_record", "expected": f"record for {job_id}", "actual": None})
+                if pjc_result_sha:
+                    for party_label, party in (("party_a", party_a), ("party_b", party_b)):
+                        if party.get("result_sha256") != pjc_result_sha:
+                            mismatches.append({"field": f"{party_label}.result_sha256", "expected": pjc_result_sha, "actual": party.get("result_sha256")})
+                for party_label, party in (("party_a", party_a), ("party_b", party_b)):
+                    party_public_sha = party.get("public_report_sha256")
+                    if party_public_sha and party_public_sha != public_sha:
+                        mismatches.append({"field": f"{party_label}.public_report_sha256", "expected": public_sha, "actual": party_public_sha})
+                if mismatches:
+                    checks.append({"name": "pjc_evidence_merge", "status": "deny", "expected": "merge allow and result/report hashes bound", "actual": mismatches, "message": "PJC evidence merge is not bound to this release"})
+                    findings.append({"kind": "pjc_evidence_merge_unbound", "message": "PJC evidence merge is not bound to this release", "expected": "matching job/result/report hashes", "actual": mismatches})
+                else:
+                    checks.append({"name": "pjc_evidence_merge", "status": "ok", "expected": "bound evidence merge", "actual": str(pjc_evidence_merge_path), "message": None})
+    elif config.get("require_pjc_evidence_merge"):
+        checks.append({"name": "pjc_evidence_merge", "status": "skip", "expected": None, "actual": None, "message": "release denied (no public evidence binding needed)"})
+    else:
+        checks.append({"name": "pjc_evidence_merge", "status": "skip", "expected": None, "actual": None, "message": "skipped (require_pjc_evidence_merge false)"})
+
     decision = "allow"
     chosen_reason_code = "ok"
     chosen_reason: str | None = None
@@ -188,6 +276,8 @@ def run_gate(
                 "privacy_budget_ledger": findings[0]["kind"] if findings else "privacy_budget_required",
                 "deny_reason_code": "deny_reason_not_allowed",
                 "duplicate_query": "duplicate_query_leaked",
+                "public_report_redaction": findings[0]["kind"] if findings else "public_report_redaction_required",
+                "pjc_evidence_merge": findings[0]["kind"] if findings else "pjc_evidence_merge_required",
             }.get(chk["name"], "policy_gate_denied")
             break
 
@@ -201,6 +291,8 @@ def run_gate(
         "public_report_sha256": _sha256(public_report_path) if public_report_path.is_file() else None,
         "operator_report_path": str(operator_report_path) if operator_report_path else None,
         "policy_config_path": str(policy_config_path),
+        "pjc_evidence_merge_path": str(pjc_evidence_merge_path) if pjc_evidence_merge_path else None,
+        "policy_audit_log_path": str(policy_audit_log_path) if policy_audit_log_path else None,
         "job_id": job_id,
         "caller": caller,
         "checks": checks,
@@ -214,6 +306,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--policy-config", required=True)
     parser.add_argument("--operator-report", default=None)
     parser.add_argument("--privacy-budget-ledger", default=None)
+    parser.add_argument("--pjc-evidence-merge", default=None)
+    parser.add_argument("--policy-audit-log", default=None)
     parser.add_argument("--output", required=True)
     parser.add_argument("--assert-allow", action="store_true")
     args = parser.parse_args(argv)
@@ -222,6 +316,8 @@ def main(argv: list[str] | None = None) -> int:
     config_path = Path(args.policy_config).resolve()
     operator_report = Path(args.operator_report).resolve() if args.operator_report else None
     budget_ledger = Path(args.privacy_budget_ledger).resolve() if args.privacy_budget_ledger else None
+    pjc_evidence_merge = Path(args.pjc_evidence_merge).resolve() if args.pjc_evidence_merge else None
+    policy_audit_log = Path(args.policy_audit_log).resolve() if args.policy_audit_log else None
     out_path = Path(args.output).resolve()
 
     report = run_gate(
@@ -229,6 +325,8 @@ def main(argv: list[str] | None = None) -> int:
         policy_config_path=config_path,
         operator_report_path=operator_report,
         budget_ledger_path=budget_ledger,
+        pjc_evidence_merge_path=pjc_evidence_merge,
+        policy_audit_log_path=policy_audit_log,
     )
     out_path.parent.mkdir(parents=True, exist_ok=True)
     out_path.write_text(json.dumps(report, ensure_ascii=False, sort_keys=True, indent=2) + "\n", encoding="utf-8")

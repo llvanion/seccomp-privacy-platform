@@ -25,13 +25,24 @@ def laplace_noise(scale: float) -> float:
     return -scale * math.copysign(1.0, u) * math.log(1.0 - 2.0 * abs(u))
 
 
+def bucket_intersection_size(n: int) -> str:
+    if n < 10:
+        return "<10"
+    if n < 50:
+        return "10-49"
+    if n < 200:
+        return "50-199"
+    return "200+"
+
+
 def main() -> None:
     ap = argparse.ArgumentParser(description="Post-process public_report.json to include per-bucket suppression from attribution_result.json (if present)")
     ap.add_argument("--job-dir", required=True)
     ap.add_argument("--k", type=int, required=True, help="k-threshold")
     ap.add_argument("--report", default=None, help="public_report.json path (default: <job-dir>/public_report.json)")
     ap.add_argument("--attribution", default=None, help="attribution_result.json path (default: <job-dir>/attribution_result.json)")
-    ap.add_argument("--out", default=None, help="Protected bucket report path (default: <job-dir>/bucket_public_report.json)")
+    ap.add_argument("--out", default=None, help="Release-safe bucket report path (default: <job-dir>/bucket_public_report.json)")
+    ap.add_argument("--operator-out", default=None, help="Operator-only bucket report path (default: <job-dir>/operator_bucket_report.json)")
     ap.add_argument("--dp-epsilon", type=float, default=None, help="Apply Laplace noise to released bucket sums.")
     ap.add_argument("--dp-sensitivity", type=int, default=None, help="Sensitivity for bucket sum DP noise.")
     ap.add_argument("--round-sum-to", type=int, default=None, help="Round released bucket sums after DP.")
@@ -44,7 +55,8 @@ def main() -> None:
                     help=(
                         "S5: do NOT inject debug.per_bucket_results / debug.bucket_policy "
                         "into public_report.json. The dedicated bucket_public_report.json "
-                        "is unaffected — operators still see everything there."
+                        "remains release-safe; full bucket evidence is written to "
+                        "operator_bucket_report.json."
                     ))
     args = ap.parse_args()
 
@@ -67,6 +79,11 @@ def main() -> None:
     report_path = os.path.abspath(args.report) if args.report else os.path.join(job_dir, "public_report.json")
     attr_path = os.path.abspath(args.attribution) if args.attribution else os.path.join(job_dir, "attribution_result.json")
     out_path = os.path.abspath(args.out) if args.out else os.path.join(job_dir, "bucket_public_report.json")
+    operator_out_path = (
+        os.path.abspath(args.operator_out)
+        if args.operator_out
+        else os.path.join(job_dir, "operator_bucket_report.json")
+    )
 
     if not os.path.isfile(report_path):
         raise SystemExit(f"missing report: {report_path}")
@@ -87,7 +104,8 @@ def main() -> None:
         raise SystemExit("--dp-epsilon must be positive")
     if args.dp_sensitivity is not None and args.dp_sensitivity <= 0:
         raise SystemExit("--dp-sensitivity must be positive")
-    out = []
+    public_rows = []
+    operator_rows = []
     for b in buckets:
         size = int(b.get("intersection_size", 0))
         raw_sum = int(b.get("intersection_sum", 0))
@@ -98,18 +116,34 @@ def main() -> None:
             released_sum = max(0, int(round(float(raw_sum) + noise)))
         if size >= k and args.round_sum_to and args.round_sum_to > 1:
             released_sum = int(round(released_sum / args.round_sum_to) * args.round_sum_to)
-        row = {
+        released = size >= k
+        operator_rows.append({
             "bucket": b.get("bucket"),
-            "intersection_size": size if size >= k else None,
-            "intersection_sum": released_sum if size >= k else None,
-            "suppressed": size < k,
-            "reason_code": "below_k" if size < k else "released",
-            "dp_noise_applied": bool(size >= k and dp_enabled),
-            "dp_epsilon": args.dp_epsilon if size >= k and dp_enabled else None,
-            "dp_sensitivity": args.dp_sensitivity if size >= k and dp_enabled else None,
+            "intersection_size": size,
+            "intersection_size_bucket": bucket_intersection_size(size),
+            "intersection_sum_raw": raw_sum,
+            "intersection_sum": released_sum if released else None,
+            "suppressed": not released,
+            "reason_code": "below_k" if not released else "released",
+            "dp_noise_applied": bool(released and dp_enabled),
+            "dp_epsilon": args.dp_epsilon if released and dp_enabled else None,
+            "dp_sensitivity": args.dp_sensitivity if released and dp_enabled else None,
             "dp_noise": noise,
-        }
-        out.append(row)
+            "public_label_redacted": not released,
+        })
+        if released:
+            public_rows.append({
+                "bucket": b.get("bucket"),
+                "intersection_size": None,
+                "intersection_size_bucket": bucket_intersection_size(size),
+                "intersection_sum": released_sum,
+                "suppressed": False,
+                "reason_code": "released",
+                "dp_noise_applied": bool(dp_enabled),
+                "dp_epsilon": args.dp_epsilon if dp_enabled else None,
+                "dp_sensitivity": args.dp_sensitivity if dp_enabled else None,
+                "dp_noise_redacted": bool(dp_enabled),
+            })
 
     if args.public_report_redact_operator_fields:
         # S5: keep public_report.json clean of per-bucket leakage. The protected
@@ -123,33 +157,65 @@ def main() -> None:
             "dp_noise_applied": dp_enabled,
             "redacted": True,
             "reason": "public-report operator-field redaction enabled",
+            "bucket_public_report_is_release_safe": True,
         }
     else:
         rep.setdefault("debug", {})
-        rep["debug"]["per_bucket_results"] = out
+        rep["debug"]["per_bucket_results"] = public_rows
         rep["debug"]["bucket_policy"] = {
             "k": k,
             "dp_noise_applied": dp_enabled,
             "dp_epsilon": args.dp_epsilon if dp_enabled else None,
             "dp_sensitivity": args.dp_sensitivity if dp_enabled else None,
             "round_sum_to": args.round_sum_to,
+            "bucket_public_report_is_release_safe": True,
+            "suppressed_bucket_labels_redacted": True,
+            "dp_noise_redacted": True,
         }
     dump_json(report_path, rep)
     protected = {
         "schema": "bucket_public_report/v1",
         "job_id": attr.get("job_id"),
         "bucket_field": attr.get("bucket_field"),
-        "bucket_count": len(out),
+        "bucket_count": len(public_rows),
+        "bucket_count_kind": "released_only",
         "k": k,
         "dp_noise_applied": dp_enabled,
         "dp_epsilon": args.dp_epsilon if dp_enabled else None,
         "dp_sensitivity": args.dp_sensitivity if dp_enabled else None,
         "round_sum_to": args.round_sum_to,
-        "buckets": out,
+        "redaction": {
+            "view": "release_safe_bucket_report",
+            "suppressed_bucket_labels_redacted": True,
+            "suppressed_bucket_count_redacted": True,
+            "exact_bucket_sizes_redacted": True,
+            "dp_noise_redacted": True,
+        },
+        "suppression_policy": {
+            "reason": "below-k buckets are omitted from public bucket output",
+            "below_k_bucket_labels_redacted": True,
+            "below_k_bucket_count_redacted": True,
+        },
+        "buckets": public_rows,
+    }
+    operator_protected = {
+        "schema": "operator_bucket_report/v1",
+        "job_id": attr.get("job_id"),
+        "bucket_field": attr.get("bucket_field"),
+        "bucket_count": len(operator_rows),
+        "k": k,
+        "dp_noise_applied": dp_enabled,
+        "dp_epsilon": args.dp_epsilon if dp_enabled else None,
+        "dp_sensitivity": args.dp_sensitivity if dp_enabled else None,
+        "round_sum_to": args.round_sum_to,
+        "public_report_path": out_path,
+        "buckets": operator_rows,
     }
     dump_json(out_path, protected)
+    dump_json(operator_out_path, operator_protected)
     print(f"OK. Updated {report_path} with per_bucket_results (suppressed if < {k}).")
     print(f"OK. Wrote protected bucket report: {out_path}")
+    print(f"OK. Wrote operator bucket report: {operator_out_path}")
 
 
 if __name__ == "__main__":

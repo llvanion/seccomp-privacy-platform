@@ -4,12 +4,14 @@ import json
 import os
 from pathlib import Path
 from typing import Any
+from urllib.parse import unquote
 
 from metadata_db import connect_db, connect_read_db, row_to_dict
 from map_oidc_claims import DEFAULT_CLAIM_MAP, load_claim_mapping_config, map_token
 
 
 IDENTITY_TOKEN_SCHEMA = "api_identity_token_map/v1"
+DEFAULT_IDENTITY_SESSION_COOKIE_NAME = "seccomp_identity_session"
 PRIVILEGED_PLATFORM_ROLES = {"platform_admin", "platform_auditor"}
 QUERY_SUBMITTER_PLATFORM_ROLES = {"platform_admin", "query_submitter"}
 QUERY_EXECUTE_PLATFORM_ROLES = {"platform_admin", "privacy_operator"}
@@ -124,9 +126,38 @@ def load_identity_token_config(config_path: str) -> dict[str, Any]:
 def match_identity_token(config_path: str, bearer_token: str) -> dict[str, str] | None:
     for entry in load_identity_token_entries(config_path):
         expected = os.environ.get(entry["token_env"], "")
-        if expected and expected == bearer_token:
+        if expected and hmac.compare_digest(expected, bearer_token):
             return entry
     return None
+
+
+def parse_cookie_header(cookie_header: str) -> dict[str, str]:
+    cookies: dict[str, str] = {}
+    for part in cookie_header.split(";"):
+        if "=" not in part:
+            continue
+        name, value = part.split("=", 1)
+        name = name.strip()
+        if not name:
+            continue
+        cookies[name] = unquote(value.strip())
+    return cookies
+
+
+def bearer_or_session_cookie_token(
+    *,
+    auth_header: str,
+    cookie_header: str = "",
+    session_cookie_name: str = DEFAULT_IDENTITY_SESSION_COOKIE_NAME,
+) -> tuple[str, str]:
+    if auth_header.startswith("Bearer "):
+        return auth_header[len("Bearer "):], "bearer_token"
+    cookie_name = str(session_cookie_name or "").strip()
+    if cookie_header and cookie_name:
+        token = parse_cookie_header(cookie_header).get(cookie_name, "")
+        if token:
+            return token, "httponly_cookie"
+    return "", "none"
 
 
 def resolve_jwt_identity_token(
@@ -350,6 +381,8 @@ def resolve_identity_context(
 def resolve_request_identity(
     *,
     auth_header: str,
+    cookie_header: str = "",
+    session_cookie_name: str = DEFAULT_IDENTITY_SESSION_COOKIE_NAME,
     expected_bearer_token: str,
     db_path: str,
     db_dsn: str = "",
@@ -357,23 +390,28 @@ def resolve_request_identity(
     auth_failure_label: str,
     db_read_dsn: str = "",
 ) -> dict[str, Any] | None:
+    provided, auth_source = bearer_or_session_cookie_token(
+        auth_header=auth_header,
+        cookie_header=cookie_header,
+        session_cookie_name=session_cookie_name,
+    )
     if expected_bearer_token:
-        if not auth_header.startswith("Bearer "):
-            raise PermissionError("missing bearer token")
-        provided = auth_header[len("Bearer "):]
+        if not provided:
+            raise PermissionError("missing bearer token or identity session cookie")
         if hmac.compare_digest(provided, expected_bearer_token):
             return None
     if identity_token_config:
-        if not auth_header.startswith("Bearer "):
-            raise PermissionError("missing bearer token")
-        provided = auth_header[len("Bearer "):]
-        return resolve_identity_context(
+        if not provided:
+            raise PermissionError("missing bearer token or identity session cookie")
+        identity = resolve_identity_context(
             db_path=db_path,
             db_dsn=db_dsn,
             db_read_dsn=db_read_dsn,
             identity_token_config=identity_token_config,
             bearer_token=provided,
         )
+        identity["auth_source"] = auth_source
+        return identity
     if expected_bearer_token:
         raise PermissionError(f"{auth_failure_label} auth failed")
     return None

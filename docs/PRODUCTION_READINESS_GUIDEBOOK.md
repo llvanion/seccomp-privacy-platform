@@ -4,6 +4,15 @@
 **Date:** 2026-05-06
 **Status:** Post-baseline complete. Production-readiness Category E is complete repo-side; this guidebook tracks the remaining work between "demo baseline" and "production platform."
 
+> 2026-06-01 audit note: this guidebook is retained for detailed tranche history
+> and implementation commands. Current security/completion status is now tracked
+> in [CURRENT_SECURITY_AND_COMPLETION_AUDIT.md](CURRENT_SECURITY_AND_COMPLETION_AUDIT.md).
+> Implementation-level remaining work is tracked in
+> [REMAINING_WORK_IMPLEMENTATION_BACKLOG.md](REMAINING_WORK_IMPLEMENTATION_BACKLOG.md).
+> Treat "complete" in this guide as "repo-side complete" or
+> "baseline-complete" unless that audit explicitly upgrades the item to
+> production-complete.
+
 ---
 
 ## 1. How to Read This Document
@@ -869,6 +878,7 @@ cargo flamegraph --bin bridge -- prepare-job \
   --client-join-key-column email \
   --client-value-column amount \
   --client-value-mode raw-int \
+  --client-value-max 1000000 \
   --client-normalizer email \
   --job-id bench-job \
   --token-scope bench-job \
@@ -2087,7 +2097,7 @@ Week 8-9:   I2-a (parallel; I1-a completed repo-side 2026-05-08; J1 completed re
 Week 9-10:  I2-b and I3-a completed repo-side 2026-05-08; J2-a completed repo-side 2026-05-07
 Week 10-11: J2-b, K1-a (parallel; I3-b completed repo-side 2026-05-08; J3-a/J3-b/J2-a complete repo-side)
 Week 11-12: K1-a + K1-b + K2 + J4 completed 2026-05-08
-Week 12-13: K3 external pen test only (audit-chain tamper-resistance + HTTP malformed-input gate completed 2026-05-08; F4-a/F4-b repo-side completed 2026-05-07; live drill alongside F1-b)
+Week 12-13: Historical plan showed K3 external pen test as the only remaining block in this guidebook's old block model (audit-chain tamper-resistance + HTTP malformed-input gate completed 2026-05-08; F4-a/F4-b repo-side completed 2026-05-07; live drill alongside F1-b). Current production-security status is superseded by `CURRENT_SECURITY_AND_COMPLETION_AUDIT.md`.
 ```
 
 ---
@@ -2103,7 +2113,7 @@ Week 12-13: K3 external pen test only (audit-chain tamper-resistance + HTTP malf
 | I — Production operator console | 0 | 0h | I1-a/I1-b/I2-a/I2-b/I3-a/I3-b repo-side done 2026-05-08; live Tempo push + Grafana render and full SPA remain operator/product work |
 | J — SRE / HA | 0 repo-side | 0h | J1 + J2-a + J2-b + J3-a + J3-b + J4 done repo-side (J2-b 2026-05-09); live Patroni switchover + chaos drills remain operator-environment work |
 | K — Compliance / external audit | 1 | 5h | K1-a + K1-b + K2 done 2026-05-08; K3 audit-chain tamper-resistance + HTTP malformed-input gate done 2026-05-08 (external pen test still pending operator engagement) |
-| **Total remaining** | **1** | **~5h** | K3 external pen test only |
+| **Historical total remaining in this guidebook model** | **1** | **~5h** | K3 external pen test only; current production-security status is superseded by `CURRENT_SECURITY_AND_COMPLETION_AUDIT.md` |
 
 Completed since initial publication: F1-a, H2-a, H2-b, H3-a, H3-b, J3-a (2026-05-06); H1-a/H1-b, F2-a/F2-b, F2-c, F3, F4-a/F4-b, J1, J2-a, and J3-b repo-side (2026-05-07); G3 bridge benchmark/report scaffold plus local 100k/1M release-binary timing, G6 mTLS connection overhead measurement, G8 concurrent dashboard jobs, I1-a + I1-b observability stack repo-side scaffolds (Tempo + Prometheus + Grafana compose, datasource provisioning, two dashboards, render script + report schema, OTLP/HTTP push adapter on `export_otel_events.py`), I2-a/I2-b alerting integration, I3-a request-submission endpoint + metadata persistence baseline, I3-b approval/reject/list/detail workflow, J4 chaos and failure-injection drill (3 in-process scenarios + 2 operator-skipped placeholders), K1-a S3 Object Lock (WORM) sink, K1-b Sigstore Rekor transparency-log sink, K2 compliance mapping, and K3 repo-side scaffolds — audit-chain tamper-resistance + HTTP malformed-input gate (2026-05-08, K1-a live S3 upload + K1-b live Rekor submission + J4 PostgreSQL/full-disk operator drills + K3 external pen test still operator-side). F1-b live PostgreSQL portability, G7 SQLite/PostgreSQL latency comparison, and G3 bridge phase-hotspot evidence completed locally on 2026-05-09.
 
@@ -2121,7 +2131,7 @@ As of 2026-05-09, the remaining production-readiness scope is:
 | J — SRE / HA | None repo-side (J2-b in-process simulator + `connect_db_with_retry` validation done 2026-05-09; live Patroni switchover + chaos drills still operator/product work) |
 | K — Compliance / external audit | K3 external pen test (K1-a + K1-b + K2 + K3 repo-side scaffolds done; external engagement still pending) |
 
-Current total: **1 block / ~5h** (K3 external pen test only). (F1-b live PostgreSQL portability, G7 SQLite/PostgreSQL latency comparison, and G3 bridge phase-hotspot evidence completed locally 2026-05-09. K1-a S3 Object Lock (WORM) sink + K1-b Sigstore Rekor sink both done repo-side 2026-05-08 — shared `--sink-kind` / `--execute` framework on `publish_external_audit_anchor.py`, lazy boto3/cryptography imports, planned/uploaded/partial/skipped/error transitions, cross-tenant S3 key reject + non-http rekor URL reject, and a server-side ECDSA-verification harness for the rekor execute path; live AWS upload and live Rekor submission remain operator-side. K2 compliance mapping done; K3 repo-side scaffolds — audit-chain tamper-resistance and HTTP malformed-input gate — both done; external pen test remains as the K3 operator-engagement block. G6 mTLS connection overhead also done. I1-a + I1-b observability scaffolds done 2026-05-08 — live Tempo push and Grafana render are operator-side. I2-a webhook adapter + I2-b alert daemon done 2026-05-08 — Slack and Alertmanager formats supported, transition tracking verified end-to-end by `check_alert_webhook_smoke.py`. I3-a request submission and I3-b approval/reject/list/detail workflow are now repo-side complete.)
+Historical total in this guidebook model: **1 block / ~5h** (K3 external pen test only). Do not use this as the current production-security conclusion; see `CURRENT_SECURITY_AND_COMPLETION_AUDIT.md` for the current P0/P1 list. Historical detail retained: F1-b live PostgreSQL portability, G7 SQLite/PostgreSQL latency comparison, and G3 bridge phase-hotspot evidence completed locally 2026-05-09. K1-a S3 Object Lock (WORM) sink + K1-b Sigstore Rekor sink both done repo-side 2026-05-08 — shared `--sink-kind` / `--execute` framework on `publish_external_audit_anchor.py`, lazy boto3/cryptography imports, planned/uploaded/partial/skipped/error transitions, cross-tenant S3 key reject + non-http rekor URL reject, and a server-side ECDSA-verification harness for the rekor execute path; live AWS upload and live Rekor submission remain operator-side. K2 compliance mapping done; K3 repo-side scaffolds — audit-chain tamper-resistance and HTTP malformed-input gate — both done; external pen test remains as the K3 operator-engagement block. G6 mTLS connection overhead also done. I1-a + I1-b observability scaffolds done 2026-05-08 — live Tempo push and Grafana render are operator-side. I2-a webhook adapter + I2-b alert daemon done 2026-05-08 — Slack and Alertmanager formats supported, transition tracking verified end-to-end by `check_alert_webhook_smoke.py`. I3-a request submission and I3-b approval/reject/list/detail workflow are now repo-side complete.
 
 ### 10.2 Active Review Fixups
 

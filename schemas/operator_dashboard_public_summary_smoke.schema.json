@@ -1,0 +1,31 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "operator_dashboard_public_summary_smoke/v1",
+  "title": "Operator dashboard public summary smoke report",
+  "type": "object",
+  "required": [
+    "schema",
+    "status",
+    "unauth_status",
+    "normal_schema",
+    "admin_full_view",
+    "normal_full_read_status",
+    "normal_exact_result_status",
+    "normal_direct_start_status",
+    "admin_full_job_status",
+    "admin_exact_result_status"
+  ],
+  "properties": {
+    "schema": { "const": "operator_dashboard_public_summary_smoke/v1" },
+    "status": { "const": "ok" },
+    "unauth_status": { "const": 403 },
+    "normal_schema": { "const": "operator_dashboard_public_summary/v1" },
+    "admin_full_view": { "const": true },
+    "normal_full_read_status": { "const": 403 },
+    "normal_exact_result_status": { "const": 403 },
+    "normal_direct_start_status": { "const": 403 },
+    "admin_full_job_status": { "const": 200 },
+    "admin_exact_result_status": { "const": 200 }
+  },
+  "additionalProperties": false
+}

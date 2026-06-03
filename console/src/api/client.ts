@@ -48,7 +48,13 @@ export async function callApi<T>(
     headers["Content-Type"] = "application/json";
     body = JSON.stringify(opts.json);
   }
-  const resp = await fetch(url, { method, headers, body, signal: opts.signal });
+  const resp = await fetch(url, {
+    method,
+    headers,
+    body,
+    signal: opts.signal,
+    credentials: "same-origin",
+  });
   if (!resp.ok) {
     const text = await resp.text().catch(() => "");
     let parsed: unknown = text;

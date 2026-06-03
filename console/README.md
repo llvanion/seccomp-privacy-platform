@@ -49,8 +49,10 @@ to `index.html` for client-side routes.
 | record recovery HTTP | auto         | `/healthz`, `/metrics`                                                           |
 
 Configure non-default base URLs and Bearer tokens at runtime via the
-`/settings` route in the SPA. Configuration is stored in browser
-`localStorage` (`seccomp.console.config.v1`) and never sent server-side.
+`/settings` route in the SPA. Base URLs are stored in browser `localStorage`
+(`seccomp.console.baseUrls.v1`). Bearer tokens are stored only in
+`sessionStorage` for the current tab/session and are not persisted across
+browser restarts.
 
 ## Routes
 

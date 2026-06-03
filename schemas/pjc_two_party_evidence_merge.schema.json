@@ -22,9 +22,12 @@
     "reason_code": {
       "enum": [
         "ok",
+        "manifest_signature_invalid",
+        "manifest_signature_missing",
         "job_id_mismatch",
         "commit_mismatch",
         "input_manifest_mismatch",
+        "commitment_exchange_mismatch",
         "tls_identity_mismatch",
         "ca_fingerprint_mismatch",
         "result_hash_mismatch",
@@ -43,11 +46,34 @@
         "job_id": { "type": ["string", "null"] },
         "commit": { "type": ["string", "null"] },
         "input_commitment_sha256": { "type": ["string", "null"] },
+        "peer_input_commitment_sha256": { "type": ["string", "null"] },
+        "commitment_pair": {
+          "type": ["object", "null"],
+          "properties": {
+            "local": { "type": ["string", "null"] },
+            "peer": { "type": ["string", "null"] }
+          },
+          "additionalProperties": false
+        },
         "tls_identity": { "type": ["string", "null"] },
+        "peer_tls_identity": { "type": ["string", "null"] },
         "ca_fingerprint_sha256": { "type": ["string", "null"] },
         "result_sha256": { "type": ["string", "null"] },
         "policy_decision": { "type": ["string", "null"] },
+        "public_report_sha256": { "type": ["string", "null"] },
         "audit_chain_sha256": { "type": ["string", "null"] },
+        "signed_manifest_path": { "type": ["string", "null"] },
+        "signed_manifest_verification": {
+          "type": ["object", "null"],
+          "properties": {
+            "status": { "enum": ["ok", "deny"] },
+            "reason_code": { "type": "string" },
+            "message": { "type": ["string", "null"] },
+            "public_key_fingerprint_sha256": { "type": ["string", "null"] },
+            "payload_sha256": { "type": ["string", "null"] }
+          },
+          "additionalProperties": false
+        },
         "missing_files": {
           "type": "array",
           "items": { "type": "string" }
@@ -63,11 +89,34 @@
         "job_id": { "type": ["string", "null"] },
         "commit": { "type": ["string", "null"] },
         "input_commitment_sha256": { "type": ["string", "null"] },
+        "peer_input_commitment_sha256": { "type": ["string", "null"] },
+        "commitment_pair": {
+          "type": ["object", "null"],
+          "properties": {
+            "local": { "type": ["string", "null"] },
+            "peer": { "type": ["string", "null"] }
+          },
+          "additionalProperties": false
+        },
         "tls_identity": { "type": ["string", "null"] },
+        "peer_tls_identity": { "type": ["string", "null"] },
         "ca_fingerprint_sha256": { "type": ["string", "null"] },
         "result_sha256": { "type": ["string", "null"] },
         "policy_decision": { "type": ["string", "null"] },
+        "public_report_sha256": { "type": ["string", "null"] },
         "audit_chain_sha256": { "type": ["string", "null"] },
+        "signed_manifest_path": { "type": ["string", "null"] },
+        "signed_manifest_verification": {
+          "type": ["object", "null"],
+          "properties": {
+            "status": { "enum": ["ok", "deny"] },
+            "reason_code": { "type": "string" },
+            "message": { "type": ["string", "null"] },
+            "public_key_fingerprint_sha256": { "type": ["string", "null"] },
+            "payload_sha256": { "type": ["string", "null"] }
+          },
+          "additionalProperties": false
+        },
         "missing_files": {
           "type": "array",
           "items": { "type": "string" }
@@ -78,9 +127,11 @@
     "checks": {
       "type": "object",
       "required": [
+        "manifest_signature_valid",
         "job_id_match",
         "commit_match",
         "input_commitment_match",
+        "commitment_exchange_match",
         "tls_identity_match",
         "ca_fingerprint_match",
         "result_hash_match",
@@ -88,9 +139,11 @@
         "audit_chain_match"
       ],
       "properties": {
+        "manifest_signature_valid": { "enum": ["match", "mismatch", "missing"] },
         "job_id_match": { "enum": ["match", "mismatch", "missing"] },
         "commit_match": { "enum": ["match", "mismatch", "missing"] },
         "input_commitment_match": { "enum": ["match", "mismatch", "missing"] },
+        "commitment_exchange_match": { "enum": ["match", "mismatch", "missing"] },
         "tls_identity_match": { "enum": ["match", "mismatch", "missing"] },
         "ca_fingerprint_match": { "enum": ["match", "mismatch", "missing"] },
         "result_hash_match": { "enum": ["match", "mismatch", "missing"] },

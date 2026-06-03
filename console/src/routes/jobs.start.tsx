@@ -3,11 +3,12 @@ import { Link, useNavigate } from "react-router-dom";
 import { ArrowLeft, Play } from "lucide-react";
 
 import { operatorApi } from "@/api/operator";
+import type { Json } from "@/api/types";
 import { useApiMutation } from "@/hooks/useApi";
 import { Button, Card, CardHeader, Field, Input, JsonBlock, PageHeader, Select, Textarea } from "@/components/ui";
 
 const DEFAULT_PAYLOAD = {
-  job_id: `console-${new Date().toISOString().slice(0, 19).replace(/[-:T]/g, "")}`,
+  job_id: `console-${new Date().toISOString().slice(0, 19).replaceAll("-", "").replaceAll(":", "").replace("T", "")}`,
   caller: "console_operator",
   tenant_id: "demo_tenant",
   dataset_id: "demo_dataset",
@@ -38,7 +39,7 @@ export function JobStartRoute() {
         throw new Error("payload 不是合法 JSON");
       }
       setParseError(null);
-      return operatorApi.startJob({ ...parsed, sse_export_handoff_mode: handoffMode } as Record<string, never>);
+      return operatorApi.startJob({ ...parsed, sse_export_handoff_mode: handoffMode } as Record<string, Json>);
     },
     {
       successToast: "作业已提交",

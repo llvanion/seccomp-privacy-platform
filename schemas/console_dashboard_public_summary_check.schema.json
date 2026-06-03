@@ -1,0 +1,39 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "console_dashboard_public_summary_check/v1",
+  "title": "Console dashboard public-summary route check",
+  "type": "object",
+  "required": [
+    "schema",
+    "generated_at_utc",
+    "status",
+    "checked_files",
+    "finding_count",
+    "findings"
+  ],
+  "properties": {
+    "schema": { "const": "console_dashboard_public_summary_check/v1" },
+    "generated_at_utc": { "type": "string" },
+    "status": { "enum": ["ok", "fail"] },
+    "checked_files": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "finding_count": { "type": "integer", "minimum": 0 },
+    "findings": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["path", "message"],
+        "properties": {
+          "path": { "type": "string" },
+          "message": { "type": "string" },
+          "line_no": { "type": "integer", "minimum": 1 },
+          "line": { "type": "string" }
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  "additionalProperties": false
+}

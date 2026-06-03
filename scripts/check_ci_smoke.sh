@@ -23,6 +23,7 @@ python3 -m py_compile \
   scripts/archive_audit_bundle.py \
   scripts/benchmark_bridge.py \
   scripts/benchmark_dashboard_jobs.py \
+  scripts/benchmark_pipeline.py \
   scripts/benchmark_pipeline_slo.py \
   scripts/benchmark_pjc.py \
   scripts/benchmark_smoke.py \
@@ -35,6 +36,8 @@ python3 -m py_compile \
   scripts/check_schema_backcompat.py \
   scripts/check_platform_health.py \
   scripts/check_dependency_hygiene.py \
+  scripts/check_no_network_pickle.py \
+  scripts/check_audit_api_public_redaction.py \
   scripts/check_record_recovery_boundary.py \
   scripts/external_kms_lib.py \
   scripts/external_kms_service.py \
@@ -71,6 +74,7 @@ python3 -m py_compile \
   scripts/serve_audit_query_api.py \
   scripts/serve_identity_proxy.py \
   scripts/serve_metadata_api.py \
+  scripts/check_metadata_api_public_redaction.py \
   scripts/serve_platform_health_api.py \
   scripts/serve_query_workflow_api.py \
   scripts/sync_openfga_tuples.py \
@@ -84,6 +88,17 @@ python3 -m py_compile \
   scripts/benchmark_mtls_overhead.py \
   scripts/render_observability_topology.py \
   scripts/render_ecommerce_fact_layer.py \
+  scripts/validate_ecommerce_fact_import.py \
+  scripts/check_ecommerce_fact_import_validation.py \
+  scripts/import_ecommerce_fact_rows.py \
+  scripts/check_ecommerce_fact_import.py \
+  scripts/check_console_token_storage.py \
+  scripts/check_console_browser_session.py \
+  scripts/check_console_security_headers.py \
+  scripts/check_identity_proxy_auth_smoke.py \
+  scripts/check_console_audit_public_summary.py \
+  scripts/check_console_dashboard_public_summary.py \
+  scripts/check_operator_dashboard_public_summary.py \
   scripts/render_operator_console_manifest.py \
   scripts/run_alert_check_daemon.py \
   scripts/run_chaos_test.py \
@@ -96,6 +111,9 @@ python3 -m py_compile \
   scripts/check_pjc_tls_diagnostic_smoke.py \
   scripts/check_release_policy_gate.py \
   scripts/check_release_policy_gate_smoke.py \
+  scripts/check_business_access_policy.py \
+  scripts/check_business_access_policy_smoke.py \
+  scripts/check_business_access_api_smoke.py \
   scripts/check_spiffe_envoy_templates.py \
   scripts/check_bucketed_scale_test_async_smoke.py \
   scripts/check_metadata_api_rate_limit_smoke.py \
@@ -103,6 +121,10 @@ python3 -m py_compile \
   scripts/check_malformed_input_gate.py \
   scripts/check_pre_release_gate.py \
   scripts/check_privacy_budget.py \
+  scripts/manage_privacy_budget_approval.py \
+  scripts/check_privacy_budget_concurrency.py \
+  scripts/check_privacy_budget_approval_flow.py \
+  scripts/check_privacy_budget_approval_api_smoke.py \
   scripts/check_authority_governance.py \
   scripts/check_operator_readiness.py \
   scripts/api_identity.py \
@@ -124,6 +146,13 @@ fi
 cd "$REPO_ROOT/sse"
 "$SSE_PY" -m py_compile \
   frontend/client/commands.py \
+  frontend/client/services/service.py \
+  frontend/common/wire.py \
+  global_config.py \
+  run_server.py \
+  frontend/server/connector.py \
+  frontend/server/services/comm.py \
+  frontend/server/services/service.py \
   run_client.py \
   toolkit/encrypted_record_store.py \
   toolkit/logger/logger.py \
@@ -144,6 +173,8 @@ bash -n scripts/run_live_sse_bridge_demo.sh
 bash -n scripts/run_sse_bridge_pipeline.sh
 bash -n scripts/verify_pipeline_replay.sh
 bash -n scripts/verify_fifo_handoff_replay.sh
+bash -n scripts/verify_pjc_production_fail_closed.sh
+bash -n scripts/verify_release_policy_gate_pipeline.sh
 
 if command -v cargo >/dev/null 2>&1; then
   bash scripts/check_bridge_rust.sh
@@ -153,9 +184,26 @@ fi
 
 python3 scripts/scan_repo_hygiene.py --fail-on-warn
 python3 scripts/check_dependency_hygiene.py --fail-on-warn
+python3 scripts/check_no_network_pickle.py >/dev/null
+python3 scripts/check_privacy_budget_concurrency.py >/dev/null
+python3 scripts/check_privacy_budget_approval_flow.py >/dev/null
+python3 scripts/check_privacy_budget_approval_api_smoke.py --out-dir tmp/privacy_budget_approval_api_smoke >/dev/null
+python3 scripts/check_pjc_input_commitment.py >/dev/null
 python3 scripts/check_malformed_input_gate.py --out /dev/null
 python3 scripts/check_pre_release_gate.py --out /dev/null
 python3 scripts/check_operator_readiness.py --out /dev/null
+python3 scripts/check_business_access_policy_smoke.py >/dev/null
+python3 scripts/check_business_access_api_smoke.py --out-dir tmp/business_access_api_smoke >/dev/null
+python3 scripts/check_console_token_storage.py >/dev/null
+python3 scripts/check_console_browser_session.py --out tmp/console_browser_session_check.json >/dev/null
+python3 scripts/check_console_security_headers.py --out tmp/console_security_headers_check.json >/dev/null
+python3 scripts/check_identity_proxy_auth_smoke.py --out tmp/identity_proxy_auth_smoke.json >/dev/null
+python3 scripts/check_console_audit_public_summary.py >/dev/null
+python3 scripts/check_console_dashboard_public_summary.py >/dev/null
+python3 scripts/check_ecommerce_fact_import.py --out-dir tmp/ecommerce_fact_import_smoke >/dev/null
+python3 scripts/check_operator_dashboard_public_summary.py --out-dir tmp/operator_dashboard_public_summary >/dev/null
+bash scripts/verify_pjc_production_fail_closed.sh >/dev/null
+bash scripts/verify_release_policy_gate_pipeline.sh >/dev/null
 python3 scripts/check_record_recovery_boundary.py
 python3 scripts/check_schema_backcompat.py
 bash scripts/check_json_contracts.sh

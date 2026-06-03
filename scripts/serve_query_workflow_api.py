@@ -108,6 +108,7 @@ class QueryWorkflowApiHandler(BaseHTTPRequestHandler):
     def _require_auth(self) -> dict[str, Any] | None:
         return resolve_request_identity(
             auth_header=self.headers.get("Authorization", ""),
+            cookie_header=self.headers.get("Cookie", ""),
             expected_bearer_token=self.server.auth_token,
             db_path=self.server.metadata_db_path,
             db_dsn=self.server.metadata_db_dsn,

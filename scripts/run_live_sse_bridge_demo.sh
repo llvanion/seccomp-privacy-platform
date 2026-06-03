@@ -494,6 +494,7 @@ run_pipeline() {
     --server-normalizer email \
     --client-normalizer email \
     --client-value-mode raw-int \
+    --client-value-max 1000000 \
     --server-sse-keyword demo \
     --client-sse-keyword demo \
     --server-record-id-field email_hex \

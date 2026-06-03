@@ -1,0 +1,78 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "catalog_lineage_public_summary/v1",
+  "title": "Caller-safe summary of catalog lineage",
+  "type": "object",
+  "required": [
+    "schema",
+    "generated_at_utc",
+    "job_id",
+    "correlation_id",
+    "caller",
+    "tenant_id",
+    "dataset_id",
+    "service_id",
+    "job",
+    "summary",
+    "mainline_contract",
+    "privacy"
+  ],
+  "properties": {
+    "schema": { "const": "catalog_lineage_public_summary/v1" },
+    "generated_at_utc": { "type": ["string", "null"], "format": "date-time" },
+    "job_id": { "type": ["string", "null"] },
+    "correlation_id": { "type": ["string", "null"] },
+    "caller": { "type": ["string", "null"] },
+    "tenant_id": { "type": ["string", "null"] },
+    "dataset_id": { "type": ["string", "null"] },
+    "service_id": { "type": ["string", "null"] },
+    "job": {
+      "type": "object",
+      "required": ["status", "released", "reason_code", "policy_version"],
+      "properties": {
+        "status": { "type": ["string", "null"] },
+        "released": { "type": ["boolean", "null"] },
+        "reason_code": { "type": ["string", "null"] },
+        "policy_version": { "type": ["string", "null"] }
+      },
+      "additionalProperties": false
+    },
+    "summary": {
+      "type": "object",
+      "required": [
+        "dataset_count",
+        "service_count",
+        "artifact_count",
+        "lineage_edge_count"
+      ],
+      "properties": {
+        "dataset_count": { "type": ["integer", "null"], "minimum": 0 },
+        "service_count": { "type": ["integer", "null"], "minimum": 0 },
+        "artifact_count": { "type": ["integer", "null"], "minimum": 0 },
+        "lineage_edge_count": { "type": ["integer", "null"], "minimum": 0 }
+      },
+      "additionalProperties": false
+    },
+    "mainline_contract": {
+      "type": "object",
+      "required": ["status", "handoff_mode", "plaintext_exposure_risk"],
+      "properties": {
+        "status": { "type": ["string", "null"] },
+        "handoff_mode": { "type": ["string", "null"] },
+        "plaintext_exposure_risk": { "type": ["string", "null"] }
+      },
+      "additionalProperties": false
+    },
+    "privacy": {
+      "type": "object",
+      "required": ["view", "operator_fields_redacted", "paths_included"],
+      "properties": {
+        "view": { "const": "caller_safe_summary" },
+        "operator_fields_redacted": { "const": true },
+        "paths_included": { "const": false }
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false
+}

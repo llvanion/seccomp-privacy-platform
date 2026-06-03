@@ -26,7 +26,11 @@ async def cli():
 @click.option("--port", default=ServerConfig.PORT, help='port to bind', type=int)
 async def start(host, port):
     if host is None or port is None:
-        click.echo(f'Incomplete options')
+        raise click.ClickException('Incomplete options')
+    try:
+        ServerConfig.assert_legacy_pickle_bind_allowed(host)
+    except RuntimeError as exc:
+        raise click.ClickException(str(exc)) from exc
     await frontend.server.connector.run_server(host, port)
 
 

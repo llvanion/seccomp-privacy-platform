@@ -12,6 +12,11 @@ export type Column<T> = {
   width?: string;
 };
 
+const COLUMN_WIDTH_CLASS: Record<string, string> = {
+  "40px": "w-[40px]",
+  "60px": "w-[60px]",
+};
+
 export function DataTable<T>({
   rows,
   columns,
@@ -67,8 +72,7 @@ export function DataTable<T>({
                 return (
                   <th
                     key={col.id}
-                    className={cx(col.thClassName, sortable && "cursor-pointer select-none")}
-                    style={col.width ? { width: col.width } : undefined}
+                    className={cx(col.thClassName, col.width && COLUMN_WIDTH_CLASS[col.width], sortable && "cursor-pointer select-none")}
                     onClick={
                       sortable
                         ? () =>

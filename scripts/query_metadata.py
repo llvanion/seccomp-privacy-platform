@@ -28,6 +28,7 @@ LIST_ENTITY_CHOICES = (
     "privacy-budget-ledger",
     "catalog-lineage-read-model",
     "retention-reconcile-plan",
+    "business-identities",
 )
 
 PLATFORM_ROLE_NAMES = (
@@ -1311,6 +1312,58 @@ def query_entities(
             row["issuer"] = normalize_issuer(row.get("issuer"))
             row["platform_roles"] = decode_json_object(row.pop("platform_roles_json"))
             row["enabled"] = as_bool(row.get("enabled"))
+    elif entity == "business-identities":
+        if not table_exists(conn, "business_identities"):
+            total_matching_count = 0
+            rows = []
+        else:
+            if caller:
+                filters.append("caller_id = ?")
+                params.append(caller)
+            if tenant_id:
+                filters.append("tenant_id = ?")
+                params.append(tenant_id)
+            if dataset_id:
+                filters.append("dataset_id = ?")
+                params.append(dataset_id)
+            if subject_type:
+                filters.append("identity_kind = ?")
+                params.append(subject_type)
+            where = f"WHERE {' AND '.join(filters)}" if filters else ""
+            total_matching_count = int(
+                fetch_scalar(
+                    conn,
+                    f"SELECT COUNT(*) FROM business_identities {where}",
+                    tuple(params),
+                )
+                or 0
+            )
+            rows = fetch_all_dicts(
+                conn,
+                f"""
+                SELECT
+                  id,
+                  business_identity_id,
+                  tenant_id,
+                  dataset_id,
+                  identity_kind,
+                  caller_id,
+                  subject_external_id,
+                  display_label,
+                  enabled,
+                  created_at_utc,
+                  updated_at_utc,
+                  metadata_json
+                FROM business_identities
+                {where}
+                ORDER BY updated_at_utc DESC, id DESC
+                LIMIT ? OFFSET ?
+                """,
+                tuple(params + [limit, offset]),
+            )
+            for row in rows:
+                row["enabled"] = as_bool(row.get("enabled"))
+                row["metadata"] = decode_json_object(row.pop("metadata_json"))
     elif entity == "key-refs":
         if key_name:
             filters.append("kr.key_name = ?")
@@ -1864,6 +1917,7 @@ def validate_list_entity_args(args: argparse.Namespace) -> None:
         "privacy-budget-ledger": {"caller", "tenant_id", "dataset_id", "purpose"},
         "catalog-lineage-read-model": {"caller", "tenant_id", "dataset_id", "service_id"},
         "retention-reconcile-plan": set(),
+        "business-identities": {"caller", "tenant_id", "dataset_id", "subject_type"},
     }
     provided_filters = {
         "caller": args.caller,

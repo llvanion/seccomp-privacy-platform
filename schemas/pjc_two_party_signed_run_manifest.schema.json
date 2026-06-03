@@ -1,0 +1,57 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "pjc_two_party_signed_run_manifest/v1",
+  "title": "PJC two-party signed run manifest",
+  "type": "object",
+  "required": [
+    "schema",
+    "signature_algorithm",
+    "canonicalization",
+    "payload_sha256",
+    "payload",
+    "signature",
+    "public_key_pem",
+    "public_key_fingerprint_sha256"
+  ],
+  "properties": {
+    "schema": { "const": "pjc_two_party_signed_run_manifest/v1" },
+    "signature_algorithm": { "const": "ed25519" },
+    "canonicalization": { "const": "json/sort_keys/separators=comma-colon/utf8" },
+    "payload_sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "payload": {
+      "type": "object",
+      "required": [
+        "job_id",
+        "party",
+        "peer_party",
+        "repo_commit",
+        "input_commitment_sha256",
+        "peer_input_commitment_sha256",
+        "pjc_result_sha256",
+        "policy_decision",
+        "generated_at_utc"
+      ],
+      "properties": {
+        "job_id": { "type": "string", "minLength": 1 },
+        "party": { "enum": ["party_a", "party_b", "server", "client"] },
+        "peer_party": { "enum": ["party_a", "party_b", "server", "client"] },
+        "repo_commit": { "type": "string", "minLength": 1 },
+        "input_commitment_sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+        "peer_input_commitment_sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+        "pjc_result_sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+        "policy_decision": { "type": "string", "minLength": 1 },
+        "public_report_sha256": { "type": ["string", "null"], "pattern": "^[0-9a-f]{64}$" },
+        "audit_chain_sha256": { "type": ["string", "null"], "pattern": "^[0-9a-f]{64}$" },
+        "tls_identity": { "type": ["string", "null"] },
+        "peer_tls_identity": { "type": ["string", "null"] },
+        "ca_fingerprint_sha256": { "type": ["string", "null"], "pattern": "^[0-9a-f]{64}$" },
+        "generated_at_utc": { "type": "string", "format": "date-time" }
+      },
+      "additionalProperties": false
+    },
+    "signature": { "type": "string", "minLength": 1 },
+    "public_key_pem": { "type": "string", "minLength": 1 },
+    "public_key_fingerprint_sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" }
+  },
+  "additionalProperties": false
+}

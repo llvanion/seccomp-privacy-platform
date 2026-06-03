@@ -711,8 +711,10 @@ python3 scripts/export_authz_tuples.py \
 2. `GET /v1/jobs/<job_id>`
 3. `GET /v1/jobs?...`
 4. `GET /v1/entities/<entity>?...`
+5. `POST /v1/business-access/check`
+6. `POST /v1/business-data/read-preview`
 
-它只读 sidecar DB，不反查 SSE、record recovery、bridge、PJC 原始数据。
+它只读 sidecar DB，不反查 SSE、record recovery、bridge、PJC 原始数据。`/v1/business-data/read-preview` 是当前唯一受业务字段级策略保护的事实表读取入口：请求必须带 identity-token 可解析身份，业务角色必须匹配该身份或平台管理员/审计员权限，`business_access_policy/v1` 在 SELECT 前完成 allow/mask/deny 判定，deny 字段返回 HTTP 403，mask 字段不选择原始列值，只返回 mask marker。授权 `scope` 会保留在响应中，但只有安全 allowlist 中的查询键进入 SQL `WHERE`；敏感字段不能作为 filter 使用，以减少存在性查询泄漏。该结果结构由 `business_data_read_preview/v1` 固定，API smoke 报告由 `business_access_api_smoke/v1` 固定。
 
 ## 6. 索引与查询优先级
 

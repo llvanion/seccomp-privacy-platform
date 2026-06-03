@@ -2,6 +2,8 @@
 
 这份文档用于替代“先把 `docs/` 全读一遍”的做法。
 
+> 2026-06-01 更新：如果要判断协议安全、功能完整性、真实攻击防护或当前剩余问题，先读 [CURRENT_SECURITY_AND_COMPLETION_AUDIT.md](CURRENT_SECURITY_AND_COMPLETION_AUDIT.md)；如果要开始补齐任务，读 [REMAINING_WORK_IMPLEMENTATION_BACKLOG.md](REMAINING_WORK_IMPLEMENTATION_BACKLOG.md)。本文件只负责快速建立项目上下文。
+
 目标：
 
 1. 用一份 markdown 说明项目是什么
@@ -64,7 +66,7 @@ SSE candidate export
 6. SQL sidecar 仍然不是完整电商数仓，但 Track-E1 已落 `orders / order_items / order_attribution / order_payment / order_fulfillment / customer_service_interactions` 六张事实表（`migrations/metadata/010_*.sql`，Postgres DDL 同步），当前限制是仍需要 operator 提供真实/脱敏数据导入；详见 [ECOMMERCE_FACT_LAYER_PLAN.md](/home/llvanion/Desktop/seccomp-privacy-platform/docs/ECOMMERCE_FACT_LAYER_PLAN.md)
 7. 面向真实电商订单分析的事实层当前是窄口径基线，不覆盖 customer 360、完整商品/库存/物流轨迹或实时数仓。
 
-剩余估算以 [PLATFORM_LEVEL_REMAINING_ESTIMATE.md](/home/llvanion/Desktop/seccomp-privacy-platform/docs/PLATFORM_LEVEL_REMAINING_ESTIMATE.md) 为准。
+当前剩余问题和生产安全判断以 [CURRENT_SECURITY_AND_COMPLETION_AUDIT.md](CURRENT_SECURITY_AND_COMPLETION_AUDIT.md) 为准；具体实现级任务以 [REMAINING_WORK_IMPLEMENTATION_BACKLOG.md](REMAINING_WORK_IMPLEMENTATION_BACKLOG.md) 为准；历史 block 估算只作为追溯资料保留在 [PLATFORM_LEVEL_REMAINING_ESTIMATE.md](/home/llvanion/Desktop/seccomp-privacy-platform/docs/PLATFORM_LEVEL_REMAINING_ESTIMATE.md)。
 
 平台基线之后的继续推进顺序以 [POST_BASELINE_ROADMAP.md](/home/llvanion/Desktop/seccomp-privacy-platform/docs/POST_BASELINE_ROADMAP.md) 为准。
 

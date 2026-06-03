@@ -12,10 +12,10 @@ LIB-SSE CODE
 """
 
 import asyncio
-import pickle
 
 import websockets
 
+from frontend.common.wire import loads_message
 from frontend.constants import KEY_SID, KEY_TYPE, TYPE_INIT
 from frontend.server.services.services_manager import ServicesManager
 from global_config import ServerConfig
@@ -29,15 +29,16 @@ async def handler(websocket, path):
 
     """
     message = await websocket.recv()
-    event = pickle.loads(message)
-    assert KEY_SID in event and KEY_TYPE in event
-    assert event[KEY_TYPE] == TYPE_INIT
+    event = loads_message(message)
+    if event.get(KEY_TYPE) != TYPE_INIT or KEY_SID not in event:
+        raise ValueError("invalid init message")
     sid = event[KEY_SID]
 
     await _sse_service_manager.create_service(sid, websocket)
 
 
 async def run_server(host, port):
+    ServerConfig.assert_legacy_pickle_bind_allowed(host)
     async with websockets.serve(handler, host, port, max_size=None):
         await asyncio.Future()  # run forever
 

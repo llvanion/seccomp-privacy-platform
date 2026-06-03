@@ -17,9 +17,11 @@ This document defines the scope so an engineer (or a downstream product team) ca
 | Section | Purpose | Backing endpoint(s) | Role gate |
 |---------|---------|---------------------|-----------|
 | **Home / Health** | Per-tenant platform-health snapshot, alert stripe. | `serve_platform_health_api.py` `GET /v1/platform-health`; `services/record_recovery/http_service.py` `GET /metrics` | All authenticated operators |
-| **Jobs** | Submit a privacy query (cross_party_match), monitor running jobs, drill into a finished job's audit chain. | `serve_query_workflow_api.py` `POST /v1/query-workflow`; `serve_operator_dashboard.py` `POST /v1/jobs/start`, `GET /v1/dashboard`, `GET /v1/jobs/{job_id}`; `serve_audit_query_api.py` `GET /v1/audit-chain` | `query_submitter` to submit; everyone else read-only |
+| **Jobs** | Submit a privacy query (cross_party_match), monitor running jobs, drill into a finished job's audit chain. | `serve_query_workflow_api.py` `POST /v1/query-workflow`; `serve_operator_dashboard.py` `POST /v1/jobs/start`, `GET /v1/dashboard`, `GET /v1/jobs/{job_id}`; `serve_audit_query_api.py` `GET /v1/audit-chain` | `query_submitter` submits through request/workflow APIs; direct dashboard job start, run switching, job detail, and exact result reads are privileged operator/auditor paths when dashboard auth is configured |
 | **Requests** | Submit tenant-facing privacy query requests into the pending approval queue, review pending submissions, approve or reject. | `serve_operator_dashboard.py` `POST /v1/request/submit`, `GET /v1/requests`, `GET /v1/requests/{submission_id}`, `POST /v1/request/{submission_id}/approve`, `POST /v1/request/{submission_id}/reject` | `query_submitter` to submit; `privacy_operator` / `platform_admin` to approve; `privacy_operator` / `platform_admin` / `compliance_auditor` to reject |
+| **Privacy Budget Approvals** | Review near-duplicate privacy-budget approval requests and approve, reject, or expire them with decision evidence. | `serve_operator_dashboard.py` `GET /v1/privacy-budget/approvals`, `POST /v1/privacy-budget/approval/{request_id}/{approve|reject|expire}` | `privacy_operator` / `platform_admin` to approve; `privacy_operator` / `platform_admin` / `compliance_auditor` to reject or expire; `platform_auditor` read-only |
 | **Audit & Public Reports** | Browse public reports; verify a sealed audit bundle; spot-check tamper resistance. | `serve_audit_query_api.py` `GET /v1/public-report`, `GET /v1/audit-chain`, `GET /v1/observability`, `GET /v1/catalog-lineage`; CLI `verify_audit_bundle.py`, `verify_audit_tamper_resistance.py` | `compliance_auditor` for full-detail; others see redacted |
+| **PJC Two-Party Evidence** | Run preflight, sign Party A/B run manifests, merge evidence, and run required negative cases before release. | `serve_operator_dashboard.py` `POST /v1/pjc-mtls/preflight`, `POST /v1/pjc/run-manifest/sign`, `POST /v1/pjc/evidence/verify-merge`, `POST /v1/pjc-mtls/negative-cases/run`, `POST /v1/release/policy-gate` | `privacy_operator` / `platform_admin`; `compliance_auditor` read-only for evidence |
 | **Catalog & Lineage** | Browse `catalog_lineage/v1` per job; explore the dataset/service registry. | `serve_audit_query_api.py` `GET /v1/catalog-lineage`; `serve_metadata_api.py` `GET /v1/jobs`, `GET /v1/policies`, `GET /v1/services`, `GET /v1/business-identities` | All authenticated operators |
 | **Permissions** | View `caller_permissions`, `policy_bindings`, business identities; trigger `apply-registry` proposals. | `serve_metadata_api.py` `GET /v1/caller-permissions`, `GET /v1/policy-bindings`, `GET /v1/business-identities`; `manage_metadata_db.py` `apply-registry` | `commerce_ops_owner` and `compliance_auditor` |
 | **Recovery Service** | Health, lifecycle, mTLS state, rate-limit metrics. | `services/record_recovery/http_service.py` `GET /health`, `GET /metrics`; `manage_record_recovery_service.py` `start`/`status`/`stop`/`render-systemd` | `recovery_service_operator` |
@@ -56,6 +58,23 @@ The console reads `api_identity_resolution/v1` for the current bearer token to d
 | `recovery_service_operator` | Home, Recovery, Observability |
 
 `can_release` is enforced by the existing pipeline gate; the console mirrors it by hiding the "release" button on jobs the caller cannot release.
+
+Browser token handling status (2026-06-02 v2): the SPA settings page persists
+only sidecar base URLs in `localStorage`. Same-origin deployments can use
+`POST /v1/session/login` on `serve_operator_dashboard.py` to exchange an
+identity token for the HttpOnly/SameSite `seccomp_identity_session` cookie;
+`console/src/api/client.ts` sends `credentials: "same-origin"`, and the settings
+page clears the fallback operator token after session login. Bearer tokens
+remain session-only fallback for cross-origin sidecars or local debugging.
+`serve_operator_dashboard.py` also emits CSP/security headers for JSON and SPA
+responses: same-origin script/connect sources, no script inline/eval, no object
+embedding, no framing, no-sniff, no-referrer, permissions denial, and HSTS when
+`--session-cookie-secure` is enabled. `scripts/check_console_token_storage.py`,
+`scripts/check_console_browser_session.py`,
+`scripts/check_console_security_headers.py`, and
+`scripts/check_identity_proxy_auth_smoke.py` block regressions. Production still
+needs HTTPS with `--session-cookie-secure`, deployed OIDC/reverse-proxy
+evidence, reproducible CI/release, and dependency audit gates.
 
 ## 5. Workflow Story
 
@@ -172,7 +191,16 @@ Every state transition now:
 
 ### 10.5 Console Manifest Hook (Phase-2)
 
-I3-a added the `requests` section to `console_manifest/v1` and the `approval_workflow` feature flag. I3-b expanded that section with submit/list/detail/approve/reject endpoints. The schema (`schemas/console_manifest.schema.json`) already permits arbitrary additional sections, and the contract smoke expected-section set now includes `requests`, so the manifest and smoke are aligned.
+I3-a added the `requests` section to `console_manifest/v1` and the `approval_workflow` feature flag. I3-b expanded that section with submit/list/detail/approve/reject endpoints. On 2026-06-01, the manifest also gained `privacy_budget_approvals` plus `privacy_budget_approval_workflow`, backed by the operator dashboard privacy-budget approval API. The schema (`schemas/console_manifest.schema.json`) already permits arbitrary additional sections, and the contract smoke expected-section set now includes both `requests` and `privacy_budget_approvals`, so the manifest and smoke are aligned.
+
+On 2026-06-02, the SPA's home/jobs routes gained explicit
+`operator_dashboard_public_summary/v1` handling. Normal identity callers see
+only coarse dashboard status, stage status, health, and artifact counts; full
+job arrays, `audit_center`, exact job result, run switching, relaunch, and
+direct dashboard job start remain privileged when dashboard auth is configured.
+The backend negative cases live in
+`scripts/check_operator_dashboard_public_summary.py`; the route-level static
+gate is `scripts/check_console_dashboard_public_summary.py`.
 
 ## 11. Admin Surfaces (Admin-as-Product)
 

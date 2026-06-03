@@ -56,13 +56,18 @@ SCHEMAS=(
   "$REPO_ROOT/schemas/sse_encrypted_record_store.schema.json"
   "$REPO_ROOT/schemas/bridge_job_meta.schema.json"
   "$REPO_ROOT/schemas/bridge_audit.schema.json"
+  "$REPO_ROOT/schemas/pjc_input_commitment.schema.json"
   "$REPO_ROOT/schemas/pjc_audit.schema.json"
   "$REPO_ROOT/schemas/public_report.schema.json"
   "$REPO_ROOT/schemas/policy_audit.schema.json"
   "$REPO_ROOT/schemas/privacy_budget_ledger.schema.json"
   "$REPO_ROOT/schemas/privacy_budget_approval_request.schema.json"
+  "$REPO_ROOT/schemas/privacy_budget_approval_decision.schema.json"
+  "$REPO_ROOT/schemas/privacy_budget_approval_list.schema.json"
+  "$REPO_ROOT/schemas/privacy_budget_approval_transition.schema.json"
   "$REPO_ROOT/schemas/privacy_budget_check_report.schema.json"
   "$REPO_ROOT/schemas/audit_chain.schema.json"
+  "$REPO_ROOT/schemas/audit_chain_public_summary.schema.json"
   "$REPO_ROOT/schemas/audit_archive_index.schema.json"
   "$REPO_ROOT/schemas/audit_archive_anchor.schema.json"
   "$REPO_ROOT/schemas/external_audit_anchor_report.schema.json"
@@ -72,8 +77,23 @@ SCHEMAS=(
   "$REPO_ROOT/schemas/recovery_mtls_benchmark.schema.json"
   "$REPO_ROOT/schemas/observability_topology_report.schema.json"
   "$REPO_ROOT/schemas/ecommerce_fact_layer_report.schema.json"
+  "$REPO_ROOT/schemas/ecommerce_fact_import_validation.schema.json"
+  "$REPO_ROOT/schemas/ecommerce_fact_import_validation_smoke.schema.json"
+  "$REPO_ROOT/schemas/ecommerce_fact_import_result.schema.json"
+  "$REPO_ROOT/schemas/ecommerce_fact_import_smoke.schema.json"
+  "$REPO_ROOT/schemas/business_access_policy.schema.json"
+  "$REPO_ROOT/schemas/business_access_check_report.schema.json"
+  "$REPO_ROOT/schemas/business_data_read_preview.schema.json"
+  "$REPO_ROOT/schemas/business_access_api_smoke.schema.json"
+  "$REPO_ROOT/schemas/console_token_storage_check.schema.json"
+  "$REPO_ROOT/schemas/console_browser_session_check.schema.json"
+  "$REPO_ROOT/schemas/console_security_headers_check.schema.json"
+  "$REPO_ROOT/schemas/console_audit_public_summary_check.schema.json"
+  "$REPO_ROOT/schemas/console_dashboard_public_summary_check.schema.json"
   "$REPO_ROOT/schemas/console_manifest.schema.json"
   "$REPO_ROOT/schemas/operator_console_manifest_report.schema.json"
+  "$REPO_ROOT/schemas/operator_dashboard_public_summary.schema.json"
+  "$REPO_ROOT/schemas/operator_dashboard_public_summary_smoke.schema.json"
   "$REPO_ROOT/schemas/alert_daemon_heartbeat.schema.json"
   "$REPO_ROOT/schemas/key_manifest.schema.json"
   "$REPO_ROOT/schemas/keyring.schema.json"
@@ -82,12 +102,15 @@ SCHEMAS=(
   "$REPO_ROOT/schemas/external_kms_config.schema.json"
   "$REPO_ROOT/schemas/api_identity_token_map.schema.json"
   "$REPO_ROOT/schemas/api_identity_resolution.schema.json"
+  "$REPO_ROOT/schemas/identity_proxy_auth_smoke.schema.json"
   "$REPO_ROOT/schemas/key_access_audit.schema.json"
   "$REPO_ROOT/schemas/key_lifecycle_audit.schema.json"
   "$REPO_ROOT/schemas/audit_seal.schema.json"
   "$REPO_ROOT/schemas/mainline_contract_check.schema.json"
   "$REPO_ROOT/schemas/pipeline_observability.schema.json"
+  "$REPO_ROOT/schemas/pipeline_observability_public_summary.schema.json"
   "$REPO_ROOT/schemas/catalog_lineage.schema.json"
+  "$REPO_ROOT/schemas/catalog_lineage_public_summary.schema.json"
   "$REPO_ROOT/schemas/schema_backcompat_check.schema.json"
   "$REPO_ROOT/schemas/query_workflow_benchmark.schema.json"
   "$REPO_ROOT/schemas/read_adapter_benchmark.schema.json"
@@ -106,6 +129,7 @@ SCHEMAS=(
   "$REPO_ROOT/schemas/metadata_api_health.schema.json"
   "$REPO_ROOT/schemas/metadata_api_response.schema.json"
   "$REPO_ROOT/schemas/metadata_api_error.schema.json"
+  "$REPO_ROOT/schemas/metadata_api_public_redaction_check.schema.json"
   "$REPO_ROOT/schemas/metadata_schema_portability.schema.json"
   "$REPO_ROOT/schemas/postgres_ddl_export.schema.json"
   "$REPO_ROOT/schemas/metadata_import_report.schema.json"
@@ -169,6 +193,7 @@ SCHEMAS=(
   "$REPO_ROOT/schemas/pjc_two_party_preflight.schema.json"
   "$REPO_ROOT/schemas/pjc_role_package.schema.json"
   "$REPO_ROOT/schemas/pjc_role_status.schema.json"
+  "$REPO_ROOT/schemas/pjc_two_party_signed_run_manifest.schema.json"
   "$REPO_ROOT/schemas/pjc_two_party_evidence_merge.schema.json"
   "$REPO_ROOT/schemas/pjc_two_party_negative_cases.schema.json"
   "$REPO_ROOT/schemas/pjc_tls_diagnostic.schema.json"
@@ -188,6 +213,9 @@ python3 "$VALIDATOR" \
 python3 "$VALIDATOR" \
   --schema "$REPO_ROOT/schemas/sse_export_policy.schema.json" \
   --json "$REPO_ROOT/sse/config/ecommerce_access_policy.example.json"
+python3 "$VALIDATOR" \
+  --schema "$REPO_ROOT/schemas/business_access_policy.schema.json" \
+  --json "$REPO_ROOT/config/business_access_policy.ecommerce.example.json"
 python3 "$VALIDATOR" \
   --schema "$REPO_ROOT/schemas/key_manifest.schema.json" \
   --json "$REPO_ROOT/config/key_manifest.example.json"
@@ -222,6 +250,12 @@ python3 "$VALIDATOR" \
   --schema "$REPO_ROOT/schemas/record_recovery_authz_source.schema.json" \
   --json "$REPO_ROOT/config/record_recovery_authz_sqlite.example.json"
 python3 "$VALIDATOR" \
+  --schema "$REPO_ROOT/schemas/release_policy_gate_config.schema.json" \
+  --json "$REPO_ROOT/config/release_policy_gate.example.json"
+python3 "$VALIDATOR" \
+  --schema "$REPO_ROOT/schemas/release_policy_gate_config.schema.json" \
+  --json "$REPO_ROOT/config/release_policy_gate.local-contract.example.json"
+python3 "$VALIDATOR" \
   --schema "$REPO_ROOT/schemas/query_workflow_request.schema.json" \
   --json "$REPO_ROOT/docs/examples/query_request.json"
 python3 "$VALIDATOR" \
@@ -238,6 +272,64 @@ cleanup() {
   rm -rf "$tmp"
 }
 trap cleanup EXIT
+
+python3 "$REPO_ROOT/scripts/check_business_access_policy.py" \
+  --policy "$REPO_ROOT/config/business_access_policy.ecommerce.example.json" \
+  --role merchant_staff \
+  --entity orders \
+  --field orders.order_id \
+  --field order_fulfillment.delivery_address \
+  --purpose merchant_order_ops \
+  --relationship merchant_of_order \
+  --scope tenant_id=commerce_tenant \
+  --output "$tmp/business_access_merchant.json" \
+  --assert-decision deny > /dev/null
+python3 "$VALIDATOR" \
+  --schema "$REPO_ROOT/schemas/business_access_check_report.schema.json" \
+  --json "$tmp/business_access_merchant.json"
+python3 "$REPO_ROOT/scripts/check_business_access_policy_smoke.py" \
+  --output "$tmp/business_access_policy_smoke.json" > /dev/null
+python3 "$REPO_ROOT/scripts/check_business_access_api_smoke.py" \
+  --out-dir "$tmp/business_access_api_smoke" > /dev/null
+python3 "$VALIDATOR" \
+  --schema "$REPO_ROOT/schemas/business_access_api_smoke.schema.json" \
+  --json "$tmp/business_access_api_smoke/business_access_api_smoke.json"
+python3 "$VALIDATOR" \
+  --schema "$REPO_ROOT/schemas/business_data_read_preview.schema.json" \
+  --json "$tmp/business_access_api_smoke/business_read_preview_allow.json"
+python3 "$VALIDATOR" \
+  --schema "$REPO_ROOT/schemas/business_data_read_preview.schema.json" \
+  --json "$tmp/business_access_api_smoke/business_read_preview_masked.json"
+python3 "$REPO_ROOT/scripts/check_console_token_storage.py" \
+  > "$tmp/console_token_storage_check.json"
+python3 "$VALIDATOR" \
+  --schema "$REPO_ROOT/schemas/console_token_storage_check.schema.json" \
+  --json "$tmp/console_token_storage_check.json"
+python3 "$REPO_ROOT/scripts/check_console_browser_session.py" \
+  --out "$tmp/console_browser_session_check.json" > /dev/null
+python3 "$VALIDATOR" \
+  --schema "$REPO_ROOT/schemas/console_browser_session_check.schema.json" \
+  --json "$tmp/console_browser_session_check.json"
+python3 "$REPO_ROOT/scripts/check_console_security_headers.py" \
+  --out "$tmp/console_security_headers_check.json" > /dev/null
+python3 "$VALIDATOR" \
+  --schema "$REPO_ROOT/schemas/console_security_headers_check.schema.json" \
+  --json "$tmp/console_security_headers_check.json"
+python3 "$REPO_ROOT/scripts/check_identity_proxy_auth_smoke.py" \
+  --out "$tmp/identity_proxy_auth_smoke.json" > /dev/null
+python3 "$VALIDATOR" \
+  --schema "$REPO_ROOT/schemas/identity_proxy_auth_smoke.schema.json" \
+  --json "$tmp/identity_proxy_auth_smoke.json"
+python3 "$REPO_ROOT/scripts/check_console_audit_public_summary.py" \
+  > "$tmp/console_audit_public_summary_check.json"
+python3 "$VALIDATOR" \
+  --schema "$REPO_ROOT/schemas/console_audit_public_summary_check.schema.json" \
+  --json "$tmp/console_audit_public_summary_check.json"
+python3 "$REPO_ROOT/scripts/check_console_dashboard_public_summary.py" \
+  > "$tmp/console_dashboard_public_summary_check.json"
+python3 "$VALIDATOR" \
+  --schema "$REPO_ROOT/schemas/console_dashboard_public_summary_check.schema.json" \
+  --json "$tmp/console_dashboard_public_summary_check.json"
 
 python3 "$REPO_ROOT/scripts/request_oidc_client_credentials.py" \
   --token-endpoint "http://127.0.0.1:8080/realms/seccomp-privacy/protocol/openid-connect/token" \
@@ -843,6 +935,28 @@ python3 "$VALIDATOR" --schema "$REPO_ROOT/schemas/public_report.schema.json" --j
 python3 "$VALIDATOR" --schema "$REPO_ROOT/schemas/policy_audit.schema.json" --jsonl "$tmp/privacy_budget_policy_audit.jsonl"
 python3 "$VALIDATOR" --schema "$REPO_ROOT/schemas/privacy_budget_ledger.schema.json" --jsonl "$tmp/privacy_budget_ledger.jsonl"
 python3 "$VALIDATOR" --schema "$REPO_ROOT/schemas/privacy_budget_approval_request.schema.json" --jsonl "$tmp/privacy_budget_approval_queue.jsonl"
+python3 "$REPO_ROOT/scripts/manage_privacy_budget_approval.py" \
+  --store "$tmp/privacy_budget_ledger.jsonl.sqlite" \
+  --approval-queue "$tmp/privacy_budget_approval_queue.jsonl" \
+  --decisions "$tmp/privacy_budget_approval_decisions.jsonl" \
+  --request-id "$(python3 -c 'import json, sys; print(json.loads(open(sys.argv[1], "r", encoding="utf-8").readline())["request_id"])' "$tmp/privacy_budget_approval_queue.jsonl")" \
+  --actor "privacy_operator" \
+  --reason "contract approval review" \
+  approve \
+  > "$tmp/privacy_budget_approval_decision.json"
+python3 "$VALIDATOR" --schema "$REPO_ROOT/schemas/privacy_budget_approval_decision.schema.json" --json "$tmp/privacy_budget_approval_decision.json"
+python3 "$VALIDATOR" --schema "$REPO_ROOT/schemas/privacy_budget_approval_decision.schema.json" --jsonl "$tmp/privacy_budget_approval_decisions.jsonl"
+python3 "$REPO_ROOT/scripts/check_privacy_budget_approval_api_smoke.py" \
+  --out-dir "$tmp/privacy_budget_approval_api_smoke" > /dev/null
+python3 "$VALIDATOR" \
+  --schema "$REPO_ROOT/schemas/privacy_budget_approval_list.schema.json" \
+  --json "$tmp/privacy_budget_approval_api_smoke/privacy_budget_approval_list.json"
+python3 "$VALIDATOR" \
+  --schema "$REPO_ROOT/schemas/privacy_budget_approval_transition.schema.json" \
+  --json "$tmp/privacy_budget_approval_api_smoke/privacy_budget_approval_transition.json"
+python3 "$VALIDATOR" \
+  --schema "$REPO_ROOT/schemas/privacy_budget_approval_decision.schema.json" \
+  --jsonl "$tmp/privacy_budget_approval_api_smoke/approval_decisions.jsonl"
 python3 "$REPO_ROOT/scripts/check_privacy_budget.py" \
   --ledger "$tmp/privacy_budget_ledger.jsonl" \
   --expect-consumed-min 1 \
@@ -1170,6 +1284,37 @@ python3 "$VALIDATOR" \
   --schema "$REPO_ROOT/schemas/ecommerce_fact_layer_report.schema.json" \
   --json "$tmp/ecommerce_fact_layer_report.json"
 python3 -c 'import json,sys; p=json.load(open(sys.argv[1])); s=p["summary"]; assert s["status"]=="ok", p; expected={"orders","order_items","order_attribution","order_payment","order_fulfillment","customer_service_interactions"}; assert expected.issubset(set(s["tables_present"])), p; assert not s["tables_missing"], p; assert s["table_count"] >= 6, p; assert s["total_index_count"] >= 12, p' "$tmp/ecommerce_fact_layer_report.json"
+python3 "$REPO_ROOT/scripts/check_ecommerce_fact_import_validation.py" \
+  --out-dir "$tmp/ecommerce_fact_import_validation" > /dev/null
+python3 "$VALIDATOR" \
+  --schema "$REPO_ROOT/schemas/ecommerce_fact_import_validation_smoke.schema.json" \
+  --json "$tmp/ecommerce_fact_import_validation/ecommerce_fact_import_validation_smoke.json"
+python3 "$VALIDATOR" \
+  --schema "$REPO_ROOT/schemas/ecommerce_fact_import_validation.schema.json" \
+  --json "$tmp/ecommerce_fact_import_validation/orders_good_report.json"
+python3 "$VALIDATOR" \
+  --schema "$REPO_ROOT/schemas/ecommerce_fact_import_validation.schema.json" \
+  --json "$tmp/ecommerce_fact_import_validation/orders_address_report.json"
+python3 "$VALIDATOR" \
+  --schema "$REPO_ROOT/schemas/ecommerce_fact_import_validation.schema.json" \
+  --json "$tmp/ecommerce_fact_import_validation/orders_negative_value_report.json"
+python3 "$VALIDATOR" \
+  --schema "$REPO_ROOT/schemas/ecommerce_fact_import_validation.schema.json" \
+  --json "$tmp/ecommerce_fact_import_validation/support_transcript_report.json"
+python3 "$REPO_ROOT/scripts/check_ecommerce_fact_import.py" \
+  --out-dir "$tmp/ecommerce_fact_import" > /dev/null
+python3 "$VALIDATOR" \
+  --schema "$REPO_ROOT/schemas/ecommerce_fact_import_smoke.schema.json" \
+  --json "$tmp/ecommerce_fact_import/ecommerce_fact_import_smoke.json"
+python3 "$VALIDATOR" \
+  --schema "$REPO_ROOT/schemas/ecommerce_fact_import_result.schema.json" \
+  --json "$tmp/ecommerce_fact_import/orders_allow_import.json"
+python3 "$VALIDATOR" \
+  --schema "$REPO_ROOT/schemas/ecommerce_fact_import_result.schema.json" \
+  --json "$tmp/ecommerce_fact_import/orders_sensitive_reject_import.json"
+python3 "$VALIDATOR" \
+  --schema "$REPO_ROOT/schemas/ecommerce_fact_import_result.schema.json" \
+  --json "$tmp/ecommerce_fact_import/orders_duplicate_rollback_import.json"
 python3 "$VALIDATOR" \
   --schema "$REPO_ROOT/schemas/console_manifest.schema.json" \
   --json "$REPO_ROOT/config/operator_console/console_manifest.json"
@@ -1178,7 +1323,15 @@ python3 "$REPO_ROOT/scripts/render_operator_console_manifest.py" \
 python3 "$VALIDATOR" \
   --schema "$REPO_ROOT/schemas/operator_console_manifest_report.schema.json" \
   --json "$tmp/operator_console_manifest_report.json"
-python3 -c 'import json,sys; p=json.load(open(sys.argv[1])); s=p["summary"]; assert s["status"]=="ok", p; expected={"home","jobs","requests","audit","catalog","permissions","recovery","observability","compliance"}; assert expected.issubset(set(s["sections_present"])), p; assert not s["sections_missing"], p; assert s["section_count"] >= 9, p; assert s["endpoints_total"] >= 9, p; assert s["static_index_references_manifest"] is True, p; assert {"commerce_ops_owner","compliance_auditor","recovery_service_operator"}.issubset(set(s["roles_referenced"])), p' "$tmp/operator_console_manifest_report.json"
+python3 -c 'import json,sys; p=json.load(open(sys.argv[1])); s=p["summary"]; assert s["status"]=="ok", p; expected={"home","jobs","requests","audit","catalog","permissions","recovery","observability","compliance"}; assert expected.issubset(set(s["sections_present"])), p; assert not s["sections_missing"], p; assert s["section_count"] >= 9, p; assert s["endpoints_total"] >= 9, p; assert s["static_index_references_manifest"] is True, p; assert {"commerce_ops_owner","compliance_auditor","recovery_service_operator","privacy_operator","platform_auditor"}.issubset(set(s["roles_referenced"])), p; er=s["endpoint_roles"]; assert er["GET /v1/dashboard"]=="any_authenticated_public_summary", er; assert er["POST /v1/jobs/start"]=="privacy_operator", er; assert er["GET /v1/jobs/{job_id}"]=="platform_auditor", er; assert er["GET /v1/jobs/{job_id}/result"]=="platform_auditor", er; assert er["POST /v1/jobs/{job_id}/relaunch"]=="privacy_operator", er' "$tmp/operator_console_manifest_report.json"
+python3 "$REPO_ROOT/scripts/check_operator_dashboard_public_summary.py" \
+  --out-dir "$tmp/operator_dashboard_public_summary" > /dev/null
+python3 "$VALIDATOR" \
+  --schema "$REPO_ROOT/schemas/operator_dashboard_public_summary_smoke.schema.json" \
+  --json "$tmp/operator_dashboard_public_summary/operator_dashboard_public_summary_smoke.json"
+python3 "$VALIDATOR" \
+  --schema "$REPO_ROOT/schemas/operator_dashboard_public_summary.schema.json" \
+  --json "$tmp/operator_dashboard_public_summary/operator_dashboard_public_summary.json"
 python3 "$REPO_ROOT/scripts/check_operator_request_submission_smoke.py" \
   --output "$tmp/operator_request_submission.json" > /dev/null
 python3 "$VALIDATOR" \
@@ -2226,15 +2379,20 @@ python3 "$REPO_ROOT/scripts/submit_query_workflow.py" \
 python3 -c 'import json, sys
 p=json.load(open(sys.argv[1], "r", encoding="utf-8"))
 cmd=p["command"]
-required=["--privacy-budget-required","--privacy-budget-config","--privacy-budget-ledger","--privacy-budget-approval-queue","--privacy-budget-purpose","--privacy-budget-limit","--privacy-budget-cost","--tenant-id","--dataset-id"]
+required=["--privacy-budget-required","--privacy-budget-config","--privacy-budget-ledger","--privacy-budget-approval-queue","--privacy-budget-purpose","--privacy-budget-limit","--privacy-budget-cost","--release-policy-gate-config","--require-dp","--dp-epsilon","--dp-sensitivity","--public-report-redact-operator-fields","--operator-report-path","--tenant-id","--dataset-id","--pjc-resource-limits"]
 missing=[flag for flag in required if flag not in cmd]
 assert not missing, (missing, cmd)
 assert cmd[cmd.index("--privacy-budget-approval-queue")+1].endswith("query_workflow_privacy_budget_approval_queue.jsonl"), cmd
 assert cmd[cmd.index("--privacy-budget-purpose")+1] == "campaign_measurement", cmd
 assert cmd[cmd.index("--privacy-budget-limit")+1] == "3", cmd
 assert cmd[cmd.index("--privacy-budget-cost")+1] == "1.0", cmd
+assert cmd[cmd.index("--release-policy-gate-config")+1].endswith("config/release_policy_gate.local-contract.example.json"), cmd
+assert cmd[cmd.index("--dp-epsilon")+1] == "1.0", cmd
+assert cmd[cmd.index("--dp-sensitivity")+1] == "500", cmd
+assert cmd[cmd.index("--operator-report-path")+1].endswith("query_workflow_out_privacy_budget/a_psi_run/operator_report.json"), cmd
 assert cmd[cmd.index("--tenant-id")+1] == "demo_tenant", cmd
-assert cmd[cmd.index("--dataset-id")+1] == "bridge_demo_dataset", cmd' \
+assert cmd[cmd.index("--dataset-id")+1] == "bridge_demo_dataset", cmd
+assert cmd[cmd.index("--pjc-resource-limits")+1].endswith("config/pjc_resource_limits.example.json"), cmd' \
   "$tmp/query_workflow_privacy_budget_stdout.json"
 if python3 "$REPO_ROOT/scripts/submit_query_workflow.py" \
   --request-file "$tmp/query_requests/cross_party_match_privacy_budget_missing_config.json" \
@@ -2507,10 +2665,10 @@ python3 "$REPO_ROOT/scripts/resolve_api_identity.py" \
   > "$tmp/api_identity_resolution_subject.json"
 identity_metadata_api_port="$(python3 "$RUNTIME_SERVICE_HELPERS" available-port)"
 python3 "$REPO_ROOT/scripts/serve_metadata_api.py" \
-  --db-path "$tmp/platform_registry.db" \
+  --db-path "$tmp/platform_metadata.db" \
   --bind-host 127.0.0.1 \
   --port "$identity_metadata_api_port" \
-  --identity-token-config "$REPO_ROOT/config/api_identity_tokens.example.json" \
+  --identity-token-config "$tmp/contract_identity_tokens.json" \
   > "$tmp/identity_metadata_api.log" 2>&1 &
 identity_metadata_api_pid=$!
 python3 "$RUNTIME_SERVICE_HELPERS" wait-json-health \
@@ -2745,6 +2903,28 @@ python3 "$VALIDATOR" \
 python3 "$VALIDATOR" \
   --schema "$REPO_ROOT/schemas/metadata_api_response.schema.json" \
   --json "$tmp/metadata_api_identity.json"
+python3 "$VALIDATOR" \
+  --schema "$REPO_ROOT/schemas/metadata_api_response.schema.json" \
+  --json "$tmp/metadata_api_identity_jobs.json"
+python3 "$VALIDATOR" \
+  --schema "$REPO_ROOT/schemas/metadata_api_response.schema.json" \
+  --json "$tmp/metadata_api_identity_job.json"
+python3 "$VALIDATOR" \
+  --schema "$REPO_ROOT/schemas/metadata_api_response.schema.json" \
+  --json "$tmp/metadata_api_identity_permissions.json"
+python3 "$VALIDATOR" \
+  --schema "$REPO_ROOT/schemas/metadata_api_response.schema.json" \
+  --json "$tmp/metadata_api_identity_policy_bindings.json"
+python3 "$REPO_ROOT/scripts/check_metadata_api_public_redaction.py" \
+  "$tmp/metadata_api_identity_jobs.json" \
+  "$tmp/metadata_api_identity_job.json" \
+  "$tmp/metadata_api_identity_permissions.json" \
+  "$tmp/metadata_api_identity_policy_bindings.json" \
+  --output "$tmp/metadata_api_public_redaction_check.json" \
+  >/dev/null
+python3 "$VALIDATOR" \
+  --schema "$REPO_ROOT/schemas/metadata_api_public_redaction_check.schema.json" \
+  --json "$tmp/metadata_api_public_redaction_check.json"
 python3 "$VALIDATOR" \
   --schema "$REPO_ROOT/schemas/metadata_api_response.schema.json" \
   --json "$tmp/metadata_api_identity_jwks.json"
@@ -3084,6 +3264,34 @@ python3 "$VALIDATOR" \
 python3 "$VALIDATOR" \
   --schema "$REPO_ROOT/schemas/audit_query_api_response.schema.json" \
   --json "$tmp/audit_query_api_identity_public_report.json"
+python3 -c 'import json, sys; payload=json.load(open(sys.argv[1], "r", encoding="utf-8")); json.dump(payload["result"], open(sys.argv[2], "w", encoding="utf-8"), ensure_ascii=False, indent=2)' "$tmp/audit_query_api_identity_audit_chain.json" "$tmp/audit_chain_public_summary.json"
+python3 "$VALIDATOR" \
+  --schema "$REPO_ROOT/schemas/audit_query_api_response.schema.json" \
+  --json "$tmp/audit_query_api_identity_audit_chain.json"
+python3 "$VALIDATOR" \
+  --schema "$REPO_ROOT/schemas/audit_chain_public_summary.schema.json" \
+  --json "$tmp/audit_chain_public_summary.json"
+python3 -c 'import json, sys; payload=json.load(open(sys.argv[1], "r", encoding="utf-8")); json.dump(payload["result"], open(sys.argv[2], "w", encoding="utf-8"), ensure_ascii=False, indent=2)' "$tmp/audit_query_api_identity_observability.json" "$tmp/pipeline_observability_public_summary.json"
+python3 "$VALIDATOR" \
+  --schema "$REPO_ROOT/schemas/audit_query_api_response.schema.json" \
+  --json "$tmp/audit_query_api_identity_observability.json"
+python3 "$VALIDATOR" \
+  --schema "$REPO_ROOT/schemas/pipeline_observability_public_summary.schema.json" \
+  --json "$tmp/pipeline_observability_public_summary.json"
+python3 -c 'import json, sys; payload=json.load(open(sys.argv[1], "r", encoding="utf-8")); json.dump(payload["result"], open(sys.argv[2], "w", encoding="utf-8"), ensure_ascii=False, indent=2)' "$tmp/audit_query_api_identity_catalog_lineage.json" "$tmp/catalog_lineage_public_summary.json"
+python3 "$VALIDATOR" \
+  --schema "$REPO_ROOT/schemas/audit_query_api_response.schema.json" \
+  --json "$tmp/audit_query_api_identity_catalog_lineage.json"
+python3 "$VALIDATOR" \
+  --schema "$REPO_ROOT/schemas/catalog_lineage_public_summary.schema.json" \
+  --json "$tmp/catalog_lineage_public_summary.json"
+python3 "$REPO_ROOT/scripts/check_audit_api_public_redaction.py" \
+  "$tmp/audit_query_api_identity_public_report.json" \
+  "$tmp/audit_query_api_identity_audit_chain.json" \
+  "$tmp/audit_query_api_identity_observability.json" \
+  "$tmp/audit_query_api_identity_catalog_lineage.json" \
+  --output "$tmp/audit_api_public_redaction_check.json" \
+  >/dev/null
 python3 "$VALIDATOR" \
   --schema "$REPO_ROOT/schemas/audit_query_api_error.schema.json" \
   --json "$tmp/audit_query_api_identity_include_paths_forbidden.json"
@@ -3150,7 +3358,19 @@ python3 "$VALIDATOR" \
 # I2-a + I2-b: alert webhook adapter + alert daemon transitions
 python3 "$REPO_ROOT/scripts/check_alert_webhook_smoke.py" --out-dir "$tmp/alert_webhook_smoke"
 # PJC_MTLS Risk #6 task 6: bucket k-suppression + DP metadata + --require-dp fail-closed
-python3 "$REPO_ROOT/scripts/check_bucket_dp_smoke.py" --out-dir "$tmp/bucket_dp_smoke" > /dev/null
+python3 "$REPO_ROOT/scripts/check_bucket_dp_smoke.py" --out-dir "$tmp/bucket_dp_smoke" > "$tmp/bucket_dp_smoke_report.json"
+python3 "$VALIDATOR" \
+  --schema "$REPO_ROOT/schemas/bucket_public_report.schema.json" \
+  --json "$tmp/bucket_dp_smoke/bucket_public_report.json"
+python3 "$VALIDATOR" \
+  --schema "$REPO_ROOT/schemas/operator_bucket_report.schema.json" \
+  --json "$tmp/bucket_dp_smoke/operator_bucket_report.json"
+python3 "$VALIDATOR" \
+  --schema "$REPO_ROOT/schemas/bucket_public_report.schema.json" \
+  --json "$tmp/bucket_dp_smoke/redacted/bucket_public_report.json"
+python3 "$VALIDATOR" \
+  --schema "$REPO_ROOT/schemas/operator_bucket_report.schema.json" \
+  --json "$tmp/bucket_dp_smoke/redacted/operator_bucket_report.json"
 # A.10: min_output_rows side-channel closure (helper + service-state propagation)
 python3 "$REPO_ROOT/scripts/check_min_rows_side_channel_smoke.py" --out-dir "$tmp/min_rows_side_channel_smoke" > /dev/null
 # A.13: dedicated enrollment-only HTTP mode locks down dashboard surface

@@ -18,7 +18,6 @@ import functools
 import hashlib
 import itertools
 import os
-import pickle
 import time
 import uuid
 
@@ -30,6 +29,7 @@ import frontend.client.services.file_manager as FileManager
 import schemes
 from frontend.common.constants import MsgType
 from frontend.common.utils import shorten_sid
+from frontend.common.wire import decode_content, dumps_message, encode_content, loads_message
 # bits represents status
 from frontend.constants import KEY_TYPE, KEY_SID, TYPE_INIT
 from global_config import ClientConfig
@@ -137,7 +137,7 @@ def _add_salt_to_config(config: dict):
 
 def _calculate_sid_by_config_content(config: dict) -> str:
     import hashlib
-    config_bytes = pickle.dumps(config)
+    config_bytes = encode_content(config)
     config_digest = hashlib.sha256(config_bytes).digest()
     sid = config_digest.hex()
     return sid
@@ -233,14 +233,14 @@ class Service:
                 KEY_SID: self.sid
             }
 
-            await websocket.send(pickle.dumps(event))
+            await websocket.send(dumps_message(event))
 
             init_echo = await websocket.recv()
-            echo_dict = pickle.loads(init_echo)
+            echo_dict = loads_message(init_echo)
             if "content" not in echo_dict:
                 logger.error(f"[{self.short_sid}] Init echo error.")
                 raise ValueError("Init echo error.")
-            echo_content = pickle.loads(echo_dict.get("content"))
+            echo_content = decode_content(echo_dict.get("content"))
             if echo_content.get("ok"):
                 logger.info(f"[{self.short_sid}] Connect to server {uri} successfully.")
                 self.websocket = websocket
@@ -269,11 +269,11 @@ class Service:
             "content": content
         }
         msg_dict.update(additional_field)
-        await self.websocket.send(pickle.dumps(msg_dict))
+        await self.websocket.send(dumps_message(msg_dict))
 
     async def _recv_message(self):
         async for message_bytes in self.websocket:
-            message_dict = pickle.loads(message_bytes)
+            message_dict = loads_message(message_bytes)
             msg_type = message_dict.get("type")
             sid = message_dict.get("sid")
             if msg_type is None or sid is None or sid != self.sid:
@@ -416,7 +416,7 @@ class Service:
         return self.sid
 
     def _default_upload_config_echo_future_handler(self, fut: asyncio.Future):
-        content = pickle.loads(fut.result())
+        content = decode_content(fut.result())
         if not content.get("ok", False):
             reason = content.get("reason", "")
             logger.error(f"[{self.short_sid}] Upload config error, reason: {reason}")
@@ -424,7 +424,7 @@ class Service:
         logger.info(f"[{self.short_sid}] Upload config successfully")
 
     def _default_upload_encrypted_database_echo_future_handler(self, fut: asyncio.Future):
-        content = pickle.loads(fut.result())
+        content = decode_content(fut.result())
         if not content.get("ok", False):
             reason = content.get("reason", "")
             logger.error(f"[{self.short_sid}] Upload encrypted database error, reason: {reason}")
@@ -462,14 +462,14 @@ class Service:
             fut.add_done_callback(wait_callback_func)
             self.register_upload_echo_future_once(MsgType.CONFIG, fut)
 
-        await self._send_message(MsgType.CONFIG, pickle.dumps(self.config))
+        await self._send_message(MsgType.CONFIG, encode_content(self.config))
         logger.info(f"[{self.short_sid}] Uploading config.")
 
         if wait:
             await asyncio.wait_for(fut, 60)
 
     def handle_upload_config_echo(self, content_bytes: bytes):
-        content = pickle.loads(content_bytes)
+        content = decode_content(content_bytes)
         if not content.get("ok", False):
             reason = content.get("reason", "")
             logger.error(f"[{self.short_sid}] Upload config error, reason: {reason}")
@@ -480,7 +480,7 @@ class Service:
         logger.info(f"[{self.short_sid}] Upload config successfully")
 
     def handle_upload_encrypted_database_echo(self, content_bytes: bytes):
-        content = pickle.loads(content_bytes)
+        content = decode_content(content_bytes)
         if not content.get("ok", False):
             reason = content.get("reason", "")
             logger.error(f"[{self.short_sid}] Upload encrypted database error, reason: {reason}")
@@ -687,7 +687,7 @@ class Service:
         total_elapsed = (time.perf_counter() - total_start) * 1000
         logger.debug(f"[{self.short_sid}] Total TokenGen time for {len(keywords)} keywords: {total_elapsed:.3f} ms")
 
-        content = pickle.dumps({"tokens": tokens_data})
+        content = encode_content({"tokens": tokens_data})
         await self._send_message(MsgType.MULTI_TOKEN, content, request_id=request_id)
         logger.info(f"[{self.short_sid}] Uploading {len(keywords)} search tokens (multi-search).")
 
@@ -696,7 +696,7 @@ class Service:
 
     def handle_multi_result(self, result_bytes: bytes):
         """处理多key检索结果消息"""
-        content = pickle.loads(result_bytes)
+        content = decode_content(result_bytes)
         if not content.get("ok", False):
             reason = content.get("reason", "")
             logger.error(f"[{self.short_sid}] Multi-search error, reason: {reason}")
@@ -714,7 +714,7 @@ class Service:
 
     def handle_multi_result_future(self, fut: asyncio.Future):
         content = fut.result()
-        parsed = pickle.loads(content)
+        parsed = decode_content(content)
         if not parsed.get("ok", False):
             reason = parsed.get("reason", "")
             logger.error(f"[{self.short_sid}] Multi-search error, reason: {reason}")
@@ -760,7 +760,7 @@ class Service:
             logger.debug(f"[{self.short_sid}] Delete TokenGen time: {elapsed_ms:.3f} ms")
             delete_content["token_bytes"] = token_bytes
 
-        await self._send_message(MsgType.DELETE, pickle.dumps(delete_content), request_id=request_id)
+        await self._send_message(MsgType.DELETE, encode_content(delete_content), request_id=request_id)
         logger.info(f"[{self.short_sid}] Sending delete request.")
 
         if wait:
@@ -768,7 +768,7 @@ class Service:
 
     def handle_delete_result(self, result_bytes: bytes):
         """处理删除结果消息"""
-        content = pickle.loads(result_bytes)
+        content = decode_content(result_bytes)
         if not content.get("ok", False):
             reason = content.get("reason", "")
             logger.error(f"[{self.short_sid}] Delete error, reason: {reason}")
@@ -778,7 +778,7 @@ class Service:
         return content
 
     def handle_delete_result_future(self, fut: asyncio.Future):
-        content = pickle.loads(fut.result())
+        content = decode_content(fut.result())
         if not content.get("ok", False):
             reason = content.get("reason", "")
             logger.error(f"[{self.short_sid}] Delete error, reason: {reason}")
@@ -826,7 +826,7 @@ class Service:
             logger.debug(f"[{self.short_sid}] Update TokenGen time: {elapsed_ms:.3f} ms")
             update_content["token_bytes"] = token_bytes
 
-        await self._send_message(MsgType.UPDATE, pickle.dumps(update_content), request_id=request_id)
+        await self._send_message(MsgType.UPDATE, encode_content(update_content), request_id=request_id)
         logger.info(f"[{self.short_sid}] Sending update request.")
 
         if wait:
@@ -834,7 +834,7 @@ class Service:
 
     def handle_update_result(self, result_bytes: bytes):
         """处理更新结果消息"""
-        content = pickle.loads(result_bytes)
+        content = decode_content(result_bytes)
         if not content.get("ok", False):
             reason = content.get("reason", "")
             logger.error(f"[{self.short_sid}] Update error, reason: {reason}")
@@ -844,7 +844,7 @@ class Service:
         return content
 
     def handle_update_result_future(self, fut: asyncio.Future):
-        content = pickle.loads(fut.result())
+        content = decode_content(fut.result())
         if not content.get("ok", False):
             reason = content.get("reason", "")
             logger.error(f"[{self.short_sid}] Update error, reason: {reason}")

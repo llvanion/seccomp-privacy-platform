@@ -1,0 +1,45 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "privacy_budget_approval_list/v1",
+  "title": "Privacy budget approval list response",
+  "type": "object",
+  "required": [
+    "schema",
+    "status",
+    "returned_count",
+    "limit",
+    "requests"
+  ],
+  "properties": {
+    "schema": {
+      "const": "privacy_budget_approval_list/v1"
+    },
+    "status": {
+      "const": "ok"
+    },
+    "filter_status": {
+      "type": ["string", "null"]
+    },
+    "tenant_id": {
+      "type": ["string", "null"]
+    },
+    "caller": {
+      "type": ["string", "null"]
+    },
+    "returned_count": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "limit": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "requests": {
+      "type": "array",
+      "items": {
+        "type": "object"
+      }
+    }
+  },
+  "additionalProperties": false
+}

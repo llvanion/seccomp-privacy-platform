@@ -21,6 +21,8 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import csv
+import hashlib
 import json
 import os
 import sys
@@ -46,18 +48,221 @@ def _load_json_object(path: str) -> dict[str, Any]:
     return data
 
 
+def _sha256_file(path: str) -> str:
+    h = hashlib.sha256()
+    with open(path, "rb") as fh:
+        for chunk in iter(lambda: fh.read(1024 * 1024), b""):
+            h.update(chunk)
+    return h.hexdigest()
+
+
 def _count_csv_rows(path: str) -> int:
-    """Count data rows in a CSV (excluding header). Returns 0 for empty."""
+    """Count non-empty rows in bridge-ready PJC CSV files, which have no header."""
     rows = 0
     with open(path, "rb") as fh:
-        # Skip header
-        header = fh.readline()
-        if not header:
-            return 0
         for line in fh:
             if line.strip():
                 rows += 1
     return rows
+
+
+def _summarize_client_csv_values(path: str) -> dict[str, Any]:
+    values: list[int] = []
+    with open(path, "r", encoding="utf-8", newline="") as fh:
+        for row_no, row in enumerate(csv.reader(fh), start=1):
+            if not row:
+                continue
+            if len(row) < 2:
+                raise ValueError(f"client CSV row {row_no} missing value column")
+            try:
+                values.append(int(str(row[1]).strip()))
+            except ValueError as exc:
+                raise ValueError(f"client CSV row {row_no} value is not an integer: {row[1]!r}") from exc
+    return {
+        "sum": sum(values),
+        "min": min(values) if values else None,
+        "max": max(values) if values else None,
+        "non_negative": all(value >= 0 for value in values),
+    }
+
+
+def _normalize_value_policy(policy: Any, *, value_mode: Any) -> dict[str, Any] | None:
+    if policy is None:
+        if value_mode == "raw_int":
+            return {"min_value": 0, "max_value": None, "allow_negative": False}
+        return None
+    if not isinstance(policy, dict):
+        raise ValueError("client value_policy must be an object or null")
+    min_value = policy.get("min_value")
+    max_value = policy.get("max_value")
+    allow_negative = bool(policy.get("allow_negative", False))
+    for label, value in (("min_value", min_value), ("max_value", max_value)):
+        if value is not None and not isinstance(value, int):
+            raise ValueError(f"client value_policy.{label} must be an integer or null")
+    if min_value is not None and max_value is not None and min_value > max_value:
+        raise ValueError("client value_policy min_value > max_value")
+    if not allow_negative and min_value is not None and min_value < 0:
+        raise ValueError("client value_policy min_value is negative while allow_negative=false")
+    return {"min_value": min_value, "max_value": max_value, "allow_negative": allow_negative}
+
+
+def _value_policy_findings(
+    *,
+    policy: dict[str, Any],
+    actual_summary: dict[str, Any],
+    expected_summary: Any,
+) -> list[dict[str, Any]]:
+    findings: list[dict[str, Any]] = []
+    if not isinstance(expected_summary, dict):
+        findings.append({
+            "kind": "value_policy_violation",
+            "message": "input commitment client.value_summary must be an object",
+            "expected": "value_summary object",
+            "actual": expected_summary,
+        })
+    else:
+        for field in ("sum", "min", "max", "non_negative"):
+            if actual_summary.get(field) != expected_summary.get(field):
+                findings.append({
+                    "kind": "value_policy_violation",
+                    "message": f"client value_summary.{field} does not match client CSV",
+                    "expected": expected_summary.get(field),
+                    "actual": actual_summary.get(field),
+                })
+                break
+    if not policy["allow_negative"] and actual_summary.get("non_negative") is False:
+        findings.append({
+            "kind": "value_policy_violation",
+            "message": "client CSV contains negative values but value_policy.allow_negative=false",
+            "expected": "non-negative values",
+            "actual": actual_summary,
+        })
+    min_value = policy.get("min_value")
+    max_value = policy.get("max_value")
+    actual_min = actual_summary.get("min")
+    actual_max = actual_summary.get("max")
+    if min_value is not None and actual_min is not None and actual_min < min_value:
+        findings.append({
+            "kind": "value_policy_violation",
+            "message": f"client CSV minimum {actual_min} is below value_policy.min_value {min_value}",
+            "expected": min_value,
+            "actual": actual_min,
+        })
+    if max_value is not None and actual_max is not None and actual_max > max_value:
+        findings.append({
+            "kind": "value_policy_violation",
+            "message": f"client CSV maximum {actual_max} is above value_policy.max_value {max_value}",
+            "expected": max_value,
+            "actual": actual_max,
+        })
+    return findings
+
+
+def _compare_input_commitment_to_job_meta(
+    *,
+    commitment: dict[str, Any],
+    job_meta: dict[str, Any],
+    commitment_sha256: str,
+) -> list[dict[str, Any]]:
+    findings: list[dict[str, Any]] = []
+
+    def add(message: str, expected: Any, actual: Any) -> None:
+        findings.append({
+            "kind": "input_commitment_mismatch",
+            "message": message,
+            "expected": expected,
+            "actual": actual,
+        })
+
+    bridge = job_meta.get("bridge")
+    if not isinstance(bridge, dict):
+        add("job_meta bridge section is missing", "bridge object", bridge)
+        return findings
+
+    inputs = job_meta.get("inputs") if isinstance(job_meta.get("inputs"), dict) else {}
+    expected_commitment_sha256 = inputs.get("input_commitment_sha256")
+    if expected_commitment_sha256 and expected_commitment_sha256 != commitment_sha256:
+        add(
+            "input commitment sha256 does not match job_meta",
+            expected_commitment_sha256,
+            commitment_sha256,
+        )
+
+    for field in (
+        "job_id",
+        "token_scheme",
+        "token_scope",
+        "token_key_version",
+        "normalize_version",
+        "normalizer_schema_version",
+        "dedup_policy",
+    ):
+        expected = job_meta.get("job_id") if field == "job_id" else bridge.get(field)
+        if commitment.get(field) != expected:
+            add(
+                f"input commitment {field} does not match job_meta",
+                expected,
+                commitment.get(field),
+            )
+
+    sizes = job_meta.get("input_sizes") if isinstance(job_meta.get("input_sizes"), dict) else {}
+    parties = commitment.get("parties") if isinstance(commitment.get("parties"), dict) else {}
+    role_sizes = {
+        "server": sizes.get("exposure_n"),
+        "client": sizes.get("purchase_n"),
+    }
+    for role in ("server", "client"):
+        party = parties.get(role)
+        if not isinstance(party, dict):
+            continue
+        bridge_role = bridge.get(role)
+        if not isinstance(bridge_role, dict):
+            add(f"job_meta bridge.{role} section is missing", f"{role} object", bridge_role)
+            continue
+        expected_rows = role_sizes[role]
+        if expected_rows is not None and party.get("output_row_count") != expected_rows:
+            add(
+                f"input commitment {role}.output_row_count does not match job_meta",
+                expected_rows,
+                party.get("output_row_count"),
+            )
+        for field in ("input_file", "input_format", "join_key_column", "normalizer"):
+            expected = bridge_role.get(field)
+            if expected is not None and party.get(field) != expected:
+                add(
+                    f"input commitment {role}.{field} does not match job_meta",
+                    expected,
+                    party.get(field),
+                )
+        if role == "client":
+            for field in ("value_column", "value_mode"):
+                expected = bridge_role.get(field)
+                if party.get(field) != expected:
+                    add(
+                        f"input commitment client.{field} does not match job_meta",
+                        expected,
+                        party.get(field),
+                    )
+            try:
+                commitment_policy = _normalize_value_policy(
+                    party.get("value_policy"),
+                    value_mode=party.get("value_mode"),
+                )
+                meta_policy = _normalize_value_policy(
+                    bridge_role.get("value_policy"),
+                    value_mode=bridge_role.get("value_mode"),
+                )
+            except ValueError as exc:
+                add(str(exc), "valid client value policy", party.get("value_policy"))
+            else:
+                if commitment_policy != meta_policy:
+                    add(
+                        "input commitment client.value_policy does not match job_meta",
+                        meta_policy,
+                        commitment_policy,
+                    )
+
+    return findings
 
 
 def _scope_match(rule: dict[str, Any], scope: dict[str, Any]) -> bool:
@@ -125,6 +330,143 @@ def _estimate_bytes(rows: int, file_path: Optional[str], bytes_per_row: int) -> 
     return rows * bytes_per_row
 
 
+def _validate_input_commitment(
+    *,
+    path: Optional[str],
+    job_meta_path: Optional[str],
+    require: bool,
+    job_id: str,
+    server_csv: Optional[str],
+    client_csv: Optional[str],
+    server_rows: int,
+    client_rows: int,
+) -> tuple[Optional[dict[str, Any]], list[dict[str, Any]]]:
+    findings: list[dict[str, Any]] = []
+    if not path:
+        if require:
+            findings.append({
+                "kind": "missing_input_commitment",
+                "message": "input commitment is required before PJC launch",
+                "expected": "pjc_input_commitment/v1 file",
+                "actual": None,
+            })
+        return None, findings
+    if not os.path.isfile(path):
+        findings.append({
+            "kind": "missing_input_commitment",
+            "message": f"input commitment not found: {path}",
+            "expected": "readable file",
+            "actual": path,
+        })
+        return None, findings
+    commitment = _load_json_object(path)
+    summary: dict[str, Any] = {
+        "file": os.path.abspath(path),
+        "sha256": _sha256_file(path),
+        "job_id": commitment.get("job_id"),
+    }
+    if job_meta_path:
+        if not os.path.isfile(job_meta_path):
+            findings.append({
+                "kind": "input_commitment_mismatch",
+                "message": f"job_meta not found: {job_meta_path}",
+                "expected": "readable bridge_job_meta/v1 file",
+                "actual": job_meta_path,
+            })
+        else:
+            summary["job_meta_file"] = os.path.abspath(job_meta_path)
+            summary["job_meta_sha256"] = _sha256_file(job_meta_path)
+            try:
+                job_meta = _load_json_object(job_meta_path)
+            except ValueError as exc:
+                findings.append({
+                    "kind": "input_commitment_mismatch",
+                    "message": str(exc),
+                    "expected": "bridge_job_meta/v1 object",
+                    "actual": job_meta_path,
+                })
+            else:
+                if job_meta.get("schema") not in (None, "bridge_job_meta/v1"):
+                    findings.append({
+                        "kind": "input_commitment_mismatch",
+                        "message": f"unsupported job_meta schema: {job_meta.get('schema')}",
+                        "expected": "bridge_job_meta/v1",
+                        "actual": job_meta.get("schema"),
+                    })
+                findings.extend(_compare_input_commitment_to_job_meta(
+                    commitment=commitment,
+                    job_meta=job_meta,
+                    commitment_sha256=summary["sha256"],
+                ))
+    if commitment.get("schema") != "pjc_input_commitment/v1":
+        findings.append({
+            "kind": "input_commitment_mismatch",
+            "message": f"unsupported input commitment schema: {commitment.get('schema')}",
+            "expected": "pjc_input_commitment/v1",
+            "actual": commitment.get("schema"),
+        })
+    if commitment.get("job_id") != job_id:
+        findings.append({
+            "kind": "input_commitment_mismatch",
+            "message": "input commitment job_id does not match preflight job_id",
+            "expected": job_id,
+            "actual": commitment.get("job_id"),
+        })
+    parties = commitment.get("parties") if isinstance(commitment.get("parties"), dict) else {}
+    for role, csv_path, row_count in (
+        ("server", server_csv, server_rows),
+        ("client", client_csv, client_rows),
+    ):
+        party = parties.get(role)
+        if not isinstance(party, dict):
+            findings.append({
+                "kind": "input_commitment_mismatch",
+                "message": f"input commitment missing {role} party",
+                "expected": role,
+                "actual": None,
+            })
+            continue
+        if csv_path and os.path.isfile(csv_path):
+            actual_hash = _sha256_file(csv_path)
+            summary[f"{role}_csv_sha256"] = actual_hash
+            if party.get("output_csv_sha256") != actual_hash:
+                findings.append({
+                    "kind": "input_commitment_mismatch",
+                    "message": f"{role} CSV hash does not match input commitment",
+                    "expected": party.get("output_csv_sha256"),
+                    "actual": actual_hash,
+                })
+        if party.get("output_row_count") != row_count:
+            findings.append({
+                "kind": "input_commitment_mismatch",
+                "message": f"{role} row count does not match input commitment",
+                "expected": party.get("output_row_count"),
+                "actual": row_count,
+            })
+        if role == "client" and csv_path and os.path.isfile(csv_path):
+            try:
+                policy = _normalize_value_policy(party.get("value_policy"), value_mode=party.get("value_mode"))
+                if policy is not None:
+                    actual_summary = _summarize_client_csv_values(csv_path)
+                    summary["client_value_policy"] = policy
+                    summary["client_value_summary"] = actual_summary
+                    findings.extend(
+                        _value_policy_findings(
+                            policy=policy,
+                            actual_summary=actual_summary,
+                            expected_summary=party.get("value_summary"),
+                        )
+                    )
+            except ValueError as exc:
+                findings.append({
+                    "kind": "value_policy_violation",
+                    "message": str(exc),
+                    "expected": "client CSV values satisfying input commitment policy",
+                    "actual": csv_path,
+                })
+    return summary, findings
+
+
 def evaluate(
     *,
     config: dict[str, Any],
@@ -135,6 +477,9 @@ def evaluate(
     client_rows_override: Optional[int],
     transport_mode: str,
     chunk_size_elements: int,
+    input_commitment_path: Optional[str],
+    job_meta_path: Optional[str],
+    require_input_commitment: bool,
     job_id: str,
 ) -> dict[str, Any]:
     findings: list[dict[str, Any]] = []
@@ -205,6 +550,18 @@ def evaluate(
             actual=client_csv,
         )
 
+    input_commitment, commitment_findings = _validate_input_commitment(
+        path=input_commitment_path,
+        job_meta_path=job_meta_path,
+        require=require_input_commitment,
+        job_id=job_id,
+        server_csv=server_csv,
+        client_csv=client_csv,
+        server_rows=server_rows,
+        client_rows=client_rows,
+    )
+    findings.extend(commitment_findings)
+
     if limits["max_input_rows"] > 0 and total_rows > limits["max_input_rows"]:
         _add_finding(
             "input_rows_over_limit",
@@ -267,6 +624,7 @@ def evaluate(
             "mode": transport_mode,
             "chunk_size_elements": int(chunk_size_elements),
         },
+        "input_commitment": input_commitment,
         "estimates": {
             "server_input_rows": int(server_rows),
             "client_input_rows": int(client_rows),
@@ -306,6 +664,10 @@ def main() -> int:
     ap.add_argument("--transport-mode", choices=["streaming_grpc", "unary_grpc"],
                     default="streaming_grpc")
     ap.add_argument("--chunk-size-elements", type=int, default=4096)
+    ap.add_argument("--input-commitment", default=None)
+    ap.add_argument("--job-meta", default=None,
+                    help="Optional bridge_job_meta/v1 file used to bind commitment semantics before PJC launch")
+    ap.add_argument("--require-input-commitment", action="store_true")
     ap.add_argument("--output", default="", help="Write JSON report to this path (default: stdout)")
     ap.add_argument("--assert-allow", action="store_true",
                     help="Exit non-zero if decision is not 'allow'")
@@ -330,6 +692,9 @@ def main() -> int:
         client_rows_override=args.client_rows,
         transport_mode=args.transport_mode,
         chunk_size_elements=args.chunk_size_elements,
+        input_commitment_path=args.input_commitment,
+        job_meta_path=args.job_meta,
+        require_input_commitment=args.require_input_commitment,
         job_id=args.job_id,
     )
     text = json.dumps(report, ensure_ascii=False, indent=2)

@@ -103,6 +103,8 @@ def build_request(*, index: int, out_base: Path, tenant_id: str) -> dict[str, An
         "server_normalizer": "email",
         "client_normalizer": "email",
         "client_value_mode": "raw-int",
+        "client_value_min": 0,
+        "client_value_max": 1000000,
         "server_filters": ["campaign=demo"],
         "client_filters": ["campaign=demo"],
         "token_scope": f"dashboard-benchmark-{index}",

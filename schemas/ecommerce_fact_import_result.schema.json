@@ -1,0 +1,45 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "ecommerce_fact_import_result/v1",
+  "title": "Transactional e-commerce fact import result",
+  "type": "object",
+  "required": [
+    "schema",
+    "generated_at_utc",
+    "table",
+    "input_path",
+    "input_sha256",
+    "database_backend",
+    "decision",
+    "reason_code",
+    "validation",
+    "inserted_row_count",
+    "table_row_count_before",
+    "table_row_count_after",
+    "transaction"
+  ],
+  "properties": {
+    "schema": { "const": "ecommerce_fact_import_result/v1" },
+    "generated_at_utc": { "type": "string" },
+    "table": { "type": "string" },
+    "input_path": { "type": "string" },
+    "input_sha256": { "type": "string", "minLength": 64 },
+    "database_backend": { "type": ["string", "null"] },
+    "decision": { "enum": ["allow", "deny"] },
+    "reason_code": { "type": "string" },
+    "validation": { "type": "object" },
+    "inserted_row_count": { "type": "integer", "minimum": 0 },
+    "table_row_count_before": { "type": ["integer", "null"] },
+    "table_row_count_after": { "type": ["integer", "null"] },
+    "transaction": {
+      "enum": [
+        "not_started",
+        "rejected_before_insert",
+        "committed",
+        "rolled_back"
+      ]
+    },
+    "insert_error": { "type": "string" }
+  },
+  "additionalProperties": false
+}

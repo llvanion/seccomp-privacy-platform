@@ -1,0 +1,56 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "business_access_check_report/v1",
+  "title": "Business field-level access check report",
+  "type": "object",
+  "required": ["schema", "generated_at_utc", "policy_id", "policy_version", "request", "decision", "reason_code", "field_decisions", "summary"],
+  "properties": {
+    "schema": { "const": "business_access_check_report/v1" },
+    "generated_at_utc": { "type": "string", "minLength": 1 },
+    "policy_id": { "type": "string", "minLength": 1 },
+    "policy_version": { "type": "string", "minLength": 1 },
+    "request": {
+      "type": "object",
+      "required": ["role", "entity", "fields", "purpose", "scope", "relationship"],
+      "properties": {
+        "role": { "type": "string", "minLength": 1 },
+        "entity": { "type": "string", "minLength": 1 },
+        "fields": { "type": "array", "items": { "type": "string", "minLength": 1 } },
+        "purpose": { "type": ["string", "null"] },
+        "scope": { "type": "object", "additionalProperties": { "type": "string" } },
+        "relationship": { "type": ["string", "null"] }
+      },
+      "additionalProperties": false
+    },
+    "decision": { "enum": ["allow", "mask", "deny"] },
+    "reason_code": { "type": "string", "minLength": 1 },
+    "reason": { "type": "string" },
+    "field_decisions": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["field", "field_class", "decision", "masking", "reason_code"],
+        "properties": {
+          "field": { "type": "string", "minLength": 1 },
+          "field_class": { "type": ["string", "null"] },
+          "decision": { "enum": ["allow", "mask", "deny"] },
+          "masking": { "type": ["string", "null"] },
+          "reason_code": { "type": "string", "minLength": 1 }
+        },
+        "additionalProperties": false
+      }
+    },
+    "summary": {
+      "type": "object",
+      "required": ["allowed_count", "masked_count", "denied_count", "unknown_field_count"],
+      "properties": {
+        "allowed_count": { "type": "integer", "minimum": 0 },
+        "masked_count": { "type": "integer", "minimum": 0 },
+        "denied_count": { "type": "integer", "minimum": 0 },
+        "unknown_field_count": { "type": "integer", "minimum": 0 }
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false
+}

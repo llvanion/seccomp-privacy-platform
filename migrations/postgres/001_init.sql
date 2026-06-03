@@ -167,6 +167,78 @@ CREATE TABLE IF NOT EXISTS privacy_budget_ledger_events (
   payload_json JSONB NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS privacy_budget_consumption_events (
+  id SERIAL PRIMARY KEY,
+  created_at_utc TIMESTAMPTZ NOT NULL,
+  updated_at_utc TIMESTAMPTZ NOT NULL,
+  scope_key TEXT NOT NULL,
+  caller TEXT NOT NULL,
+  tenant_id TEXT,
+  dataset_id TEXT,
+  purpose TEXT,
+  job_id TEXT REFERENCES jobs(job_id) ON DELETE SET NULL,
+  correlation_id TEXT,
+  policy_version TEXT,
+  query_fingerprint TEXT NOT NULL,
+  query_payload_sha256 TEXT NOT NULL,
+  window_start TEXT,
+  window_end TEXT,
+  window_json JSONB NOT NULL,
+  bucket_json JSONB,
+  bucket_key TEXT,
+  value_mode TEXT,
+  threshold_k INTEGER NOT NULL,
+  decision TEXT NOT NULL,
+  reason_code TEXT NOT NULL,
+  reason TEXT NOT NULL,
+  abuse_signal TEXT,
+  matched_prior_fingerprint TEXT,
+  matched_prior_job_id TEXT,
+  matched_prior_relation TEXT,
+  budget_limit DOUBLE PRECISION,
+  budget_cost DOUBLE PRECISION,
+  budget_used_before DOUBLE PRECISION,
+  budget_used_after DOUBLE PRECISION,
+  budget_consumed BOOLEAN NOT NULL DEFAULT FALSE,
+  approval_request_id TEXT,
+  public_report_sha256 TEXT,
+  ledger_path TEXT,
+  status TEXT NOT NULL DEFAULT 'committed',
+  failure_reason TEXT,
+  source_record_sha256 TEXT,
+  payload_json JSONB NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS privacy_budget_approval_events (
+  id SERIAL PRIMARY KEY,
+  created_at_utc TIMESTAMPTZ NOT NULL,
+  updated_at_utc TIMESTAMPTZ NOT NULL,
+  request_id TEXT NOT NULL UNIQUE,
+  status TEXT NOT NULL,
+  caller TEXT NOT NULL,
+  tenant_id TEXT,
+  dataset_id TEXT,
+  purpose TEXT,
+  job_id TEXT REFERENCES jobs(job_id) ON DELETE SET NULL,
+  correlation_id TEXT,
+  policy_version TEXT,
+  query_fingerprint TEXT NOT NULL,
+  query_payload_sha256 TEXT NOT NULL,
+  matched_prior_fingerprint TEXT,
+  matched_prior_job_id TEXT,
+  matched_prior_relation TEXT,
+  requested_at_utc TIMESTAMPTZ NOT NULL,
+  decided_at_utc TIMESTAMPTZ,
+  decided_by TEXT,
+  decision_reason TEXT,
+  expires_at_utc TIMESTAMPTZ,
+  consumed_at_utc TIMESTAMPTZ,
+  consumed_by_job_id TEXT,
+  consuming_event_id INTEGER REFERENCES privacy_budget_consumption_events(id) ON DELETE SET NULL,
+  request_payload_json JSONB NOT NULL,
+  latest_decision_json JSONB
+);
+
 CREATE TABLE IF NOT EXISTS policies (
   policy_id TEXT PRIMARY KEY,
   policy_kind TEXT NOT NULL,
@@ -291,6 +363,18 @@ CREATE INDEX IF NOT EXISTS idx_privacy_budget_source_job_id ON privacy_budget_le
 CREATE INDEX IF NOT EXISTS idx_privacy_budget_ledger_job_id ON privacy_budget_ledger_events(ledger_job_id);
 CREATE INDEX IF NOT EXISTS idx_privacy_budget_scope ON privacy_budget_ledger_events(caller, tenant_id, dataset_id, purpose);
 CREATE INDEX IF NOT EXISTS idx_privacy_budget_decision ON privacy_budget_ledger_events(decision, reason_code);
+CREATE UNIQUE INDEX IF NOT EXISTS ux_privacy_budget_scope_query_consumed
+  ON privacy_budget_consumption_events(scope_key, query_fingerprint)
+  WHERE budget_consumed = TRUE AND decision = 'allow' AND status IN ('reserved', 'committed');
+CREATE UNIQUE INDEX IF NOT EXISTS ux_privacy_budget_consumption_source_record
+  ON privacy_budget_consumption_events(source_record_sha256)
+  WHERE source_record_sha256 IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_privacy_budget_consumption_scope ON privacy_budget_consumption_events(scope_key, created_at_utc);
+CREATE INDEX IF NOT EXISTS idx_privacy_budget_consumption_job ON privacy_budget_consumption_events(job_id);
+CREATE INDEX IF NOT EXISTS idx_privacy_budget_consumption_decision ON privacy_budget_consumption_events(decision, reason_code);
+CREATE INDEX IF NOT EXISTS idx_privacy_budget_approval_status ON privacy_budget_approval_events(status, updated_at_utc);
+CREATE INDEX IF NOT EXISTS idx_privacy_budget_approval_scope ON privacy_budget_approval_events(caller, tenant_id, dataset_id, purpose);
+CREATE INDEX IF NOT EXISTS idx_privacy_budget_approval_query ON privacy_budget_approval_events(query_fingerprint);
 CREATE INDEX IF NOT EXISTS idx_key_access_events_job_id ON key_access_events(job_id);
 CREATE INDEX IF NOT EXISTS idx_key_refs_service_id ON key_refs(service_id);
 CREATE INDEX IF NOT EXISTS idx_key_refs_purpose ON key_refs(purpose);

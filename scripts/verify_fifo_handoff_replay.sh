@@ -55,6 +55,7 @@ echo "[replay] running fifo-mode pipeline..."
 HOME="$REPLAY_HOME" \
 RUSTUP_HOME="$RUSTUP_HOME_REPLAY" \
 CARGO_HOME="$CARGO_HOME_REPLAY" \
+PJC_ALLOW_LEGACY_UNARY="${PJC_ALLOW_LEGACY_UNARY:-1}" \
 bash "$SCRIPT_DIR/run_sse_bridge_pipeline.sh" \
   --server-source "$REPO_ROOT/sse/examples/bridge_server_records.jsonl" \
   --client-source "$REPO_ROOT/sse/examples/bridge_client_records.jsonl" \
@@ -64,6 +65,7 @@ bash "$SCRIPT_DIR/run_sse_bridge_pipeline.sh" \
   --server-normalizer email \
   --client-normalizer email \
   --client-value-mode raw-int \
+  --client-value-max 1000000 \
   --server-filter campaign=demo \
   --client-filter campaign=demo \
   --token-scope fifo-replay-scope \

@@ -1,0 +1,57 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "privacy_budget_approval_transition/v1",
+  "title": "Privacy budget approval transition response",
+  "type": "object",
+  "required": [
+    "schema",
+    "status",
+    "action",
+    "request_id",
+    "approval",
+    "decision"
+  ],
+  "properties": {
+    "schema": {
+      "const": "privacy_budget_approval_transition/v1"
+    },
+    "status": {
+      "const": "ok"
+    },
+    "action": {
+      "enum": ["approve", "reject", "expire"]
+    },
+    "request_id": {
+      "type": "string",
+      "pattern": "^pba_[0-9a-f]{24}$"
+    },
+    "approval": {
+      "type": "object"
+    },
+    "decision": {
+      "type": "object",
+      "required": ["schema", "action", "status", "request_id", "actor"],
+      "properties": {
+        "schema": {
+          "const": "privacy_budget_approval_decision/v1"
+        },
+        "action": {
+          "enum": ["approve", "reject", "expire"]
+        },
+        "status": {
+          "enum": ["approved", "rejected", "expired"]
+        },
+        "request_id": {
+          "type": "string",
+          "pattern": "^pba_[0-9a-f]{24}$"
+        },
+        "actor": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "additionalProperties": true
+    }
+  },
+  "additionalProperties": false
+}

@@ -1,0 +1,54 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "business_data_read_preview/v1",
+  "title": "Business data read preview gated by field-level access policy",
+  "type": "object",
+  "required": [
+    "schema",
+    "entity",
+    "decision",
+    "policy_id",
+    "policy_version",
+    "scope",
+    "filters",
+    "fields",
+    "field_decisions",
+    "rows",
+    "count",
+    "limit"
+  ],
+  "properties": {
+    "schema": { "const": "business_data_read_preview/v1" },
+    "entity": { "type": "string", "minLength": 1 },
+    "decision": { "enum": ["allow", "mask"] },
+    "policy_id": { "type": "string", "minLength": 1 },
+    "policy_version": { "type": "string", "minLength": 1 },
+    "scope": { "type": "object", "additionalProperties": { "type": "string" } },
+    "filters": { "type": "object", "additionalProperties": { "type": "string" } },
+    "fields": { "type": "array", "items": { "type": "string", "minLength": 1 } },
+    "field_decisions": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["field", "field_class", "decision", "masking", "reason_code"],
+        "properties": {
+          "field": { "type": "string", "minLength": 1 },
+          "field_class": { "type": ["string", "null"] },
+          "decision": { "enum": ["allow", "mask"] },
+          "masking": { "type": ["string", "null"] },
+          "reason_code": { "type": "string", "minLength": 1 }
+        },
+        "additionalProperties": false
+      }
+    },
+    "rows": {
+      "type": "array",
+      "items": {
+        "type": "object"
+      }
+    },
+    "count": { "type": "integer", "minimum": 0 },
+    "limit": { "type": "integer", "minimum": 1 }
+  },
+  "additionalProperties": false
+}

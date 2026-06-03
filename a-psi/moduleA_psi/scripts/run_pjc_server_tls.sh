@@ -27,6 +27,9 @@ JOB_ID="${JOB_ID:-$(date +%Y%m%d-%H%M%S)}"
 OUT_DIR="${OUT_DIR:-$MODULE_ROOT/runs/$JOB_ID}"
 GRPC_MAX_MESSAGE_MB="${GRPC_MAX_MESSAGE_MB:-512}"
 PJC_GRPC_STREAM_CHUNK_ELEMENTS="${PJC_GRPC_STREAM_CHUNK_ELEMENTS:-4096}"
+PJC_PRODUCTION_MODE="${PJC_PRODUCTION_MODE:-0}"
+PJC_ALLOW_LEGACY_UNARY="${PJC_ALLOW_LEGACY_UNARY:-0}"
+PJC_ALLOW_PRODUCTION_WIDE_BIND="${PJC_ALLOW_PRODUCTION_WIDE_BIND:-0}"
 PJC_RESOURCE_LIMITS="${PJC_RESOURCE_LIMITS:-}"
 PJC_PREFLIGHT_REQUIRED="${PJC_PREFLIGHT_REQUIRED:-0}"
 PJC_PREFLIGHT_CALLER="${PJC_PREFLIGHT_CALLER:-auto_demo}"
@@ -35,11 +38,27 @@ PJC_PREFLIGHT_DATASET_ID="${PJC_PREFLIGHT_DATASET_ID:-}"
 PJC_PREFLIGHT_PURPOSE="${PJC_PREFLIGHT_PURPOSE:-bridge_token}"
 PJC_PREFLIGHT_CLIENT_CSV="${PJC_PREFLIGHT_CLIENT_CSV:-}"
 PJC_PREFLIGHT_CLIENT_ROWS="${PJC_PREFLIGHT_CLIENT_ROWS:-0}"
+PJC_INPUT_COMMITMENT="${PJC_INPUT_COMMITMENT:-}"
+PJC_JOB_META="${PJC_JOB_META:-}"
+PJC_REQUIRE_INPUT_COMMITMENT="${PJC_REQUIRE_INPUT_COMMITMENT:-0}"
+SESSION_MANIFEST="${PJC_MTLS_SESSION_MANIFEST:-$CERT_DIR/session_manifest.json}"
+PJC_MTLS_REQUIRE_SESSION_MANIFEST="${PJC_MTLS_REQUIRE_SESSION_MANIFEST:-0}"
 
 # ── Pre-flight ────────────────────────────────────────────────────────────────
 _require() {
   [[ -f "$1" ]] || { echo "[error] missing: $1" >&2; exit 1; }
 }
+if [[ "$PJC_PRODUCTION_MODE" == "1" ]]; then
+  [[ -n "$PJC_RESOURCE_LIMITS" ]] || { echo "[error] PJC_PRODUCTION_MODE=1 requires PJC_RESOURCE_LIMITS" >&2; exit 1; }
+  [[ "$PJC_GRPC_STREAM_CHUNK_ELEMENTS" != "0" ]] || { echo "[error] PJC_PRODUCTION_MODE=1 forbids legacy unary mode; set streaming chunk elements > 0" >&2; exit 1; }
+  [[ "$PJC_MTLS_REQUIRE_SESSION_MANIFEST" == "1" ]] || { echo "[error] PJC_PRODUCTION_MODE=1 requires PJC_MTLS_REQUIRE_SESSION_MANIFEST=1" >&2; exit 1; }
+  case "$BIND_ADDR" in
+    0.0.0.0|::|"[::]"|"") [[ "$PJC_ALLOW_PRODUCTION_WIDE_BIND" == "1" ]] || { echo "[error] PJC_PRODUCTION_MODE=1 broad TLS bind requires PJC_ALLOW_PRODUCTION_WIDE_BIND=1" >&2; exit 1; } ;;
+  esac
+elif [[ "$PJC_GRPC_STREAM_CHUNK_ELEMENTS" == "0" && "$PJC_ALLOW_LEGACY_UNARY" != "1" ]]; then
+  echo "[error] legacy unary PJC mode requires PJC_ALLOW_LEGACY_UNARY=1" >&2
+  exit 1
+fi
 command -v socat >/dev/null || {
   echo "[error] socat not found. Install with: apt-get install socat" >&2
   echo "[info]  Or use pjc_tls_proxy.py as a fallback (see docs/PJC_TLS_GUIDE.md)" >&2
@@ -48,9 +67,6 @@ command -v socat >/dev/null || {
 _require "$CERT_DIR/ca.crt"
 _require "$CERT_DIR/server.crt"
 _require "$CERT_DIR/server.key"
-
-SESSION_MANIFEST="${PJC_MTLS_SESSION_MANIFEST:-$CERT_DIR/session_manifest.json}"
-PJC_MTLS_REQUIRE_SESSION_MANIFEST="${PJC_MTLS_REQUIRE_SESSION_MANIFEST:-0}"
 
 mkdir -p "$OUT_DIR"
 
@@ -110,6 +126,11 @@ if [[ -n "$PJC_RESOURCE_LIMITS" ]]; then
   else
     PREFLIGHT_ARGS+=(--client-rows "$PJC_PREFLIGHT_CLIENT_ROWS")
   fi
+  [[ -n "$PJC_INPUT_COMMITMENT" ]] && PREFLIGHT_ARGS+=(--input-commitment "$(resolve_path "$PJC_INPUT_COMMITMENT")")
+  [[ -n "$PJC_JOB_META" ]] && PREFLIGHT_ARGS+=(--job-meta "$(resolve_path "$PJC_JOB_META")")
+  if [[ "$PJC_REQUIRE_INPUT_COMMITMENT" == "1" || "$PJC_PRODUCTION_MODE" == "1" ]]; then
+    PREFLIGHT_ARGS+=(--require-input-commitment)
+  fi
   echo "[info] running PJC preflight: $PREFLIGHT_REPORT"
   python3 "$MODULE_ROOT/../scripts/preflight_pjc_job.py" "${PREFLIGHT_ARGS[@]}" > /dev/null
   echo "[ok] PJC preflight accepted server-side launch"
@@ -145,7 +166,15 @@ if [[ "$PJC_GRPC_STREAM_CHUNK_ELEMENTS" != "0" ]]; then
   if "$SERVER_BIN" --help 2>&1 | grep -q -- "--grpc_stream_chunk_elements"; then
     SERVER_ARGS+=(--grpc_stream_chunk_elements="$PJC_GRPC_STREAM_CHUNK_ELEMENTS")
   else
-    echo "[warn] PJC server binary does not support --grpc_stream_chunk_elements; using legacy unary mode" >&2
+    if [[ "$PJC_PRODUCTION_MODE" == "1" ]]; then
+      echo "[error] PJC_PRODUCTION_MODE=1 requires server binary support for --grpc_stream_chunk_elements" >&2
+      exit 1
+    fi
+    if [[ "$PJC_ALLOW_LEGACY_UNARY" != "1" ]]; then
+      echo "[error] PJC server binary does not support --grpc_stream_chunk_elements; set PJC_ALLOW_LEGACY_UNARY=1 only for local demo unary fallback" >&2
+      exit 1
+    fi
+    echo "[warn] PJC server binary does not support --grpc_stream_chunk_elements; using explicit legacy unary mode" >&2
     PJC_EFFECTIVE_GRPC_STREAM_CHUNK_ELEMENTS=0
   fi
 fi

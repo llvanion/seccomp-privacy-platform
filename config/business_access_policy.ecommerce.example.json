@@ -1,0 +1,192 @@
+{
+  "schema": "business_access_policy/v1",
+  "policy_id": "commerce-field-access-v1",
+  "version": "2026-06-01",
+  "default_decision": "deny",
+  "roles": {
+    "buyer": {
+      "description": "Buyer self-service view for the buyer's own order only.",
+      "allowed_entities": ["orders", "order_items", "order_fulfillment", "customer_service_interactions"],
+      "allowed_field_classes": ["order_public", "item_public", "buyer_self_contact", "fulfillment_status", "support_status"],
+      "masked_field_classes": [],
+      "denied_field_classes": ["buyer_contact", "buyer_address", "merchant_internal", "courier_route_full", "support_internal", "operator_only"],
+      "conditions": {
+        "scope_required": true,
+        "relationship_required": "self",
+        "purpose_required": ["self_service", "support_case"]
+      }
+    },
+    "merchant_staff": {
+      "description": "Merchant staff can inspect order and item status, never buyer address/contact.",
+      "allowed_entities": ["orders", "order_items", "order_fulfillment"],
+      "allowed_field_classes": ["order_public", "item_public", "fulfillment_status"],
+      "masked_field_classes": [],
+      "denied_field_classes": ["buyer_contact", "buyer_address", "buyer_self_contact", "courier_next_stop", "courier_route_full", "support_internal", "operator_only"],
+      "conditions": {
+        "scope_required": true,
+        "relationship_required": "merchant_of_order",
+        "purpose_required": ["merchant_order_ops", "refund_review"]
+      }
+    },
+    "customer_service_agent": {
+      "description": "Support agents receive protected contact hints and support status, not raw addresses or full contact.",
+      "allowed_entities": ["orders", "order_fulfillment", "customer_service_interactions"],
+      "allowed_field_classes": ["order_public", "fulfillment_status", "support_status"],
+      "masked_field_classes": ["buyer_contact"],
+      "denied_field_classes": ["buyer_address", "buyer_self_contact", "merchant_internal", "courier_route_full", "operator_only"],
+      "conditions": {
+        "scope_required": true,
+        "relationship_required": "assigned_support_case",
+        "purpose_required": ["support_case", "refund_review"]
+      }
+    },
+    "courier": {
+      "description": "Courier receives only next-stop delivery information for assigned delivery work.",
+      "allowed_entities": ["order_fulfillment"],
+      "allowed_field_classes": ["courier_next_stop", "fulfillment_status"],
+      "masked_field_classes": [],
+      "denied_field_classes": ["order_public", "buyer_contact", "buyer_address", "buyer_self_contact", "merchant_internal", "courier_route_full", "support_internal", "operator_only"],
+      "conditions": {
+        "scope_required": true,
+        "relationship_required": "assigned_delivery_leg",
+        "purpose_required": ["delivery_next_stop"]
+      }
+    },
+    "field_marketer": {
+      "description": "Field marketing users see campaign attribution aggregates, not buyer identity or logistics fields.",
+      "allowed_entities": ["order_attribution"],
+      "allowed_field_classes": ["campaign_public"],
+      "masked_field_classes": [],
+      "denied_field_classes": ["buyer_contact", "buyer_address", "buyer_self_contact", "merchant_internal", "courier_next_stop", "courier_route_full", "support_internal", "operator_only"],
+      "conditions": {
+        "scope_required": true,
+        "relationship_required": "campaign_assignee",
+        "purpose_required": ["campaign_analysis"]
+      }
+    },
+    "compliance_auditor": {
+      "description": "Compliance auditors can inspect metadata and protected fields for audit purpose, with raw operator fields still separated.",
+      "allowed_entities": ["orders", "order_items", "order_attribution", "order_payment", "order_fulfillment", "customer_service_interactions", "business_identities"],
+      "allowed_field_classes": ["order_public", "item_public", "campaign_public", "payment_status", "fulfillment_status", "support_status", "merchant_internal"],
+      "masked_field_classes": ["buyer_contact", "buyer_address"],
+      "denied_field_classes": ["buyer_self_contact", "courier_route_full", "operator_only"],
+      "conditions": {
+        "scope_required": true,
+        "relationship_required": "tenant_auditor",
+        "purpose_required": ["compliance_audit"]
+      }
+    }
+  },
+  "field_classes": {
+    "order_public": {
+      "description": "Order data visible to non-sensitive business workflows.",
+      "fields": ["orders.order_id", "orders.platform_id", "orders.campaign_id", "orders.currency", "orders.total_amount_cents", "orders.placed_at_utc", "orders.status"]
+    },
+    "item_public": {
+      "description": "Line-item non-PII fields.",
+      "fields": ["order_items.sku_id", "order_items.category_id", "order_items.quantity", "order_items.unit_price_cents", "order_items.line_total_cents"]
+    },
+    "campaign_public": {
+      "description": "Campaign attribution fields without buyer identity.",
+      "fields": ["order_attribution.attribution_type", "order_attribution.channel", "order_attribution.campaign_id", "order_attribution.creative_id", "order_attribution.attribution_weight"]
+    },
+    "payment_status": {
+      "description": "Payment metadata without card/account identifiers.",
+      "fields": ["order_payment.payment_method", "order_payment.provider_id", "order_payment.paid_amount_cents", "order_payment.paid_at_utc", "order_payment.risk_score", "order_payment.is_disputed"]
+    },
+    "buyer_contact": {
+      "description": "Buyer contact information that must be masked for support workflows.",
+      "fields": ["orders.buyer_email", "customer_profile.phone", "customer_profile.email"]
+    },
+    "buyer_self_contact": {
+      "description": "Buyer contact visible only to the same buyer under self-service.",
+      "fields": ["customer_profile.phone", "customer_profile.email"]
+    },
+    "buyer_address": {
+      "description": "Buyer address and exact delivery destination.",
+      "fields": ["customer_profile.address_line1", "customer_profile.address_line2", "customer_profile.city", "customer_profile.postal_code", "customer_profile.geo_hash", "order_fulfillment.delivery_address"]
+    },
+    "fulfillment_status": {
+      "description": "Fulfillment state without route disclosure.",
+      "fields": ["order_fulfillment.carrier_id", "order_fulfillment.warehouse_id", "order_fulfillment.shipped_at_utc", "order_fulfillment.delivered_at_utc", "order_fulfillment.status", "order_fulfillment.delivery_latency_minutes"]
+    },
+    "courier_next_stop": {
+      "description": "Only the next stop assigned to the courier.",
+      "fields": ["delivery_route.next_stop_label", "delivery_route.next_stop_window", "delivery_route.next_stop_geohash_prefix"]
+    },
+    "courier_route_full": {
+      "description": "Full route and exact destination are not exposed to courier role by this policy.",
+      "fields": ["delivery_route.full_route", "delivery_route.previous_stops", "delivery_route.final_address", "delivery_route.recipient_phone"]
+    },
+    "support_status": {
+      "description": "Support ticket metadata without raw transcript.",
+      "fields": ["customer_service_interactions.interaction_type", "customer_service_interactions.channel", "customer_service_interactions.agent_id", "customer_service_interactions.opened_at_utc", "customer_service_interactions.closed_at_utc", "customer_service_interactions.resolution_status"]
+    },
+    "support_internal": {
+      "description": "Internal support notes and raw transcripts.",
+      "fields": ["support_case.internal_notes", "support_case.raw_transcript", "support_case.escalation_reason"]
+    },
+    "merchant_internal": {
+      "description": "Merchant-side operational notes.",
+      "fields": ["merchant_profile.internal_rating", "merchant_profile.settlement_account_ref"]
+    },
+    "operator_only": {
+      "description": "Platform operator-only fields, paths, hashes, and debug evidence.",
+      "fields": ["audit.path", "audit.sha256", "audit.debug", "audit.raw_records", "policy.operator_report_path"]
+    }
+  },
+  "protected_fields": {
+    "orders.buyer_email": {
+      "classification": "contact",
+      "masking": "email_partial"
+    },
+    "customer_profile.email": {
+      "classification": "contact",
+      "masking": "email_partial"
+    },
+    "customer_profile.phone": {
+      "classification": "contact",
+      "masking": "phone_last4"
+    },
+    "customer_profile.address_line1": {
+      "classification": "address",
+      "masking": "redact"
+    },
+    "customer_profile.address_line2": {
+      "classification": "address",
+      "masking": "redact"
+    },
+    "customer_profile.city": {
+      "classification": "address",
+      "masking": "city_only"
+    },
+    "customer_profile.postal_code": {
+      "classification": "address",
+      "masking": "postal_prefix"
+    },
+    "customer_profile.geo_hash": {
+      "classification": "location",
+      "masking": "geohash_prefix"
+    },
+    "order_fulfillment.delivery_address": {
+      "classification": "address",
+      "masking": "redact"
+    },
+    "delivery_route.final_address": {
+      "classification": "address",
+      "masking": "redact"
+    },
+    "delivery_route.recipient_phone": {
+      "classification": "contact",
+      "masking": "phone_last4"
+    },
+    "support_case.raw_transcript": {
+      "classification": "support_transcript",
+      "masking": "redact"
+    },
+    "support_case.internal_notes": {
+      "classification": "internal_note",
+      "masking": "redact"
+    }
+  }
+}

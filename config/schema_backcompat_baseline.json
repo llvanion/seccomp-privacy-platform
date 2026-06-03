@@ -41,6 +41,64 @@
       ]
     },
     {
+      "path": "schemas/bucket_public_report.schema.json",
+      "schema_id": "bucket_public_report/v1",
+      "required": [
+        "schema",
+        "job_id",
+        "bucket_field",
+        "bucket_count",
+        "bucket_count_kind",
+        "k",
+        "dp_noise_applied",
+        "redaction",
+        "suppression_policy",
+        "buckets"
+      ],
+      "stable_properties": [
+        "schema",
+        "job_id",
+        "bucket_field",
+        "bucket_count",
+        "bucket_count_kind",
+        "k",
+        "dp_noise_applied",
+        "dp_epsilon",
+        "dp_sensitivity",
+        "round_sum_to",
+        "redaction",
+        "suppression_policy",
+        "buckets"
+      ]
+    },
+    {
+      "path": "schemas/operator_bucket_report.schema.json",
+      "schema_id": "operator_bucket_report/v1",
+      "required": [
+        "schema",
+        "job_id",
+        "bucket_field",
+        "bucket_count",
+        "k",
+        "dp_noise_applied",
+        "public_report_path",
+        "buckets"
+      ],
+      "stable_properties": [
+        "schema",
+        "job_id",
+        "bucket_field",
+        "bucket_count",
+        "k",
+        "dp_noise_applied",
+        "dp_epsilon",
+        "dp_sensitivity",
+        "round_sum_to",
+        "public_report_path",
+        "buckets"
+      ]
+    },
+    {
       "path": "schemas/audit_chain.schema.json",
       "schema_id": "audit_chain/v1",
       "required": [
@@ -77,8 +135,104 @@
         "policy_audit",
         "public_report",
         "record_recovery_service_audit",
+        "release_policy_gate",
         "schema",
         "sse_export_audit"
+      ]
+    },
+    {
+      "path": "schemas/audit_chain_public_summary.schema.json",
+      "schema_id": "audit_chain_public_summary/v1",
+      "required": [
+        "schema",
+        "generated_at_utc",
+        "job_id",
+        "correlation_id",
+        "caller",
+        "tenant_id",
+        "dataset_id",
+        "service_id",
+        "release",
+        "stage_record_counts",
+        "audit_chain",
+        "mainline_contract",
+        "privacy"
+      ],
+      "stable_properties": [
+        "schema",
+        "generated_at_utc",
+        "job_id",
+        "correlation_id",
+        "caller",
+        "tenant_id",
+        "dataset_id",
+        "service_id",
+        "release",
+        "stage_record_counts",
+        "audit_chain",
+        "mainline_contract",
+        "release_gate_summary",
+        "privacy"
+      ]
+    },
+    {
+      "path": "schemas/pipeline_observability_public_summary.schema.json",
+      "schema_id": "pipeline_observability_public_summary/v1",
+      "required": [
+        "schema",
+        "generated_at_utc",
+        "job_id",
+        "correlation_id",
+        "caller",
+        "tenant_id",
+        "dataset_id",
+        "service_id",
+        "summary",
+        "privacy"
+      ],
+      "stable_properties": [
+        "schema",
+        "generated_at_utc",
+        "job_id",
+        "correlation_id",
+        "caller",
+        "tenant_id",
+        "dataset_id",
+        "service_id",
+        "summary",
+        "privacy"
+      ]
+    },
+    {
+      "path": "schemas/catalog_lineage_public_summary.schema.json",
+      "schema_id": "catalog_lineage_public_summary/v1",
+      "required": [
+        "schema",
+        "generated_at_utc",
+        "job_id",
+        "correlation_id",
+        "caller",
+        "tenant_id",
+        "dataset_id",
+        "service_id",
+        "job",
+        "summary",
+        "mainline_contract",
+        "privacy"
+      ],
+      "stable_properties": [
+        "schema",
+        "generated_at_utc",
+        "job_id",
+        "correlation_id",
+        "caller",
+        "tenant_id",
+        "dataset_id",
+        "service_id",
+        "job",
+        "summary",
+        "mainline_contract",
+        "privacy"
       ]
     },
     {
@@ -188,6 +342,89 @@
         "parsed_metrics",
         "public_report_sha256",
         "approval_recommendation"
+      ]
+    },
+    {
+      "path": "schemas/privacy_budget_approval_decision.schema.json",
+      "schema_id": "privacy_budget_approval_decision/v1",
+      "required": [
+        "schema",
+        "created_at_utc",
+        "action",
+        "status",
+        "request_id",
+        "actor",
+        "caller",
+        "tenant_id",
+        "dataset_id",
+        "purpose",
+        "query_fingerprint",
+        "query_payload_sha256",
+        "reason",
+        "public_report_sha256",
+        "budget_consumed"
+      ],
+      "stable_properties": [
+        "schema",
+        "created_at_utc",
+        "action",
+        "status",
+        "request_id",
+        "actor",
+        "caller",
+        "tenant_id",
+        "dataset_id",
+        "purpose",
+        "job_id",
+        "consuming_job_id",
+        "query_fingerprint",
+        "query_payload_sha256",
+        "reason",
+        "expires_at_utc",
+        "public_report_sha256",
+        "budget_consumed",
+        "consuming_event_id"
+      ]
+    },
+    {
+      "path": "schemas/privacy_budget_approval_transition.schema.json",
+      "schema_id": "privacy_budget_approval_transition/v1",
+      "required": [
+        "schema",
+        "status",
+        "action",
+        "request_id",
+        "approval",
+        "decision"
+      ],
+      "stable_properties": [
+        "schema",
+        "status",
+        "action",
+        "request_id",
+        "approval",
+        "decision"
+      ]
+    },
+    {
+      "path": "schemas/privacy_budget_approval_list.schema.json",
+      "schema_id": "privacy_budget_approval_list/v1",
+      "required": [
+        "schema",
+        "status",
+        "returned_count",
+        "limit",
+        "requests"
+      ],
+      "stable_properties": [
+        "schema",
+        "status",
+        "filter_status",
+        "tenant_id",
+        "caller",
+        "returned_count",
+        "limit",
+        "requests"
       ]
     },
     {
@@ -310,10 +547,15 @@
         "client_sse_keyword",
         "client_sse_sid",
         "client_sse_sname",
+        "client_value_allow_negative",
         "client_value_field",
+        "client_value_max",
+        "client_value_min",
         "client_value_mode",
         "dataset_id",
         "deny_duplicate_query",
+        "dp_epsilon",
+        "dp_sensitivity",
         "external_kms_config",
         "handoff_retention_reason",
         "job_id",
@@ -322,8 +564,12 @@
         "key_manifest",
         "keyring",
         "n",
+        "operator_report_path",
         "out_base",
         "pjc_audit_log",
+        "pjc_evidence_merge",
+        "pjc_resource_limits",
+        "policy_require_dp",
         "privacy_budget_approval_queue",
         "privacy_budget_config",
         "privacy_budget_cost",
@@ -332,6 +578,7 @@
         "privacy_budget_purpose",
         "privacy_budget_required",
         "production_mode",
+        "public_report_redact_operator_fields",
         "query_type",
         "record_recovery_auth_env",
         "record_recovery_authz_config",
@@ -343,6 +590,8 @@
         "record_recovery_service_log",
         "record_recovery_service_mode",
         "record_recovery_socket",
+        "release_policy_gate_config",
+        "release_policy_gate_report",
         "schema",
         "server_filters",
         "server_join_key_field",
@@ -556,6 +805,7 @@
       ],
       "stable_properties": [
         "auth_required",
+        "business_access_policy",
         "db_dsn",
         "db_path",
         "ok",
@@ -1600,42 +1850,47 @@
         "token_secret_source"
       ],
       "stable_properties": [
-        "schema",
-        "ts_unix_ms",
-        "event",
-        "job_id",
-        "correlation_id",
-        "role",
-        "input_file",
-        "input_file_type",
-        "input_sha256",
-        "server_input_file",
-        "server_input_file_type",
-        "server_input_sha256",
+        "client_csv",
+        "client_csv_sha256",
         "client_input_file",
         "client_input_file_type",
         "client_input_sha256",
-        "output_dir",
-        "server_csv",
-        "server_csv_sha256",
-        "client_csv",
-        "client_csv_sha256",
+        "client_normalizer",
+        "client_output_value_summary",
+        "client_source_value_summary",
+        "client_value_policy",
+        "correlation_id",
+        "counts",
+        "decision",
+        "dedup_policy",
+        "duration_ms",
+        "event",
+        "input_commitment_file",
+        "input_commitment_sha256",
+        "input_file",
+        "input_file_type",
+        "input_sha256",
+        "job_id",
         "job_meta_file",
         "job_meta_sha256",
-        "counts",
-        "token_scheme",
-        "token_scope",
-        "token_key_version",
         "normalize_version",
         "normalizer_schema_version",
-        "server_normalizer",
-        "client_normalizer",
-        "dedup_policy",
+        "output_dir",
         "production_mode",
-        "duration_ms",
-        "decision",
         "reason_code",
-        "token_secret_source"
+        "role",
+        "schema",
+        "server_csv",
+        "server_csv_sha256",
+        "server_input_file",
+        "server_input_file_type",
+        "server_input_sha256",
+        "server_normalizer",
+        "token_key_version",
+        "token_scheme",
+        "token_scope",
+        "token_secret_source",
+        "ts_unix_ms"
       ]
     },
     {
@@ -1660,6 +1915,34 @@
         "bridge",
         "inputs",
         "counts"
+      ]
+    },
+    {
+      "path": "schemas/pjc_input_commitment.schema.json",
+      "schema_id": "pjc_input_commitment/v1",
+      "required": [
+        "schema",
+        "job_id",
+        "generated_by",
+        "token_scheme",
+        "token_scope",
+        "token_key_version",
+        "normalize_version",
+        "normalizer_schema_version",
+        "dedup_policy",
+        "parties"
+      ],
+      "stable_properties": [
+        "schema",
+        "job_id",
+        "generated_by",
+        "token_scheme",
+        "token_scope",
+        "token_key_version",
+        "normalize_version",
+        "normalizer_schema_version",
+        "dedup_policy",
+        "parties"
       ]
     },
     {
@@ -1769,6 +2052,8 @@
         "server_csv_sha256",
         "client_csv",
         "client_csv_sha256",
+        "input_commitment_file",
+        "input_commitment_sha256",
         "server_log",
         "server_log_sha256",
         "client_log",
@@ -2482,6 +2767,26 @@
       ]
     },
     {
+      "path": "schemas/identity_proxy_auth_smoke.schema.json",
+      "schema_id": "identity_proxy_auth_smoke/v1",
+      "required": [
+        "schema",
+        "generated_at_utc",
+        "status",
+        "checks",
+        "finding_count",
+        "findings"
+      ],
+      "stable_properties": [
+        "checks",
+        "finding_count",
+        "findings",
+        "generated_at_utc",
+        "schema",
+        "status"
+      ]
+    },
+    {
       "path": "schemas/openfga_sync_report.schema.json",
       "schema_id": "openfga_sync_report/v1",
       "required": [
@@ -3100,6 +3405,268 @@
       ]
     },
     {
+      "path": "schemas/pjc_tls_diagnostic.schema.json",
+      "schema_id": "pjc_tls_diagnostic/v1",
+      "required": [
+        "schema",
+        "generated_at_utc",
+        "job_id",
+        "role",
+        "decision",
+        "reason_code",
+        "category",
+        "host",
+        "port",
+        "tcp",
+        "tls",
+        "local_files",
+        "server_log",
+        "suggested_action"
+      ],
+      "stable_properties": [
+        "category",
+        "decision",
+        "generated_at_utc",
+        "host",
+        "job_id",
+        "local_files",
+        "port",
+        "reason_code",
+        "role",
+        "schema",
+        "server_hostname",
+        "server_log",
+        "suggested_action",
+        "tcp",
+        "tls"
+      ]
+    },
+    {
+      "path": "schemas/release_policy_gate_config.schema.json",
+      "schema_id": "release_policy_gate_config/v1",
+      "required": [
+        "schema",
+        "require_dp",
+        "min_k",
+        "require_privacy_budget",
+        "allowed_deny_reason_codes"
+      ],
+      "stable_properties": [
+        "allowed_deny_reason_codes",
+        "budget_ledger_path",
+        "duplicate_query_denied",
+        "max_dp_epsilon",
+        "min_dp_epsilon",
+        "min_k",
+        "require_dp",
+        "require_pjc_evidence_merge",
+        "require_privacy_budget",
+        "require_public_report_redaction",
+        "schema"
+      ]
+    },
+    {
+      "path": "schemas/release_policy_gate.schema.json",
+      "schema_id": "release_policy_gate/v1",
+      "required": [
+        "schema",
+        "generated_at_utc",
+        "decision",
+        "reason_code",
+        "public_report_path",
+        "checks"
+      ],
+      "stable_properties": [
+        "caller",
+        "checks",
+        "decision",
+        "findings",
+        "generated_at_utc",
+        "job_id",
+        "operator_report_path",
+        "pjc_evidence_merge_path",
+        "policy_audit_log_path",
+        "policy_config_path",
+        "public_report_path",
+        "public_report_sha256",
+        "reason",
+        "reason_code",
+        "schema"
+      ]
+    },
+    {
+      "path": "schemas/pjc_two_party_negative_cases.schema.json",
+      "schema_id": "pjc_two_party_negative_cases/v1",
+      "required": [
+        "schema",
+        "generated_at_utc",
+        "job_id",
+        "decision",
+        "reason_code",
+        "required_cases",
+        "cases"
+      ],
+      "stable_properties": [
+        "cases",
+        "decision",
+        "generated_at_utc",
+        "job_id",
+        "reason",
+        "reason_code",
+        "required_cases",
+        "schema"
+      ]
+    },
+    {
+      "path": "schemas/pjc_two_party_evidence_merge.schema.json",
+      "schema_id": "pjc_two_party_evidence_merge/v1",
+      "required": [
+        "schema",
+        "generated_at_utc",
+        "job_id",
+        "decision",
+        "reason_code",
+        "party_a",
+        "party_b",
+        "checks",
+        "findings"
+      ],
+      "stable_properties": [
+        "checks",
+        "decision",
+        "findings",
+        "generated_at_utc",
+        "job_id",
+        "party_a",
+        "party_b",
+        "reason",
+        "reason_code",
+        "schema"
+      ]
+    },
+    {
+      "path": "schemas/pjc_two_party_signed_run_manifest.schema.json",
+      "schema_id": "pjc_two_party_signed_run_manifest/v1",
+      "required": [
+        "schema",
+        "signature_algorithm",
+        "canonicalization",
+        "payload_sha256",
+        "payload",
+        "signature",
+        "public_key_pem",
+        "public_key_fingerprint_sha256"
+      ],
+      "stable_properties": [
+        "canonicalization",
+        "payload",
+        "payload_sha256",
+        "public_key_fingerprint_sha256",
+        "public_key_pem",
+        "schema",
+        "signature",
+        "signature_algorithm"
+      ]
+    },
+    {
+      "path": "schemas/pjc_role_status.schema.json",
+      "schema_id": "pjc_role_status/v1",
+      "required": [
+        "schema",
+        "generated_at_utc",
+        "job_id",
+        "role",
+        "state"
+      ],
+      "stable_properties": [
+        "cancel_reason",
+        "cert_dir",
+        "command_argv_hash",
+        "command_digest_sha256",
+        "dataplane_port",
+        "duration_sec",
+        "env_allowlist",
+        "env_allowlist_digest_sha256",
+        "evidence_path",
+        "exit_code",
+        "finished_at_utc",
+        "generated_at_utc",
+        "job_id",
+        "log_path",
+        "log_sha256",
+        "loopback_port",
+        "pid",
+        "role",
+        "role_dir",
+        "schema",
+        "started_at_utc",
+        "state"
+      ]
+    },
+    {
+      "path": "schemas/pjc_role_package.schema.json",
+      "schema_id": "pjc_role_package/v1",
+      "required": [
+        "schema",
+        "generated_at_utc",
+        "job_id",
+        "role",
+        "package_path",
+        "package_sha256",
+        "files",
+        "peer",
+        "ports",
+        "policy"
+      ],
+      "stable_properties": [
+        "exported_dir",
+        "files",
+        "generated_at_utc",
+        "imported_dir",
+        "job_id",
+        "operator_notes",
+        "package_path",
+        "package_sha256",
+        "peer",
+        "policy",
+        "ports",
+        "role",
+        "schema",
+        "source_dir",
+        "validation"
+      ]
+    },
+    {
+      "path": "schemas/pjc_two_party_preflight.schema.json",
+      "schema_id": "pjc_two_party_preflight/v1",
+      "required": [
+        "schema",
+        "generated_at_utc",
+        "job_id",
+        "role",
+        "decision",
+        "reason_code",
+        "checks",
+        "findings"
+      ],
+      "stable_properties": [
+        "checks",
+        "decision",
+        "expected_ca_fingerprint_sha256",
+        "expected_commit",
+        "expected_dataplane_port",
+        "expected_peer_identity",
+        "expected_peer_role",
+        "findings",
+        "generated_at_utc",
+        "job_id",
+        "reason",
+        "reason_code",
+        "role",
+        "schema"
+      ]
+    },
+    {
       "path": "schemas/bridge_benchmark.schema.json",
       "schema_id": "bridge_benchmark/v1",
       "required": [
@@ -3334,6 +3901,67 @@
       ]
     },
     {
+      "path": "schemas/console_token_storage_check.schema.json",
+      "schema_id": "console_token_storage_check/v1",
+      "required": [
+        "schema",
+        "generated_at_utc",
+        "status",
+        "scanned_files",
+        "finding_count",
+        "findings"
+      ],
+      "stable_properties": [
+        "fetch_credentials_same_origin",
+        "finding_count",
+        "findings",
+        "generated_at_utc",
+        "scanned_files",
+        "schema",
+        "status"
+      ]
+    },
+    {
+      "path": "schemas/console_browser_session_check.schema.json",
+      "schema_id": "console_browser_session_check/v1",
+      "required": [
+        "schema",
+        "generated_at_utc",
+        "status",
+        "checks",
+        "finding_count",
+        "findings"
+      ],
+      "stable_properties": [
+        "checks",
+        "finding_count",
+        "findings",
+        "generated_at_utc",
+        "schema",
+        "status"
+      ]
+    },
+    {
+      "path": "schemas/console_security_headers_check.schema.json",
+      "schema_id": "console_security_headers_check/v1",
+      "required": [
+        "checks",
+        "finding_count",
+        "findings",
+        "generated_at_utc",
+        "schema",
+        "status"
+      ],
+      "stable_properties": [
+        "checks",
+        "finding_count",
+        "findings",
+        "generated_at_utc",
+        "schema",
+        "status"
+      ]
+    },
+    {
       "path": "schemas/console_manifest.schema.json",
       "schema_id": "console_manifest/v1",
       "required": [
@@ -3440,6 +4068,62 @@
       ]
     },
     {
+      "path": "schemas/operator_dashboard_public_summary.schema.json",
+      "schema_id": "operator_dashboard_public_summary/v1",
+      "required": [
+        "schema",
+        "generated_at_utc",
+        "authenticated_identity",
+        "scope",
+        "overall_status",
+        "job",
+        "workflow",
+        "health",
+        "artifacts",
+        "redaction"
+      ],
+      "stable_properties": [
+        "artifacts",
+        "authenticated_identity",
+        "generated_at_utc",
+        "health",
+        "job",
+        "overall_status",
+        "redaction",
+        "schema",
+        "scope",
+        "workflow"
+      ]
+    },
+    {
+      "path": "schemas/operator_dashboard_public_summary_smoke.schema.json",
+      "schema_id": "operator_dashboard_public_summary_smoke/v1",
+      "required": [
+        "schema",
+        "status",
+        "unauth_status",
+        "normal_schema",
+        "admin_full_view",
+        "normal_full_read_status",
+        "normal_exact_result_status",
+        "normal_direct_start_status",
+        "admin_full_job_status",
+        "admin_exact_result_status"
+      ],
+      "stable_properties": [
+        "admin_full_view",
+        "normal_schema",
+        "schema",
+        "status",
+        "unauth_status",
+        "normal_full_read_status",
+        "normal_exact_result_status",
+        "normal_direct_start_status",
+        "admin_full_job_status",
+        "admin_exact_result_status"
+      ]
+    },
+    {
       "path": "schemas/alert_daemon_heartbeat.schema.json",
       "schema_id": "alert_daemon_heartbeat/v1",
       "required": [
@@ -3469,6 +4153,292 @@
         "schema",
         "started_at_utc",
         "transitions"
+      ]
+    },
+    {
+      "path": "schemas/ecommerce_fact_import_result.schema.json",
+      "schema_id": "ecommerce_fact_import_result/v1",
+      "required": [
+        "schema",
+        "generated_at_utc",
+        "table",
+        "input_path",
+        "input_sha256",
+        "database_backend",
+        "decision",
+        "reason_code",
+        "validation",
+        "inserted_row_count",
+        "table_row_count_before",
+        "table_row_count_after",
+        "transaction"
+      ],
+      "stable_properties": [
+        "database_backend",
+        "decision",
+        "generated_at_utc",
+        "input_path",
+        "input_sha256",
+        "insert_error",
+        "inserted_row_count",
+        "reason_code",
+        "schema",
+        "table",
+        "table_row_count_after",
+        "table_row_count_before",
+        "transaction",
+        "validation"
+      ]
+    },
+    {
+      "path": "schemas/ecommerce_fact_import_smoke.schema.json",
+      "schema_id": "ecommerce_fact_import_smoke/v1",
+      "required": [
+        "schema",
+        "status",
+        "allow_decision",
+        "allow_transaction",
+        "sensitive_decision",
+        "sensitive_transaction",
+        "duplicate_decision",
+        "duplicate_transaction",
+        "final_order_count"
+      ],
+      "stable_properties": [
+        "allow_decision",
+        "allow_transaction",
+        "duplicate_decision",
+        "duplicate_transaction",
+        "final_order_count",
+        "schema",
+        "sensitive_decision",
+        "sensitive_transaction",
+        "status"
+      ]
+    },
+    {
+      "path": "schemas/business_access_policy.schema.json",
+      "schema_id": "business_access_policy/v1",
+      "required": [
+        "schema",
+        "policy_id",
+        "version",
+        "default_decision",
+        "roles",
+        "field_classes",
+        "protected_fields"
+      ],
+      "stable_properties": [
+        "schema",
+        "policy_id",
+        "version",
+        "default_decision",
+        "roles",
+        "field_classes",
+        "protected_fields"
+      ]
+    },
+    {
+      "path": "schemas/business_access_check_report.schema.json",
+      "schema_id": "business_access_check_report/v1",
+      "required": [
+        "schema",
+        "generated_at_utc",
+        "policy_id",
+        "policy_version",
+        "request",
+        "decision",
+        "reason_code",
+        "field_decisions",
+        "summary"
+      ],
+      "stable_properties": [
+        "schema",
+        "generated_at_utc",
+        "policy_id",
+        "policy_version",
+        "request",
+        "decision",
+        "reason_code",
+        "reason",
+        "field_decisions",
+        "summary"
+      ]
+    },
+    {
+      "path": "schemas/business_data_read_preview.schema.json",
+      "schema_id": "business_data_read_preview/v1",
+      "required": [
+        "schema",
+        "entity",
+        "decision",
+        "policy_id",
+        "policy_version",
+        "scope",
+        "filters",
+        "fields",
+        "field_decisions",
+        "rows",
+        "count",
+        "limit"
+      ],
+      "stable_properties": [
+        "count",
+        "decision",
+        "entity",
+        "field_decisions",
+        "fields",
+        "filters",
+        "limit",
+        "policy_id",
+        "policy_version",
+        "rows",
+        "schema",
+        "scope"
+      ]
+    },
+    {
+      "path": "schemas/business_access_api_smoke.schema.json",
+      "schema_id": "business_access_api_smoke/v1",
+      "required": [
+        "schema",
+        "status",
+        "business_identity_count",
+        "merchant_public_decision",
+        "merchant_address_decision",
+        "merchant_read_preview_count",
+        "merchant_filter_conflict_status",
+        "merchant_tenant_filter_conflict_status",
+        "merchant_read_preview_denied_status",
+        "support_masked_preview_decision",
+        "sensitive_filter_status",
+        "role_spoof_status",
+        "read_preview_role_spoof_status"
+      ],
+      "stable_properties": [
+        "business_identity_count",
+        "merchant_address_decision",
+        "merchant_filter_conflict_status",
+        "merchant_public_decision",
+        "merchant_read_preview_count",
+        "merchant_read_preview_denied_status",
+        "merchant_tenant_filter_conflict_status",
+        "read_preview_role_spoof_status",
+        "role_spoof_status",
+        "schema",
+        "sensitive_filter_status",
+        "status",
+        "support_masked_preview_decision"
+      ]
+    },
+    {
+      "path": "schemas/ecommerce_fact_import_validation.schema.json",
+      "schema_id": "ecommerce_fact_import_validation/v1",
+      "required": [
+        "schema",
+        "generated_at_utc",
+        "table",
+        "input_path",
+        "policy_id",
+        "policy_version",
+        "decision",
+        "reason_code",
+        "row_count",
+        "checked_columns",
+        "summary",
+        "findings"
+      ],
+      "stable_properties": [
+        "checked_columns",
+        "decision",
+        "findings",
+        "generated_at_utc",
+        "input_path",
+        "policy_id",
+        "policy_version",
+        "reason_code",
+        "row_count",
+        "schema",
+        "summary",
+        "table"
+      ]
+    },
+    {
+      "path": "schemas/ecommerce_fact_import_validation_smoke.schema.json",
+      "schema_id": "ecommerce_fact_import_validation_smoke/v1",
+      "required": [
+        "schema",
+        "status",
+        "allow_decision",
+        "address_decision",
+        "negative_value_decision",
+        "support_transcript_decision"
+      ],
+      "stable_properties": [
+        "address_decision",
+        "allow_decision",
+        "negative_value_decision",
+        "schema",
+        "status",
+        "support_transcript_decision"
+      ]
+    },
+    {
+      "path": "schemas/console_dashboard_public_summary_check.schema.json",
+      "schema_id": "console_dashboard_public_summary_check/v1",
+      "required": [
+        "schema",
+        "generated_at_utc",
+        "status",
+        "checked_files",
+        "finding_count",
+        "findings"
+      ],
+      "stable_properties": [
+        "schema",
+        "generated_at_utc",
+        "status",
+        "checked_files",
+        "finding_count",
+        "findings"
+      ]
+    },
+    {
+      "path": "schemas/console_audit_public_summary_check.schema.json",
+      "schema_id": "console_audit_public_summary_check/v1",
+      "required": [
+        "schema",
+        "generated_at_utc",
+        "status",
+        "checked_files",
+        "finding_count",
+        "findings"
+      ],
+      "stable_properties": [
+        "schema",
+        "generated_at_utc",
+        "status",
+        "checked_files",
+        "finding_count",
+        "findings"
+      ]
+    },
+    {
+      "path": "schemas/metadata_api_public_redaction_check.schema.json",
+      "schema_id": "metadata_api_public_redaction_check/v1",
+      "required": [
+        "schema",
+        "status",
+        "checked_count",
+        "failed_count",
+        "checks"
+      ],
+      "stable_properties": [
+        "schema",
+        "status",
+        "checked_count",
+        "failed_count",
+        "checks"
       ]
     }
   ]

@@ -16,8 +16,12 @@ def fetch_json(opener: urllib.request.OpenerDirector, url: str, *, token: str | 
     request = urllib.request.Request(url)
     if token:
         request.add_header("Authorization", f"Bearer {token}")
-    with opener.open(request, timeout=2) as response:
-        return json.loads(response.read().decode("utf-8"))
+    try:
+        with opener.open(request, timeout=2) as response:
+            return json.loads(response.read().decode("utf-8"))
+    except urllib.error.HTTPError as exc:
+        exc.body_text = exc.read().decode("utf-8", errors="replace")
+        raise
 
 
 def post_json(
@@ -52,8 +56,21 @@ def expect_http_error(fn, *, code: int, label: str) -> dict[str, Any]:
     except urllib.error.HTTPError as exc:
         if exc.code != code:
             raise
-        return json.loads(exc.read().decode("utf-8"))
+        body = getattr(exc, "body_text", None)
+        if body is None:
+            body = exc.read().decode("utf-8")
+        return json.loads(body)
     raise SystemExit(f"{label} unexpectedly succeeded")
+
+
+def fetch_json_or_die(opener: urllib.request.OpenerDirector, url: str, *, token: str | None = None, label: str) -> dict[str, Any]:
+    try:
+        return fetch_json(opener, url, token=token)
+    except urllib.error.HTTPError as exc:
+        body = getattr(exc, "body_text", None)
+        if body is None:
+            body = exc.read().decode("utf-8", errors="replace")
+        raise RuntimeError(f"{label} failed with HTTP {exc.code}: {body}") from exc
 
 
 def materialize_query_api(tmp_dir: Path, *, port: int, request_file: Path) -> None:
@@ -286,12 +303,28 @@ def materialize_identity_metadata_api(tmp_dir: Path, *, port: int) -> None:
     base = f"http://127.0.0.1:{port}"
     dump(
         tmp_dir / "metadata_api_identity.json",
-        fetch_json(opener, f"{base}/v1/identity", token="contract-identity-commerce-ops-token"),
+        fetch_json(opener, f"{base}/v1/identity", token="contract-identity-auto-demo-token"),
+    )
+    dump(
+        tmp_dir / "metadata_api_identity_jobs.json",
+        fetch_json(opener, f"{base}/v1/jobs?caller=auto_demo&stage=bridge&limit=5", token="contract-identity-auto-demo-token"),
+    )
+    dump(
+        tmp_dir / "metadata_api_identity_job.json",
+        fetch_json(opener, f"{base}/v1/jobs/contract-check", token="contract-identity-auto-demo-token"),
+    )
+    dump(
+        tmp_dir / "metadata_api_identity_permissions.json",
+        fetch_json(opener, f"{base}/v1/entities/caller-permissions?caller=auto_demo&limit=20", token="contract-identity-auto-demo-token"),
+    )
+    dump(
+        tmp_dir / "metadata_api_identity_policy_bindings.json",
+        fetch_json(opener, f"{base}/v1/entities/policy-bindings?caller=auto_demo&limit=20", token="contract-identity-auto-demo-token"),
     )
     dump(
         tmp_dir / "metadata_api_identity_forbidden_policies.json",
         expect_http_error(
-            lambda: fetch_json(opener, f"{base}/v1/entities/policies?limit=5", token="contract-identity-commerce-ops-token"),
+            lambda: fetch_json(opener, f"{base}/v1/entities/policies?limit=5", token="contract-identity-auto-demo-token"),
             code=403,
             label="metadata API identity policies request",
         ),
@@ -343,7 +376,19 @@ def materialize_identity_audit_query_api(tmp_dir: Path, *, port: int) -> None:
     base = f"http://127.0.0.1:{port}"
     dump(
         tmp_dir / "audit_query_api_identity_public_report.json",
-        fetch_json(opener, f"{base}/v1/public-report", token="contract-identity-auto-demo-token"),
+        fetch_json_or_die(opener, f"{base}/v1/public-report", token="contract-identity-auto-demo-token", label="identity audit public-report"),
+    )
+    dump(
+        tmp_dir / "audit_query_api_identity_audit_chain.json",
+        fetch_json_or_die(opener, f"{base}/v1/audit-chain", token="contract-identity-auto-demo-token", label="identity audit-chain"),
+    )
+    dump(
+        tmp_dir / "audit_query_api_identity_observability.json",
+        fetch_json_or_die(opener, f"{base}/v1/observability", token="contract-identity-auto-demo-token", label="identity audit observability"),
+    )
+    dump(
+        tmp_dir / "audit_query_api_identity_catalog_lineage.json",
+        fetch_json_or_die(opener, f"{base}/v1/catalog-lineage", token="contract-identity-auto-demo-token", label="identity audit catalog-lineage"),
     )
     dump(
         tmp_dir / "audit_query_api_identity_include_paths_forbidden.json",

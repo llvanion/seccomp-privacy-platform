@@ -7,7 +7,8 @@ import { DataTable, type Column } from "@/components/data-table";
 import { RouteTabs } from "@/components/tabs";
 import { useState, type ReactNode } from "react";
 import { Field, Input, Button } from "@/components/ui";
-import type { CatalogLineage, Json, MetadataEntityResponse } from "@/api/types";
+import type { CatalogLineageData, Json, MetadataEntityResponse } from "@/api/types";
+import { isCatalogLineagePublicSummary } from "@/api/types";
 import { formatTimestamp, truncate } from "@/lib/format";
 
 export function CatalogRoute() {
@@ -95,15 +96,29 @@ function EntityTab({ entity, idKey, label }: { entity: "tenants" | "datasets" | 
       ) : !q.data?.entries || q.data.entries.length === 0 ? (
         <EmptyState title={`暂无 ${label}`} description="metadata sidecar 尚未导入相关条目。" />
       ) : (
-        <DataTable rows={q.data.entries} columns={columns} rowKey={(r, i) => `${r[idKey] ?? i}`} />
+        <div className="space-y-3">
+          {q.data.redaction?.view === "caller_safe_metadata_summary" && <MetadataRedactionNotice />}
+          <DataTable rows={q.data.entries} columns={columns} rowKey={(r, i) => `${r[idKey] ?? i}`} />
+        </div>
       )}
     </Card>
   );
 }
 
+function MetadataRedactionNotice() {
+  return (
+    <div className="panel-soft p-3 rounded-lg">
+      <div className="text-sm font-semibold text-ink">caller-safe metadata summary</div>
+      <div className="text-2xs text-ink-muted mt-1">
+        Operator paths, hashes, source files, exact result metrics, and timing fields are redacted for this identity.
+      </div>
+    </div>
+  );
+}
+
 function LineageTab() {
   const [outBase, setOutBase] = useState("");
-  const q = useApiQuery<CatalogLineage>(
+  const q = useApiQuery<CatalogLineageData>(
     ["catalog", "lineage", outBase],
     () => auditApi.catalogLineage({ out_base: outBase || undefined }),
     { retry: 0 },
@@ -126,16 +141,41 @@ function LineageTab() {
           <Skeleton className="h-48" />
         ) : q.error ? (
           <ErrorBanner title="加载失败" message={q.error.message} />
+        ) : isCatalogLineagePublicSummary(q.data) ? (
+          <CatalogCallerSafeSummary data={q.data} />
         ) : (
           <>
             <div className="grid grid-cols-2 gap-3 text-2xs mb-3">
-              <Stat label="nodes" value={q.data?.nodes?.length ?? 0} />
-              <Stat label="edges" value={q.data?.edges?.length ?? 0} />
+              <Stat label="datasets" value={q.data?.summary?.dataset_count ?? q.data?.datasets?.length ?? 0} />
+              <Stat label="lineage_edges" value={q.data?.summary?.lineage_edge_count ?? q.data?.lineage_edges?.length ?? 0} />
             </div>
             <JsonBlock data={q.data ?? {}} maxHeight="380px" />
           </>
         )}
       </Card>
+    </div>
+  );
+}
+
+function CatalogCallerSafeSummary({ data }: { data: Extract<CatalogLineageData, { schema: "catalog_lineage_public_summary/v1" }> }) {
+  return (
+    <div className="space-y-3">
+      <div className="panel-soft p-3 rounded-lg">
+        <div className="text-sm font-semibold text-ink">caller-safe summary</div>
+        <div className="text-2xs text-ink-muted mt-1">
+          Artifact paths, hashes, raw lineage nodes, and operator-only audit details are redacted for this identity.
+        </div>
+      </div>
+      <div className="grid grid-cols-2 gap-3 text-2xs">
+        <Stat label="datasets" value={data.summary.dataset_count ?? 0} />
+        <Stat label="services" value={data.summary.service_count ?? 0} />
+        <Stat label="artifacts" value={data.summary.artifact_count ?? 0} />
+        <Stat label="lineage_edges" value={data.summary.lineage_edge_count ?? 0} />
+      </div>
+      <div className="grid grid-cols-2 gap-3 text-2xs">
+        <Stat label="job_status" value={data.job.status ?? "—"} />
+        <Stat label="paths_included" value={String(data.privacy.paths_included)} />
+      </div>
     </div>
   );
 }

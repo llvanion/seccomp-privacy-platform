@@ -27,6 +27,7 @@ bash scripts/run_sse_bridge_pipeline.sh \
   --server-normalizer email \
   --client-normalizer email \
   --client-value-mode raw-int \
+  --client-value-max 1000000 \
   --server-filter campaign=demo \
   --client-filter campaign=demo \
   --token-scope auto-demo-scope \
@@ -218,6 +219,7 @@ cargo run -- prepare-job \
   --client-join-key-column email \
   --client-value-column amount \
   --client-value-mode raw-int \
+  --client-value-max 1000000 \
   --client-normalizer email \
   --out-dir ./out/sse_demo_job \
   --job-id sse_demo_job \
@@ -315,10 +317,16 @@ For production-mode runs, use:
 export BRIDGE_TOKEN_SECRET=<secret>
 bash scripts/run_sse_bridge_pipeline.sh ... \
   --token-secret-env BRIDGE_TOKEN_SECRET \
+  --pjc-resource-limits "$PWD/config/pjc_resource_limits.example.json" \
   --production-mode
 ```
 
-In production mode the bridge rejects `--token-secret`.
+In production mode the bridge rejects `--token-secret`, the orchestrator rejects
+runs without `--pjc-resource-limits`, and Stage3 passes `PJC_PRODUCTION_MODE=1`
+to the PJC wrapper. That makes PJC resource preflight mandatory and forbids
+legacy unary fallback when the checked PJC binary lacks streaming support. Local
+demo/replay scripts may set `PJC_ALLOW_LEGACY_UNARY=1`, but production runs
+must use a streaming-capable PJC build.
 
 The orchestrator can resolve a token secret through a local key manifest instead of taking an env var name directly:
 

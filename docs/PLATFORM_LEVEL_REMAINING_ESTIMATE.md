@@ -1,5 +1,7 @@
 # 平台级剩余工作量估算
 
+> 2026-06-01 状态说明：这份文档保留为“历史平台基线估算”和任务完成记录，不再作为当前生产安全/完整性判断入口。当前真实状态以 [CURRENT_SECURITY_AND_COMPLETION_AUDIT.md](CURRENT_SECURITY_AND_COMPLETION_AUDIT.md) 为准。本文中的“0 block / 平台基线完成”只表示旧基线范围完成，不表示协议、软件或部署已经生产安全。
+
 ## 1. 估算口径
 
 这里的“平台级别”指的是：
@@ -115,11 +117,11 @@
 1. [POST_BASELINE_ROADMAP.md](/home/llvanion/Desktop/seccomp-privacy-platform/docs/POST_BASELINE_ROADMAP.md)
 2. [PRODUCTION_SECURITY_COMPLETION_PLAN.md](/home/llvanion/Desktop/seccomp-privacy-platform/docs/PRODUCTION_SECURITY_COMPLETION_PLAN.md)（当目标升级为生产级安全完整方案时，以 S1-S8 完整任务包和三人联合认证为准）
 
-## 4.1 生产就绪剩余 block 快照（2026-05-09 更新 / F1-b + G3 + G7 + J2-b + G4-a + G4-b + G5 收口）
+## 4.1 历史生产就绪 block 快照（2026-05-09 更新 / F1-b + G3 + G7 + J2-b + G4-a + G4-b + G5 收口）
 
-这个快照按 [PRODUCTION_READINESS_GUIDEBOOK.md](/home/llvanion/Desktop/seccomp-privacy-platform/docs/PRODUCTION_READINESS_GUIDEBOOK.md) 的生产就绪口径统计，不改变上方“平台基线已完成”的结论。
+这个快照按 [PRODUCTION_READINESS_GUIDEBOOK.md](/home/llvanion/Desktop/seccomp-privacy-platform/docs/PRODUCTION_READINESS_GUIDEBOOK.md) 当时的生产就绪 block 口径统计，不改变上方“平台基线已完成”的结论，也不代表 2026-06-01 的生产安全结论。当前问题清单以 [CURRENT_SECURITY_AND_COMPLETION_AUDIT.md](CURRENT_SECURITY_AND_COMPLETION_AUDIT.md) 为准。
 
-当前剩余：**1 block / 约 5h**（仅 K3 external pen test）。
+历史快照当时记录的剩余：**1 block / 约 5h**（仅 K3 external pen test）。当前不要把这句话用作生产安全完成判断。
 
 | 类别 | 剩余 block 数 | 具体 block |
 | --- | ---: | --- |

@@ -39,7 +39,7 @@ export function RequestDetailRoute() {
   const [actor, setActor] = useState("");
 
   const submission = detailQ.data;
-  const pending = submission?.status === "pending";
+  const pending = submission?.status === "pending_approval";
 
   return (
     <div className="space-y-5">

@@ -23,13 +23,13 @@ export function useApiMutation<TData, TVars>(
   const toast = useToast();
   return useMutation<TData, ApiError, TVars>({
     mutationFn: fn,
-    onSuccess: (data, vars, ctx) => {
+    onSuccess: (data, vars, ctx, meta) => {
       if (options?.successToast) toast.pushSuccess(options.successToast);
-      options?.onSuccess?.(data, vars, ctx);
+      options?.onSuccess?.(data, vars, ctx, meta);
     },
-    onError: (err, vars, ctx) => {
+    onError: (err, vars, ctx, meta) => {
       if (options?.errorToast !== false) toast.pushError("操作失败", err.message);
-      options?.onError?.(err, vars, ctx);
+      options?.onError?.(err, vars, ctx, meta);
     },
     ...(options ?? {}),
   });

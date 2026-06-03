@@ -9,7 +9,7 @@ import { DataTable, type Column } from "@/components/data-table";
 import { formatRelativeTime, formatTimestamp, shortHash, truncate } from "@/lib/format";
 import type { RequestSubmission } from "@/api/types";
 
-const STATUS_FILTERS = ["all", "pending", "approved", "rejected"] as const;
+const STATUS_FILTERS = ["all", "pending_approval", "approved", "rejected"] as const;
 
 export function RequestsRoute() {
   const [status, setStatus] = useState<string>("all");
@@ -33,7 +33,7 @@ export function RequestsRoute() {
 
   const counts = useMemo(
     () => ({
-      pending: submissions.filter((s) => s.status === "pending").length,
+      pending: submissions.filter((s) => s.status === "pending_approval").length,
       approved: submissions.filter((s) => s.status === "approved").length,
       rejected: submissions.filter((s) => s.status === "rejected").length,
     }),

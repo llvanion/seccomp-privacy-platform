@@ -33,6 +33,8 @@ def build_request(*, out_base: Path, job_id: str = "operator-request-submission-
         "server_normalizer": "email",
         "client_normalizer": "email",
         "client_value_mode": "raw-int",
+        "client_value_min": 0,
+        "client_value_max": 1000000,
         "server_filters": ["campaign=demo"],
         "client_filters": ["campaign=demo"],
         "token_scope": "operator-request-submission-smoke",

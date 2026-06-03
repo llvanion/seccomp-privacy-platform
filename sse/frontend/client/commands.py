@@ -19,7 +19,6 @@ import functools
 import hashlib
 import json
 import os
-import pickle
 import stat
 import subprocess
 import sys
@@ -32,6 +31,7 @@ if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
 import schemes
+from frontend.common.wire import decode_content
 from frontend.client.services import service_name_handler
 from frontend.client.services.service import Service
 from toolkit.bytes_utils import BytesConverter
@@ -936,7 +936,7 @@ def _write_export_rows(rows: list[dict], out: Path, out_format: str, *, join_key
 
 
 def __upload_config_echo_handler(fut: asyncio.Future):
-    content = pickle.loads(fut.result())
+    content = decode_content(fut.result())
     if not content.get("ok", False):
         reason = content.get("reason", "")
         print(f">>> Upload config error, reason: {reason}.")
@@ -945,7 +945,7 @@ def __upload_config_echo_handler(fut: asyncio.Future):
 
 
 def __upload_encrypted_database_echo_handler(fut: asyncio.Future):
-    content = pickle.loads(fut.result())
+    content = decode_content(fut.result())
     if not content.get("ok", False):
         reason = content.get("reason", "")
         print(f">>> Upload encrypted database error, reason: {reason}.")
@@ -971,7 +971,7 @@ def __multi_search_echo_handler(fut: asyncio.Future, output_format="raw"):
     global __client_service
 
     if isinstance(__client_service, Service):
-        content = pickle.loads(fut.result())
+        content = decode_content(fut.result())
         if not content.get("ok", False):
             reason = content.get("reason", "")
             print(f">>> Multi-search error, reason: {reason}.")
@@ -987,7 +987,7 @@ def __multi_search_echo_handler(fut: asyncio.Future, output_format="raw"):
 
 
 def __delete_echo_handler(fut: asyncio.Future):
-    content = pickle.loads(fut.result())
+    content = decode_content(fut.result())
     if not content.get("ok", False):
         reason = content.get("reason", "")
         print(f">>> Delete error, reason: {reason}.")
@@ -997,7 +997,7 @@ def __delete_echo_handler(fut: asyncio.Future):
 
 
 def __update_echo_handler(fut: asyncio.Future):
-    content = pickle.loads(fut.result())
+    content = decode_content(fut.result())
     if not content.get("ok", False):
         reason = content.get("reason", "")
         print(f">>> Update error, reason: {reason}.")

@@ -1,0 +1,54 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "ecommerce_fact_import_validation/v1",
+  "title": "E-commerce fact import validation report",
+  "type": "object",
+  "required": [
+    "schema",
+    "generated_at_utc",
+    "table",
+    "input_path",
+    "policy_id",
+    "policy_version",
+    "decision",
+    "reason_code",
+    "row_count",
+    "checked_columns",
+    "summary",
+    "findings"
+  ],
+  "properties": {
+    "schema": { "const": "ecommerce_fact_import_validation/v1" },
+    "generated_at_utc": { "type": "string", "minLength": 1 },
+    "table": { "type": "string", "minLength": 1 },
+    "input_path": { "type": "string", "minLength": 1 },
+    "policy_id": { "type": "string", "minLength": 1 },
+    "policy_version": { "type": "string", "minLength": 1 },
+    "decision": { "enum": ["allow", "deny"] },
+    "reason_code": { "type": "string", "minLength": 1 },
+    "row_count": { "type": "integer", "minimum": 0 },
+    "checked_columns": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 }
+    },
+    "summary": {
+      "type": "object",
+      "additionalProperties": { "type": "integer", "minimum": 0 }
+    },
+    "findings": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["row_no", "column", "kind", "message"],
+        "properties": {
+          "row_no": { "type": ["integer", "null"], "minimum": 1 },
+          "column": { "type": ["string", "null"] },
+          "kind": { "type": "string", "minLength": 1 },
+          "message": { "type": "string", "minLength": 1 }
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  "additionalProperties": false
+}

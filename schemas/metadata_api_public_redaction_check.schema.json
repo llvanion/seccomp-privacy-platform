@@ -1,0 +1,36 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "metadata_api_public_redaction_check/v1",
+  "title": "Metadata API public redaction check",
+  "type": "object",
+  "required": [
+    "schema",
+    "status",
+    "checked_count",
+    "failed_count",
+    "checks"
+  ],
+  "properties": {
+    "schema": { "const": "metadata_api_public_redaction_check/v1" },
+    "status": { "enum": ["ok", "fail"] },
+    "checked_count": { "type": "integer", "minimum": 0 },
+    "failed_count": { "type": "integer", "minimum": 0 },
+    "checks": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["path", "status", "leaks"],
+        "properties": {
+          "path": { "type": "string" },
+          "status": { "enum": ["ok", "fail"] },
+          "leaks": {
+            "type": "array",
+            "items": { "type": "string" }
+          }
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  "additionalProperties": false
+}

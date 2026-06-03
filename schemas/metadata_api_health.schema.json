@@ -25,6 +25,9 @@
     },
     "auth_required": {
       "type": "boolean"
+    },
+    "business_access_policy": {
+      "type": ["string", "null"]
     }
   },
   "additionalProperties": false

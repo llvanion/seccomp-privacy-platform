@@ -27,9 +27,13 @@ sys.path.insert(0, str(REPO_ROOT / "scripts"))
 
 import serve_operator_dashboard as sod
 from validate_json_contract import load_json, validate_value
+from cryptography.hazmat.primitives import serialization
+from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 
 
 SCHEMA_DIR = REPO_ROOT / "schemas"
+COMMIT_A = "a" * 64
+COMMIT_B = "b" * 64
 
 
 def _validate(report: dict, schema_filename: str) -> None:
@@ -45,7 +49,7 @@ def _make_role_dir(tmp: Path) -> Path:
     return role_dir
 
 
-def _setup_party_evidence(root: Path, *, job_id: str, agree: bool) -> Path:
+def _setup_party_evidence(root: Path, *, job_id: str, agree: bool, input_commitment: str = COMMIT_A) -> Path:
     root.mkdir(parents=True, exist_ok=True)
     (root / "a_psi_run").mkdir(parents=True, exist_ok=True)
     (root / "bridge_job").mkdir(parents=True, exist_ok=True)
@@ -57,13 +61,60 @@ def _setup_party_evidence(root: Path, *, job_id: str, agree: bool) -> Path:
         "schema": "pjc_audit/v1",
         "job_id": job_id,
         "commit": "deadbeef",
-        "input_commitment_sha256": "abc123",
-        "tls": {"peer_identity": "job-x.partyB.example", "ca_fingerprint_sha256": "ca-fp"},
+        "input_commitment_sha256": input_commitment,
+        "tls": {"peer_identity": "job-x.partyB.example", "ca_fingerprint_sha256": "c" * 64},
     }
     (root / "a_psi_run" / "pjc_audit.jsonl").write_text(json.dumps(pjc_audit, sort_keys=True) + "\n", encoding="utf-8")
     (root / "audit_chain.json").write_text(json.dumps({"job_id": job_id, "commit": "deadbeef"}, sort_keys=True), encoding="utf-8")
-    (root / "bridge_job" / "job_meta.json").write_text(json.dumps({"job_id": job_id, "input_commitment_sha256": "abc123"}, sort_keys=True), encoding="utf-8")
+    (root / "bridge_job" / "job_meta.json").write_text(json.dumps({"job_id": job_id, "inputs": {"input_commitment_sha256": input_commitment}}, sort_keys=True), encoding="utf-8")
     return root
+
+
+def _write_ed25519_key(path: Path) -> None:
+    key = Ed25519PrivateKey.generate()
+    path.write_bytes(
+        key.private_bytes(
+            encoding=serialization.Encoding.PEM,
+            format=serialization.PrivateFormat.PKCS8,
+            encryption_algorithm=serialization.NoEncryption(),
+        )
+    )
+
+
+def _sign_party_manifest(
+    *,
+    root: Path,
+    key_path: Path,
+    job_id: str,
+    party: str,
+    peer_party: str,
+    local_commitment: str,
+    peer_commitment: str,
+    result_path: Path,
+    public_report_path: Path,
+    audit_chain_path: Path,
+) -> dict:
+    signed = sod._sign_two_party_run_manifest({
+        "job_id": job_id,
+        "party": party,
+        "peer_party": peer_party,
+        "repo_commit": "deadbeef",
+        "input_commitment_sha256": local_commitment,
+        "peer_input_commitment_sha256": peer_commitment,
+        "pjc_result_path": str(result_path),
+        "public_report_path": str(public_report_path),
+        "audit_chain_path": str(audit_chain_path),
+        "policy_decision": "release",
+        "tls_identity": f"job-{job_id}.{party}.example",
+        "peer_tls_identity": f"job-{job_id}.{peer_party}.example",
+        "ca_fingerprint_sha256": "c" * 64,
+        "signing_key_path": str(key_path),
+        "output_dir": str(root),
+    })
+    _validate(signed["manifest"], "pjc_two_party_signed_run_manifest.schema.json")
+    target = root / "signed_run_manifest.json"
+    target.write_text(json.dumps(signed["manifest"], sort_keys=True, indent=2) + "\n", encoding="utf-8")
+    return signed["manifest"]
 
 
 def test_preflight() -> None:
@@ -202,8 +253,92 @@ def test_evidence_merge() -> None:
     print("       evidence merge OK")
 
 
+def test_signed_run_manifest_evidence_merge() -> None:
+    print("[5/6] signed run manifests and commitment exchange ...")
+    with tempfile.TemporaryDirectory(prefix="pjc_signed_evid_") as tmp:
+        tmp_path = Path(tmp)
+        key_a = tmp_path / "party_a_ed25519.pem"
+        key_b = tmp_path / "party_b_ed25519.pem"
+        _write_ed25519_key(key_a)
+        _write_ed25519_key(key_b)
+        party_a = _setup_party_evidence(tmp_path / "party_a_signed", job_id="signedsmoke", agree=True, input_commitment=COMMIT_A)
+        party_b = _setup_party_evidence(tmp_path / "party_b_signed", job_id="signedsmoke", agree=True, input_commitment=COMMIT_B)
+        _sign_party_manifest(
+            root=party_a,
+            key_path=key_a,
+            job_id="signedsmoke",
+            party="party_a",
+            peer_party="party_b",
+            local_commitment=COMMIT_A,
+            peer_commitment=COMMIT_B,
+            result_path=party_a / "a_psi_run" / "attribution_result.json",
+            public_report_path=party_a / "a_psi_run" / "public_report.json",
+            audit_chain_path=party_a / "audit_chain.json",
+        )
+        _sign_party_manifest(
+            root=party_b,
+            key_path=key_b,
+            job_id="signedsmoke",
+            party="party_b",
+            peer_party="party_a",
+            local_commitment=COMMIT_B,
+            peer_commitment=COMMIT_A,
+            result_path=party_b / "a_psi_run" / "attribution_result.json",
+            public_report_path=party_b / "a_psi_run" / "public_report.json",
+            audit_chain_path=party_b / "audit_chain.json",
+        )
+        ok = sod._two_party_evidence_merge({
+            "job_id": "signedsmoke",
+            "party_a_dir": str(party_a),
+            "party_b_dir": str(party_b),
+            "require_signed_manifests": True,
+        })
+        _validate(ok["report"], "pjc_two_party_evidence_merge.schema.json")
+        assert ok["report"]["decision"] == "allow", ok["report"]
+        assert ok["report"]["checks"]["manifest_signature_valid"] == "match", ok["report"]
+        assert ok["report"]["checks"]["commitment_exchange_match"] == "match", ok["report"]
+
+        tampered = json.loads((party_b / "signed_run_manifest.json").read_text(encoding="utf-8"))
+        tampered["payload"]["peer_input_commitment_sha256"] = "d" * 64
+        (party_b / "signed_run_manifest.json").write_text(json.dumps(tampered, sort_keys=True, indent=2) + "\n", encoding="utf-8")
+        bad_sig = sod._two_party_evidence_merge({
+            "job_id": "signedsmoke",
+            "party_a_dir": str(party_a),
+            "party_b_dir": str(party_b),
+            "require_signed_manifests": True,
+        })
+        _validate(bad_sig["report"], "pjc_two_party_evidence_merge.schema.json")
+        assert bad_sig["report"]["decision"] == "deny", bad_sig["report"]
+        assert bad_sig["report"]["reason_code"] == "manifest_signature_invalid", bad_sig["report"]
+
+        # Re-sign with a valid signature but the wrong peer commitment to ensure
+        # the exchange check catches semantically inconsistent manifests.
+        _sign_party_manifest(
+            root=party_b,
+            key_path=key_b,
+            job_id="signedsmoke",
+            party="party_b",
+            peer_party="party_a",
+            local_commitment=COMMIT_B,
+            peer_commitment="e" * 64,
+            result_path=party_b / "a_psi_run" / "attribution_result.json",
+            public_report_path=party_b / "a_psi_run" / "public_report.json",
+            audit_chain_path=party_b / "audit_chain.json",
+        )
+        bad_exchange = sod._two_party_evidence_merge({
+            "job_id": "signedsmoke",
+            "party_a_dir": str(party_a),
+            "party_b_dir": str(party_b),
+            "require_signed_manifests": True,
+        })
+        _validate(bad_exchange["report"], "pjc_two_party_evidence_merge.schema.json")
+        assert bad_exchange["report"]["decision"] == "deny", bad_exchange["report"]
+        assert bad_exchange["report"]["reason_code"] == "commitment_exchange_mismatch", bad_exchange["report"]
+    print("       signed manifest evidence OK")
+
+
 def test_negative_cases() -> None:
-    print("[5/5] required negative cases ...")
+    print("[6/6] required negative cases ...")
     with tempfile.TemporaryDirectory(prefix="pjc_neg_") as tmp:
         tmp_path = Path(tmp)
         csv_path = tmp_path / "client.csv"
@@ -246,6 +381,7 @@ def main() -> int:
     test_role_package_roundtrip()
     test_role_lifecycle()
     test_evidence_merge()
+    test_signed_run_manifest_evidence_merge()
     test_negative_cases()
     print("[ok] PJC two-party (S9) smoke passed")
     return 0

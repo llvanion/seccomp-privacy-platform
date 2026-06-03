@@ -3,6 +3,7 @@ import { Link, useNavigate } from "react-router-dom";
 import { ArrowLeft, Send } from "lucide-react";
 
 import { operatorApi } from "@/api/operator";
+import type { Json } from "@/api/types";
 import { useApiMutation } from "@/hooks/useApi";
 import { Button, Card, CardHeader, Field, Input, JsonBlock, PageHeader, Select, Textarea } from "@/components/ui";
 
@@ -44,7 +45,7 @@ export function RequestSubmitRoute() {
         service_id,
         query_type: queryType,
         request: parsed,
-      } as Record<string, never>);
+      } as Record<string, Json>);
     },
     {
       successToast: "请求已提交",

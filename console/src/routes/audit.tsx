@@ -7,7 +7,12 @@ import { useApiQuery } from "@/hooks/useApi";
 import { Button, Card, CardHeader, EmptyState, ErrorBanner, Field, Input, JsonBlock, PageHeader, Skeleton, StatusPill, inferStatusKind } from "@/components/ui";
 import { RouteTabs } from "@/components/tabs";
 import { formatNumber, formatTimestamp, shortHash } from "@/lib/format";
-import type { CatalogLineage, ObservabilityFeed, PublicReport } from "@/api/types";
+import type { AuditChainData, CatalogLineageData, ObservabilityData, ObservabilityFeed, PublicReport } from "@/api/types";
+import {
+  isAuditChainPublicSummary,
+  isCatalogLineagePublicSummary,
+  isPipelineObservabilityPublicSummary,
+} from "@/api/types";
 
 export function AuditRoute() {
   const location = useLocation();
@@ -113,11 +118,12 @@ function Stat({ label, value, kind = "info" }: { label: string; value: ReactNode
 function AuditChainTab() {
   const [outBase, setOutBase] = useState("");
   const [includePaths, setIncludePaths] = useState(false);
-  const q = useApiQuery(
+  const q = useApiQuery<AuditChainData>(
     ["audit", "chain", outBase, includePaths],
     () => auditApi.auditChain({ out_base: outBase || undefined, include_paths: includePaths }),
     { retry: 0 },
   );
+  const chainData = q.data;
 
   return (
     <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
@@ -147,7 +153,15 @@ function AuditChainTab() {
 
       <Card className="lg:col-span-2">
         <CardHeader title="audit_chain/v1" actions={<FileLock2 className="w-4 h-4 text-ink-dim" />} />
-        {q.isLoading ? <Skeleton className="h-56" /> : q.error ? <ErrorBanner title="加载失败" message={q.error.message} /> : <JsonBlock data={q.data ?? {}} maxHeight="480px" />}
+        {q.isLoading ? (
+          <Skeleton className="h-56" />
+        ) : q.error ? (
+          <ErrorBanner title="加载失败" message={q.error.message} />
+        ) : isAuditChainPublicSummary(chainData) ? (
+          <AuditChainPublicSummaryPanel data={chainData} />
+        ) : (
+          <JsonBlock data={chainData ?? {}} maxHeight="480px" />
+        )}
       </Card>
     </div>
   );
@@ -155,11 +169,13 @@ function AuditChainTab() {
 
 function ObservabilityTab() {
   const [outBase, setOutBase] = useState("");
-  const q = useApiQuery<ObservabilityFeed>(
+  const q = useApiQuery<ObservabilityData>(
     ["audit", "observability", outBase],
     () => auditApi.observability({ out_base: outBase || undefined }),
     { retry: 0 },
   );
+  const observabilityData = q.data;
+  const fullEvents = fullObservabilityEvents(observabilityData);
 
   return (
     <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
@@ -176,14 +192,16 @@ function ObservabilityTab() {
           <Skeleton className="h-56" />
         ) : q.error ? (
           <ErrorBanner title="加载失败" message={q.error.message} />
+        ) : isPipelineObservabilityPublicSummary(observabilityData) ? (
+          <ObservabilityPublicSummaryPanel data={observabilityData} />
         ) : (
           <div className="space-y-3">
             <div className="grid grid-cols-3 gap-3 text-2xs">
-              <Stat label="events" value={formatNumber(q.data?.events?.length)} />
-              <Stat label="handoff_cleanup" value={formatNumber(q.data?.derived_handoff_cleanup?.length)} />
-              <Stat label="service_audit_consistency" value={formatNumber(q.data?.derived_service_audit_consistency?.length)} />
+              <Stat label="events" value={formatNumber(fullEvents.length)} />
+              <Stat label="handoff_cleanup" value={formatNumber(observabilityData?.derived_handoff_cleanup?.length)} />
+              <Stat label="service_audit_consistency" value={formatNumber(observabilityData?.derived_service_audit_consistency?.length)} />
             </div>
-            <JsonBlock data={q.data ?? {}} maxHeight="380px" />
+            <JsonBlock data={observabilityData ?? {}} maxHeight="380px" />
           </div>
         )}
       </Card>
@@ -191,9 +209,16 @@ function ObservabilityTab() {
   );
 }
 
+function fullObservabilityEvents(data: ObservabilityData | null | undefined): NonNullable<ObservabilityFeed["events"]> {
+  if (!data || isPipelineObservabilityPublicSummary(data)) {
+    return [];
+  }
+  return data.events ?? [];
+}
+
 function LineageTab() {
   const [outBase, setOutBase] = useState("");
-  const q = useApiQuery<CatalogLineage>(
+  const q = useApiQuery<CatalogLineageData>(
     ["audit", "lineage", outBase],
     () => auditApi.catalogLineage({ out_base: outBase || undefined }),
     { retry: 0 },
@@ -214,16 +239,94 @@ function LineageTab() {
           <Skeleton className="h-56" />
         ) : q.error ? (
           <ErrorBanner title="加载失败" message={q.error.message} />
+        ) : isCatalogLineagePublicSummary(q.data) ? (
+          <CatalogPublicSummaryPanel data={q.data} />
         ) : (
           <div className="space-y-3">
             <div className="grid grid-cols-2 gap-3 text-2xs">
-              <Stat label="nodes" value={formatNumber(q.data?.nodes?.length)} />
-              <Stat label="edges" value={formatNumber(q.data?.edges?.length)} />
+              <Stat label="datasets" value={formatNumber(q.data?.summary?.dataset_count ?? q.data?.datasets?.length)} />
+              <Stat label="lineage_edges" value={formatNumber(q.data?.summary?.lineage_edge_count ?? q.data?.lineage_edges?.length)} />
             </div>
             <JsonBlock data={q.data ?? {}} maxHeight="380px" />
           </div>
         )}
       </Card>
+    </div>
+  );
+}
+
+function AuditChainPublicSummaryPanel({ data }: { data: Extract<AuditChainData, { schema: "audit_chain_public_summary/v1" }> }) {
+  return (
+    <div className="space-y-3">
+      <CallerSafeNotice />
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-2xs">
+        <Stat label="released" value={String(data.release.released ?? "unknown")} kind={data.release.released ? "ok" : "warn"} />
+        <Stat label="reason_code" value={data.release.reason_code ?? "—"} />
+        <Stat label="complete_stages" value={formatNumber(data.audit_chain.complete_stage_count)} />
+        <Stat label="handoff_risk" value={data.mainline_contract.plaintext_exposure_risk ?? "—"} kind={inferStatusKind(data.mainline_contract.plaintext_exposure_risk)} />
+      </div>
+      <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+        {Object.entries(data.stage_record_counts).map(([stage, count]) => (
+          <div key={stage} className="panel-soft p-3 rounded-lg">
+            <div className="field-label">{stage}</div>
+            <div className="text-sm font-semibold text-ink mt-1">{formatNumber(count ?? undefined)}</div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function ObservabilityPublicSummaryPanel({ data }: { data: Extract<ObservabilityData, { schema: "pipeline_observability_public_summary/v1" }> }) {
+  return (
+    <div className="space-y-3">
+      <CallerSafeNotice />
+      <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 text-2xs">
+        <Stat label="status" value={data.summary.status ?? "—"} kind={inferStatusKind(data.summary.status)} />
+        <Stat label="events_available" value={String(data.summary.events_available)} />
+        <Stat label="stages" value={formatNumber(data.summary.stages.length)} />
+      </div>
+      <div className="space-y-2">
+        {data.summary.stages.map((stage) => (
+          <div key={stage.name} className="panel-soft p-3 rounded-lg flex items-center justify-between gap-3">
+            <span className="font-mono text-2xs text-brand">{stage.name}</span>
+            <div className="flex flex-wrap gap-1 justify-end">
+              {stage.statuses.map((status) => (
+                <StatusPill key={status} kind={inferStatusKind(status)}>{status}</StatusPill>
+              ))}
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function CatalogPublicSummaryPanel({ data }: { data: Extract<CatalogLineageData, { schema: "catalog_lineage_public_summary/v1" }> }) {
+  return (
+    <div className="space-y-3">
+      <CallerSafeNotice />
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-2xs">
+        <Stat label="datasets" value={formatNumber(data.summary.dataset_count ?? undefined)} />
+        <Stat label="services" value={formatNumber(data.summary.service_count ?? undefined)} />
+        <Stat label="artifacts" value={formatNumber(data.summary.artifact_count ?? undefined)} />
+        <Stat label="lineage_edges" value={formatNumber(data.summary.lineage_edge_count ?? undefined)} />
+      </div>
+      <div className="grid grid-cols-2 gap-3 text-2xs">
+        <Stat label="job_status" value={data.job.status ?? "—"} kind={inferStatusKind(data.job.status)} />
+        <Stat label="paths_included" value={String(data.privacy.paths_included)} />
+      </div>
+    </div>
+  );
+}
+
+function CallerSafeNotice() {
+  return (
+    <div className="panel-soft p-3 rounded-lg border border-line-subtle">
+      <div className="text-sm font-semibold text-ink">caller-safe summary</div>
+      <div className="text-2xs text-ink-muted mt-1">
+        Full audit records, paths, hashes, row counts, timing, and raw artifact lists are redacted for this identity.
+      </div>
     </div>
   );
 }

@@ -215,6 +215,7 @@ bash "$PIPELINE_SH" \
   --server-normalizer email \
   --client-normalizer email \
   --client-value-mode raw-int \
+  --client-value-max 1000000 \
   --token-scope prod-gate-scope \
   --token-secret-env PROD_GATE_TOKEN_SECRET \
   --job-id prod_gate_arg_job \
