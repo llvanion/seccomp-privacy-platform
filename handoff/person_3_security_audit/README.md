@@ -2,35 +2,35 @@
 
 ## Scope
 
-Owner: Person 3
+Owner: Person 3.
 
-Machines:
+Primary workstations:
 
 - PC-5: security test runner / external-audit workstation.
 - Shared targets: PC-2 from Person 1 and PC-3/PC-4 from Person 2.
 
-Goal:
+Goals:
 
 - Own the unfinished multi-person security task: K3 external/security test.
 - Run internal pre-test gates that directly support K3.
 - Package final security evidence under `tmp/team_evidence/person_3/`.
 
-Use [docs/team/TEAM_COLLABORATION_AND_REPORTING_PLAN.md](/home/llvanion/Desktop/seccomp-privacy-platform/docs/team/TEAM_COLLABORATION_AND_REPORTING_PLAN.md) as the shared three-person plan for target readiness, evidence packaging, and pre/final report structure.
+Use [docs/team/TEAM_COLLABORATION_AND_REPORTING_PLAN.md](/home/llvanion/Desktop/seccomp-privacy-platform/docs/team/TEAM_COLLABORATION_AND_REPORTING_PLAN.md) as the shared three-person plan. It defines target readiness, evidence packaging, and pre/final report structure.
 
-This pack intentionally excludes completed scale and local-only work.
+This pack intentionally excludes completed scale work and local-only work.
 
 ## Unfinished Multi-Person Tasks
 
 | Task | People needed | Person 3 role |
 | --- | --- | --- |
-| K3 external pen test | Person 1 + Person 2 + Person 3 + external tester | security owner, tester interface, report owner |
-| Recovery-service boundary test | Person 2 + Person 3 | run malformed/replay/auth tests and record findings |
-| Dashboard/API boundary test | Person 1 + Person 3 | test authz and request workflow if exposed |
-| Live external-anchor drill if credentials exist | Person 1 + Person 3 | verify S3/Rekor publish evidence |
+| K3 external pen test | Person 1 + Person 2 + Person 3 + external tester | Own security scope, coordinate with tester, and publish the report evidence |
+| Recovery-service boundary test | Person 2 + Person 3 | Run malformed/replay/auth tests and record findings |
+| Dashboard/API boundary test | Person 1 + Person 3 | Test authorization and request workflow if exposed |
+| Live external-anchor drill if credentials exist | Person 1 + Person 3 | Verify S3/Rekor publish evidence |
 
 ## Setup
 
-Run from repo root:
+From the repository root, create the evidence workspace and seed the working documents:
 
 ```bash
 mkdir -p tmp/team_evidence/person_3
@@ -38,17 +38,17 @@ cp handoff/person_3_security_audit/EVIDENCE_LOG.md tmp/team_evidence/person_3/EV
 cp handoff/person_3_security_audit/SECURITY_TEST_SCOPE_TEMPLATE.md tmp/team_evidence/person_3/SECURITY_TEST_SCOPE.md
 ```
 
-Fill and get approval for:
+Fill this file and get approval before testing:
 
 ```text
 tmp/team_evidence/person_3/SECURITY_TEST_SCOPE.md
 ```
 
-Do not start external testing before Person 1 approves the scope and Person 2 confirms target readiness.
+Do not start external testing until Person 1 approves the scope and Person 2 confirms target readiness.
 
 ## Internal Pre-Test Gates
 
-These are not the external pen test itself; they are local evidence that the existing defensive checks still work before the test window.
+These commands are not the external pen test. They provide local evidence that the existing defensive checks still work before the test window.
 
 ```bash
 python3 scripts/seal_audit_artifact.py \
@@ -66,7 +66,7 @@ python3 scripts/check_http_malformed_input_gate.py \
   --output tmp/team_evidence/person_3/http_malformed_input_gate.json
 ```
 
-Validate:
+Validate the generated evidence against the checked-in schemas:
 
 ```bash
 python3 scripts/validate_json_contract.py \
@@ -90,14 +90,14 @@ Minimum target scope:
 
 Out of scope unless explicitly approved:
 
-- destructive data deletion
-- production tenant data
-- AWS account-wide testing outside the named S3 bucket
-- public Rekor load testing
+- Destructive data deletion.
+- Production tenant data.
+- AWS account-wide testing outside the named S3 bucket.
+- Public Rekor load testing.
 
 ## External Anchor Live Drill
 
-This is only needed if credentials/endpoints exist. Otherwise mark `skipped` with reason.
+Run the live drill only when credentials and endpoints exist. Otherwise, record it as `skipped` with the reason.
 
 Create a local anchor file:
 
@@ -112,7 +112,7 @@ python3 scripts/archive_audit_bundle.py \
   --anchor-key-env SECCOMP_AUDIT_ARCHIVE_ANCHOR_KEY
 ```
 
-Planned S3/Rekor reports, no external credentials:
+Planned S3/Rekor reports for environments without external credentials:
 
 ```bash
 python3 scripts/publish_external_audit_anchor.py \
@@ -167,7 +167,7 @@ For every finding:
 2. Record target, request, timestamp, and reproduction steps.
 3. Ask Person 1 for owner assignment.
 4. Ask Person 2 for service logs if infrastructure-related.
-5. Mark final disposition: `fixed`, `accepted risk`, or `not reproducible`.
+5. Record final disposition: `fixed`, `accepted risk`, or `not reproducible`.
 
 ## Source Documents
 
@@ -181,7 +181,7 @@ For every finding:
 ## Handoff Criteria
 
 - Security scope is approved.
-- Internal K3 pre-test gates are schema-valid.
+- Internal K3 pre-test gates produce schema-valid evidence.
 - External pen-test report or internal security test report is stored or linked.
 - Critical findings are fixed or explicitly accepted as risk.
-- Live S3/Rekor drills are completed or explicitly marked skipped with reason.
+- Live S3/Rekor drills are completed or explicitly marked as skipped with reason.
