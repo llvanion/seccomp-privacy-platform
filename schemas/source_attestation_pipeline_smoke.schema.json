@@ -1,0 +1,33 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "source_attestation_pipeline_smoke/v1",
+  "title": "End-to-end pipeline smoke for source attestation governance wiring",
+  "type": "object",
+  "required": [
+    "schema",
+    "generated_at_utc",
+    "status",
+    "out_base",
+    "checks"
+  ],
+  "properties": {
+    "schema": { "const": "source_attestation_pipeline_smoke/v1" },
+    "generated_at_utc": { "type": "string", "minLength": 1 },
+    "status": { "enum": ["ok", "fail"] },
+    "out_base": { "type": "string", "minLength": 1 },
+    "checks": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["name", "status"],
+        "properties": {
+          "name": { "type": "string", "minLength": 1 },
+          "status": { "enum": ["ok", "fail"] },
+          "detail": {}
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  "additionalProperties": false
+}

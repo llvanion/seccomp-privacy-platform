@@ -1,0 +1,61 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "postgres_ha_live_evidence_archive/v1",
+  "title": "PostgreSQL HA live evidence archive",
+  "type": "object",
+  "required": [
+    "schema",
+    "generated_at_utc",
+    "status",
+    "job_id",
+    "live_artifact_count",
+    "live_artifacts",
+    "findings",
+    "artifacts",
+    "aggregate_sha256"
+  ],
+  "properties": {
+    "schema": { "const": "postgres_ha_live_evidence_archive/v1" },
+    "generated_at_utc": { "type": "string", "minLength": 1 },
+    "status": { "enum": ["ok", "fail"] },
+    "job_id": { "type": "string", "minLength": 1 },
+    "live_artifact_count": { "type": "integer", "minimum": 0 },
+    "live_artifacts": {
+      "type": "object",
+      "required": [
+        "live_repo_side_postgres_ha_foundation",
+        "live_primary_replica_report",
+        "live_patroni_failover_report",
+        "live_pgbouncer_report",
+        "live_backup_restore_report",
+        "live_restored_api_smoke"
+      ],
+      "properties": {
+        "live_repo_side_postgres_ha_foundation": {},
+        "live_primary_replica_report": {},
+        "live_patroni_failover_report": {},
+        "live_pgbouncer_report": {},
+        "live_backup_restore_report": {},
+        "live_restored_api_smoke": {}
+      },
+      "additionalProperties": false
+    },
+    "findings": { "type": "array", "items": { "type": "string", "minLength": 1 } },
+    "artifacts": {
+      "type": "array",
+      "minItems": 0,
+      "items": {
+        "type": "object",
+        "required": ["path", "size_bytes", "sha256"],
+        "properties": {
+          "path": { "type": "string", "minLength": 1 },
+          "size_bytes": { "type": "integer", "minimum": 0 },
+          "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" }
+        },
+        "additionalProperties": false
+      }
+    },
+    "aggregate_sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" }
+  },
+  "additionalProperties": false
+}

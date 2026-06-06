@@ -23,7 +23,7 @@
     "receipt_id": { "type": "string", "minLength": 1 },
     "event": {
       "type": "string",
-      "enum": ["accepted", "started", "completed", "failed", "rejected"]
+      "enum": ["accepted", "queued", "started", "completed", "failed", "rejected", "cancel_requested", "cancelled", "timed_out"]
     },
     "event_at_utc": { "type": "string", "minLength": 1 },
     "workflow": { "type": "string", "const": "sse_bridge_pipeline" },

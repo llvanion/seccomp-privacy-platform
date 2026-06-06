@@ -1,0 +1,103 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "pjc_binary_capability_gate/v1",
+  "title": "PJC binary capability and freshness gate",
+  "type": "object",
+  "required": [
+    "schema",
+    "generated_at_utc",
+    "status",
+    "workspace",
+    "requested_bin_dir",
+    "convenience_bin_dir",
+    "real_bazel_bin_dir",
+    "resolved_bin_dir",
+    "require_streaming",
+    "checks",
+    "findings",
+    "binaries",
+    "sources"
+  ],
+  "properties": {
+    "schema": { "const": "pjc_binary_capability_gate/v1" },
+    "generated_at_utc": { "type": "string", "minLength": 1 },
+    "status": { "enum": ["ok", "fail"] },
+    "workspace": { "type": "string", "minLength": 1 },
+    "requested_bin_dir": { "type": ["string", "null"] },
+    "convenience_bin_dir": { "type": ["string", "null"] },
+    "real_bazel_bin_dir": { "type": ["string", "null"] },
+    "resolved_bin_dir": { "type": ["string", "null"] },
+    "require_streaming": { "type": "boolean" },
+    "checks": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["name", "status", "expected", "actual"],
+        "properties": {
+          "name": { "type": "string", "minLength": 1 },
+          "status": { "enum": ["ok", "fail", "skip"] },
+          "expected": {},
+          "actual": {}
+        },
+        "additionalProperties": false
+      }
+    },
+    "findings": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["kind", "message"],
+        "properties": {
+          "kind": { "type": "string", "minLength": 1 },
+          "message": { "type": "string", "minLength": 1 },
+          "expected": {},
+          "actual": {}
+        },
+        "additionalProperties": false
+      }
+    },
+    "binaries": {
+      "type": "object",
+      "required": ["server", "client"],
+      "properties": {
+        "server": { "$ref": "#/$defs/binary_info" },
+        "client": { "$ref": "#/$defs/binary_info" }
+      },
+      "additionalProperties": false
+    },
+    "sources": {
+      "type": "object",
+      "required": ["server_cc", "client_cc"],
+      "properties": {
+        "server_cc": { "$ref": "#/$defs/source_info" },
+        "client_cc": { "$ref": "#/$defs/source_info" }
+      },
+      "additionalProperties": false
+    }
+  },
+  "$defs": {
+    "binary_info": {
+      "type": "object",
+      "required": ["path", "exists", "mtime_utc", "supports_streaming_flag"],
+      "properties": {
+        "path": { "type": ["string", "null"] },
+        "exists": { "type": "boolean" },
+        "mtime_utc": { "type": ["string", "null"] },
+        "supports_streaming_flag": { "type": ["boolean", "null"] }
+      },
+      "additionalProperties": false
+    },
+    "source_info": {
+      "type": "object",
+      "required": ["path", "exists", "mtime_utc"],
+      "properties": {
+        "path": { "type": "string", "minLength": 1 },
+        "exists": { "type": "boolean" },
+        "mtime_utc": { "type": ["string", "null"] }
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false
+}

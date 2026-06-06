@@ -6,6 +6,14 @@ import os
 import secrets
 from typing import Any, Dict, List
 
+from bucket_policy import (
+    BucketPolicyError,
+    operator_bucket_policy_evidence,
+    public_bucket_policy_summary,
+    validate_attribution_bucket_policy,
+    validate_job_meta_bucket_policy,
+)
+
 
 def load_json(path: str) -> Dict[str, Any]:
     with open(path, "r", encoding="utf-8") as f:
@@ -92,6 +100,14 @@ def main() -> None:
 
     rep = load_json(report_path)
     attr = load_json(attr_path)
+    job_meta_path = os.path.join(job_dir, "job_meta.json")
+    bucket_policy = None
+    if os.path.isfile(job_meta_path):
+        try:
+            bucket_policy = validate_job_meta_bucket_policy(load_json(job_meta_path))
+            validate_attribution_bucket_policy(attr, bucket_policy)
+        except BucketPolicyError as exc:
+            raise SystemExit(f"policy_postprocess_buckets: bucket policy violation: {exc}") from exc
 
     buckets: List[Dict[str, Any]] = attr.get("buckets") or []
     if not buckets:
@@ -158,6 +174,7 @@ def main() -> None:
             "redacted": True,
             "reason": "public-report operator-field redaction enabled",
             "bucket_public_report_is_release_safe": True,
+            "bucket_policy": public_bucket_policy_summary(bucket_policy) if bucket_policy else None,
         }
     else:
         rep.setdefault("debug", {})
@@ -171,6 +188,7 @@ def main() -> None:
             "bucket_public_report_is_release_safe": True,
             "suppressed_bucket_labels_redacted": True,
             "dp_noise_redacted": True,
+            "bucket_policy": public_bucket_policy_summary(bucket_policy) if bucket_policy else None,
         }
     dump_json(report_path, rep)
     protected = {
@@ -196,6 +214,7 @@ def main() -> None:
             "below_k_bucket_labels_redacted": True,
             "below_k_bucket_count_redacted": True,
         },
+        "bucket_policy": public_bucket_policy_summary(bucket_policy) if bucket_policy else None,
         "buckets": public_rows,
     }
     operator_protected = {
@@ -209,6 +228,7 @@ def main() -> None:
         "dp_sensitivity": args.dp_sensitivity if dp_enabled else None,
         "round_sum_to": args.round_sum_to,
         "public_report_path": out_path,
+        "bucket_policy": operator_bucket_policy_evidence(bucket_policy) if bucket_policy else None,
         "buckets": operator_rows,
     }
     dump_json(out_path, protected)

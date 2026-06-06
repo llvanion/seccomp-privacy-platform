@@ -20,6 +20,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 MODULE_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
+source "$SCRIPT_DIR/pjc_binary_helpers.sh"
 
 SERVER_HOST="${SERVER_HOST:-}"
 CERT_DIR="${CERT_DIR:-$MODULE_ROOT/config/tls}"
@@ -154,16 +155,12 @@ else
   echo "[warn] PJC resource preflight skipped; set PJC_RESOURCE_LIMITS to enable it" >&2
 fi
 
-if [[ -n "$PJC_BIN_DIR" ]]; then
-  BIN_DIR="$(resolve_path "$PJC_BIN_DIR")"
-else
+if [[ "$PJC_BUILD" == "1" ]]; then
   cd "$PJC_DIR"
-  if [[ "$PJC_BUILD" == "1" ]]; then
-    echo "[info] building PJC client..."
-    bazel build -c opt //private_join_and_compute:client >/dev/null
-  fi
-  BIN_DIR="$(bazel info bazel-bin)"
+  echo "[info] building PJC client..."
+  bazel build -c opt //private_join_and_compute:client >/dev/null
 fi
+BIN_DIR="$(resolve_pjc_bin_dir_with_gate "$MODULE_ROOT" "$PJC_DIR" "$PJC_BIN_DIR" "$OUT_DIR" "$PJC_GRPC_STREAM_CHUNK_ELEMENTS")"
 CLIENT_BIN="$BIN_DIR/private_join_and_compute/client"
 [[ -x "$CLIENT_BIN" ]] || { echo "[error] client binary not found: $CLIENT_BIN" >&2; exit 1; }
 
@@ -179,16 +176,24 @@ echo "[info] starting socat TLS client proxy on 127.0.0.1:${LOCAL_PROXY_PORT}...
 socat \
   "TCP-LISTEN:${LOCAL_PROXY_PORT},bind=127.0.0.1,reuseaddr,fork" \
   "OPENSSL:${SERVER_HOST}:${TLS_PORT},cert=${CERT_DIR}/client.crt,key=${CERT_DIR}/client.key,cafile=${CERT_DIR}/ca.crt,verify=1,commonname=${TLS_SERVER_COMMON_NAME}" \
-  &
+  >"$OUT_DIR/socat_client.log" 2>&1 &
 SOCAT_PID=$!
 
 # Wait for local proxy to be listening
 for i in {1..30}; do
+  if ! kill -0 "$SOCAT_PID" 2>/dev/null; then
+    echo "[error] socat client proxy exited before listening. See $OUT_DIR/socat_client.log" >&2
+    exit 1
+  fi
   if ss -lnt 2>/dev/null | awk '{print $4}' | grep -qE "[:.]${LOCAL_PROXY_PORT}$"; then
     break
   fi
   sleep 0.1
 done
+if ! kill -0 "$SOCAT_PID" 2>/dev/null; then
+  echo "[error] socat client proxy exited before becoming ready. See $OUT_DIR/socat_client.log" >&2
+  exit 1
+fi
 if ! ss -lnt 2>/dev/null | awk '{print $4}' | grep -qE "[:.]${LOCAL_PROXY_PORT}$"; then
   echo "[error] socat proxy did not start on port $LOCAL_PROXY_PORT" >&2
   exit 1
@@ -204,20 +209,7 @@ CLIENT_ARGS=(
   --grpc_max_message_mb="$GRPC_MAX_MESSAGE_MB"
 )
 if [[ "$PJC_GRPC_STREAM_CHUNK_ELEMENTS" != "0" ]]; then
-  if "$CLIENT_BIN" --help 2>&1 | grep -q -- "--grpc_stream_chunk_elements"; then
-    CLIENT_ARGS+=(--grpc_stream_chunk_elements="$PJC_GRPC_STREAM_CHUNK_ELEMENTS")
-  else
-    if [[ "$PJC_PRODUCTION_MODE" == "1" ]]; then
-      echo "[error] PJC_PRODUCTION_MODE=1 requires client binary support for --grpc_stream_chunk_elements" >&2
-      exit 1
-    fi
-    if [[ "$PJC_ALLOW_LEGACY_UNARY" != "1" ]]; then
-      echo "[error] PJC client binary does not support --grpc_stream_chunk_elements; set PJC_ALLOW_LEGACY_UNARY=1 only for local demo unary fallback" >&2
-      exit 1
-    fi
-    echo "[warn] PJC client binary does not support --grpc_stream_chunk_elements; using explicit legacy unary mode" >&2
-    PJC_EFFECTIVE_GRPC_STREAM_CHUNK_ELEMENTS=0
-  fi
+  CLIENT_ARGS+=(--grpc_stream_chunk_elements="$PJC_GRPC_STREAM_CHUNK_ELEMENTS")
 fi
 echo "[info] PJC_EFFECTIVE_GRPC_STREAM_CHUNK_ELEMENTS=$PJC_EFFECTIVE_GRPC_STREAM_CHUNK_ELEMENTS"
 echo "[info] running PJC client against local proxy..."

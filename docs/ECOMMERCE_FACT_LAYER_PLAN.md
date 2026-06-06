@@ -143,11 +143,27 @@ The fact tables exist so the demo expected result can be traced end-to-end:
 
 ## 5. Validation Surface
 
-[`scripts/render_ecommerce_fact_layer.py`](/home/llvanion/Desktop/seccomp-privacy-platform/scripts/render_ecommerce_fact_layer.py) parses migration `010_*.sql`, asserts the six expected tables and their primary indexes, and emits `ecommerce_fact_layer_report/v1` (frozen schema). Default contract smoke validates that report so the fact-layer baseline cannot drift silently.
+[`scripts/render_ecommerce_fact_layer.py`](/home/llvanion/Desktop/seccomp-privacy-platform/scripts/render_ecommerce_fact_layer.py) now scans the checked-in metadata migration set, including later additive fact-layer migrations such as logistics and business-relationship binding columns, asserts the expected tables and their indexes, and emits `ecommerce_fact_layer_report/v1`. Default contract smoke validates that report so the fact-layer baseline cannot drift silently.
 
 [`scripts/validate_ecommerce_fact_import.py`](/home/llvanion/Desktop/seccomp-privacy-platform/scripts/validate_ecommerce_fact_import.py) validates candidate JSONL fact imports before rows are loaded. It checks the table-specific column allowlist, required columns, basic types, non-negative monetary fields, `business_access_policy/v1` field classification, and a denylist for unsupported sensitive column names such as address, phone, raw transcript, full route, card/account, and geo/postal fields. `orders.buyer_email` remains allowed only as the classified/protected join key. The smoke script [`scripts/check_ecommerce_fact_import_validation.py`](/home/llvanion/Desktop/seccomp-privacy-platform/scripts/check_ecommerce_fact_import_validation.py) freezes one valid import and three rejects: hidden address, negative amount, and raw support transcript.
 
 [`scripts/import_ecommerce_fact_rows.py`](/home/llvanion/Desktop/seccomp-privacy-platform/scripts/import_ecommerce_fact_rows.py) is the repo-side validator-first importer. It applies metadata migrations, reuses the same validation report, inserts allowed JSONL batches in one transaction, rejects denied batches before insert, and rolls back database-level failures such as duplicate `orders(tenant_id, order_id)` rows. [`scripts/check_ecommerce_fact_import.py`](/home/llvanion/Desktop/seccomp-privacy-platform/scripts/check_ecommerce_fact_import.py) proves all three outcomes and emits `ecommerce_fact_import_smoke/v1`.
+
+As of 2026-06-04, the current baseline also requires relationship-binding
+columns that keep the business-access layer from trusting only caller-supplied
+relationship hints:
+
+- `orders.merchant_business_identity_id`
+- `orders.buyer_business_identity_id`
+- `order_attribution.assigned_marketer_business_identity_id`
+- `order_payment.assigned_fraud_analyst_business_identity_id`
+- `order_payment.fraud_case_id`
+- `customer_service_interactions.case_id`
+
+These are internal authorization anchors, not ordinary business-report fields.
+They are validated/imported as part of the current fact-layer baseline so the
+metadata API can bind merchant / buyer / marketer / fraud / support access back
+to `business_identities` before returning a repo-side access decision.
 
 ## 6. Out of Scope (Phase-2 follow-up)
 

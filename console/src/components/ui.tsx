@@ -212,8 +212,8 @@ export function inferStatusKind(value: string | null | undefined): StatusKind {
   if (!value) return "muted";
   const lc = value.toLowerCase();
   if (["ok", "ready", "allow", "allowed", "success", "succeeded", "active", "released", "approved", "passed", "healthy", "true"].includes(lc)) return "ok";
-  if (["warn", "warning", "pending", "running", "preparing", "in_progress", "queued"].includes(lc)) return "warn";
-  if (["err", "error", "fail", "failed", "deny", "denied", "rejected", "broken", "unhealthy", "false"].includes(lc)) return "err";
+  if (["warn", "warning", "pending", "pending_external_anchor", "running", "preparing", "in_progress", "queued"].includes(lc)) return "warn";
+  if (["err", "error", "fail", "failed", "blocked", "deny", "denied", "rejected", "broken", "unhealthy", "false"].includes(lc)) return "err";
   if (["info", "noop", "skipped", "neutral"].includes(lc)) return "info";
   return "muted";
 }

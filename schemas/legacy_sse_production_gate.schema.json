@@ -1,0 +1,134 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "legacy_sse_production_gate/v1",
+  "title": "Legacy SSE WebSocket production retirement gate",
+  "type": "object",
+  "required": [
+    "schema",
+    "generated_at_utc",
+    "status",
+    "summary",
+    "checks",
+    "findings"
+  ],
+  "properties": {
+    "schema": {
+      "const": "legacy_sse_production_gate/v1"
+    },
+    "generated_at_utc": {
+      "type": "string",
+      "minLength": 1
+    },
+    "status": {
+      "enum": ["ok", "fail"]
+    },
+    "summary": {
+      "type": "object",
+      "required": [
+        "production_mode_env",
+        "demo_wide_bind_override_env",
+        "finding_count"
+      ],
+      "properties": {
+        "production_mode_env": {
+          "const": "SSE_PRODUCTION_MODE"
+        },
+        "demo_wide_bind_override_env": {
+          "const": "SSE_ALLOW_LEGACY_PICKLE_WS"
+        },
+        "finding_count": {
+          "type": "integer",
+          "minimum": 0
+        }
+      },
+      "additionalProperties": false
+    },
+    "checks": {
+      "type": "object",
+      "required": ["production_cases", "demo_cases", "docker"],
+      "properties": {
+        "production_cases": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "object",
+            "required": ["exit_code", "stdout", "stderr"],
+            "properties": {
+              "exit_code": {
+                "type": "integer"
+              },
+              "stdout": {
+                "type": "string"
+              },
+              "stderr": {
+                "type": "string"
+              }
+            },
+            "additionalProperties": false
+          }
+        },
+        "demo_cases": {
+          "type": "object",
+          "required": [
+            "demo_loopback_exit_code",
+            "demo_wide_override_exit_code",
+            "demo_wide_without_override_exit_code",
+            "demo_wide_without_override_stdout"
+          ],
+          "properties": {
+            "demo_loopback_exit_code": {
+              "type": "integer"
+            },
+            "demo_wide_override_exit_code": {
+              "type": "integer"
+            },
+            "demo_wide_without_override_exit_code": {
+              "type": "integer"
+            },
+            "demo_wide_without_override_stdout": {
+              "type": "string"
+            }
+          },
+          "additionalProperties": false
+        },
+        "docker": {
+          "type": "object",
+          "required": ["sets_production_mode", "runs_legacy_server"],
+          "properties": {
+            "sets_production_mode": {
+              "type": "boolean"
+            },
+            "runs_legacy_server": {
+              "type": "boolean"
+            }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    },
+    "findings": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["kind", "message", "expected", "actual"],
+        "properties": {
+          "kind": {
+            "type": "string",
+            "minLength": 1
+          },
+          "message": {
+            "type": "string",
+            "minLength": 1
+          },
+          "expected": {},
+          "actual": {},
+          "path": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  "additionalProperties": false
+}

@@ -1,0 +1,60 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "source_attestation/v1",
+  "title": "Typed source/input attestation bound to bridge and release governance",
+  "type": "object",
+  "required": [
+    "schema",
+    "generated_at_utc",
+    "tenant",
+    "dataset",
+    "purpose",
+    "job_id",
+    "caller",
+    "source_system",
+    "source_snapshot_sha256",
+    "bridge_input_sha256",
+    "input_commitment_sha256",
+    "approval_id",
+    "operator_identity",
+    "signoff_status",
+    "attestation_mode",
+    "created_at_utc"
+  ],
+  "properties": {
+    "schema": { "const": "source_attestation/v1" },
+    "generated_at_utc": { "type": "string", "minLength": 1 },
+    "tenant": { "type": "string", "minLength": 1 },
+    "dataset": { "type": "string", "minLength": 1 },
+    "purpose": { "type": "string", "minLength": 1 },
+    "job_id": { "type": "string", "minLength": 1 },
+    "caller": { "type": "string", "minLength": 1 },
+    "source_system": { "type": "string", "minLength": 1 },
+    "source_snapshot_sha256": { "type": "string", "minLength": 64 },
+    "bridge_input_sha256": { "type": "string", "minLength": 64 },
+    "input_commitment_sha256": { "type": "string", "minLength": 64 },
+    "sealed_export_manifest_sha256": { "type": ["string", "null"] },
+    "approval_id": { "type": "string", "minLength": 1 },
+    "operator_identity": { "type": "string", "minLength": 1 },
+    "operator_signed_at_utc": { "type": ["string", "null"] },
+    "reviewer_identity": { "type": ["string", "null"] },
+    "reviewer_signed_at_utc": { "type": ["string", "null"] },
+    "signoff_status": {
+      "type": "string",
+      "enum": ["planned", "pending", "approved", "approved_dual", "rejected"]
+    },
+    "attestation_mode": {
+      "type": "string",
+      "enum": ["planned", "local", "manual", "operator", "external"]
+    },
+    "created_at_utc": { "type": "string", "minLength": 1 },
+    "signed_at_utc": { "type": ["string", "null"] },
+    "signature_algorithm": { "type": ["string", "null"] },
+    "canonicalization": { "type": ["string", "null"] },
+    "payload_sha256": { "type": ["string", "null"] },
+    "signature": { "type": ["string", "null"] },
+    "public_key_pem": { "type": ["string", "null"] },
+    "public_key_fingerprint_sha256": { "type": ["string", "null"] }
+  },
+  "additionalProperties": false
+}

@@ -135,6 +135,9 @@
         "null"
       ]
     },
+    "production_mode": {
+      "type": "boolean"
+    },
     "max_rows_per_request": {
       "type": "integer",
       "minimum": 0

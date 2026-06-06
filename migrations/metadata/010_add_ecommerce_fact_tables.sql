@@ -121,6 +121,50 @@ CREATE INDEX IF NOT EXISTS idx_order_fulfillment_tenant_status
 CREATE INDEX IF NOT EXISTS idx_order_fulfillment_tenant_carrier
     ON order_fulfillment (tenant_id, carrier_id);
 
+CREATE TABLE IF NOT EXISTS delivery_route_legs (
+    id INTEGER PRIMARY KEY,
+    leg_id TEXT NOT NULL,
+    route_id TEXT NOT NULL,
+    order_id TEXT NOT NULL,
+    tenant_id TEXT NOT NULL,
+    dataset_id TEXT NOT NULL,
+    service_id TEXT,
+    leg_sequence INTEGER NOT NULL,
+    leg_kind TEXT NOT NULL,
+    assigned_courier_id TEXT,
+    assigned_station_id TEXT,
+    assigned_region_id TEXT,
+    origin_node_label TEXT NOT NULL,
+    destination_node_label TEXT NOT NULL,
+    destination_city TEXT NOT NULL,
+    destination_district TEXT,
+    next_stop_label TEXT NOT NULL,
+    next_stop_window TEXT,
+    next_stop_geohash_prefix TEXT,
+    pickup_station_label TEXT,
+    pickup_station_geohash_prefix TEXT,
+    final_recipient_zone TEXT,
+    final_address_token TEXT,
+    final_address_line1 TEXT,
+    final_address_line2 TEXT,
+    recipient_phone TEXT,
+    status TEXT NOT NULL,
+    started_at_utc TEXT,
+    completed_at_utc TEXT,
+    created_at_utc TEXT NOT NULL,
+    ingested_at_utc TEXT NOT NULL,
+    UNIQUE(tenant_id, leg_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_delivery_route_legs_order_id
+    ON delivery_route_legs (order_id);
+CREATE INDEX IF NOT EXISTS idx_delivery_route_legs_tenant_assignee
+    ON delivery_route_legs (tenant_id, assigned_courier_id);
+CREATE INDEX IF NOT EXISTS idx_delivery_route_legs_tenant_route
+    ON delivery_route_legs (tenant_id, route_id, leg_sequence);
+CREATE INDEX IF NOT EXISTS idx_delivery_route_legs_tenant_status
+    ON delivery_route_legs (tenant_id, status);
+
 CREATE TABLE IF NOT EXISTS customer_service_interactions (
     id INTEGER PRIMARY KEY,
     order_id TEXT NOT NULL,

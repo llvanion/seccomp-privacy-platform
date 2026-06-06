@@ -17,6 +17,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from bucket_policy import BucketPolicyError, build_bucket_policy, bucket_policy_sha256
+
 
 def utc_now_iso() -> str:
     return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
@@ -31,6 +33,14 @@ def write_csv(path: Path, rows: list[list[Any]]) -> None:
     with path.open("w", newline="", encoding="utf-8") as f:
         w = csv.writer(f)
         w.writerows(rows)
+
+
+def sha256_file(path: Path) -> str:
+    h = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            h.update(chunk)
+    return h.hexdigest()
 
 
 def load_or_create_secret(args: argparse.Namespace) -> tuple[str, dict[str, Any]]:
@@ -76,6 +86,11 @@ def main() -> int:
     ap.add_argument("--secret-file", default="", help="Local secret file path; default <out>/.bucket_hmac_secret.")
     ap.add_argument("--rotate-secret", action="store_true", help="Regenerate --secret-file.")
     ap.add_argument("--extra-client-records", type=int, default=150, help="Client-only non-overlap records.")
+    ap.add_argument("--allowed-bucket-field", action="append", default=[], help="Allowed bucket field; repeatable.")
+    ap.add_argument("--allowed-bucket", action="append", default=[], help="Allowed bucket label; repeatable.")
+    ap.add_argument("--max-buckets", type=int, default=None, help="Maximum allowed bucket count.")
+    ap.add_argument("--bucket-label-pattern", default="", help="Regex that every bucket label must match.")
+    ap.add_argument("--production-mode", action="store_true", help="Require explicit bucket allowlist policy.")
     args = ap.parse_args()
 
     if args.records <= 0:
@@ -94,6 +109,18 @@ def main() -> int:
     hmac_secret, secret_meta = load_or_create_secret(args)
 
     bucket_values = [f"{args.bucket_prefix}_{i:02d}" for i in range(args.buckets)]
+    try:
+        bucket_policy = build_bucket_policy(
+            bucket_field=args.bucket_field,
+            bucket_values=bucket_values,
+            allowed_bucket_fields=args.allowed_bucket_field,
+            allowed_buckets=args.allowed_bucket,
+            max_buckets=args.max_buckets,
+            bucket_label_pattern=args.bucket_label_pattern or None,
+            production_mode=args.production_mode,
+        )
+    except BucketPolicyError as exc:
+        raise SystemExit(f"[ERROR] {exc}") from exc
     server_by_bucket: dict[str, list[str]] = {b: [] for b in bucket_values}
     client_by_bucket: dict[str, list[tuple[str, int]]] = {b: [] for b in bucket_values}
     raw_records: list[dict[str, Any]] = []
@@ -139,13 +166,28 @@ def main() -> int:
             "token_sha256_prefix": token[:16],
         })
 
+    raw_records_path = out / "raw_synthetic_records.jsonl"
+    with raw_records_path.open("w", encoding="utf-8") as f:
+        for row in raw_records:
+            f.write(json.dumps(row, ensure_ascii=False, sort_keys=True) + "\n")
+
     outputs = []
+    client_total_sum = 0
+    client_total_min: int | None = None
+    client_total_max: int | None = None
     for bucket in bucket_values:
         sub = out / f"bucket_{args.bucket_field}={bucket}"
         server_rows = [[token] for token in sorted(server_by_bucket[bucket])]
         client_rows = [[token, value] for token, value in sorted(client_by_bucket[bucket])]
         write_csv(sub / "server.csv", server_rows)
         write_csv(sub / "client.csv", client_rows)
+        client_values = [value for _, value in sorted(client_by_bucket[bucket])]
+        if client_values:
+            client_total_sum += sum(client_values)
+            bucket_min = min(client_values)
+            bucket_max = max(client_values)
+            client_total_min = bucket_min if client_total_min is None else min(client_total_min, bucket_min)
+            client_total_max = bucket_max if client_total_max is None else max(client_total_max, bucket_max)
         outputs.append({
             "bucket": bucket,
             "server_csv": str(sub / "server.csv"),
@@ -165,6 +207,89 @@ def main() -> int:
         for bucket in bucket_values
     ]
 
+    flat_server_csv = out / "server.csv"
+    flat_client_csv = out / "client.csv"
+    write_csv(flat_server_csv, [[token] for bucket in bucket_values for token in sorted(server_by_bucket[bucket])])
+    write_csv(flat_client_csv, [[token, value] for bucket in bucket_values for token, value in sorted(client_by_bucket[bucket])])
+
+    raw_records_sha256 = sha256_file(raw_records_path)
+    flat_server_sha256 = sha256_file(flat_server_csv)
+    flat_client_sha256 = sha256_file(flat_client_csv)
+
+    input_commitment = {
+        "schema": "pjc_input_commitment/v1",
+        "job_id": job_id,
+        "generated_by": "generate_bucketed_pjc_dataset.py",
+        "token_scheme": "bridge-hmac-sha256-v1",
+        "token_scope": f"bucketed-scale:{job_id}",
+        "token_key_version": "1",
+        "normalize_version": "synthetic-bucketed-v1",
+        "normalizer_schema_version": "normalizer-schema/v1",
+        "dedup_policy": "synthetic_exact_tokens",
+        "bucket_scope": {
+            "schema": "bucket_scope/v1",
+            "bucket_field": args.bucket_field,
+            "bucket_count": len(outputs),
+            "bucket_policy_sha256": bucket_policy_sha256(bucket_policy),
+            "allowed_bucket_count": len(bucket_policy.get("allowed_buckets") or []),
+            "bucket_labels_redacted": True,
+            "require_exact_allowed_buckets": bool(bucket_policy.get("require_exact_allowed_buckets", False)),
+            "enforcement": bucket_policy.get("enforcement") or "fail_closed",
+        },
+        "shard_scope": None,
+        "parties": {
+            "server": {
+                "role": "server",
+                "input_file": str(raw_records_path),
+                "input_format": "jsonl",
+                "source_input_sha256": raw_records_sha256,
+                "join_key_column": "email",
+                "normalizer": "email",
+                "value_column": None,
+                "value_mode": None,
+                "value_policy": None,
+                "source_value_summary": None,
+                "output_csv": str(flat_server_csv),
+                "output_csv_sha256": flat_server_sha256,
+                "output_row_count": args.records,
+                "value_summary": None,
+            },
+            "client": {
+                "role": "client",
+                "input_file": str(raw_records_path),
+                "input_format": "jsonl",
+                "source_input_sha256": raw_records_sha256,
+                "join_key_column": "email",
+                "normalizer": "email",
+                "value_column": "amount",
+                "value_mode": "raw_int",
+                "value_policy": {
+                    "min_value": args.min_value,
+                    "max_value": args.max_value,
+                    "allow_negative": False,
+                    "allowed_value_columns": ["amount"],
+                    "value_unit": "minor_currency_unit",
+                    "currency": "USD",
+                },
+                "source_value_summary": {
+                    "sum": client_total_sum,
+                    "min": client_total_min,
+                    "max": client_total_max,
+                    "non_negative": True,
+                },
+                "output_csv": str(flat_client_csv),
+                "output_csv_sha256": flat_client_sha256,
+                "output_row_count": sum(len(v) for v in client_by_bucket.values()),
+                "value_summary": {
+                    "sum": client_total_sum,
+                    "min": client_total_min,
+                    "max": client_total_max,
+                    "non_negative": True,
+                },
+            },
+        },
+    }
+
     meta = {
         "job_id": job_id,
         "dataset": "synthetic_business_bucketed_pjc/v1",
@@ -174,7 +299,32 @@ def main() -> int:
         "value_unit": "cent",
         "bucket_field": args.bucket_field,
         "bucket_count": len(outputs),
+        "bucket_policy_sha256": bucket_policy_sha256(bucket_policy),
+        "bucket_policy": bucket_policy,
         "bucket": {"field": args.bucket_field, "outputs": outputs},
+        "bridge": {
+            "token_scheme": input_commitment["token_scheme"],
+            "token_scope": input_commitment["token_scope"],
+            "token_key_version": input_commitment["token_key_version"],
+            "normalize_version": input_commitment["normalize_version"],
+            "normalizer_schema_version": input_commitment["normalizer_schema_version"],
+            "dedup_policy": input_commitment["dedup_policy"],
+            "server": {
+                "input_file": input_commitment["parties"]["server"]["input_file"],
+                "input_format": input_commitment["parties"]["server"]["input_format"],
+                "join_key_column": input_commitment["parties"]["server"]["join_key_column"],
+                "normalizer": input_commitment["parties"]["server"]["normalizer"],
+            },
+            "client": {
+                "input_file": input_commitment["parties"]["client"]["input_file"],
+                "input_format": input_commitment["parties"]["client"]["input_format"],
+                "join_key_column": input_commitment["parties"]["client"]["join_key_column"],
+                "value_column": input_commitment["parties"]["client"]["value_column"],
+                "value_mode": input_commitment["parties"]["client"]["value_mode"],
+                "value_policy": input_commitment["parties"]["client"]["value_policy"],
+                "normalizer": input_commitment["parties"]["client"]["normalizer"],
+            },
+        },
         "hmac": {
             "enabled": True,
             "secret_source": secret_meta["source"],
@@ -185,6 +335,12 @@ def main() -> int:
         "input_sizes": {
             "exposure_n": args.records,
             "purchase_n": sum(len(v) for v in client_by_bucket.values()),
+        },
+        "inputs": {
+            "server_csv": str(flat_server_csv),
+            "client_csv": str(flat_client_csv),
+            "input_commitment_file": str(out / "input_commitments.json"),
+            "input_commitment_sha256": None,
         },
         "expected_result": {
             "intersection_size": total_size,
@@ -200,11 +356,10 @@ def main() -> int:
             "max_value": args.max_value,
         },
     }
-    (out / "job_meta.json").write_text(json.dumps(meta, ensure_ascii=False, indent=2), encoding="utf-8")
+    (out / "input_commitments.json").write_text(json.dumps(input_commitment, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    meta["inputs"]["input_commitment_sha256"] = sha256_file(out / "input_commitments.json")
+    (out / "job_meta.json").write_text(json.dumps(meta, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     (out / "expected_result.json").write_text(json.dumps(meta["expected_result"], ensure_ascii=False, indent=2), encoding="utf-8")
-    with (out / "raw_synthetic_records.jsonl").open("w", encoding="utf-8") as f:
-        for row in raw_records:
-            f.write(json.dumps(row, ensure_ascii=False, sort_keys=True) + "\n")
 
     print(f"[ok] wrote bucketed PJC dataset: {out}")
     print(f"[ok] job_id={job_id} buckets={len(outputs)} records={args.records} client_rows={meta['input_sizes']['purchase_n']}")

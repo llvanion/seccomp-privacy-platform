@@ -86,16 +86,26 @@ def _summarize_client_csv_values(path: str) -> dict[str, Any]:
     }
 
 
-def _normalize_value_policy(policy: Any, *, value_mode: Any) -> dict[str, Any] | None:
+def _normalize_value_policy(policy: Any, *, value_mode: Any, value_column: Any = None) -> dict[str, Any] | None:
     if policy is None:
         if value_mode == "raw_int":
-            return {"min_value": 0, "max_value": None, "allow_negative": False}
+            return {
+                "min_value": 0,
+                "max_value": None,
+                "allow_negative": False,
+                "allowed_value_columns": [],
+                "value_unit": None,
+                "currency": None,
+            }
         return None
     if not isinstance(policy, dict):
         raise ValueError("client value_policy must be an object or null")
     min_value = policy.get("min_value")
     max_value = policy.get("max_value")
     allow_negative = bool(policy.get("allow_negative", False))
+    allowed_value_columns = _normalize_allowed_value_columns(policy.get("allowed_value_columns"))
+    value_unit = _normalize_policy_label(policy.get("value_unit"), "value_unit")
+    currency = _normalize_policy_currency(policy.get("currency"))
     for label, value in (("min_value", min_value), ("max_value", max_value)):
         if value is not None and not isinstance(value, int):
             raise ValueError(f"client value_policy.{label} must be an integer or null")
@@ -103,7 +113,63 @@ def _normalize_value_policy(policy: Any, *, value_mode: Any) -> dict[str, Any] |
         raise ValueError("client value_policy min_value > max_value")
     if not allow_negative and min_value is not None and min_value < 0:
         raise ValueError("client value_policy min_value is negative while allow_negative=false")
-    return {"min_value": min_value, "max_value": max_value, "allow_negative": allow_negative}
+    if value_mode != "raw_int" and (allowed_value_columns or value_unit is not None or currency is not None):
+        raise ValueError("client value_policy semantic fields require value_mode=raw_int")
+    if allowed_value_columns and value_column not in allowed_value_columns:
+        raise ValueError(
+            f"client value_policy.allowed_value_columns does not include value_column {value_column!r}"
+        )
+    if currency is not None and value_unit is None:
+        raise ValueError("client value_policy.currency requires value_unit")
+    if value_unit == "minor_currency_unit" and currency is None:
+        raise ValueError("client value_policy value_unit=minor_currency_unit requires currency")
+    return {
+        "min_value": min_value,
+        "max_value": max_value,
+        "allow_negative": allow_negative,
+        "allowed_value_columns": allowed_value_columns,
+        "value_unit": value_unit,
+        "currency": currency,
+    }
+
+
+def _normalize_allowed_value_columns(value: Any) -> list[str]:
+    if value in (None, ""):
+        return []
+    if not isinstance(value, list):
+        raise ValueError("client value_policy.allowed_value_columns must be a list")
+    return sorted({_normalize_required_policy_label(item, f"allowed_value_columns[{idx}]") for idx, item in enumerate(value)})
+
+
+def _normalize_policy_label(value: Any, label: str) -> str | None:
+    if value in (None, ""):
+        return None
+    return _normalize_required_policy_label(value, label)
+
+
+def _normalize_required_policy_label(value: Any, label: str) -> str:
+    if not isinstance(value, str):
+        raise ValueError(f"client value_policy.{label} must be a string")
+    text = value.strip()
+    if not text:
+        raise ValueError(f"client value_policy.{label} must be non-empty")
+    if len(text) > 128:
+        raise ValueError(f"client value_policy.{label} is too long")
+    allowed = set("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_-./")
+    if any(ch not in allowed for ch in text):
+        raise ValueError(f"client value_policy.{label} contains unsupported characters")
+    return text
+
+
+def _normalize_policy_currency(value: Any) -> str | None:
+    if value in (None, ""):
+        return None
+    if not isinstance(value, str):
+        raise ValueError("client value_policy.currency must be a string")
+    currency = value.strip().upper()
+    if len(currency) != 3 or not currency.isalpha() or not currency.isupper():
+        raise ValueError("client value_policy.currency must be a 3-letter ISO 4217 code")
+    return currency
 
 
 def _value_policy_findings(
@@ -187,6 +253,47 @@ def _compare_input_commitment_to_job_meta(
             expected_commitment_sha256,
             commitment_sha256,
         )
+    bucket_scope = commitment.get("bucket_scope")
+    if isinstance(bucket_scope, dict):
+        expected_bucket_policy_sha = job_meta.get("bucket_policy_sha256") or inputs.get("bucket_policy_sha256")
+        if expected_bucket_policy_sha and bucket_scope.get("bucket_policy_sha256") != expected_bucket_policy_sha:
+            add(
+                "input commitment bucket_scope.bucket_policy_sha256 does not match job_meta",
+                expected_bucket_policy_sha,
+                bucket_scope.get("bucket_policy_sha256"),
+            )
+        bucket_policy = job_meta.get("bucket_policy")
+        if isinstance(bucket_policy, dict):
+            expected_bucket_field = bucket_policy.get("bucket_field")
+            if expected_bucket_field and bucket_scope.get("bucket_field") != expected_bucket_field:
+                add(
+                    "input commitment bucket_scope.bucket_field does not match job_meta bucket_policy",
+                    expected_bucket_field,
+                    bucket_scope.get("bucket_field"),
+                )
+            allowed = bucket_policy.get("allowed_buckets")
+            if isinstance(allowed, list) and bucket_scope.get("allowed_bucket_count") != len(set(allowed)):
+                add(
+                    "input commitment bucket_scope.allowed_bucket_count does not match job_meta bucket_policy",
+                    len(set(allowed)),
+                    bucket_scope.get("allowed_bucket_count"),
+                )
+    shard_scope = commitment.get("shard_scope")
+    if isinstance(shard_scope, dict):
+        expected_shard_manifest_sha = job_meta.get("shard_manifest_sha256") or inputs.get("shard_manifest_sha256")
+        if expected_shard_manifest_sha and shard_scope.get("shard_manifest_sha256") != expected_shard_manifest_sha:
+            add(
+                "input commitment shard_scope.shard_manifest_sha256 does not match job_meta",
+                expected_shard_manifest_sha,
+                shard_scope.get("shard_manifest_sha256"),
+            )
+        expected_bucket_policy_sha = job_meta.get("bucket_policy_sha256") or inputs.get("bucket_policy_sha256")
+        if expected_bucket_policy_sha and shard_scope.get("bucket_policy_sha256") != expected_bucket_policy_sha:
+            add(
+                "input commitment shard_scope.bucket_policy_sha256 does not match job_meta",
+                expected_bucket_policy_sha,
+                shard_scope.get("bucket_policy_sha256"),
+            )
 
     for field in (
         "job_id",
@@ -247,10 +354,12 @@ def _compare_input_commitment_to_job_meta(
                 commitment_policy = _normalize_value_policy(
                     party.get("value_policy"),
                     value_mode=party.get("value_mode"),
+                    value_column=party.get("value_column"),
                 )
                 meta_policy = _normalize_value_policy(
                     bridge_role.get("value_policy"),
                     value_mode=bridge_role.get("value_mode"),
+                    value_column=bridge_role.get("value_column"),
                 )
             except ValueError as exc:
                 add(str(exc), "valid client value policy", party.get("value_policy"))
@@ -364,7 +473,13 @@ def _validate_input_commitment(
         "file": os.path.abspath(path),
         "sha256": _sha256_file(path),
         "job_id": commitment.get("job_id"),
+        "bucket_scope": commitment.get("bucket_scope") if isinstance(commitment.get("bucket_scope"), dict) else None,
+        "shard_scope": commitment.get("shard_scope") if isinstance(commitment.get("shard_scope"), dict) else None,
     }
+    if isinstance(summary["bucket_scope"], dict):
+        summary["bucket_policy_sha256"] = summary["bucket_scope"].get("bucket_policy_sha256")
+    if isinstance(summary["shard_scope"], dict):
+        summary["shard_manifest_sha256"] = summary["shard_scope"].get("shard_manifest_sha256")
     if job_meta_path:
         if not os.path.isfile(job_meta_path):
             findings.append({
@@ -445,7 +560,11 @@ def _validate_input_commitment(
             })
         if role == "client" and csv_path and os.path.isfile(csv_path):
             try:
-                policy = _normalize_value_policy(party.get("value_policy"), value_mode=party.get("value_mode"))
+                policy = _normalize_value_policy(
+                    party.get("value_policy"),
+                    value_mode=party.get("value_mode"),
+                    value_column=party.get("value_column"),
+                )
                 if policy is not None:
                     actual_summary = _summarize_client_csv_values(csv_path)
                     summary["client_value_policy"] = policy

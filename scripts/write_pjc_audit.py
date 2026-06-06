@@ -47,6 +47,8 @@ def build_record(args: argparse.Namespace) -> Dict[str, Any]:
         "client_csv_sha256": sha256_file_if_exists(args.client_csv),
         "input_commitment_file": abspath_or_none(args.input_commitment),
         "input_commitment_sha256": sha256_file_if_exists(args.input_commitment),
+        "bucket_policy_sha256": args.bucket_policy_sha256 or None,
+        "shard_manifest_sha256": args.shard_manifest_sha256 or None,
         "server_log": abspath_or_none(args.server_log),
         "server_log_sha256": sha256_file_if_exists(args.server_log),
         "client_log": abspath_or_none(args.client_log),
@@ -72,6 +74,8 @@ def main() -> int:
     ap.add_argument("--server-csv", required=True)
     ap.add_argument("--client-csv", required=True)
     ap.add_argument("--input-commitment", default="")
+    ap.add_argument("--bucket-policy-sha256", default="")
+    ap.add_argument("--shard-manifest-sha256", default="")
     ap.add_argument("--server-log", default="")
     ap.add_argument("--client-log", default="")
     ap.add_argument("--result-file", default="")

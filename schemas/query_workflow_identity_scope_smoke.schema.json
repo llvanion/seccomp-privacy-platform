@@ -1,0 +1,36 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "query_workflow_identity_scope_smoke/v1",
+  "title": "Direct query/workflow API identity scope smoke",
+  "type": "object",
+  "required": [
+    "schema",
+    "status",
+    "dry_run_identity_caller",
+    "caller_spoof_status",
+    "tenant_spoof_status",
+    "dataset_spoof_status",
+    "recovery_allowed_service_id",
+    "recovery_spoof_status",
+    "execute_forbidden_status",
+    "execute_allowed_http_status",
+    "execute_allowed_identity_caller",
+    "status_caller"
+  ],
+  "properties": {
+    "schema": { "const": "query_workflow_identity_scope_smoke/v1" },
+    "status": { "const": "ok" },
+    "dry_run_identity_caller": { "const": "marketing_analyst_demo" },
+    "caller_spoof_status": { "const": 403 },
+    "tenant_spoof_status": { "const": 403 },
+    "dataset_spoof_status": { "const": 403 },
+    "recovery_allowed_service_id": { "const": "orders-recovery" },
+    "recovery_spoof_status": { "const": 403 },
+    "execute_forbidden_status": { "const": 403 },
+    "execute_allowed_http_status": { "const": 502 },
+    "execute_allowed_identity_caller": { "const": "commerce_ops_demo" },
+    "status_caller": { "const": "marketing_analyst_demo" },
+    "status_cross_caller_forbidden_status": { "const": 403 }
+  },
+  "additionalProperties": false
+}

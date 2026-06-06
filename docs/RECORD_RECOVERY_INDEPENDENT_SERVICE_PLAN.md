@@ -294,6 +294,49 @@ python3 scripts/manage_record_recovery_service.py stop \
 
 客户端侧通过 `tls_config` 字典传入 `client_cert` / `client_key` / `ca_cert` / `verify_hostname` 等字段；`manage_record_recovery_service.py start` 会在等待就绪时复用同一 `tls_config`，因此 readiness polling 也走 mTLS 路径。
 
+### 5.7 生产模式启动门禁
+
+生产模式可以通过三种方式打开：
+
+1. config 中设置 `"production_mode": true`
+2. CLI 传 `--production-mode`
+3. 环境变量 `RECORD_RECOVERY_PRODUCTION_MODE=1`
+
+打开后，HTTP recovery service 在启动或渲染 systemd unit 前必须满足：
+
+1. `auth_token_env` 或 `identity_token_config` 至少一个存在
+2. `authz_config` 存在
+3. 有 `auth_token_env` 签名请求，或启用要求 client cert 的 mTLS
+4. 非 loopback listener 必须启用要求 client cert 的 mTLS
+5. 使用 `identity_token_config` 时必须配置 `metadata_db_path`
+
+安全的 loopback signed-request 形态：
+
+```bash
+python3 scripts/manage_record_recovery_service.py render-systemd \
+  --config config/record_recovery_http_service.example.json \
+  --production-mode \
+  --output /tmp/seccomp-record-recovery-http.service
+```
+
+安全的 public mTLS 形态：
+
+```bash
+python3 scripts/manage_record_recovery_service.py render-systemd \
+  --config config/record_recovery_http_mtls_service.example.json \
+  --production-mode \
+  --output /tmp/seccomp-record-recovery-http-mtls.service
+```
+
+生产门禁负例由 `scripts/check_record_recovery_production_gate.py` 固定：
+
+```bash
+python3 scripts/check_record_recovery_production_gate.py \
+  --out tmp/record_recovery_production_gate_check.json
+```
+
+这个 gate 证明 repo 入口不会启动或渲染缺 auth、缺 authz、identity 缺 metadata DB、identity 缺 HMAC/mTLS、或 public HTTP 缺 mTLS 的生产 recovery endpoint。它不替代真实主机上的 service-user、systemd sandbox、firewall/NetworkPolicy、或公网 mTLS 流量证据。
+
 ### 5.5 生成独立 deploy artifact
 
 如果不想继续停留在“手工开一个 shell 跑 start/status/stop”的层级，现在可以直接从现有 config 生成基线 `systemd` unit 和 env template：

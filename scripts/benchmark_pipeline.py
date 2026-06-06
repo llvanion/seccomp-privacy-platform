@@ -4,11 +4,18 @@ import json
 import os
 import statistics
 import subprocess
+import sys
 import tempfile
 import time
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
+
+SCRIPT_DIR = Path(__file__).resolve().parent
+if str(SCRIPT_DIR) not in sys.path:
+    sys.path.insert(0, str(SCRIPT_DIR))
+
+from pjc_binary_gate_lib import resolve_pjc_bin_dir
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -157,6 +164,7 @@ def build_pipeline_command(
     production_mode: bool = False,
     pjc_resource_limits: Path | None = None,
     release_policy_gate_config: Path | None = None,
+    external_anchor_report: Path | None = None,
 ) -> list[str]:
     if production_mode and mode == "file_handoff_retained":
         raise ValueError("file_handoff_retained is incompatible with production_mode")
@@ -183,6 +191,14 @@ def build_pipeline_command(
         "email",
         "--client-value-mode",
         "raw-int",
+        "--client-value-max",
+        "1000000",
+        "--client-allowed-value-field",
+        "amount",
+        "--client-value-unit",
+        "minor_currency_unit",
+        "--client-value-currency",
+        "USD",
         "--server-filter",
         "campaign=demo",
         "--client-filter",
@@ -223,6 +239,8 @@ def build_pipeline_command(
             "--dp-sensitivity", "500",
             "--public-report-redact-operator-fields",
         ])
+        if external_anchor_report is not None:
+            command.extend(["--external-anchor-report", str(external_anchor_report)])
     if mode == "file_handoff_retained":
         command.extend(["--keep-sse-export-handoff-files", "--handoff-retention-reason", "benchmark_file_handoff_retained"])
     elif mode == "fifo_handoff":
@@ -243,6 +261,7 @@ def run_pipeline_once(
     production_mode: bool,
     pjc_resource_limits: Path | None,
     release_policy_gate_config: Path | None,
+    external_anchor_report: Path | None,
 ) -> dict[str, Any]:
     with tempfile.TemporaryDirectory(prefix=f"seccomp_pipeline_bench.{mode}.{iteration}.") as tmp_dir:
         out_base = Path(tmp_dir) / "run"
@@ -258,6 +277,7 @@ def run_pipeline_once(
             production_mode=production_mode,
             pjc_resource_limits=pjc_resource_limits,
             release_policy_gate_config=release_policy_gate_config,
+            external_anchor_report=external_anchor_report,
         )
         run_env = dict(env)
         run_env["HOME"] = str(benchmark_home)
@@ -377,6 +397,11 @@ def build_parser() -> argparse.ArgumentParser:
         default=str((REPO_ROOT / "config" / "release_policy_gate.example.json").resolve()),
         help="release_policy_gate_config/v1 config required when --production-mode is used",
     )
+    ap.add_argument(
+        "--external-anchor-report",
+        default="",
+        help="external_audit_anchor_report/v1 required when the production release gate config requires external anchoring",
+    )
     ap.add_argument("--output", default="")
     ap.add_argument("--allow-failures", action="store_true")
     return ap
@@ -405,10 +430,21 @@ def main() -> int:
     release_policy_gate_config = Path(args.release_policy_gate_config).expanduser()
     if args.production_mode and not release_policy_gate_config.is_file():
         raise SystemExit(f"[ERROR] release_policy_gate_config does not exist: {release_policy_gate_config}")
+    external_anchor_report = Path(args.external_anchor_report).expanduser() if args.external_anchor_report else None
+    if args.production_mode and external_anchor_report is not None and not external_anchor_report.is_file():
+        raise SystemExit(f"[ERROR] external_anchor_report does not exist: {external_anchor_report}")
+    if args.production_mode and release_policy_gate_config.is_file():
+        config = json.loads(release_policy_gate_config.read_text(encoding="utf-8"))
+        if config.get("require_external_anchor") is True and external_anchor_report is None:
+            raise SystemExit("[ERROR] production release gate requires --external-anchor-report")
 
-    pjc_bin_dir = Path(os.environ.get("PJC_BIN_DIR", str(REPO_ROOT / "a-psi" / "private-join-and-compute" / "bazel-bin")))
-    if not pjc_bin_dir.is_dir():
-        raise SystemExit(f"[ERROR] PJC_BIN_DIR does not exist: {pjc_bin_dir}")
+    requested_pjc_bin_dir = Path(os.environ.get("PJC_BIN_DIR", str(REPO_ROOT / "a-psi" / "private-join-and-compute" / "bazel-bin")))
+    report = resolve_pjc_bin_dir(
+        workspace=REPO_ROOT / "a-psi" / "private-join-and-compute",
+        requested_bin_dir=requested_pjc_bin_dir,
+        require_streaming=True,
+    )
+    pjc_bin_dir = Path(str(report["resolved_bin_dir"]))
 
     selected_modes = list(MODES) if args.mode == "all" else [args.mode]
     if args.production_mode:
@@ -431,6 +467,7 @@ def main() -> int:
                 production_mode=args.production_mode,
                 pjc_resource_limits=pjc_resource_limits.resolve() if args.production_mode else None,
                 release_policy_gate_config=release_policy_gate_config.resolve() if args.production_mode else None,
+                external_anchor_report=external_anchor_report.resolve() if external_anchor_report else None,
             )
             for iteration in range(args.iterations)
         ]
@@ -445,6 +482,8 @@ def main() -> int:
                     client_source=client_source,
                     production_mode=args.production_mode,
                     pjc_resource_limits=pjc_resource_limits.resolve() if args.production_mode else None,
+                    release_policy_gate_config=release_policy_gate_config.resolve() if args.production_mode else None,
+                    external_anchor_report=external_anchor_report.resolve() if external_anchor_report else None,
                 ),
                 "summary": summarize(mode_results),
                 "results": mode_results,
@@ -460,6 +499,7 @@ def main() -> int:
         "production_mode": bool(args.production_mode),
         "pjc_resource_limits": str(pjc_resource_limits.resolve()) if args.production_mode else None,
         "release_policy_gate_config": str(release_policy_gate_config.resolve()) if args.production_mode else None,
+        "external_anchor_report": str(external_anchor_report.resolve()) if external_anchor_report else None,
         "expected_result": {
             "intersection_size": args.expected_intersection_size,
             "intersection_sum": args.expected_intersection_sum,

@@ -6,6 +6,7 @@ import statistics
 import subprocess
 import sys
 import time
+import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -59,6 +60,24 @@ def load_json_object(path: Path) -> dict[str, Any]:
     if not isinstance(payload, dict):
         raise SystemExit(f"[ERROR] JSON object expected: {path}")
     return payload
+
+
+def write_iteration_request(
+    *,
+    base_payload: dict[str, Any],
+    base_request_dir: Path,
+    work_dir: Path,
+    mode: str,
+    iteration: int,
+) -> Path:
+    payload = dict(base_payload)
+    original_job = str(payload.get("job_id") or "query_workflow_benchmark")
+    payload["job_id"] = f"{original_job}_{mode}_{iteration}"
+    payload["out_base"] = str(work_dir / "out" / mode / str(iteration))
+    request_path = work_dir / "requests" / mode / f"request_{iteration}.json"
+    request_path.parent.mkdir(parents=True, exist_ok=True)
+    request_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    return request_path
 
 
 def run_command(command: list[str], *, env: dict[str, str], timeout_sec: float) -> dict[str, Any]:
@@ -175,85 +194,112 @@ def main() -> int:
     startup_ms: float | None = None
 
     try:
-        if any(mode in {"http_dry_run", "client_dry_run"} for mode in selected_modes):
-            query_api_port = available_port()
-            query_api_base_url = f"http://127.0.0.1:{query_api_port}"
-            server_command = [
-                sys.executable,
-                str(REPO_ROOT / "scripts" / "serve_query_workflow_api.py"),
-                "--bind-host",
-                "127.0.0.1",
-                "--port",
-                str(query_api_port),
-                "--auth-token-env",
-                "SECCOMP_QUERY_WORKFLOW_API_TOKEN",
-            ]
-            started = time.perf_counter()
-            query_api_process = subprocess.Popen(
-                server_command,
-                cwd=str(REPO_ROOT),
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
-                env=query_api_env,
-                text=True,
-            )
-            wait_for_json_health(url=f"{query_api_base_url}/healthz", timeout_sec=args.timeout_sec, interval_sec=0.05)
-            startup_ms = round((time.perf_counter() - started) * 1000, 3)
-
-        for mode in selected_modes:
-            mode_command: list[str]
-            mode_results: list[dict[str, Any]] = []
-            if mode == "cli_dry_run":
-                mode_command = [
+        with tempfile.TemporaryDirectory(prefix="seccomp_qw_bench_") as tmpdir:
+            work_dir = Path(tmpdir)
+            if any(mode in {"http_dry_run", "client_dry_run"} for mode in selected_modes):
+                query_api_port = available_port()
+                query_api_base_url = f"http://127.0.0.1:{query_api_port}"
+                server_command = [
                     sys.executable,
-                    str(REPO_ROOT / "scripts" / "submit_query_workflow.py"),
-                    "--request-file",
-                    str(request_file),
-                    "--dry-run",
-                ]
-                for _ in range(args.iterations):
-                    mode_results.append(run_command(mode_command, env=common_env, timeout_sec=args.timeout_sec))
-            elif mode == "http_dry_run":
-                mode_command = [
-                    "POST",
-                    f"{query_api_base_url}/v1/query-workflows/dry-run",
-                ]
-                for _ in range(args.iterations):
-                    mode_results.append(
-                        post_http_dry_run(
-                            base_url=query_api_base_url,
-                            request_payload=request_payload,
-                            request_base_dir=request_base_dir,
-                            auth_token=query_api_env["SECCOMP_QUERY_WORKFLOW_API_TOKEN"],
-                            timeout_sec=args.timeout_sec,
-                        )
-                    )
-            elif mode == "client_dry_run":
-                mode_command = [
-                    sys.executable,
-                    str(REPO_ROOT / "scripts" / "platform_api_client.py"),
-                    "query-submit",
-                    "--base-url",
-                    query_api_base_url,
+                    str(REPO_ROOT / "scripts" / "serve_query_workflow_api.py"),
+                    "--bind-host",
+                    "127.0.0.1",
+                    "--port",
+                    str(query_api_port),
                     "--auth-token-env",
                     "SECCOMP_QUERY_WORKFLOW_API_TOKEN",
-                    "--request-file",
-                    str(request_file),
                 ]
-                for _ in range(args.iterations):
-                    mode_results.append(run_command(mode_command, env=query_api_env, timeout_sec=args.timeout_sec))
-            else:
-                raise SystemExit(f"[ERROR] unsupported mode: {mode}")
+                started = time.perf_counter()
+                query_api_process = subprocess.Popen(
+                    server_command,
+                    cwd=str(REPO_ROOT),
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                    env=query_api_env,
+                    text=True,
+                )
+                wait_for_json_health(url=f"{query_api_base_url}/healthz", timeout_sec=args.timeout_sec, interval_sec=0.05)
+                startup_ms = round((time.perf_counter() - started) * 1000, 3)
 
-            entry: dict[str, Any] = {
-                "mode": mode,
-                "command": mode_command,
-                "summary": summarize(mode_results),
-                "results": mode_results,
-            }
-            if mode in {"http_dry_run", "client_dry_run"}:
-                entry["server_startup_ms"] = startup_ms
-            results.append(entry)
+            for mode in selected_modes:
+                mode_command: list[str]
+                mode_results: list[dict[str, Any]] = []
+                if mode == "cli_dry_run":
+                    mode_command = [
+                        sys.executable,
+                        str(REPO_ROOT / "scripts" / "submit_query_workflow.py"),
+                        "--request-file",
+                        "<iteration-request>",
+                        "--dry-run",
+                    ]
+                    for idx in range(args.iterations):
+                        iter_request = write_iteration_request(
+                            base_payload=request_payload,
+                            base_request_dir=request_file.parent,
+                            work_dir=work_dir,
+                            mode=mode,
+                            iteration=idx,
+                        )
+                        iter_command = list(mode_command)
+                        iter_command[iter_command.index("<iteration-request>")] = str(iter_request)
+                        mode_results.append(run_command(iter_command, env=common_env, timeout_sec=args.timeout_sec))
+                elif mode == "http_dry_run":
+                    mode_command = [
+                        "POST",
+                        f"{query_api_base_url}/v1/query-workflows/dry-run",
+                    ]
+                    for idx in range(args.iterations):
+                        iter_request = write_iteration_request(
+                            base_payload=request_payload,
+                            base_request_dir=request_file.parent,
+                            work_dir=work_dir,
+                            mode=mode,
+                            iteration=idx,
+                        )
+                        mode_results.append(
+                            post_http_dry_run(
+                                base_url=query_api_base_url,
+                                request_payload=load_json_object(iter_request),
+                                request_base_dir=str(iter_request.parent),
+                                auth_token=query_api_env["SECCOMP_QUERY_WORKFLOW_API_TOKEN"],
+                                timeout_sec=args.timeout_sec,
+                            )
+                        )
+                elif mode == "client_dry_run":
+                    mode_command = [
+                        sys.executable,
+                        str(REPO_ROOT / "scripts" / "platform_api_client.py"),
+                        "query-submit",
+                        "--base-url",
+                        query_api_base_url,
+                        "--auth-token-env",
+                        "SECCOMP_QUERY_WORKFLOW_API_TOKEN",
+                        "--request-file",
+                        "<iteration-request>",
+                    ]
+                    for idx in range(args.iterations):
+                        iter_request = write_iteration_request(
+                            base_payload=request_payload,
+                            base_request_dir=request_file.parent,
+                            work_dir=work_dir,
+                            mode=mode,
+                            iteration=idx,
+                        )
+                        iter_command = list(mode_command)
+                        iter_command[iter_command.index("<iteration-request>")] = str(iter_request)
+                        mode_results.append(run_command(iter_command, env=query_api_env, timeout_sec=args.timeout_sec))
+                else:
+                    raise SystemExit(f"[ERROR] unsupported mode: {mode}")
+
+                entry: dict[str, Any] = {
+                    "mode": mode,
+                    "command": mode_command,
+                    "summary": summarize(mode_results),
+                    "results": mode_results,
+                }
+                if mode in {"http_dry_run", "client_dry_run"}:
+                    entry["server_startup_ms"] = startup_ms
+                results.append(entry)
     finally:
         if query_api_process is not None:
             query_api_process.terminate()

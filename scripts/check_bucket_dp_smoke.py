@@ -15,9 +15,13 @@ and ``policy_postprocess_buckets.py``:
    set but ``--dp-sensitivity`` is missing.
 4. ``policy_postprocess_buckets.py --require-dp`` exits non-zero when DP knobs
    are absent.
-5. With DP knobs set on ``policy_release.py``, the ``public_report.json``
+5. ``bucket_policy/v1`` is enforced before bucket postprocess: unknown bucket
+   labels, bucket-field drift, and above-policy bucket counts fail closed.
+6. ``run_pjc_bucketed.sh`` refuses production bucketed jobs that do not carry
+   a bucket policy before it starts PJC.
+7. With DP knobs set on ``policy_release.py``, the ``public_report.json``
    surfaces ``dp_noise_applied=true`` and a positive ``dp_epsilon``.
-6. The operator-only bucket report records the DP noise/raw sum needed to audit
+8. The operator-only bucket report records the DP noise/raw sum needed to audit
    the public released sum, but the public bucket report does not expose that
    noise.
 
@@ -30,6 +34,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -37,6 +42,8 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parents[1]
 POLICY_RELEASE = REPO_ROOT / "a-psi" / "moduleA_psi" / "scripts" / "policy_release.py"
 POLICY_BUCKETS = REPO_ROOT / "a-psi" / "moduleA_psi" / "scripts" / "policy_postprocess_buckets.py"
+BUCKET_POLICY = REPO_ROOT / "a-psi" / "moduleA_psi" / "scripts" / "bucket_policy.py"
+RUN_PJC_BUCKETED = REPO_ROOT / "a-psi" / "moduleA_psi" / "scripts" / "run_pjc_bucketed.sh"
 
 
 def _run(cmd: list[str], **kw) -> subprocess.CompletedProcess:
@@ -56,8 +63,14 @@ def _must_succeed(cmd: list[str], context: str) -> subprocess.CompletedProcess:
     return res
 
 
-def _must_fail(cmd: list[str], context: str, *, expect_in_stderr: str | None = None) -> subprocess.CompletedProcess:
-    res = _run(cmd)
+def _must_fail(
+    cmd: list[str],
+    context: str,
+    *,
+    expect_in_stderr: str | None = None,
+    env: dict[str, str] | None = None,
+) -> subprocess.CompletedProcess:
+    res = _run(cmd, env=env)
     if res.returncode == 0:
         sys.stderr.write(
             f"[ERROR] {context}: expected non-zero exit, got 0\n"
@@ -101,10 +114,47 @@ def _build_job_meta(path: Path) -> dict:
         "job_id": "bucket-dp-smoke",
         "window_start": "2026-05-01T00:00:00Z",
         "window_end": "2026-05-31T00:00:00Z",
-        "bucket": None,
+        "bucket": {
+            "field": "campaign_id",
+            "outputs": [
+                {"bucket": "campaign-a"},
+                {"bucket": "campaign-b"},
+            ],
+        },
+        "bucket_policy": {
+            "schema": "bucket_policy/v1",
+            "bucket_field": "campaign_id",
+            "allowed_bucket_fields": ["campaign_id"],
+            "allowed_buckets": ["campaign-a", "campaign-b"],
+            "max_buckets": 2,
+            "bucket_label_pattern": r"^[A-Za-z0-9_.:-]{1,64}$",
+            "require_exact_allowed_buckets": True,
+            "enforcement": "fail_closed",
+            "production_mode": True,
+        },
     }
     _write_json(path, payload)
     return payload
+
+
+def _build_minimal_public_report(path: Path) -> None:
+    payload = {
+        "schema": "public_report/v2",
+        "job_id": "bucket-dp-smoke",
+        "dp_noise_applied": True,
+        "dp_epsilon": 1.0,
+    }
+    _write_json(path, payload)
+
+
+def _copy_positive_fixture(src_dir: Path, dst_dir: Path) -> tuple[dict, dict]:
+    dst_dir.mkdir(parents=True, exist_ok=True)
+    attr = json.loads((src_dir / "attribution_result.json").read_text(encoding="utf-8"))
+    meta = json.loads((src_dir / "job_meta.json").read_text(encoding="utf-8"))
+    _write_json(dst_dir / "attribution_result.json", attr)
+    _write_json(dst_dir / "job_meta.json", meta)
+    _build_minimal_public_report(dst_dir / "public_report.json")
+    return attr, meta
 
 
 def main() -> int:
@@ -127,6 +177,22 @@ def main() -> int:
 
     _build_attribution_fixture(attribution_path)
     _build_job_meta(job_meta_path)
+
+    bucket_policy_check = _must_succeed(
+        [
+            sys.executable,
+            str(BUCKET_POLICY),
+            "--job-meta", str(job_meta_path),
+            "--attribution", str(attribution_path),
+            "--require-policy",
+        ],
+        context="bucket_policy.py validates the positive fixture",
+    )
+    bucket_policy_check_json = json.loads(bucket_policy_check.stdout)
+    bucket_policy_hash = bucket_policy_check_json.get("bucket_policy_sha256")
+    if not bucket_policy_hash:
+        sys.stderr.write(f"[ERROR] bucket_policy.py did not return bucket_policy_sha256: {bucket_policy_check.stdout}\n")
+        return 1
 
     # --- Invariant 2: policy_release.py --require-dp without knobs fails closed.
     _must_fail(
@@ -176,6 +242,125 @@ def main() -> int:
         expect_in_stderr="--dp-epsilon",
     )
 
+    # --- Invariant 5: bucket policy rejects unknown labels, field drift, and
+    # above-policy bucket counts before public bucket output is written.
+    unknown_bucket_dir = out_dir / "bad_unknown_bucket"
+    bad_attr, bad_meta = _copy_positive_fixture(out_dir, unknown_bucket_dir)
+    bad_meta["bucket_policy"]["max_buckets"] = 3
+    _write_json(unknown_bucket_dir / "job_meta.json", bad_meta)
+    bad_attr["buckets"].append({"bucket": "campaign-x", "intersection_size": 12, "intersection_sum": 1200})
+    _write_json(unknown_bucket_dir / "attribution_result.json", bad_attr)
+    _must_fail(
+        [
+            sys.executable,
+            str(POLICY_BUCKETS),
+            "--job-dir", str(unknown_bucket_dir),
+            "--k", str(args.threshold_k),
+            "--require-dp",
+            "--dp-epsilon", args.dp_epsilon,
+            "--dp-sensitivity", str(args.dp_sensitivity),
+        ],
+        context="policy_postprocess_buckets.py rejects unknown bucket label",
+        expect_in_stderr="not allowed",
+    )
+
+    field_drift_dir = out_dir / "bad_bucket_field"
+    bad_attr, _ = _copy_positive_fixture(out_dir, field_drift_dir)
+    bad_attr["bucket_field"] = "audience_segment"
+    _write_json(field_drift_dir / "attribution_result.json", bad_attr)
+    _must_fail(
+        [
+            sys.executable,
+            str(POLICY_BUCKETS),
+            "--job-dir", str(field_drift_dir),
+            "--k", str(args.threshold_k),
+            "--require-dp",
+            "--dp-epsilon", args.dp_epsilon,
+            "--dp-sensitivity", str(args.dp_sensitivity),
+        ],
+        context="policy_postprocess_buckets.py rejects bucket field drift",
+        expect_in_stderr="does not match bucket_policy.bucket_field",
+    )
+
+    max_bucket_dir = out_dir / "bad_max_buckets"
+    _, bad_meta = _copy_positive_fixture(out_dir, max_bucket_dir)
+    bad_meta["bucket_policy"]["max_buckets"] = 1
+    _write_json(max_bucket_dir / "job_meta.json", bad_meta)
+    _must_fail(
+        [
+            sys.executable,
+            str(BUCKET_POLICY),
+            "--job-meta", str(max_bucket_dir / "job_meta.json"),
+            "--require-policy",
+        ],
+        context="bucket_policy.py rejects above-policy bucket count",
+        expect_in_stderr="exceeds bucket_policy.max_buckets",
+    )
+
+    missing_policy_dir = out_dir / "missing_policy"
+    missing_policy_dir.mkdir(parents=True, exist_ok=True)
+    missing_meta = json.loads(job_meta_path.read_text(encoding="utf-8"))
+    missing_meta.pop("bucket_policy", None)
+    _write_json(missing_policy_dir / "job_meta.json", missing_meta)
+    _must_fail(
+        [
+            "bash",
+            str(RUN_PJC_BUCKETED),
+        ],
+        context="run_pjc_bucketed.sh requires bucket policy in production mode",
+        expect_in_stderr="job_meta.bucket_policy is required",
+        env={
+            **os.environ,
+            "JOB_DIR": str(missing_policy_dir),
+            "PJC_REQUIRE_BUCKET_POLICY": "1",
+        },
+    )
+
+    shard_manifest = {
+        "schema": "job_shard_meta/v1",
+        "job_id": "bucket-dp-smoke",
+        "num_shards": 2,
+        "salt": "smoke",
+        "targets": [
+            {"bucket": "campaign-a", "dir": "bucket_campaign-a", "shards": [{"shard_id": 0}, {"shard_id": 1}]},
+            {"bucket": "campaign-b", "dir": "bucket_campaign-b", "shards": [{"shard_id": 0}, {"shard_id": 1}]},
+        ],
+    }
+    shard_meta_path = out_dir / "job_shard_meta.json"
+    _write_json(shard_meta_path, shard_manifest)
+    shard_check = _must_succeed(
+        [
+            sys.executable,
+            str(BUCKET_POLICY),
+            "--job-meta", str(job_meta_path),
+            "--shard-meta", str(shard_meta_path),
+            "--require-policy",
+        ],
+        context="bucket_policy.py validates shard manifest against bucket policy",
+    )
+    shard_scope = (json.loads(shard_check.stdout).get("shard_scope") or {})
+    if shard_scope.get("bucket_policy_sha256") != bucket_policy_hash or not shard_scope.get("shard_manifest_sha256"):
+        sys.stderr.write(f"[ERROR] shard scope did not bind bucket policy and shard manifest hashes: {shard_check.stdout}\n")
+        return 1
+
+    bad_shard_path = out_dir / "bad_job_shard_meta.json"
+    bad_shard = dict(shard_manifest)
+    bad_shard["targets"] = list(shard_manifest["targets"]) + [
+        {"bucket": "campaign-x", "dir": "bucket_campaign-x", "shards": [{"shard_id": 0}]}
+    ]
+    _write_json(bad_shard_path, bad_shard)
+    _must_fail(
+        [
+            sys.executable,
+            str(BUCKET_POLICY),
+            "--job-meta", str(job_meta_path),
+            "--shard-meta", str(bad_shard_path),
+            "--require-policy",
+        ],
+        context="bucket_policy.py rejects shard target outside allowed buckets",
+        expect_in_stderr="shard targets not allowed",
+    )
+
     # --- Positive path: full DP-aware release + bucket postprocess.
     audit_log.unlink(missing_ok=True)  # restart audit log for the positive run
     _must_succeed(
@@ -220,6 +405,13 @@ def main() -> int:
     public_report = json.loads(public_report_path.read_text(encoding="utf-8"))
     bucket_report = json.loads(bucket_report_path.read_text(encoding="utf-8"))
     operator_bucket_report = json.loads(operator_bucket_report_path.read_text(encoding="utf-8"))
+    for label, report in (("public bucket report", bucket_report), ("operator bucket report", operator_bucket_report)):
+        policy_summary = report.get("bucket_policy") or {}
+        if policy_summary.get("bucket_policy_sha256") != bucket_policy_hash:
+            sys.stderr.write(
+                f"[ERROR] {label} did not bind expected bucket_policy_sha256 {bucket_policy_hash}: {policy_summary}\n"
+            )
+            return 1
 
     # --- Invariant 5: public_report.json surfaces DP metadata.
     if not public_report.get("dp_noise_applied"):
@@ -369,6 +561,14 @@ def main() -> int:
         "status": "ok",
         "schema": "bucket_dp_smoke_report/v1",
         "out_dir": str(out_dir),
+        "bucket_policy_positive_fixture_valid": True,
+        "bucket_policy_unknown_bucket_denied": True,
+        "bucket_policy_field_mismatch_denied": True,
+        "bucket_policy_max_bucket_denied": True,
+        "bucket_policy_required_before_pjc": True,
+        "bucket_policy_hash_bound_to_reports": True,
+        "shard_manifest_policy_hash_bound": True,
+        "shard_manifest_unknown_bucket_denied": True,
         "below_k_suppressed_label_redacted": True,
         "above_k_released_with_dp": True,
         "public_report_dp_noise_applied": True,

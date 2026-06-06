@@ -1,0 +1,35 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "pjc_tls_readiness/v1",
+  "title": "PJC TLS readiness",
+  "type": "object",
+  "required": [
+    "schema",
+    "generated_at_utc",
+    "status",
+    "job_id",
+    "role",
+    "peer_host",
+    "peer_port",
+    "server_hostname",
+    "diagnostic",
+    "ready"
+  ],
+  "properties": {
+    "schema": { "const": "pjc_tls_readiness/v1" },
+    "generated_at_utc": { "type": "string", "minLength": 1 },
+    "status": { "enum": ["ok", "fail"] },
+    "job_id": { "type": "string", "minLength": 1 },
+    "role": { "enum": ["server", "client"] },
+    "peer_host": { "type": "string", "minLength": 1 },
+    "peer_port": { "type": "integer", "minimum": 1 },
+    "server_hostname": { "type": "string", "minLength": 1 },
+    "diagnostic": {
+      "type": "object",
+      "required": ["schema", "decision", "reason_code", "category", "host", "port", "tcp", "tls", "local_files", "suggested_action"],
+      "additionalProperties": true
+    },
+    "ready": { "type": "boolean" }
+  },
+  "additionalProperties": false
+}

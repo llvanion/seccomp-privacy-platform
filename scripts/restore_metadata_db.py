@@ -166,9 +166,26 @@ def download_s3(local_path: Path, source_uri: str) -> tuple[str, str]:
     return "downloaded", f"downloaded from s3://{bucket}/{key}"
 
 
+def load_expected_backup_sha256(report_path: str) -> str:
+    if not report_path:
+        return ""
+    payload = json.loads(Path(report_path).read_text(encoding="utf-8"))
+    if not isinstance(payload, dict):
+        raise ValueError("backup report must be a JSON object")
+    if payload.get("schema") != "metadata_db_backup_report/v1":
+        raise ValueError(f"unexpected backup report schema: {payload.get('schema')!r}")
+    backup = payload.get("backup")
+    if not isinstance(backup, dict):
+        raise ValueError("backup report is missing backup object")
+    value = backup.get("sha256")
+    return str(value or "")
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="Restore the metadata sidecar DB from a SQLite or pg_dump backup.")
     parser.add_argument("--backup-path", required=True, help="Backup file source path")
+    parser.add_argument("--backup-report", default="", help="Optional metadata_db_backup_report/v1 whose backup.sha256 must match --backup-path before restore")
+    parser.add_argument("--expect-backup-sha256", default="", help="Optional expected backup file SHA-256; rejects restore when it does not match")
     parser.add_argument("--out-db-path", default="", help="SQLite metadata DB destination path")
     parser.add_argument("--restore-dsn", default="", help="PostgreSQL destination DSN")
     parser.add_argument(
@@ -237,6 +254,28 @@ def main() -> int:
 
     backup_size = file_size_bytes(backup_path)
     backup_sha = sha256_file(backup_path) if backup_path.is_file() else None
+    expected_backup_sha = str(args.expect_backup_sha256 or "").strip()
+    backup_report_sha = ""
+    if args.backup_report:
+        try:
+            backup_report_sha = load_expected_backup_sha256(args.backup_report)
+        except Exception as exc:
+            errors.append(f"backup report validation failed: {exc}")
+        if expected_backup_sha and backup_report_sha and expected_backup_sha != backup_report_sha:
+            errors.append(
+                "backup report SHA-256 does not match --expect-backup-sha256: "
+                f"report={backup_report_sha} expected={expected_backup_sha}"
+            )
+        if not expected_backup_sha:
+            expected_backup_sha = backup_report_sha
+    backup_sha_match: bool | None = None
+    if expected_backup_sha:
+        backup_sha_match = backup_sha == expected_backup_sha
+        if not backup_sha_match:
+            errors.append(
+                "backup SHA-256 mismatch: "
+                f"expected={expected_backup_sha} actual={backup_sha}"
+            )
 
     backend = "sqlite" if args.out_db_path else "postgres"
     restored_path: Path | None = None
@@ -309,6 +348,9 @@ def main() -> int:
             "path": str(backup_path),
             "size_bytes": backup_size,
             "sha256": backup_sha,
+            "expected_sha256": expected_backup_sha or None,
+            "sha256_match": backup_sha_match,
+            "report_path": str(Path(args.backup_report).resolve()) if args.backup_report else None,
             "format": backup_format,
         },
         "restore": {

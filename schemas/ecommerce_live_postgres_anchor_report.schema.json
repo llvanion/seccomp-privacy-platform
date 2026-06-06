@@ -1,0 +1,44 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "ecommerce_live_postgres_anchor_report/v1",
+  "title": "E-commerce live Postgres and anchor report",
+  "type": "object",
+  "required": [
+    "schema",
+    "generated_at_utc",
+    "status",
+    "postgres_restore",
+    "external_anchor"
+  ],
+  "properties": {
+    "schema": { "const": "ecommerce_live_postgres_anchor_report/v1" },
+    "generated_at_utc": { "type": "string", "minLength": 1 },
+    "status": { "enum": ["ok", "fail"] },
+    "postgres_restore": {
+      "type": "object",
+      "required": ["schema", "status"],
+      "properties": {
+        "schema": { "const": "metadata_backup_restore_drill/v1" },
+        "status": { "enum": ["ok", "fail"] },
+        "report_path": { "type": ["string", "null"] }
+      },
+      "additionalProperties": false
+    },
+    "external_anchor": {
+      "type": "object",
+      "required": ["schema", "mode", "summary_status"],
+      "properties": {
+        "schema": { "const": "external_audit_anchor_report/v1" },
+        "mode": { "enum": ["dry_run", "publish"] },
+        "summary_status": { "type": "string", "minLength": 1 },
+        "report_path": { "type": ["string", "null"] }
+      },
+      "additionalProperties": false
+    },
+    "findings": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 }
+    }
+  },
+  "additionalProperties": false
+}

@@ -43,7 +43,8 @@
         "tables_present",
         "tables_missing",
         "table_count",
-        "total_index_count"
+        "total_index_count",
+        "migration_count"
       ],
       "properties": {
         "status": {"type": "string", "enum": ["ok", "fail"]},
@@ -51,7 +52,8 @@
         "tables_present": {"type": "array", "items": {"type": "string"}},
         "tables_missing": {"type": "array", "items": {"type": "string"}},
         "table_count": {"type": "integer", "minimum": 0},
-        "total_index_count": {"type": "integer", "minimum": 0}
+        "total_index_count": {"type": "integer", "minimum": 0},
+        "migration_count": {"type": "integer", "minimum": 1}
       },
       "additionalProperties": false
     }

@@ -1,0 +1,88 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "public_two_host_live_evidence_archive/v1",
+  "title": "Public two-host live evidence archive",
+  "type": "object",
+  "required": [
+    "schema",
+    "generated_at_utc",
+    "status",
+    "job_id",
+    "peer_host",
+    "peer_port",
+    "server_hostname",
+    "bucket_count",
+    "merged_result",
+    "bucket_results",
+    "tls_identity",
+    "cleanroom_materialization_report",
+    "artifacts",
+    "aggregate_sha256"
+  ],
+  "properties": {
+    "schema": { "const": "public_two_host_live_evidence_archive/v1" },
+    "generated_at_utc": { "type": "string", "minLength": 1 },
+    "status": { "enum": ["ok", "fail"] },
+    "job_id": { "type": "string", "minLength": 1 },
+    "peer_host": { "type": "string", "minLength": 1 },
+    "peer_port": { "type": "integer", "minimum": 1 },
+    "server_hostname": { "type": "string", "minLength": 1 },
+    "bucket_count": { "type": "integer", "minimum": 1 },
+    "merged_result": {
+      "type": "object",
+      "required": ["job_id", "intersection_size", "intersection_sum", "bucket_count_merged"],
+      "additionalProperties": true
+    },
+    "bucket_results": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["bucket", "intersection_size", "intersection_sum", "timestamp", "server_addr", "tls"],
+        "properties": {
+          "bucket": { "type": "string", "minLength": 1 },
+          "intersection_size": { "type": "integer", "minimum": 0 },
+          "intersection_sum": { "type": "integer", "minimum": 0 },
+          "timestamp": { "type": "string", "minLength": 1 },
+          "server_addr": { "type": "string", "minLength": 1 },
+          "tls": { "type": "boolean" }
+        },
+        "additionalProperties": false
+      }
+    },
+    "tls_identity": {
+      "type": "object",
+      "required": ["client", "server"],
+      "properties": {
+        "client": {
+          "type": "object",
+          "required": ["schema", "decision", "reason_code", "role", "job_id", "checks"],
+          "additionalProperties": true
+        },
+        "server": {
+          "type": "object",
+          "required": ["schema", "decision", "role", "peer_host", "peer_port", "server_hostname", "checks"],
+          "additionalProperties": true
+        }
+      },
+      "additionalProperties": false
+    },
+    "cleanroom_materialization_report": { "type": "string", "minLength": 1 },
+    "artifacts": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["path", "size_bytes", "sha256"],
+        "properties": {
+          "path": { "type": "string", "minLength": 1 },
+          "size_bytes": { "type": "integer", "minimum": 0 },
+          "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" }
+        },
+        "additionalProperties": false
+      }
+    },
+    "aggregate_sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" }
+  },
+  "additionalProperties": false
+}

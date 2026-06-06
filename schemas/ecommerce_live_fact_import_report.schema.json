@@ -1,0 +1,57 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "ecommerce_live_fact_import_report/v1",
+  "title": "E-commerce live fact import report",
+  "type": "object",
+  "required": [
+    "schema",
+    "generated_at_utc",
+    "status",
+    "import_job",
+    "result",
+    "evidence"
+  ],
+  "properties": {
+    "schema": { "const": "ecommerce_live_fact_import_report/v1" },
+    "generated_at_utc": { "type": "string", "minLength": 1 },
+    "status": { "enum": ["ok", "fail"] },
+    "import_job": {
+      "type": "object",
+      "required": ["job_id", "source_kind", "table", "tenant_id", "dataset_id"],
+      "properties": {
+        "job_id": { "type": "string", "minLength": 1 },
+        "source_kind": { "type": "string", "minLength": 1 },
+        "table": { "type": "string", "minLength": 1 },
+        "tenant_id": { "type": "string", "minLength": 1 },
+        "dataset_id": { "type": "string", "minLength": 1 }
+      },
+      "additionalProperties": false
+    },
+    "result": {
+      "type": "object",
+      "required": ["decision", "inserted_row_count", "protected_column_reject_verified"],
+      "properties": {
+        "decision": { "enum": ["allow", "deny"] },
+        "inserted_row_count": { "type": "integer", "minimum": 0 },
+        "protected_column_reject_verified": { "type": "boolean" },
+        "reason_code": { "type": ["string", "null"] }
+      },
+      "additionalProperties": false
+    },
+    "evidence": {
+      "type": "object",
+      "required": ["job_report_path", "result_report_path"],
+      "properties": {
+        "job_report_path": { "type": "string", "minLength": 1 },
+        "result_report_path": { "type": "string", "minLength": 1 },
+        "operator_approval_ref": { "type": ["string", "null"] }
+      },
+      "additionalProperties": false
+    },
+    "findings": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 }
+    }
+  },
+  "additionalProperties": false
+}

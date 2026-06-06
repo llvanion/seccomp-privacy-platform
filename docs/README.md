@@ -19,13 +19,23 @@ below links to them for detail.
    Rebuttal-facing TODO list from attacker, reviewer, and production-operator
    viewpoints.
 
-4. [NEXT_SESSION_READING_GUIDE.md](NEXT_SESSION_READING_GUIDE.md)  
+4. [NEXT_SESSION_READING_GUIDE.md](NEXT_SESSION_READING_GUIDE.md)
    Minimal handoff order for the next engineer/session.
 
-5. [COMPACT_PLATFORM_BRIEF.md](COMPACT_PLATFORM_BRIEF.md)  
+5. [COMPACT_PLATFORM_BRIEF.md](COMPACT_PLATFORM_BRIEF.md)
    Short project overview and module map.
 
-6. [OPERATOR_HANDOFF_QUICKSTART.md](OPERATOR_HANDOFF_QUICKSTART.md)  
+6. [ONLINE_OFFLINE_SECURITY_GOVERNANCE.md](ONLINE_OFFLINE_SECURITY_GOVERNANCE.md)
+   Mixed repo-side / operator-side governance map for source truthfulness,
+   release legitimacy, trust-root dependencies, remaining risks, and
+   competition-safe wording.
+
+7. [IDEAL_PRODUCTION_PLATFORM_NARRATIVE.md](IDEAL_PRODUCTION_PLATFORM_NARRATIVE.md)
+   Detailed target-state narrative for the ideal production platform, including
+   product story, security boundaries, query flow, evidence package, and claim
+   limits.
+
+8. [OPERATOR_HANDOFF_QUICKSTART.md](OPERATOR_HANDOFF_QUICKSTART.md)
    Minimal operator commands and contract index retained from the previous
    long handoff guide.
 

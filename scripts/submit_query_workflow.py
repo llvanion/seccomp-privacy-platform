@@ -8,6 +8,16 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from metadata_db import connect_db, apply_migrations
+from query_workflow_execution_store import (
+    DEFAULT_LEASE_SECONDS,
+    claim_execution,
+    enqueue_execution,
+    finish_execution,
+    heartbeat_execution,
+    lease_owner,
+)
+
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 PIPELINE_SCRIPT = REPO_ROOT / "scripts" / "run_sse_bridge_pipeline.sh"
@@ -38,12 +48,14 @@ PATH_FIELDS = {
     "release_policy_gate_config",
     "release_policy_gate_report",
     "pjc_evidence_merge",
+    "external_anchor_report",
     "operator_report_path",
     "out_base",
     "key_access_audit_log",
     "audit_archive_dir",
     "pjc_audit_log",
     "pjc_resource_limits",
+    "source_attestation_signing_key_path",
     "sse_export_audit_log",
     "record_recovery_service_audit_log",
     "record_recovery_service_log",
@@ -89,6 +101,11 @@ def require_nonempty_str(payload: dict[str, Any], field: str) -> str:
     if not isinstance(value, str) or not value.strip():
         raise SystemExit(f"[ERROR] {field} is required")
     return value
+
+
+def normalized_identity(value: Any) -> str:
+    text = str(value or "").strip()
+    return text.casefold() if text else ""
 
 
 def optional_str_list(payload: dict[str, Any], field: str) -> list[str]:
@@ -161,6 +178,13 @@ def validate_request(payload: dict[str, Any]) -> None:
     client_value_max = optional_int(payload, "client_value_max")
     if client_value_min is not None and client_value_max is not None and client_value_min > client_value_max:
         raise SystemExit("[ERROR] client_value_min cannot be greater than client_value_max")
+    client_allowed_value_fields = optional_str_list(payload, "client_allowed_value_fields")
+    client_value_unit = payload.get("client_value_unit")
+    if client_value_unit not in (None, ""):
+        require_nonempty_str(payload, "client_value_unit")
+    client_value_currency = payload.get("client_value_currency")
+    if client_value_currency not in (None, ""):
+        require_nonempty_str(payload, "client_value_currency")
 
     for bool_field in (
         "deny_duplicate_query",
@@ -173,6 +197,33 @@ def validate_request(payload: dict[str, Any]) -> None:
         "client_value_allow_negative",
     ):
         optional_bool(payload, bool_field)
+    if payload.get("source_system") not in (None, ""):
+        require_nonempty_str(payload, "source_system")
+    if payload.get("source_attestation_mode") not in (None, ""):
+        mode = require_nonempty_str(payload, "source_attestation_mode")
+        if mode not in {"planned", "local", "manual", "operator", "external"}:
+            raise SystemExit("[ERROR] source_attestation_mode must be planned, local, manual, operator, or external")
+    if payload.get("source_attestation_approval_id") not in (None, ""):
+        require_nonempty_str(payload, "source_attestation_approval_id")
+    if payload.get("source_attestation_operator_identity") not in (None, ""):
+        require_nonempty_str(payload, "source_attestation_operator_identity")
+    if payload.get("source_attestation_reviewer_identity") not in (None, ""):
+        require_nonempty_str(payload, "source_attestation_reviewer_identity")
+    if payload.get("source_attestation_signoff_status") not in (None, ""):
+        signoff_status = require_nonempty_str(payload, "source_attestation_signoff_status")
+        if signoff_status not in {"planned", "pending", "approved", "approved_dual", "rejected"}:
+            raise SystemExit("[ERROR] source_attestation_signoff_status must be planned, pending, approved, approved_dual, or rejected")
+        if signoff_status == "approved_dual" and not payload.get("source_attestation_reviewer_identity"):
+            raise SystemExit("[ERROR] source_attestation_reviewer_identity is required when source_attestation_signoff_status=approved_dual")
+        if (
+            signoff_status == "approved_dual"
+            and normalized_identity(payload.get("source_attestation_operator_identity"))
+            and normalized_identity(payload.get("source_attestation_operator_identity"))
+            == normalized_identity(payload.get("source_attestation_reviewer_identity"))
+        ):
+            raise SystemExit("[ERROR] source_attestation_reviewer_identity must differ from source_attestation_operator_identity")
+    if payload.get("source_attestation_signing_key_path") not in (None, ""):
+        require_nonempty_str(payload, "source_attestation_signing_key_path")
     handoff_retention_reason = payload.get("handoff_retention_reason")
     if handoff_retention_reason not in (None, ""):
         require_nonempty_str(payload, "handoff_retention_reason")
@@ -251,6 +302,8 @@ def validate_request(payload: dict[str, Any]) -> None:
         require_nonempty_str(payload, "release_policy_gate_report")
     if payload.get("pjc_evidence_merge") not in (None, ""):
         require_nonempty_str(payload, "pjc_evidence_merge")
+    if payload.get("external_anchor_report") not in (None, ""):
+        require_nonempty_str(payload, "external_anchor_report")
     if payload.get("operator_report_path") not in (None, ""):
         require_nonempty_str(payload, "operator_report_path")
     dp_epsilon = optional_number(payload, "dp_epsilon")
@@ -270,10 +323,56 @@ def validate_request(payload: dict[str, Any]) -> None:
         raise SystemExit("[ERROR] production_mode requires release_policy_gate_config")
     if (
         optional_bool(payload, "production_mode")
+        and release_gate_requires_external_anchor(str(payload.get("release_policy_gate_config") or ""))
+        and not payload.get("external_anchor_report")
+    ):
+        raise SystemExit("[ERROR] production_mode release gate requires external_anchor_report")
+    if (
+        optional_bool(payload, "production_mode")
         and payload.get("client_value_mode", "count") == "raw-int"
         and client_value_max is None
     ):
         raise SystemExit("[ERROR] production_mode raw-int requires client_value_max")
+    release_gate_config = str(payload.get("release_policy_gate_config") or "")
+    release_gate_requirements = load_release_gate_requirements(release_gate_config) if release_gate_config else {}
+    require_source_attestation = bool(release_gate_requirements.get("require_source_attestation"))
+    require_signed_signoff = bool(release_gate_requirements.get("require_signed_signoff"))
+    require_dual_signoff = bool(release_gate_requirements.get("require_dual_signoff"))
+    require_bound_input_commitment = bool(release_gate_requirements.get("require_bound_input_commitment"))
+    if optional_bool(payload, "production_mode") and (require_source_attestation or require_signed_signoff or require_dual_signoff or require_bound_input_commitment):
+        required_source_fields = [
+            "source_system",
+            "source_attestation_mode",
+            "source_attestation_approval_id",
+            "source_attestation_operator_identity",
+            "source_attestation_signoff_status",
+        ]
+        missing_source_fields = [field for field in required_source_fields if not payload.get(field)]
+        if missing_source_fields:
+            raise SystemExit(
+                "[ERROR] release policy gate requires source attestation fields: "
+                + ", ".join(missing_source_fields)
+            )
+        if require_signed_signoff and not payload.get("source_attestation_signing_key_path"):
+            raise SystemExit("[ERROR] release policy gate requires source_attestation_signing_key_path for signed signoff")
+        if require_dual_signoff and payload.get("source_attestation_signoff_status") != "approved_dual":
+            raise SystemExit("[ERROR] release policy gate requires source_attestation_signoff_status=approved_dual")
+        if require_dual_signoff and not payload.get("source_attestation_reviewer_identity"):
+            raise SystemExit("[ERROR] release policy gate requires source_attestation_reviewer_identity for dual signoff")
+    if optional_bool(payload, "production_mode") and payload.get("client_value_mode", "count") == "raw-int":
+        client_value_field = payload.get("client_value_field")
+        if not client_allowed_value_fields:
+            raise SystemExit("[ERROR] production_mode raw-int requires client_allowed_value_fields")
+        if client_value_field not in client_allowed_value_fields:
+            raise SystemExit("[ERROR] client_value_field must be listed in client_allowed_value_fields")
+        if not client_value_unit:
+            raise SystemExit("[ERROR] production_mode raw-int requires client_value_unit")
+        if client_value_unit == "minor_currency_unit":
+            if not isinstance(client_value_currency, str) or not client_value_currency.strip():
+                raise SystemExit("[ERROR] client_value_unit=minor_currency_unit requires client_value_currency")
+            currency = client_value_currency.strip().upper()
+            if len(currency) != 3 or not currency.isalpha():
+                raise SystemExit("[ERROR] client_value_currency must be a 3-letter ISO 4217 code")
 
 
 def build_command(payload: dict[str, Any]) -> list[str]:
@@ -301,6 +400,10 @@ def build_command(payload: dict[str, Any]) -> list[str]:
     add_arg("client-value-min", payload.get("client_value_min"))
     add_arg("client-value-max", payload.get("client_value_max"))
     add_flag("client-value-allow-negative", optional_bool(payload, "client_value_allow_negative") is True)
+    for field in optional_str_list(payload, "client_allowed_value_fields"):
+        add_arg("client-allowed-value-field", field)
+    add_arg("client-value-unit", payload.get("client_value_unit"))
+    add_arg("client-value-currency", payload.get("client_value_currency"))
     add_arg("server-sse-keyword", payload.get("server_sse_keyword"))
     add_arg("client-sse-keyword", payload.get("client_sse_keyword"))
     add_arg("server-record-id-field", payload.get("server_record_id_field"))
@@ -347,6 +450,13 @@ def build_command(payload: dict[str, Any]) -> list[str]:
     add_arg("caller", payload.get("caller"))
     add_arg("tenant-id", payload.get("tenant_id"))
     add_arg("dataset-id", payload.get("dataset_id"))
+    add_arg("source-system", payload.get("source_system"))
+    add_arg("source-attestation-mode", payload.get("source_attestation_mode"))
+    add_arg("source-attestation-approval-id", payload.get("source_attestation_approval_id"))
+    add_arg("source-attestation-operator-identity", payload.get("source_attestation_operator_identity"))
+    add_arg("source-attestation-reviewer-identity", payload.get("source_attestation_reviewer_identity"))
+    add_arg("source-attestation-signoff-status", payload.get("source_attestation_signoff_status"))
+    add_arg("source-attestation-signing-key-path", payload.get("source_attestation_signing_key_path"))
     add_arg("privacy-budget-config", payload.get("privacy_budget_config"))
     add_arg("privacy-budget-ledger", payload.get("privacy_budget_ledger"))
     add_arg("privacy-budget-approval-queue", payload.get("privacy_budget_approval_queue"))
@@ -356,6 +466,7 @@ def build_command(payload: dict[str, Any]) -> list[str]:
     add_arg("release-policy-gate-config", payload.get("release_policy_gate_config"))
     add_arg("release-policy-gate-report", payload.get("release_policy_gate_report"))
     add_arg("pjc-evidence-merge", payload.get("pjc_evidence_merge"))
+    add_arg("external-anchor-report", payload.get("external_anchor_report"))
     add_arg("dp-epsilon", payload.get("dp_epsilon"))
     add_arg("dp-sensitivity", payload.get("dp_sensitivity"))
     add_arg("operator-report-path", payload.get("operator_report_path"))
@@ -433,6 +544,43 @@ def load_json_object(path: Path) -> dict[str, Any]:
     if not isinstance(payload, dict):
         raise SystemExit(f"[ERROR] JSON object expected: {path}")
     return payload
+
+
+def release_gate_requires_external_anchor(path: str) -> bool:
+    return bool(load_release_gate_requirements(path).get("require_external_anchor"))
+
+
+def load_release_gate_requirements(path: str) -> dict[str, Any]:
+    if not path:
+        return {}
+    config_path = Path(path)
+    if not config_path.is_file():
+        raise SystemExit(f"[ERROR] release_policy_gate_config does not exist: {config_path}")
+    try:
+        payload = load_json_object(config_path)
+    except (OSError, json.JSONDecodeError) as exc:
+        raise SystemExit(f"[ERROR] release_policy_gate_config is not valid JSON: {config_path}: {exc}") from exc
+    if not isinstance(payload, dict):
+        raise SystemExit(f"[ERROR] release_policy_gate_config must be a JSON object: {config_path}")
+    return payload
+
+
+def load_jsonl_objects(path: Path) -> list[dict[str, Any]]:
+    result: list[dict[str, Any]] = []
+    if not path.is_file():
+        return result
+    for line_no, line in enumerate(path.read_text(encoding="utf-8").splitlines(), start=1):
+        text = line.strip()
+        if not text:
+            continue
+        try:
+            payload = json.loads(text)
+        except json.JSONDecodeError as exc:
+            raise ValueError(f"invalid JSONL receipt at {path}:{line_no}: {exc}") from exc
+        if not isinstance(payload, dict):
+            raise ValueError(f"query workflow receipt at {path}:{line_no} must be an object")
+        result.append(payload)
+    return result
 
 
 def load_query_workflow_status(out_base: str) -> dict[str, Any]:
@@ -536,6 +684,50 @@ def build_status(
     }
 
 
+def assert_workflow_sidecar_start_allowed(
+    *,
+    payload: dict[str, Any],
+    sidecar_paths: dict[str, Path],
+    request_digest: str,
+    execute: bool,
+) -> tuple[int, dict[str, Any] | None]:
+    """Fail closed when a workflow sidecar already represents a live/terminal run.
+
+    A dry-run creates an ``accepted`` terminal sidecar that an execute call may
+    later claim only if the request digest matches. All other states require a
+    new out_base/job_id so an accidental retry cannot overwrite evidence.
+    """
+    status_path = sidecar_paths.get("status")
+    receipts_path = sidecar_paths.get("execution_receipts")
+    if status_path is None or not status_path.is_file():
+        return 0, None
+    status = load_json_object(status_path)
+    if status.get("schema") != STATUS_SCHEMA:
+        raise RuntimeError(f"existing workflow status has unexpected schema: {status_path}")
+    receipts = load_jsonl_objects(receipts_path) if receipts_path is not None else []
+    last_receipt = receipts[-1] if receipts else None
+    existing_digest = last_receipt.get("request_digest") if isinstance(last_receipt, dict) else None
+    existing_state = str(status.get("state") or "")
+    existing_job_id = status.get("job_id")
+    requested_job_id = str(payload.get("job_id") or "")
+
+    if (
+        execute
+        and existing_state == "accepted"
+        and status.get("terminal") is True
+        and existing_digest == request_digest
+        and existing_job_id == requested_job_id
+    ):
+        return len(receipts), status
+
+    raise RuntimeError(
+        "query workflow sidecar already exists for "
+        f"out_base={payload.get('out_base')!r} state={existing_state!r} "
+        f"job_id={existing_job_id!r}; use a new out_base/job_id or resume via the "
+        "approved relaunch path"
+    )
+
+
 def render_manifest(
     *,
     request_source: str,
@@ -564,7 +756,12 @@ def build_parser() -> argparse.ArgumentParser:
     mode = ap.add_mutually_exclusive_group()
     mode.add_argument("--dry-run", action="store_true", help="Validate the request and emit the planned command without executing it")
     mode.add_argument("--execute", action="store_true", help="Execute the pipeline command after validation")
+    mode.add_argument("--enqueue", action="store_true", help="Queue the request in metadata DB for a worker instead of running it inline")
     ap.add_argument("--manifest-out", default="", help="Optional path to write the submission manifest JSON")
+    ap.add_argument("--metadata-db-path", default="", help="Optional metadata DB path for DB-backed execution lifecycle state")
+    ap.add_argument("--metadata-db-dsn", default="", help="Optional PostgreSQL DSN for DB-backed execution lifecycle state")
+    ap.add_argument("--workflow-lease-seconds", type=int, default=DEFAULT_LEASE_SECONDS)
+    ap.add_argument("--workflow-steal-expired", action="store_true", default=False)
     return ap
 
 
@@ -589,10 +786,17 @@ def submit_request_payload(
     request_source: str,
     request_dir: Path,
     execute: bool,
+    enqueue: bool = False,
     manifest_out: str = "",
+    metadata_db_path: str = "",
+    metadata_db_dsn: str = "",
+    workflow_lease_seconds: int = DEFAULT_LEASE_SECONDS,
+    workflow_steal_expired: bool = False,
 ) -> tuple[dict[str, Any], int | None, dict[str, Any] | None, dict[str, Any] | None]:
     payload = normalize_request_paths(raw_payload, request_dir=request_dir)
-    mode = "execute" if execute else "dry_run"
+    if execute and enqueue:
+        raise SystemExit("[ERROR] execute and enqueue are mutually exclusive")
+    mode = "execute" if (execute or enqueue) else "dry_run"
     request_digest = json_sha256(payload)
     sidecar_paths = sidecar_paths_for_payload(payload)
     receipt: dict[str, Any] | None = None
@@ -600,6 +804,9 @@ def submit_request_payload(
     receipt_count = 0
     exit_code: int | None = None
     command: list[str] = []
+    db_conn = None
+    execution_owner = ""
+    job_id = ""
 
     try:
         validate_request(payload)
@@ -616,29 +823,138 @@ def submit_request_payload(
         raise
 
     if sidecar_paths:
-        receipt = build_receipt(
-            payload=payload,
-            mode=mode,
-            event="started" if execute else "accepted",
-            request_digest=request_digest,
-            command=command,
-            exit_code=None,
-        )
-        append_jsonl(sidecar_paths["execution_receipts"], receipt)
-        receipt_count = 1
-        status = build_status(
-            payload=payload,
-            mode=mode,
-            state="running" if execute else "accepted",
-            terminal=not execute,
-            latest_receipt=receipt,
-            receipt_count=receipt_count,
-            exit_code=None,
-        )
-        write_json(sidecar_paths["status"], status)
+        try:
+            receipt_count, _existing_status = assert_workflow_sidecar_start_allowed(
+                payload=payload,
+                sidecar_paths=sidecar_paths,
+                request_digest=request_digest,
+                execute=execute or enqueue,
+            )
+        except RuntimeError as exc:
+            raise SystemExit(f"[ERROR] {exc}") from exc
+
+    if enqueue and not (metadata_db_path or metadata_db_dsn):
+        raise SystemExit("[ERROR] --enqueue requires --metadata-db-path or --metadata-db-dsn")
+
+    if enqueue:
+        job_id = str(payload.get("job_id") or "")
+        execution_owner = lease_owner("submit-query-workflow-enqueue")
+        db_conn = connect_db(metadata_db_path, dsn=metadata_db_dsn)
+        apply_migrations(db_conn)
+        artifact_paths = {
+            "status_path": str(sidecar_paths["status"]) if sidecar_paths else "",
+            "receipts_path": str(sidecar_paths["execution_receipts"]) if sidecar_paths else "",
+            "submission_manifest_path": str(sidecar_paths["submission_manifest"]) if sidecar_paths else "",
+        }
+        try:
+            enqueue_execution(
+                db_conn,
+                job_id=job_id,
+                out_base=str(payload.get("out_base") or ""),
+                request_digest=request_digest,
+                request_source=request_source,
+                caller=str(payload.get("caller") or ""),
+                tenant_id=str(payload.get("tenant_id") or ""),
+                dataset_id=str(payload.get("dataset_id") or ""),
+                mode=mode,
+                owner=execution_owner,
+                artifact_paths=artifact_paths,
+                metadata={
+                    "entrypoint": "submit_query_workflow",
+                    "raw_payload": payload,
+                    "request_dir": str(request_dir),
+                    "command": redact_command(command),
+                },
+            )
+        except RuntimeError as exc:
+            db_conn.close()
+            raise SystemExit(f"[ERROR] {exc}") from exc
+
+    if execute and (metadata_db_path or metadata_db_dsn):
+        job_id = str(payload.get("job_id") or "")
+        execution_owner = lease_owner("submit-query-workflow")
+        db_conn = connect_db(metadata_db_path, dsn=metadata_db_dsn)
+        apply_migrations(db_conn)
+        artifact_paths = {
+            "status_path": str(sidecar_paths["status"]) if sidecar_paths else "",
+            "receipts_path": str(sidecar_paths["execution_receipts"]) if sidecar_paths else "",
+            "submission_manifest_path": str(sidecar_paths["submission_manifest"]) if sidecar_paths else "",
+        }
+        try:
+            claim_execution(
+                db_conn,
+                job_id=job_id,
+                out_base=str(payload.get("out_base") or ""),
+                request_digest=request_digest,
+                request_source=request_source,
+                caller=str(payload.get("caller") or ""),
+                tenant_id=str(payload.get("tenant_id") or ""),
+                dataset_id=str(payload.get("dataset_id") or ""),
+                mode=mode,
+                owner=execution_owner,
+                lease_seconds=workflow_lease_seconds,
+                steal_expired=workflow_steal_expired,
+                artifact_paths=artifact_paths,
+                metadata={"entrypoint": "submit_query_workflow"},
+            )
+        except RuntimeError as exc:
+            db_conn.close()
+            raise SystemExit(f"[ERROR] {exc}") from exc
+
+    if sidecar_paths:
+        try:
+            receipt = build_receipt(
+                payload=payload,
+                mode=mode,
+                event="started" if execute else "queued" if enqueue else "accepted",
+                request_digest=request_digest,
+                command=command,
+                exit_code=None,
+            )
+            append_jsonl(sidecar_paths["execution_receipts"], receipt)
+            receipt_count += 1
+            status = build_status(
+                payload=payload,
+                mode=mode,
+                state="running" if execute else "queued" if enqueue else "accepted",
+                terminal=not execute and not enqueue,
+                latest_receipt=receipt,
+                receipt_count=receipt_count,
+                exit_code=None,
+            )
+            write_json(sidecar_paths["status"], status)
+        except BaseException as exc:
+            if db_conn is not None:
+                if execute:
+                    finish_execution(
+                        db_conn,
+                        job_id=job_id,
+                        owner=execution_owner,
+                        exit_code=127,
+                        state="failed",
+                        metadata={"error_class": "sidecar_write_failed", "error": str(exc)},
+                    )
+                elif enqueue:
+                    finish_execution(
+                        db_conn,
+                        job_id=job_id,
+                        owner=execution_owner,
+                        exit_code=127,
+                        state="failed",
+                        metadata={"error_class": "sidecar_write_failed", "error": str(exc)},
+                    )
+                db_conn.close()
+            raise
 
     if execute:
         try:
+            if db_conn is not None:
+                heartbeat_execution(
+                    db_conn,
+                    job_id=job_id,
+                    owner=execution_owner,
+                    lease_seconds=workflow_lease_seconds,
+                )
             completed = subprocess.run(command, check=False)
             exit_code = completed.returncode
         except OSError as exc:
@@ -676,7 +992,29 @@ def submit_request_payload(
                     exit_code=exit_code,
                 )
                 write_json(sidecar_paths["status"], status)
+            if db_conn is not None:
+                finish_execution(
+                    db_conn,
+                    job_id=job_id,
+                    owner=execution_owner,
+                    exit_code=exit_code,
+                    state="failed",
+                    metadata={"error_class": "launch_failed", "error": failure_message},
+                )
+                db_conn.close()
             return manifest, exit_code, receipt, status
+        except BaseException as exc:
+            if db_conn is not None:
+                finish_execution(
+                    db_conn,
+                    job_id=job_id,
+                    owner=execution_owner,
+                    exit_code=127,
+                    state="failed",
+                    metadata={"error_class": "run_exception", "error": str(exc)},
+                )
+                db_conn.close()
+            raise
 
     manifest = render_manifest(
         request_source=request_source,
@@ -706,13 +1044,24 @@ def submit_request_payload(
         status = build_status(
             payload=payload,
             mode=mode,
-            state="completed" if exit_code in (None, 0) and execute else "failed" if execute else "accepted",
-            terminal=True,
+            state="completed" if exit_code in (None, 0) and execute else "failed" if execute else "queued" if enqueue else "accepted",
+            terminal=False if enqueue else True,
             latest_receipt=receipt,
             receipt_count=receipt_count,
             exit_code=exit_code,
         )
         write_json(sidecar_paths["status"], status)
+    if execute and db_conn is not None:
+        finish_execution(
+            db_conn,
+            job_id=job_id,
+            owner=execution_owner,
+            exit_code=exit_code,
+            metadata={"entrypoint": "submit_query_workflow"},
+        )
+        db_conn.close()
+    elif enqueue and db_conn is not None:
+        db_conn.close()
     return manifest, exit_code, receipt, status
 
 
@@ -727,7 +1076,12 @@ def main() -> int:
         request_source=str(request_file.resolve()),
         request_dir=request_file.resolve().parent,
         execute=args.execute,
+        enqueue=args.enqueue,
         manifest_out=args.manifest_out,
+        metadata_db_path=args.metadata_db_path,
+        metadata_db_dsn=args.metadata_db_dsn,
+        workflow_lease_seconds=args.workflow_lease_seconds,
+        workflow_steal_expired=args.workflow_steal_expired,
     )
     print(json.dumps(manifest, ensure_ascii=False, indent=2))
     if exit_code not in (None, 0):

@@ -32,28 +32,28 @@ A task is complete only when all of these are true:
 
 | ID | Priority | Workstream | Current Status |
 | --- | --- | --- | --- |
-| RW-P0-01 | P0 | Remove or fail-close legacy SSE network pickle protocol | Code-complete for network pickle removal; legacy local/demo API still local-only |
+| RW-P0-01 | P0 | Remove or fail-close legacy SSE network pickle protocol | Repo-side production retirement complete; live deployment exposure evidence still operator-side |
 | RW-P0-02 | P0 | Transactional privacy-budget consumption and approval close-loop | Repo-side SQLite consume + approval close-loop complete; live Postgres/operator API evidence still partial |
 | RW-P0-03 | P0 | PJC malicious-participant boundary and input commitments | Repo-side input-commitment gate complete; malicious-secure protocol still partial |
 | RW-P0-04 | P0 | PJC resource isolation and streaming fail-closed production mode | Repo-side wrapper fail-closed complete; live resource-isolated run evidence still partial |
 | RW-P0-05 | P0 | Two-host public mTLS/SPIFFE evidence and TLS EOF resolution | Operator evidence missing |
-| RW-P0-06 | P0 | Public release gate centralization | Repo-side production pipeline/query-workflow gate complete; live external-anchor release status remains operator-side |
+| RW-P0-06 | P0 | Public release gate centralization | Repo-side production pipeline/query-workflow gate complete, including required uploaded external-anchor report binding; live same-run anchor execution remains operator-side |
 | RW-P1-01 | P1 | Real KMS/IAM/authority live operation and lifecycle evidence | Repo-side complete, operator-side missing |
-| RW-P1-02 | P1 | External immutable audit anchor live write-and-verify | Repo-side complete, live missing |
+| RW-P1-02 | P1 | External immutable audit anchor live write-and-verify | Repo-side tool/gate/release binding complete; live S3/Rekor credentials and upload evidence missing |
 | RW-P1-03 | P1 | Metadata leakage controls across all read APIs | Audit API, operator dashboard, metadata API job/entity reads, console home/jobs/audit/observability/catalog/metadata caller-safe views, and public bucket report label/noise redaction complete; high-sensitivity padding/merge strategy partial |
-| RW-P1-04 | P1 | Console production auth, token handling, and reproducible CI | Repo-side session path complete; CI/release reproducibility partial |
-| RW-P1-05 | P1 | Production workflow durability and job state lifecycle | Partial |
-| RW-P1-06 | P1 | PostgreSQL/HA/backup/restore live drills | Repo-side complete, live missing |
+| RW-P1-04 | P1 | Console production auth, token handling, and reproducible CI | Repo-side session/header/release reproducibility gates complete; live HTTPS/OIDC and SBOM/provenance evidence still partial |
+| RW-P1-05 | P1 | Production workflow durability and job state lifecycle | Repo-side sidecar + DB execution lifecycle complete; durable worker executor still partial |
+| RW-P1-06 | P1 | PostgreSQL/HA/backup/restore live drills | Repo-side SHA-bound backup/restore drill complete; live HA missing |
 | RW-P1-07 | P1 | Observability/alerting live operation | Repo-side complete, live missing |
-| RW-P1-08 | P1 | Recovery service production deployment hardening | Partial |
-| RW-P1-09 | P1 | Supply-chain, dependency, SBOM, and full test gates | Partial |
+| RW-P1-08 | P1 | Recovery service production deployment hardening | Repo-side production gate complete; live deployment evidence partial |
+| RW-P1-09 | P1 | Supply-chain, dependency, SBOM, and full test gates | Repo-side full-test/supply-chain evidence gate complete; external provenance/advisory live evidence remains operator-side |
 | RW-P2-01 | P2 | Product/data-model completeness for real e-commerce use | Business field-level policy repo-side; live API/data-model integration partial |
 | RW-P2-02 | P2 | Production-scale benchmarks and SLO enforcement | Partial |
 | RW-P2-03 | P2 | Documentation status hygiene and stale-claim prevention | In progress |
 
 ## RW-P0-01: Remove Or Fail-Close Legacy SSE Network Pickle Protocol
 
-Status on 2026-06-01 / 2026-06-02:
+Status on 2026-06-01 / 2026-06-02 / 2026-06-03:
 
 - Network-facing pickle has been removed from the legacy SSE WebSocket client
   and server paths.
@@ -71,6 +71,13 @@ Status on 2026-06-01 / 2026-06-02:
 - `sse/global_config.py` still defaults to `127.0.0.1`; explicit wide binding
   still requires `SSE_ALLOW_LEGACY_PICKLE_WS=1` because this API remains a
   legacy/demo interface without production auth or transport hardening.
+- `SSE_PRODUCTION_MODE=1` now retires the legacy WebSocket for production. It
+  refuses startup on loopback and also refuses the demo wide-bind override.
+- `sse/Dockerfile` sets `SSE_PRODUCTION_MODE=1`, so the historical container
+  command fails closed instead of opening a production listener.
+- `scripts/check_legacy_sse_production_gate.py` emits
+  `legacy_sse_production_gate/v1` and is wired into JSON contracts, CI smoke,
+  and pre-release gates.
 
 Changed files:
 
@@ -84,6 +91,9 @@ Changed files:
 - `sse/global_config.py`
 - `sse/API_Docs.md`
 - `scripts/check_no_network_pickle.py`
+- `scripts/check_legacy_sse_production_gate.py`
+- `schemas/legacy_sse_production_gate.schema.json`
+- `sse/Dockerfile`
 - `scripts/check_ci_smoke.sh`
 
 Implementation details retained for future maintainers:
@@ -101,12 +111,16 @@ Implementation details retained for future maintainers:
 6. Production refusal remains present: `run_server.py start` and
    `frontend.server.connector.run_server` reject non-loopback hosts unless
    `SSE_ALLOW_LEGACY_PICKLE_WS=1`.
+7. Production retirement is stronger than the demo bind guard:
+   `SSE_PRODUCTION_MODE=1` rejects every legacy WebSocket startup path,
+   including loopback and `SSE_ALLOW_LEGACY_PICKLE_WS=1`.
 
 Acceptance gates:
 
 ```bash
 python3 -m py_compile sse/run_server.py sse/frontend/server/connector.py
 python3 scripts/check_no_network_pickle.py
+python3 scripts/check_legacy_sse_production_gate.py --out tmp/legacy_sse_production_gate.json
 bash scripts/check_ci_smoke.sh
 ```
 
@@ -115,14 +129,16 @@ Done criteria:
 - No network-facing server path uses pickle.
 - No matching client command path uses network pickle.
 - Non-loopback legacy mode is opt-in and documented as unsafe.
+- Production mode retires the legacy WebSocket instead of attempting to harden
+  it as a production query API.
 - CI prevents network pickle from returning.
-- Remaining security work for this API is now production hardening
-  (authentication, TLS/service identity, abuse limits, and deployment
-  retirement decision), not pickle RCE.
+- Remaining security work for this API is live/operator evidence that deployed
+  production traffic uses query workflow / bridge pipeline APIs and does not
+  expose the retired legacy WebSocket.
 
 ## RW-P0-02: Transactional Privacy-Budget Consumption And Approval Close-Loop
 
-Status on 2026-06-01:
+Status on 2026-06-03:
 
 - The default `policy_release.py` privacy-budget release path now uses a
   transactional SQLite store instead of using the JSONL ledger as the write
@@ -291,11 +307,19 @@ Status on 2026-06-01:
 - `pjc_two_party_signed_run_manifest/v1` is now implemented for Ed25519-signed
   Party A / Party B run manifests. The signed canonical payload binds job id,
   repo commit, local input commitment hash, peer input commitment hash,
-  PJC result hash, policy decision, public-report hash, audit-chain hash, and
-  TLS peer identity metadata.
+  optional bucket-policy/shard-manifest hashes, PJC result hash, policy
+  decision, public-report hash, audit-chain hash, and TLS peer identity
+  metadata.
 - `pjc_two_party_evidence_merge/v1` now verifies signed manifests, cross-matches
   A.local <-> B.peer and B.local <-> A.peer commitment hashes, cross-matches TLS
-  identities, and rejects result/hash/policy/audit-chain mismatches.
+  identities, cross-matches optional bucket-policy and shard-manifest hashes,
+  and rejects result/hash/policy/audit-chain/scope mismatches.
+- Bucketed/sharded PJC now has a repo-side production allowlist gate. `bucket_policy/v1`
+  validates `job_meta.bucket.outputs`, attribution buckets, and shard manifests,
+  computes `bucket_policy_sha256` / `shard_manifest_sha256`, and production
+  bucketed/sharded runners fail closed when the policy is missing or drifts.
+  Public/operator bucket reports carry the policy hash without publishing the
+  allowed label set.
 - `release_policy_gate/v1` now has `require_pjc_evidence_merge`; when enabled,
   the gate requires a merge report and a `policy_audit/v1` log and checks that
   the merge result hashes match the released `pjc_result_sha256`.
@@ -306,8 +330,11 @@ Status on 2026-06-01:
 - Value policy is now enforced in the repo-side path. `bridge` records
   `value_policy`, `source_value_summary`, and output `value_summary` in
   `pjc_input_commitment/v1`; production `raw-int` requires
-  `--client-value-max`; `validate_bridge_job.py` and `preflight_pjc_job.py`
-  recompute the client CSV summary and deny negative or above-bound values.
+  `--client-value-max`, `--client-allowed-value-field`,
+  `--client-value-unit`, and currency when the unit is `minor_currency_unit`;
+  `validate_bridge_job.py` and `preflight_pjc_job.py` recompute the client CSV
+  summary, verify the committed value semantics, and deny negative,
+  above-bound, or unallowlisted value fields.
 
 Why this still remains:
 
@@ -317,9 +344,10 @@ Why this still remains:
   malicious-secure PSI-SUM component, ZK/range proof, or equivalent proof system
   is added. The new signed-manifest path is tamper/result-substitution evidence,
   not a cryptographic proof that a party's pre-bridge source data was truthful.
-- Value fields now have production software policy checks, but they are not a
-  cryptographic range proof. A party that controls the source system can still
-  choose false but policy-shaped input values.
+- Value fields now have production software policy checks for range, allowed
+  field, unit, and currency, but they are not a cryptographic range proof. A
+  party that controls the source system can still choose false but
+  policy-shaped input values.
 
 Files to change:
 
@@ -354,6 +382,10 @@ Implemented steps:
 5. Negative tests cover modified CSV, modified commitment hash, token-scope
    mismatch, normalizer mismatch, normalizer-schema-version mismatch, negative
    values, and over-max values.
+6. Bucket/shard negative tests cover unknown bucket labels, bucket-field drift,
+   above-policy bucket count, missing bucket policy before production PJC,
+   shard targets outside the allowlist, and signed two-party bucket-policy hash
+   mismatch.
 
 Remaining implementation steps:
 
@@ -361,7 +393,15 @@ Remaining implementation steps:
    release gate binding.
 2. Add live two-host/role-package evidence for value-policy denial and signed
    manifest exchange outside the local smoke harness.
-3. Update protocol docs to either claim semi-honest plus operational
+3. Keep public two-host reruns on clean-room staging. The repo now has
+   `public_two_host_live_materialization_report/v1` to strip inherited bucket
+   outputs before a fresh Party A / Party B run, but a verifier-readable live
+   archive still needs to be generated from that clean staging step.
+4. Replace raw TCP bucket handoff probes with typed TLS readiness. The current
+   clean-room run is already proving multi-bucket success, and the repeated
+   `SSL_accept unexpected eof` records on Party A are now attributable to the
+   old plain-TCP readiness touch rather than a confirmed workload failure.
+5. Update protocol docs to either claim semi-honest plus operational
    commitments or document a real malicious-secure proof/component.
 
 Acceptance gates:
@@ -397,6 +437,11 @@ Status on 2026-06-01:
   `PJC_RESOURCE_LIMITS` is set.
 - Production mode forbids `PJC_GRPC_STREAM_CHUNK_ELEMENTS=0` and fails closed
   if the selected PJC binary does not support `--grpc_stream_chunk_elements`.
+- `pjc_binary_capability_gate/v1` now also checks whether the selected
+  `PJC_BIN_DIR` is really current. If the workspace convenience `bazel-bin`
+  directory drifts behind the real Bazel output tree, the gate records a
+  `stale_convenience_bazel_bin` / `binary_source_drift` blocker instead of
+  letting production wrappers rely on stale artifacts.
 - Legacy unary fallback is now explicit demo-only behavior via
   `PJC_ALLOW_LEGACY_UNARY=1`.
 - TLS wrappers require `PJC_MTLS_REQUIRE_SESSION_MANIFEST=1` in production
@@ -480,9 +525,11 @@ Done criteria:
 Why this remains:
 
 - Repo-side two-party helpers exist.
-- Real public-network bucketed run evidence is missing.
-- `docs/PJC_MTLS_OPEN_RISKS.md` records a public TLS EOF failure that is not
-  resolved.
+- Real public-network bucketed run evidence now exists for the current
+  worktree (`cross-vps-008` clean-room public archive), but the readiness and
+  reporting stack must preserve that conclusion by using typed TLS readiness
+  instead of raw TCP liveness and by keeping the verifier-facing archive path
+  stable.
 - SPIFFE/SPIRE + Envoy templates exist but need live evidence.
 
 Files/evidence paths:
@@ -497,17 +544,18 @@ Files/evidence paths:
 
 Implementation/evidence steps:
 
-1. Run real two-host flow: enrollment-only Party A, pinned CSR enrollment Party
-   B, role package export/import, preflight, bucketed TLS server/client,
-   evidence merge, negative cases.
-2. If TLS EOF occurs, run `/v1/pjc-mtls/tls-diagnostic` before changing config.
-   Preserve TCP result, OpenSSL result, server logs, cert fingerprints, and
-   command environment.
+1. Keep the completed public clean-room archive (`public_two_host_live_evidence_archive/v1`)
+   and `public_two_host_production_readiness_gate/v1` in sync with the current
+   worktree.
+2. Use `pjc_tls_readiness/v1` rather than raw TCP probes before each bucketed
+   public handoff so verifier-facing logs no longer record probe-induced EOF
+   noise as if it were a workload blocker.
 3. Run SPIFFE/SPIRE + Envoy path or explicitly record operator unavailability.
 4. Archive `pjc_two_party_preflight/v1`, `pjc_role_package/v1`,
    `pjc_role_status/v1`, `pjc_two_party_evidence_merge/v1`,
    `pjc_two_party_negative_cases/v1`, `release_policy_gate/v1`, and
-   `pjc_tls_diagnostic/v1` when diagnostics were used.
+   `pjc_tls_diagnostic/v1` / `pjc_tls_readiness/v1` when diagnostics or
+   readiness probes were used.
 
 Acceptance gates:
 
@@ -521,6 +569,8 @@ bash handoff/joint_certification/run_joint_certification.sh repo-gates
 Done criteria:
 
 - Two real hosts produce matching evidence for the same job.
+- Current-worktree public clean-room archive proves the completed bucketed mTLS
+  run and the readiness gate reports `live_status=ok`.
 - Negative cases include wrong token, expired token, wrong CA, wrong peer,
   commit mismatch, modified CSV, and privacy denial.
 - TLS EOF is resolved or the task remains open with diagnostic evidence.
@@ -544,17 +594,34 @@ Status on 2026-06-01:
   its SHA-256.
 - `submit_query_workflow.py` and `query_workflow_request/v1` now accept and
   forward release-gate config/report, DP knobs, `--require-dp`, public-report
-  redaction, and operator-report path.
+  redaction, operator-report path, `pjc_evidence_merge`, and
+  `external_anchor_report`.
+- `release_policy_gate_config/v1` now supports `require_external_anchor`. The
+  strict production example enables it, and `check_release_policy_gate.py` denies
+  released reports unless an `external_audit_anchor_report/v1` proves an uploaded
+  `s3_worm` or Rekor anchor with verified chain, non-empty immutable reference,
+  published records, and no production findings.
+- `run_sse_bridge_pipeline.sh`, `submit_query_workflow.py`, and
+  `benchmark_pipeline.py` fail closed in production when a strict release-gate
+  config requires an external anchor but no report is supplied.
 - `scripts/verify_release_policy_gate_pipeline.sh` verifies the production
   pipeline fails closed when the release gate config is missing. The existing
-  smoke now covers six release-gate cases: missing ledger, low k, missing DP,
-  allowed redacted release, duplicate-query leak, and operator-only public-field
-  leak.
+  smoke now covers eleven release-gate cases: missing ledger, low k, missing DP,
+  allowed redacted release, duplicate-query leak, operator-only public-field
+  leak, bound PJC evidence allow, PJC result replacement denial, missing external
+  anchor denial, planned/local external anchor denial, and uploaded S3 Object
+  Lock anchor allow.
 
 Why this still remains partial for production:
 
-- Live external-anchor write/verify and deployed dashboard job-state transitions
-  still require operator evidence.
+- Live external-anchor write/verify still requires operator credentials and
+  deployed sink evidence. The repo can now require an uploaded anchor report, but
+  it cannot manufacture AWS Object Lock/Rekor evidence in this workspace.
+- Operator dashboard and caller-safe public summaries now derive visible job
+  state from `release_policy_gate/v1`: external-anchor denials surface as
+  `pending_external_anchor`, other gate denials surface as `blocked`, and
+  release-gate-aware `/v1/runs?state=...` filtering prevents a raw sidecar
+  `completed` state from hiding a blocked release.
 - Direct manual use of low-level scripts remains possible outside the supported
   production pipeline; production docs must keep treating the pipeline/query
   workflow/dashboard gate as the supported path.
@@ -585,15 +652,18 @@ Implemented steps:
    production gate fields when using structured requests.
 4. Embedded release-gate evidence in `audit_chain/v1`.
 5. Added bypass negative tests for missing budget, no DP, low k, duplicate leak,
-   operator-only public report fields, and missing production pipeline gate
-   config.
+   operator-only public report fields, missing production pipeline gate config,
+   PJC result replacement, missing external anchor, and planned/local anchor
+   reports.
+6. Bound uploaded external immutable anchor evidence into the final release gate.
+7. Made dashboard job snapshots, public summaries, and run-history filtering
+   release-gate-aware so blocked or anchor-pending releases do not present as
+   completed.
 
 Remaining implementation steps:
 
-1. Make deployed dashboard/job state show `blocked`, `pending_external_anchor`,
-   or `completed` based on gate result plus external-anchor result.
-2. Add the live external-anchor condition to the production release state once an
-   operator-provided anchor backend is available.
+1. Run and archive live S3 Object Lock/Rekor upload evidence with operator
+   credentials, then pass that report into the final release gate.
 
 Acceptance gates:
 
@@ -662,7 +732,10 @@ Done criteria:
 
 Why this remains:
 
-- S3 Object Lock and Rekor paths are scaffolded.
+- S3 Object Lock and Rekor paths are scaffolded and local production gates reject
+  `file_ledger`, dry-run, and unuploaded external reports.
+- The strict release gate can now require a schema-valid uploaded S3/Rekor anchor
+  report before a public release is allowed.
 - Live S3/Rekor execution is not present in this workspace.
 - Local file ledger is not production immutability.
 
@@ -682,7 +755,8 @@ Implementation/evidence steps:
 3. Read back and verify content, object version/log index, tenant path, and
    audit-chain hash.
 4. Prove local file ledger and planned mode are rejected in production.
-5. Link anchor result to production release gating.
+5. Link anchor result to production release gating. Repo-side binding is now
+   implemented; the remaining work is live evidence from the external sink.
 
 Acceptance gates:
 
@@ -884,8 +958,15 @@ Why this remains:
   `console_security_headers_check/v1` verify `/healthz`, `/v1/dashboard`, SPA
   index/asset headers, HSTS under `--session-cookie-secure`, and a source scan
   that rejects inline style/raw HTML sinks in `console/src`.
-- No committed console lockfile was present in this workspace.
-- `.github/workflows/release.yml` treats typecheck as advisory.
+- `console/package-lock.json` is now committed and checked against
+  `console/package.json`.
+- `.github/workflows/release.yml` installs with `npm ci`, runs blocking
+  typecheck, and builds with `npm run build:strict`.
+- `.github/workflows/json-contracts.yml` now runs Node 20, console `npm ci`,
+  typecheck, and strict build before the repo smoke.
+- `scripts/check_console_release_gate.py` and
+  `console_release_gate_check/v1` reject workflow or lockfile regressions,
+  including `npm install` fallback and advisory release typecheck.
 
 Files to change:
 
@@ -907,13 +988,22 @@ Files to change:
 - `schemas/identity_proxy_auth_smoke.schema.json`
 - `.github/workflows/json-contracts.yml`
 - `.github/workflows/release.yml`
+- `console/package-lock.json`
+- `scripts/check_console_release_gate.py`
+- `schemas/console_release_gate_check.schema.json`
 
 Implementation steps:
 
-1. Commit a clean lockfile.
-2. Use `npm ci` in CI and release.
-3. Make `npm run typecheck` blocking.
-4. Add `npm run build` to normal CI.
+1. ~~Commit a clean lockfile.~~ Done:
+   `console/package-lock.json` is committed and validated by
+   `console_release_gate_check/v1`.
+2. ~~Use `npm ci` in CI and release.~~ Done:
+   release and CI workflows use `npm ci`, and the release gate rejects
+   `npm install` fallback.
+3. ~~Make `npm run typecheck` blocking.~~ Done:
+   release typecheck no longer uses `continue-on-error`.
+4. ~~Add `npm run build` to normal CI.~~ Done:
+   normal CI runs `npm --prefix console run build:strict`.
 5. ~~Remove cross-session `localStorage` token persistence from the SPA.~~ Done:
    base URLs persist, bearer tokens are session-only fallback.
 6. ~~Replace same-origin production token handling with backend session /
@@ -931,7 +1021,8 @@ Acceptance gates:
 ```bash
 npm --prefix console ci
 npm --prefix console run typecheck
-npm --prefix console run build
+npm --prefix console run build:strict
+python3 scripts/check_console_release_gate.py
 bash scripts/check_ci_smoke.sh
 ```
 
@@ -942,15 +1033,49 @@ Done criteria:
 - Browser bearer tokens are not persisted in `localStorage`.
 - Same-origin browser session auth has repo-side HttpOnly/SameSite evidence.
 - Full production completion also requires `--session-cookie-secure` behind TLS,
-  CSP/no-inline-script gates, and reproducible console CI/release.
+  live OIDC/reverse-proxy evidence, live release run evidence, and
+  SBOM/provenance/dependency-advisory gates.
 
 ## RW-P1-05: Production Workflow Durability And Job State Lifecycle
 
 Why this remains:
 
 - Query workflow, receipts, approval DB rows, and dashboard jobs exist.
-- Orchestration is still local-process/file oriented.
-- Durable queue/executor semantics are incomplete.
+- Query workflow sidecars now fail closed against accidental overwrite:
+  `submit_query_workflow.py` refuses duplicate dry-run/execute on an existing
+  out_base, while allowing `execute` to claim only a matching accepted dry-run.
+- Metadata DB execution lifecycle rows now record execute claim, lease owner,
+  lease expiry, heartbeat timestamp, terminal state, and artifact paths in
+  `query_workflow_executions`.
+- `submit_query_workflow.py --execute` can write DB-backed lifecycle state via
+  `--metadata-db-path` / `--metadata-db-dsn`.
+- `serve_query_workflow_api.py --allow-execute` can write the same lifecycle
+  rows via `--workflow-execution-db-path` / `--workflow-execution-db-dsn`.
+- `serve_operator_dashboard.py` writes the same lifecycle rows for approved
+  request launches when a metadata DB is configured.
+- `submit_query_workflow.py --enqueue`, the query workflow API enqueue endpoint,
+  and `serve_operator_dashboard.py --enqueue-approved-requests` can now queue
+  approved work in `query_workflow_executions` instead of running it inside the
+  submitter or HTTP request thread.
+- `scripts/run_query_workflow_worker.py` claims queued rows, owns the lease,
+  heartbeats, writes sidecar status/receipts, honors DB cancellation requests,
+  enforces timeout termination, and can steal expired leases after a worker
+  crash/restart.
+- `scripts/cancel_query_workflow_execution.py` records operator cancellation
+  requests against the DB-backed execution row and writes matching sidecar
+  receipt/status evidence for queued cancellations.
+- `serve_operator_dashboard.py` uses the same guard before starting approved
+  async jobs or relaunches.
+- `scripts/check_query_workflow_durability.py` emits
+  `query_workflow_durability_check/v1` and proves duplicate dry-run denial,
+  execute-from-accepted receipt preservation, duplicate execute denial,
+  stale-running visibility, retry/status schema validity, active duplicate DB
+  claim denial, terminal replay denial, expired-lease steal semantics,
+  enqueue-to-worker completion, queued cancellation, running cancellation,
+  timeout termination, and expired-lease worker restart, including cancelled
+  takeover when a dead worker leaves a `cancel_requested` lease.
+- Orchestration is still local-process/subprocess oriented.
+- Live deployed worker supervision and PostgreSQL/HA evidence remain incomplete.
 
 Files to change:
 
@@ -960,36 +1085,69 @@ Files to change:
 - `migrations/metadata/*workflow*`
 - `scripts/list_query_workflow_status.py`
 - `scripts/check_workflow_retry_eligibility.py`
-- optional Temporal/Celery/RQ-style worker wrapper
+- `scripts/query_workflow_execution_store.py`
+- `scripts/run_query_workflow_worker.py`
+- `scripts/cancel_query_workflow_execution.py`
+- `scripts/check_query_workflow_durability.py`
+- `migrations/metadata/015_add_query_workflow_executions.sql`
+- `schemas/query_workflow_durability_check.schema.json`
+- optional Temporal/Celery/RQ-style worker wrapper for later managed queues
 
 Implementation steps:
 
 1. Make metadata DB the durable source of truth for submission, approval,
    execution, retry, cancellation, and terminal state.
-2. Enforce exactly-once job start or idempotent retry by submission ID/job ID.
-3. Move long-running work out of HTTP request threads.
-4. Add worker heartbeat, cancellation, timeout, and stale-running recovery.
-5. Keep sidecar JSON artifacts as audit outputs, not sole job state.
-6. Add crash/restart tests for approval-before-launch, worker death, retry after
-   launch failure, and duplicate approval/start.
+2. ~~Enforce sidecar-level duplicate start/overwrite refusal by out_base/job
+   ID/request digest.~~ Repo-side done for the file-sidecar path:
+   `assert_workflow_sidecar_start_allowed()` rejects overwriting existing
+   running/terminal state and allows execute to claim only a matching accepted
+   dry-run.
+3. ~~Add repo-side execution claim/lease/heartbeat/terminal rows in metadata
+   DB.~~ Done for CLI execute, query workflow API execute, and operator
+   dashboard approved launches through `query_workflow_executions`.
+4. ~~Move long-running work out of HTTP request threads.~~ Repo-side done:
+   `--enqueue`/`/enqueue`/`--enqueue-approved-requests` persist queued work for
+   `scripts/run_query_workflow_worker.py`.
+5. ~~Add worker heartbeat ownership, cancellation, timeout, and stale-running
+   recovery.~~ Repo-side local worker done; live deployment evidence remains.
+6. ~~Keep sidecar JSON artifacts as audit outputs, not sole job state.~~ Done:
+   DB rows are the lifecycle source for queued/running/terminal ownership, while
+   sidecar JSON remains the audit artifact.
+7. ~~Add crash/restart tests for worker death and duplicate start.~~ Repo-side
+   done for expired-lease restart steal and duplicate/terminal replay denial.
+8. Add live multi-worker retry policy evidence after launch failure, and prove
+   it against PostgreSQL/HA rather than only SQLite/local subprocesses.
 
 Acceptance gates:
 
 ```bash
 python3 scripts/verify_operator_shell_regression.py
 python3 scripts/check_operator_request_submission_smoke.py
+python3 scripts/check_query_workflow_durability.py --out tmp/query_workflow_durability_check.json
 bash scripts/check_json_contracts.sh
 ```
 
 Done criteria:
 
-- Process crash cannot silently lose or duplicate an approved job.
+- Repo-side current state: duplicate or accidental re-run cannot silently
+  overwrite query workflow sidecar evidence; execute/enqueue paths can persist
+  queued/claim/lease/heartbeat/cancel/timeout/terminal state to metadata DB
+  rows; a local worker can own and complete/cancel/timeout/restart executions.
+- Full production done criteria: process crash cannot silently lose or
+  duplicate an approved job because supervised deployed workers own DB leases,
+  emit heartbeats, support cancellation/timeout/retry, and demonstrate restart
+  recovery against live PostgreSQL/HA on the target hosts.
 
 ## RW-P1-06: PostgreSQL / HA / Backup / Restore Live Drills
 
 Why this remains:
 
 - DDL, HA topology, Patroni, pgBouncer, backup, and restore helpers exist.
+- Repo-side backup/restore integrity evidence now exists:
+  `restore_metadata_db.py` can bind a restore to `metadata_db_backup_report/v1`
+  `backup.sha256`, and `scripts/check_metadata_backup_restore_drill.py` proves
+  backup verification, SHA-bound restore, restored probe-row presence,
+  portability check, and tampered-backup denial.
 - Live switchover, pooling behavior, restore drill, and chaos evidence are
   operator-side.
 
@@ -1004,15 +1162,23 @@ Files/tools:
 - `scripts/backup_metadata_db.py`
 - `scripts/restore_metadata_db.py`
 - `scripts/test_metadata_db_failover.py`
+- `scripts/check_metadata_backup_restore_drill.py`
+- `schemas/metadata_backup_restore_drill.schema.json`
 
 Implementation/evidence steps:
 
-1. Run PostgreSQL primary/replica with real credentials.
-2. Run Patroni switchover/failover and record downtime.
-3. Route reads through replica DSN and writes to primary.
-4. Run pgBouncer transaction pooling and verify long-write bypass.
-5. Backup to external storage and restore into a fresh DB.
-6. Run metadata API/query smoke against restored DB.
+1. ~~Bind restore to a backup report/hash and reject tampered backups.~~
+   Repo-side done: `restore_metadata_db.py --backup-report` checks the current
+   backup SHA-256 before restore.
+2. ~~Run local backup-to-restore probe-row drill.~~ Done:
+   `metadata_backup_restore_drill/v1` proves restored `jobs`/`audit_events`
+   probe rows and schema portability.
+3. Run PostgreSQL primary/replica with real credentials.
+4. Run Patroni switchover/failover and record downtime.
+5. Route reads through replica DSN and writes to primary.
+6. Run pgBouncer transaction pooling and verify long-write bypass.
+7. Backup to external storage and restore into a fresh DB.
+8. Run metadata API/query smoke against restored DB.
 
 Acceptance gates:
 
@@ -1021,12 +1187,17 @@ POSTGRES_DSN=... bash scripts/check_json_contracts.sh
 python3 scripts/test_metadata_db_failover.py --help
 python3 scripts/backup_metadata_db.py --execute ...
 python3 scripts/restore_metadata_db.py --execute ...
+python3 scripts/check_metadata_backup_restore_drill.py --out tmp/metadata_backup_restore_drill.json
 ```
 
 Done criteria:
 
-- Live failover and restore evidence exist, and restored DB passes query/API
-  smoke.
+- Repo-side current state: SQLite metadata backup/restore is SHA-bound to its
+  backup report, schema-portability checked, and tampered backup files are
+  rejected before restore.
+- Full production done criteria: live failover and restore evidence exist, and
+  restored PostgreSQL/HA DB passes query/API smoke against the target
+  environment.
 
 ## RW-P1-07: Observability / Alerting Live Operation
 
@@ -1070,16 +1241,23 @@ Done criteria:
 
 Why this remains:
 
-- Recovery service has Unix/HTTP transports, authz, signing, metrics, systemd
-  rendering, and failover tests.
-- Production still needs dedicated service-user lifecycle, live sandbox
-  evidence, network policy enforcement, and no unsafe compatibility entrypoint.
+- Recovery service has Unix/HTTP transports, authz, request signing, mTLS,
+  metrics, systemd rendering, and failover tests.
+- Repo-side production HTTP startup is now fail-closed: direct HTTP adapter,
+  standalone launcher, and `manage_record_recovery_service.py start` /
+  `render-systemd` all call the same production gate.
+- Full production still needs live dedicated service-user evidence, live
+  sandbox evidence, host firewall or Kubernetes NetworkPolicy evidence, and
+  deployed public-network mTLS traffic evidence.
 
 Files/tools:
 
 - `services/record_recovery/`
+- `services/record_recovery/production.py`
 - `scripts/run_record_recovery_service.py`
 - `scripts/manage_record_recovery_service.py`
+- `scripts/check_record_recovery_production_gate.py`
+- `schemas/record_recovery_production_gate_check.schema.json`
 - `scripts/test_failover_recovery_service.py`
 - `config/k8s/`
 - generated systemd units
@@ -1088,49 +1266,88 @@ Implementation steps:
 
 1. Deploy under dedicated OS user with rendered systemd hardening.
 2. Verify `ReadWritePaths` are minimal for the configured tenant/service.
-3. Enforce mTLS or signed requests for HTTP transport in production.
+3. ~~Enforce mTLS or signed requests for HTTP transport in production.~~
+   Repo-side done: production HTTP requires request authentication, authz
+   policy, and either signed requests or mTLS client certificates; non-loopback
+   listeners require mTLS client certificates.
 4. Apply Kubernetes NetworkPolicy or host firewall.
 5. Run failover test against two service instances.
-6. Mark `run_client.py serve-record-recovery` as compatibility only or redirect
-   to the managed launcher.
+6. Keep compatibility entrypoints routed to the managed launcher or marked
+   non-production unless they pass the same production gate.
 
 Acceptance gates:
 
 ```bash
+python3 scripts/check_record_recovery_production_gate.py --out tmp/record_recovery_production_gate_check.json
 python3 scripts/test_failover_recovery_service.py
+python3 scripts/check_recovery_service_deployment_evidence_gate.py --out-dir tmp/recovery_service_deployment_evidence_gate
 bash scripts/check_json_contracts.sh
 ```
 
 Done criteria:
 
-- Production traffic cannot reach an unauthenticated recovery endpoint.
+- Repo-side current state: production-mode HTTP recovery cannot start or render
+  an unsafe unit when request auth, authz, signed-request/mTLS, identity
+  metadata DB, or public-listener mTLS controls are missing.
+- This boundary is now packaged as `recovery_service_deployment_evidence_gate/v1`
+  plus `recovery_service_live_evidence_archive/v1`. Remaining work is the live
+  archive contents, not another round of repo-side deployment-gate scaffolding.
+- Full production done criteria: production traffic cannot reach an
+  unauthenticated or non-mTLS public recovery endpoint, and this is backed by
+  live service-user, sandbox, network-policy/firewall, and deployed mTLS
+  evidence.
 
 ## RW-P1-09: Supply-Chain, Dependency, SBOM, And Full Test Gates
 
 Why this remains:
 
-- Current smoke is strong for contracts, but full Python tests and console tests
-  are not running in this workspace.
-- Release artifacts need stronger reproducibility and security evidence.
+- Repo-side full-test/supply-chain evidence is now implemented:
+  `sse/requirements-dev.txt` declares pytest, CI runs `python3 -m pytest
+  sse/test`, console release/CI uses `npm ci` plus strict typecheck/build,
+  `scripts/check_console_release_gate.py` blocks console workflow regressions,
+  and `scripts/check_supply_chain_gate.py` emits a schema-validated
+  `supply_chain_evidence/v1` report with Python/npm/Cargo component inventory,
+  artifact hashes, local provenance materials, and advisory-policy status.
+- This is still not external provenance or live advisory enforcement. Production
+  completion needs a real CI/release run artifact, signed/provenance-backed
+  release materials, and either online or pinned-offline advisory checks.
 
 Files to change:
 
 - `.github/workflows/json-contracts.yml`
 - `.github/workflows/release.yml`
 - `sse/requirements.txt`
+- `sse/requirements-dev.txt`
 - `console/package-lock.json`
 - `bridge/Cargo.lock`
-- new SBOM/dependency scan scripts or workflow steps
+- `scripts/check_console_release_gate.py`
+- `scripts/check_supply_chain_gate.py`
+- `schemas/console_release_gate_check.schema.json`
+- `schemas/supply_chain_evidence.schema.json`
 
 Implementation steps:
 
-1. Make Python test dependencies explicit.
-2. Add `python3 -m pytest sse/test` to CI.
-3. Add console `npm ci`, `npm run typecheck`, and `npm run build` to CI.
-4. Add Rust advisory check if acceptable for the environment.
-5. Add npm audit or pinned offline advisory process.
-6. Generate SBOMs for release artifacts.
-7. Verify checksums and provenance are published.
+1. ~~Make Python test dependencies explicit.~~ Done:
+   `sse/requirements-dev.txt` pins `pytest`.
+2. ~~Add `python3 -m pytest sse/test` to CI.~~ Done:
+   `.github/workflows/json-contracts.yml` installs dev requirements and runs
+   the SSE test suite.
+3. ~~Add console `npm ci`, `npm run typecheck`, and `npm run build` to CI.~~
+   Done repo-side through `.github/workflows/json-contracts.yml`,
+   `.github/workflows/release.yml`, and
+   `scripts/check_console_release_gate.py`; live Actions evidence still needs
+   to be captured.
+4. ~~Generate repo-side SBOM/dependency inventory.~~ Done:
+   `scripts/check_supply_chain_gate.py` emits `local_component_inventory/v1`
+   inside `supply_chain_evidence/v1` for Python/npm/Cargo components and hashes
+   the supply-chain artifacts.
+5. ~~Add local provenance interface.~~ Done:
+   `supply_chain_evidence/v1` records git commit/tree and CI/release workflow
+   materials while marking external attestation `operator-side`.
+6. Add Rust/npm/Python advisory enforcement through online scanners or a pinned
+   offline advisory database.
+7. Capture and archive real GitHub Actions CI/release evidence, checksums, and
+   external provenance/attestation.
 
 Acceptance gates:
 
@@ -1138,7 +1355,9 @@ Acceptance gates:
 python3 -m pytest sse/test
 npm --prefix console ci
 npm --prefix console run typecheck
-npm --prefix console run build
+npm --prefix console run build:strict
+python3 scripts/check_console_release_gate.py
+python3 scripts/check_supply_chain_gate.py
 cargo test
 bash scripts/check_ci_smoke.sh
 ```
@@ -1146,6 +1365,9 @@ bash scripts/check_ci_smoke.sh
 Done criteria:
 
 - A clean checkout can run all major language build/test gates.
+- Repo-side supply-chain evidence validates under schema and pre-release gate.
+- Full production-complete status still requires external provenance and
+  advisory-enforcement evidence from the real release environment.
 
 ## RW-P2-01: Product / Data-Model Completeness For Real E-Commerce Use
 
@@ -1156,10 +1378,18 @@ Why this remains:
 - It is not a full customer 360, inventory, logistics, or real-time warehouse
   platform.
 - `business_access_policy/v1` now makes merchant / courier / support / buyer /
-  auditor field-level allow-mask-deny decisions explicit. The metadata API now
+  field-marketing / fraud / auditor field-level allow-mask-deny decisions
+  explicit. The metadata API now
   has one enforced read path, `POST /v1/business-data/read-preview`, which runs
   the policy and identity binding before reading fact rows, masks protected
   fields without selecting raw values, and rejects scope/filter conflicts.
+  As of 2026-06-04, this is no longer only "relationship string + caller
+  scope" logic: the fact layer now carries bound relationship anchors for
+  merchant, buyer, marketer, fraud, and support workflows, and the repo-side
+  handler binds those back to `business_identities` before returning a decision
+  or preview. Candidate JSONL fact imports therefore now require those relation
+  columns as part of the fact-layer baseline, rather than treating them as
+  ad-hoc request metadata.
   Candidate JSONL fact imports now have a repo-side validator and
   validator-first transactional importer. The importer applies metadata
   migrations, refuses unknown/sensitive columns before insert, commits allowed
@@ -1186,6 +1416,8 @@ Files to change:
 - `scripts/check_ecommerce_fact_import_validation.py`
 - `scripts/import_ecommerce_fact_rows.py`
 - `scripts/check_ecommerce_fact_import.py`
+- `scripts/check_ecommerce_production_exposure_gate.py`
+- `schemas/ecommerce_production_exposure_gate.schema.json`
 - `scripts/serve_metadata_api.py`
 - `migrations/metadata/010_*`
 - `console/src/routes/catalog*`
@@ -1196,11 +1428,15 @@ Implementation steps:
 1. Keep product claim scope explicit: privacy query platform only, or broader
    e-commerce analytics platform.
 2. Maintain the field-level business policy for merchant, courier, support,
-   buyer, field marketing, and auditor personas.
+   buyer, field marketing, fraud analyst, and auditor personas.
 3. Reuse `POST /v1/business-data/read-preview` as the reference implementation
    for any new business read API: policy check first, denied fields fail before
    SELECT, masked fields never select raw values, and request filters cannot
    override authorized scope.
+   The current repo-side baseline now also requires business-relationship
+   binding against fact rows for `merchant_of_order`, buyer `self`,
+   `assigned_delivery_leg`, `assigned_station_leg`, `assigned_last_mile_leg`,
+   `fraud_review_queue`, and `campaign_assignee`.
 4. Use `scripts/import_ecommerce_fact_rows.py` or an equivalent
    validator-first transaction in any production ETL/batch importer before it
    writes rows, so protected fields cannot enter unsupported fact tables without
@@ -1210,6 +1446,12 @@ Implementation steps:
 6. Add sample anonymized datasets.
 7. Add role mapping for buyer, merchant, support, logistics, and platform ops.
 8. Update console catalog views to match actual data support.
+9. Keep the production exposure gate green before claiming production readiness
+   for commerce data/persona contact surfaces.
+10. Keep the console `Business Access Workbench` and
+    `ecommerce_fact_import_job/v1` wrapper green so browser-facing persona
+    review and ETL-style validator-first ingest stay on the same contract as
+    the metadata API and importer.
 
 Acceptance gates:
 
@@ -1218,6 +1460,7 @@ python3 scripts/check_business_access_policy_smoke.py
 python3 scripts/check_business_access_api_smoke.py --out-dir tmp/business_access_api_smoke
 python3 scripts/check_ecommerce_fact_import_validation.py --out-dir tmp/ecommerce_fact_import_validation
 python3 scripts/check_ecommerce_fact_import.py --out-dir tmp/ecommerce_fact_import_smoke
+python3 scripts/check_ecommerce_production_exposure_gate.py --out-dir tmp/ecommerce_production_exposure_gate
 python3 scripts/check_metadata_schema_portability.py
 bash scripts/check_json_contracts.sh
 ```
@@ -1225,6 +1468,18 @@ bash scripts/check_json_contracts.sh
 Done criteria:
 
 - Documentation and UI claims match the supported business schema.
+- Fact-layer relationship anchors, validator-first imports, and repo-side
+  business-access checks agree on the same merchant/buyer/logistics/fraud/
+  marketer identity bindings, including the console workbench and ETL wrapper.
+- Non-privileged support callers must also be covered on the same loopback HTTP
+  path: masked buyer-contact preview on the assigned case and `case_id` spoof
+  rejection both need to stay green beside the direct support
+  `business_access_check_report/v1` relation-binding artifact.
+- `ecommerce_production_exposure_gate/v1` is archived for the release and lists
+  any live OIDC/OpenFGA/Postgres/TLS/external-anchor evidence still missing.
+- The archived gate includes an `exposure_matrix` with attacker, internal
+  adversary, and verifier artifact indexes, rather than only a flat status
+  summary.
 
 ## RW-P2-02: Production-Scale Benchmarks And SLO Enforcement
 
@@ -1317,11 +1572,155 @@ Done criteria:
 5. RW-P0-05: two-host evidence and TLS EOF resolution.
 6. RW-P1-04 and RW-P1-09: console/CI reproducibility.
 7. RW-P1-01 and RW-P1-02: live authority and external anchor.
+8. PostgreSQL / HA boundary is now split into `postgres_ha_evidence_gate/v1`
+   (repo-side drill/topology evidence) and `postgres_ha_live_evidence_archive/v1`
+   (operator live failover/restore/pooling artifacts). Remaining work is the
+   operator archive contents, not another round of repo-side script scaffolding.
+9. Supply-chain / provenance is now split into `supply_chain_evidence_gate/v1`
+   (repo-side workflow/SBOM/provenance interface evidence) and
+   `supply_chain_live_evidence_archive/v1` (operator live GitHub Actions run,
+   release checksum, provenance, and advisory artifacts). Remaining work is the
+   operator archive contents, not more local inventory scripting.
+10. Authority / KMS / identity is now split into `authority_evidence_gate/v1`
+    (repo-side governance + live-capable adapter evidence) and
+    `authority_live_evidence_archive/v1` (operator live Keycloak/OpenFGA/Vault/
+    cloud-KMS artifacts). Remaining work is the operator archive contents, not
+    another round of repo-side authority adapter scaffolding.
+11. Observability / alerting is now split into `observability_evidence_gate/v1`
+    (repo-side topology + webhook/daemon smoke evidence) and
+    `observability_live_evidence_archive/v1` (operator live Tempo/Grafana/
+    webhook/heartbeat artifacts). Remaining work is the operator archive
+    contents, not more local topology or webhook scaffolding.
+12. Recovery-service deployment hardening is now split into
+    `recovery_service_deployment_evidence_gate/v1` (repo-side HTTP
+    production/failover/Kubernetes topology evidence) and
+    `recovery_service_live_evidence_archive/v1` (operator live service-user,
+    sandbox, firewall/NetworkPolicy, public-mTLS, and target-host failover
+    artifacts). Remaining work is the operator archive contents, not more local
+    deployment-hardening scaffolding.
+13. Privacy-budget deployment is now split into
+    `privacy_budget_deployment_evidence_gate/v1` (repo-side transactional
+    concurrency/approval/session/proxy evidence) and
+    `privacy_budget_live_evidence_archive/v1` (operator live PostgreSQL/HA,
+    browser-console, approval API, and duplicate-denial artifacts). Remaining
+    work is the operator archive contents, not more local queue/store
+    scaffolding.
+14. Retired legacy SSE query surface is now split into
+    `legacy_sse_query_surface_evidence_gate/v1` (repo-side retirement proof)
+    and `legacy_sse_live_evidence_archive/v1` (operator live route/socket/
+    ingress artifacts). Remaining work is the operator archive contents, not
+    another round of local retirement gating.
+15. PJC resource isolation is now split into
+    `pjc_resource_isolation_evidence_gate/v1` (repo-side preflight/binary/
+    fail-closed worker isolation evidence) and
+    `pjc_resource_isolation_live_evidence_archive/v1` (operator live
+    systemd/Kubernetes limits, timeout/cancel, and production streaming
+    artifacts). Remaining work is the operator archive contents, not more local
+    wrapper/preflight scaffolding.
+16. Query-workflow deployment durability is now split into
+    `query_workflow_deployment_evidence_gate/v1` (repo-side DB-backed
+    durability/lease/cancel/timeout/restart-steal evidence) and
+    `query_workflow_live_evidence_archive/v1` (operator live worker
+    supervision/retry/restart/PostgreSQL-HA artifacts). Remaining work is the
+    operator archive contents, not more local queue/sidecar semantics
+    scaffolding.
+17. E-commerce deployment exposure is now split into
+    `ecommerce_deployment_evidence_gate/v1` (repo-side fact/persona/request/
+    console exposure evidence) and `ecommerce_live_evidence_archive/v1`
+    (operator live identity/ABAC, import, TLS/NetworkPolicy, and
+    Postgres/anchor artifacts). Remaining work is the operator archive
+    contents, not more local persona/fact exposure scaffolding.
+    As of 2026-06-05, `collect_ecommerce_live_rollout.py` now gives this module
+    the same typed verifier-facing rollout-collection entrypoint already used
+    by `spiffe_envoy` and `authority`: a single
+    `live_rollout_collection_report/v1` can now declare which e-commerce live
+    artifacts were supplied, archive them, build the verifier gate, and emit a
+    stable blocked-vs-ok status before public verification work starts.
+    As of 2026-06-05, those remaining live artifacts also have explicit typed
+    contracts instead of free-form placeholders:
+    `ecommerce_live_oidc_abac_report/v1`,
+    `ecommerce_live_fact_import_report/v1`,
+    `ecommerce_live_tls_network_policy_report/v1`,
+    `ecommerce_live_postgres_anchor_report/v1`, and
+    `ecommerce_logistics_live_rollout_report/v1`. Public/live verification
+    should now target those report shapes directly.
+18. Console/browser deployment is now split into
+    `console_deployment_evidence_gate/v1` (repo-side token/session/header/
+    release evidence) and `console_live_evidence_archive/v1` (operator live
+    HTTPS/Secure-cookie, reverse-proxy/OIDC, browser exercise, and release-run
+    artifacts). Remaining work is the operator archive contents, not more local
+    console auth/header scaffolding.
+19. Control-plane deployment is now split into
+    `control_plane_deployment_evidence_gate/v1` (repo-side readiness /
+    malformed-input / read-model / redaction evidence) and
+    `control_plane_live_evidence_archive/v1` (operator live runbook,
+    metadata/platform API, and reverse-proxy artifacts). Remaining work is the
+    operator archive contents, not more local control-plane hardening
+    scaffolding.
+20. PJC protocol-security claims are now split into
+    `pjc_protocol_security_evidence_gate/v1` (repo-side commitment / signed
+    evidence / release-binding plus explicit claim boundary) and
+    `pjc_protocol_live_evidence_archive/v1` (operator live two-host signed
+    manifest / release-binding / value-policy denial / malicious-secure
+    artifacts). Remaining work is the operator archive contents, not more local
+    protocol-claim prose.
+21. Top-level closure is now summarized by
+    `production_security_closure_gate/v1`, which aggregates the module-level
+    gates instead of replacing them. Remaining work is still the operator live
+    artifacts exposed by those submodules, not another round of local summary
+    prose.
+22. `ecommerce`, `console`, and `control_plane` now distinguish
+    `live_foundation_status` from module `live_status`. Their current repo-side
+    verifier evidence is archived by default, but operator rollout artifacts
+    are still required before those modules can move from `live_status=skipped`
+    to `live_status=ok`.
+23. As of 2026-06-04, `ecommerce` is no longer blocked on more repo-side
+    logistics scaffolding. The real remote
+    `tmp/logistics_live_synthetic/ecommerce_logistics_live_rollout_report.json`
+    has now been landed into the local authoritative worktree, re-archived into
+    `ecommerce_live_evidence_archive/v1`, and propagated into
+    `production_security_closure_gate/v1`. In validated local replay, that
+    logistics rollout artifact is sufficient to move the `ecommerce` module
+    from `live_status=skipped` to `live_status=ok` while preserving
+    `live_foundation_status=ok`.
+24. The next production push after logistics should focus on the other
+    foundation-aware modules that are already repo-side complete but still
+    operator-artifact incomplete: `authority`, `console`, `control_plane`,
+    `postgres_ha`, `observability`, `query_workflow`, `supply_chain`, and
+    `pjc_protocol`. Current remote VPS inventory only exposed
+    `tmp/logistics_live_synthetic` plus existing public-two-host/PJC artifacts,
+    so their remaining work is still to archive real operator rollout evidence,
+    not to add more local repo-side scaffolding.
+25. The local live archives already prove the ingestion path is ready for those
+    modules: `authority`, `console`, `control_plane`, `observability`,
+    `postgres_ha`, `query_workflow`, and `supply_chain` each started from
+    `live_repo_side_*_foundation` only, while `ecommerce` already carried a
+    real logistics rollout report. Since then, `control_plane`,
+    `observability`, `query_workflow`, `postgres_ha`, `supply_chain`, and now
+    `console` have all crossed into real live rollout evidence through
+    VPS-produced artifacts, `pjc_protocol` has now crossed through the
+    authoritative public-two-host live archive plus signed-manifest/release-
+    binding reports, and `public_two_host` itself now auto-consumes that same
+    authoritative archive plus clean materialization report to reach
+    `live_status=ok`. `legacy_sse` now also carries real VPS socket/route/
+    ingress retirement evidence, and `privacy_budget` now carries real
+    approval-API / duplicate-denial evidence combined with already-collected
+    browser-console and restore/API evidence. `recovery_service` now also
+    carries a real VPS failover report, `pjc_resource_isolation` now carries
+    timeout/cancel plus streaming-success rollout evidence, `external_anchor`
+    now carries a real Rekor upload report, `authority` has since been
+    lifted through a real VPS-backed docker-compose rollout for Keycloak,
+    OpenFGA, and Vault, and `spiffe_envoy` has since also been lifted through
+    a real VPS-backed SPIRE + Envoy rollout with positive-run, wrong-peer,
+    expired-SVID, trust-bundle, and access-log evidence. The current typed
+    completion summary is therefore
+    `tmp/production_security_closure_gate/production_security_closure_gate.json`
+    with `live_ok_count=16`, `live_skipped_count=0`, and
+    `tmp/final_live_blockers_report.json` with
+    `remaining_live_module_count=0`.
 8. RW-P1-05 through RW-P1-08: durability, HA, observability, recovery
    hardening.
-9. Legacy SSE WebSocket production decision: retire it or add auth,
-   TLS/service identity, abuse limits, and deployment gates.
-10. P2 product, benchmark, and documentation hygiene work.
+9. P2 product, benchmark, and documentation hygiene work.
 
 ## Not Remaining By Itself
 

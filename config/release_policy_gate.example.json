@@ -8,7 +8,14 @@
   "budget_ledger_path": "tmp/privacy_budget_ledger.jsonl",
   "duplicate_query_denied": true,
   "require_public_report_redaction": true,
+  "require_source_attestation": true,
+  "require_signed_signoff": true,
+  "require_dual_signoff": true,
+  "require_bound_input_commitment": true,
+  "strict_source_attestation": true,
+  "max_source_attestation_age_hours": 168,
   "require_pjc_evidence_merge": true,
+  "require_external_anchor": true,
   "allowed_deny_reason_codes": [
     "below_k",
     "below_min_rows",
@@ -16,6 +23,7 @@
     "privacy_budget_exhausted",
     "privacy_budget_duplicate_query",
     "privacy_budget_near_duplicate",
+    "privacy_budget_bucket_probe",
     "privacy_budget_missing_scope",
     "privacy_budget_config_missing"
   ]

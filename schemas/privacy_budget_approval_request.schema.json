@@ -73,7 +73,7 @@
       "const": "deny"
     },
     "reason_code": {
-      "const": "privacy_budget_near_duplicate"
+      "enum": ["privacy_budget_near_duplicate", "privacy_budget_bucket_probe"]
     },
     "reason": {
       "type": "string"

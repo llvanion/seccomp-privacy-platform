@@ -243,8 +243,11 @@ that runs in CI without needing two real hosts:
 | Contract | Endpoint / schema | Local smoke |
 | -------- | ----------------- | ----------- |
 | Live TLS diagnostic | `POST /v1/pjc-mtls/tls-diagnostic`, `pjc_tls_diagnostic/v1` | `scripts/check_pjc_tls_diagnostic_smoke.py` — closed-port deny, TCP-accepts-then-closes (`tls_eof`), missing-cert hint |
+| Typed TLS readiness | `pjc_tls_readiness/v1` via `scripts/check_pjc_tls_readiness.py` | `scripts/check_pjc_tls_readiness_smoke.py` — `tcp_timeout`, `tls_eof`, and allow-level mTLS readiness |
 | Server-side release gate | `POST /v1/release/policy-gate`, `release_policy_gate/v1` + `release_policy_gate_config/v1` | `scripts/check_release_policy_gate_smoke.py` — missing ledger / low-k / missing DP / allowed / duplicate-query leak |
 | SPIFFE/SPIRE + Envoy templates | `deploy/spiffe_envoy/*`, `spiffe_envoy_peer_allowlist/v1`, `spiffe_envoy_template_check/v1` | `scripts/check_spiffe_envoy_templates.py --assert-allow` |
+| SPIFFE/SPIRE + Envoy identity gate | `spiffe_envoy_identity_gate/v1` | `scripts/check_spiffe_envoy_identity_gate.py` — repo-side allowlist/template coherence, live deployment artifacts explicitly `skipped` until provided |
+| SPIFFE/SPIRE + Envoy live archive | `spiffe_envoy_live_evidence_archive/v1` | `scripts/archive_spiffe_envoy_live_evidence.py` — freezes any operator-provided positive/negative run evidence and Envoy access logs into one verifier package |
 | Guided two-party wizard | `renderS9Wizard` in `scripts/serve_operator_dashboard.py` (frontend only) | wired against the existing backend smokes; navigates the dashboard at `#s9-wizard` |
 
 This is still not the same as production certification. The remaining

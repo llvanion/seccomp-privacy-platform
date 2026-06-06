@@ -11,7 +11,17 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 LIST_SCHEMA = "query_workflow_status_list/v1"
 STATUS_SCHEMA = "query_workflow_status/v1"
 STATUS_SUBPATH = Path("query_workflow") / "status.json"
-VALID_STATES = {"accepted", "running", "completed", "failed", "rejected"}
+VALID_STATES = {
+    "accepted",
+    "queued",
+    "running",
+    "completed",
+    "failed",
+    "rejected",
+    "cancel_requested",
+    "cancelled",
+    "timed_out",
+}
 
 
 def utc_now_iso() -> str:

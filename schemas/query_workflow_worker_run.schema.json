@@ -1,0 +1,22 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "query_workflow_worker_run/v1",
+  "title": "Query workflow DB-backed worker run result",
+  "type": "object",
+  "required": ["schema", "event", "owner", "job_id", "state"],
+  "properties": {
+    "schema": { "const": "query_workflow_worker_run/v1" },
+    "event": {
+      "type": "string",
+      "enum": ["idle", "completed", "failed", "cancelled", "timed_out"]
+    },
+    "owner": { "type": "string", "minLength": 1 },
+    "job_id": { "type": ["string", "null"] },
+    "state": {
+      "type": "string",
+      "enum": ["idle", "completed", "failed", "cancelled", "timed_out"]
+    },
+    "exit_code": { "type": ["integer", "null"] }
+  },
+  "additionalProperties": false
+}

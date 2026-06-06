@@ -256,6 +256,8 @@ repo-side 已交付：
 
 状态（2026-06-01）：PJC wrapper 的生产 fail-closed 已 repo-side 落地。`run_pjc.sh`、`run_pjc_server_tls.sh`、`run_pjc_client_tls.sh` 支持 `PJC_PRODUCTION_MODE=1`；生产模式缺 `PJC_RESOURCE_LIMITS`、`PJC_GRPC_STREAM_CHUNK_ELEMENTS=0`、二进制缺 streaming flag、TLS wrapper 缺 `PJC_MTLS_REQUIRE_SESSION_MANIFEST=1`、plain gRPC 非 loopback、TLS server 宽绑定缺 `PJC_ALLOW_PRODUCTION_WIDE_BIND=1` 都会在启动 PJC/socat 前拒绝。`run_sse_bridge_pipeline.sh --production-mode` 现在要求 `--pjc-resource-limits`，并把 `PJC_PRODUCTION_MODE=1`、resource limits 与 preflight scope 透传给 Stage3 PJC wrapper；如果当前 PJC 二进制不支持 streaming flag，主 pipeline 也会在生产模式下直接 fail closed。legacy unary 只允许在显式 `PJC_ALLOW_LEGACY_UNARY=1` 的本地 demo/replay 下 fallback。新增 `scripts/verify_pjc_production_fail_closed.sh` 并接入 `scripts/check_ci_smoke.sh`。S4 仍保持 `partial`：真实 systemd/Kubernetes/worker 资源隔离、timeout/cancel drill、1M streaming 成功证据和公网/VPS 联合认证仍未完成。
 
+状态（2026-06-03 v2）：repo-side 又补上了一层当前 worktree 的生产二进制能力证明。新增 `scripts/check_pjc_binary_capability_gate.py` 与 `pjc_binary_capability_gate/v1`，让 PJC wrapper 在生产/streaming 路径上不再盲信 workspace 内的 convenience `bazel-bin` 目录，而是解析真实 Bazel 输出目录，检查 server/client 是否都存在、是否都支持 `--grpc_stream_chunk_elements`、以及二进制 mtime 是否至少不早于 `private_join_and_compute/{server,client}.cc`。这把 “源码已支持 streaming，但 wrapper 仍引用陈旧 `bazel-bin` 二进制” 从隐性环境问题提升成 verifier-facing fail-closed blocker。
+
 需要修改：
 
 1. `a-psi/moduleA_psi/scripts/run_pjc*.sh`：继续保留 CLI，但 production wrapper 统一设置 limits。
@@ -519,7 +521,7 @@ Rekor/Sigstore、AWS S3 Object Lock、企业 WORM storage、timestamp authority
 1. 生产只允许 `s3_worm`、`rekor`、企业 WORM storage、timestamp authority
    或内部审计平台这类部署方提供的外部不可变 sink；`file_ledger` 在
    `--production-mode` 下只能作为 negative case。
-2. release gate 必须在 public report 进入 completed 前完成 external anchor；anchor report 状态不是 `uploaded/verified` 时，release 状态保持 `blocked` 或 `pending_external_anchor`。
+2. release gate 必须在 public report 进入 completed 前绑定 external anchor；repo-side 已支持 `require_external_anchor=true`，并拒绝缺失、本地、planned、未上传或带 production findings 的 anchor report。真实部署中 anchor report 状态不是 `uploaded/verified` 时，release 状态保持 `blocked` 或 `pending_external_anchor`。
 3. 如部署方选择 S3 Object Lock，bucket 必须启用 versioning + Object Lock，默认 COMPLIANCE mode，tenant id 必须出现在 S3 key path segment；跨租户 key path 直接拒绝。没有企业账号时，该 live drill 标记为 operator-provided。
 4. Rekor 路径必须使用独立 signing key，签名 canonical anchor payload，并保存 uuid/logIndex/integratedTime；verify 路径必须重新拉取或校验 transparency log inclusion。
 5. 证据包固定保存：audit bundle hash、anchor report、external sink object/version/uuid、tamper negative report、production local-file deny report。
@@ -616,6 +618,10 @@ Rekor/Sigstore、AWS S3 Object Lock、企业 WORM storage、timestamp authority
 
 状态（2026-06-02 v3）：repo-side raw-int value policy 已落地。`bridge/src/main.rs` 为 `client_value_mode=raw-int` 生成 `value_policy`、`source_value_summary`、去重后 `value_summary`；`--production-mode` 下 raw-int 必须提供 `--client-value-max`，默认不允许负数。`validate_bridge_job.py` 会复算 source hash/source summary/output summary，`scripts/preflight_pjc_job.py` 会在 PJC 启动前复算 client CSV summary 并用 `value_policy_violation` 拒绝负数或超上限值；`scripts/check_pjc_input_commitment.py` 覆盖负数和超上限篡改。该能力是软件层 operational validation，不是 ZK/range proof，也不证明业务源系统填报真实。
 
+状态（2026-06-03 v4）：raw-int value policy 从范围检查推进到业务语义检查。生产 `raw-int` 现在必须声明 `--client-allowed-value-field`、`--client-value-unit`，且 `minor_currency_unit` 必须声明 `--client-value-currency`；bridge 把 `allowed_value_columns`、`value_unit`、`currency` 写入 `value_policy`，query workflow payload 暴露 `client_allowed_value_fields` / `client_value_unit` / `client_value_currency`，`validate_bridge_job.py` 和 `preflight_pjc_job.py` 会拒绝未列入 allowlist 的 value column、缺单位、缺币种和 commitment/meta 策略漂移。`scripts/check_pjc_input_commitment.py` 新增生产缺 allowlist、列不在 allowlist、缺单位、缺币种，以及篡改 commitment value policy 的负例。该能力仍是 repo-side/software policy evidence，不是 ZK/range proof，也不证明源系统金额真实。
+
+状态（2026-06-03 v5）：bucket/shard scope binding 已补到 repo-side 生产证据链。`a-psi/moduleA_psi/scripts/bucket_policy.py` 现在输出 `bucket_policy_sha256`、`bucket_scope/v1` 和 `shard_scope/v1`，验证 `job_meta.bucket.outputs`、attribution buckets、`job_shard_meta.json` targets、`max_buckets`、`allowed_buckets` 和 exact-allowlist；`run_pjc_bucketed*.sh`、`run_pjc_sharded_parallel.sh` 和 dashboard role env 在 production mode 下要求 `PJC_REQUIRE_BUCKET_POLICY=1`。`pjc_two_party_signed_run_manifest/v1` 可签入本方/对方 bucket policy 和 shard manifest hash；`pjc_two_party_evidence_merge/v1` 会拒绝签名有效但 bucket/shard hash 不一致的 evidence。`scripts/check_bucket_dp_smoke.py` 覆盖未知 bucket、field drift、max bucket、缺 policy、shard target 漂移以及 bucket policy hash 出现在 public/operator bucket report；`scripts/check_pjc_two_party_smoke.py` 覆盖有效签名但 bucket policy hash mismatch 的拒绝路径。真实生产仍需 live two-host evidence、真实部署中的 role package/signing key custody、以及 malicious-secure PSI-SUM 或 range/ZK proof 方案；当前能力证明的是 repo-side fail-closed 和 result/scope substitution resistance。
+
 已修改：
 
 1. 新增 `schemas/pjc_input_commitment.schema.json`。
@@ -625,7 +631,7 @@ Rekor/Sigstore、AWS S3 Object Lock、企业 WORM storage、timestamp authority
 仍需修改：
 
 1. 在两台真实机器/VPS 上归档 signed run manifest exchange、evidence merge、release gate binding 的 live 证据。
-2. 增加 value range/单位/bucket allowlist 的生产策略，或添加 range proof。
+2. 增加 bucket/shard allowlist 的生产策略；如要从 operational validation 升级到抗恶意协议，还需添加 range proof 或 malicious-secure PSI-SUM。
 3. `docs/CRYPTO_COMPETITION_INSTRUCTIONS.md`：记录从半诚实到抗恶意的协议升级路径。
 
 验收标准：
@@ -690,6 +696,8 @@ Repo-side 状态（2026-05-23）：S9 控制面代码已在
 8. ~~待完成：生产部署模板~~ Repo-side done (2026-05-23 v2)：`deploy/spiffe_envoy/` 提供 SPIRE Server/Agent、Envoy Party A/B、`peer_spiffe_allowlist.json`（`spiffe_envoy_peer_allowlist/v1`）和 `rotation_notes.md`；`scripts/check_spiffe_envoy_templates.py` 输出 `spiffe_envoy_template_check/v1`，已接入 `scripts/check_json_contracts.sh --assert-allow`。
 9. Repo-side done (2026-05-23 v2)：`POST /v1/pjc-mtls/tls-diagnostic` + `pjc_tls_diagnostic/v1` 把 VPS `10502` TLS EOF 的 TCP / TLS / 本地证书 / 服务端日志症状捕成 typed report；`scripts/check_pjc_tls_diagnostic_smoke.py` 覆盖 closed-port、`tls_eof`、缺失本地证书三种确定性本地场景。
 10. Repo-side done (2026-06-01 v3)：服务端 release policy gate `POST /v1/release/policy-gate` + `scripts/check_release_policy_gate.py` 通过 `config/release_policy_gate.example.json`（`release_policy_gate_config/v1`）强制 `require_dp` + DP epsilon 范围 + `min_k` + privacy budget ledger + duplicate-query 防护 + public report redaction，关闭 `policy_release.py --require-dp` CLI 旁路；`scripts/check_release_policy_gate_smoke.py` 覆盖缺 ledger / 低 k / 缺 DP / allow / duplicate leak / operator-only public-field leak 六种场景。`scripts/run_sse_bridge_pipeline.sh --production-mode` 现在要求 `--release-policy-gate-config`，Stage4 后生成 `a_psi_run/release_policy_gate.json` 并 `--assert-allow`；`audit_chain/v1` 嵌入该 gate report 和 hash；`query_workflow_request/v1` / `submit_query_workflow.py` 透传 release gate、DP 和 redaction 字段。`scripts/verify_release_policy_gate_pipeline.sh` 覆盖生产 pipeline 缺 gate config 的 fail-closed 反例。
+11. Repo-side done (2026-06-03)：release gate 新增 `require_external_anchor`。严格生产配置默认开启；`scripts/check_release_policy_gate.py` 读取 `external_audit_anchor_report/v1`，只接受已上传的 `s3_worm`/Rekor 锚定、`summary.verified_chain=true`、`published_count>=1`、`anchor_record_count>=1`、存在 `last_entry_sha256` 且无 `production_findings` 的报告。`run_sse_bridge_pipeline.sh`、`submit_query_workflow.py`、`benchmark_pipeline.py` 在 strict production config 缺 `--external-anchor-report` 时 fail-closed；`scripts/check_release_policy_gate_smoke.py` 覆盖 missing/planned-local/uploaded 三类 anchor gate。该能力绑定“已上传锚定证据”到发布判断；真实 AWS/Rekor 凭据、上传和 read-back 仍是 operator-side live drill。
+12. Repo-side done (2026-06-03 v2)：operator dashboard 的可见 job state 已接入 `release_policy_gate/v1`。`serve_operator_dashboard.py` 在 job snapshot、caller-safe public summary 和 `/v1/runs?state=...` 过滤里应用同一层 gate overlay：external-anchor deny 显示为 `pending_external_anchor`，其他 gate deny 显示为 `blocked`，避免 sidecar 原始 `completed` 状态掩盖未获准发布的运行。`scripts/check_operator_dashboard_public_summary.py` 覆盖 public/admin/job/runs 四个读面和 `completed` 过滤负例。
 
 需要修改：
 

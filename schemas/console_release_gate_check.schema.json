@@ -1,0 +1,121 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "console_release_gate_check/v1",
+  "title": "Operator console release and supply-chain gate check",
+  "type": "object",
+  "required": [
+    "schema",
+    "generated_at_utc",
+    "status",
+    "summary",
+    "package",
+    "release_workflow",
+    "ci_workflow",
+    "findings"
+  ],
+  "properties": {
+    "schema": { "const": "console_release_gate_check/v1" },
+    "generated_at_utc": { "type": "string" },
+    "status": { "enum": ["ok", "fail"] },
+    "summary": {
+      "type": "object",
+      "required": [
+        "lockfile_present",
+        "release_console_job_present",
+        "ci_workflow_checks_console",
+        "local_ci_runs_release_gate",
+        "finding_count"
+      ],
+      "properties": {
+        "lockfile_present": { "type": "boolean" },
+        "release_console_job_present": { "type": "boolean" },
+        "ci_workflow_checks_console": { "type": "boolean" },
+        "local_ci_runs_release_gate": { "type": "boolean" },
+        "finding_count": { "type": "integer", "minimum": 0 }
+      },
+      "additionalProperties": false
+    },
+    "package": {
+      "type": "object",
+      "required": [
+        "package_name",
+        "lockfile_name",
+        "lockfile_version",
+        "dependency_count",
+        "dev_dependency_count",
+        "lock_dependency_count",
+        "lock_dev_dependency_count",
+        "dependencies_match",
+        "dev_dependencies_match"
+      ],
+      "properties": {
+        "package_name": { "type": ["string", "null"] },
+        "lockfile_name": { "type": ["string", "null"] },
+        "lockfile_version": { "type": ["integer", "null"] },
+        "dependency_count": { "type": "integer", "minimum": 0 },
+        "dev_dependency_count": { "type": "integer", "minimum": 0 },
+        "lock_dependency_count": { "type": "integer", "minimum": 0 },
+        "lock_dev_dependency_count": { "type": "integer", "minimum": 0 },
+        "dependencies_match": { "type": "boolean" },
+        "dev_dependencies_match": { "type": "boolean" }
+      },
+      "additionalProperties": false
+    },
+    "release_workflow": {
+      "type": "object",
+      "required": [
+        "path",
+        "uses_setup_node",
+        "uses_npm_ci",
+        "uses_npm_install",
+        "typecheck_blocking",
+        "uses_strict_build"
+      ],
+      "properties": {
+        "path": { "type": "string" },
+        "uses_setup_node": { "type": "boolean" },
+        "uses_npm_ci": { "type": "boolean" },
+        "uses_npm_install": { "type": "boolean" },
+        "typecheck_blocking": { "type": "boolean" },
+        "uses_strict_build": { "type": "boolean" }
+      },
+      "additionalProperties": false
+    },
+    "ci_workflow": {
+      "type": "object",
+      "required": [
+        "path",
+        "uses_setup_node",
+        "uses_npm_ci",
+        "runs_typecheck",
+        "runs_strict_build",
+        "uses_npm_install"
+      ],
+      "properties": {
+        "path": { "type": "string" },
+        "uses_setup_node": { "type": "boolean" },
+        "uses_npm_ci": { "type": "boolean" },
+        "runs_typecheck": { "type": "boolean" },
+        "runs_strict_build": { "type": "boolean" },
+        "uses_npm_install": { "type": "boolean" }
+      },
+      "additionalProperties": false
+    },
+    "findings": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["check", "path", "message", "expected", "actual"],
+        "properties": {
+          "check": { "type": "string" },
+          "path": { "type": "string" },
+          "message": { "type": "string" },
+          "expected": {},
+          "actual": {}
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  "additionalProperties": false
+}

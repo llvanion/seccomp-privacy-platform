@@ -56,16 +56,48 @@ def main() -> int:
             "courier_next_stop_only",
             [
                 "--role", "courier",
-                "--entity", "order_fulfillment",
+                "--entity", "delivery_route_legs",
                 "--field", "delivery_route.next_stop_label",
-                "--field", "delivery_route.final_address",
+                "--field", "delivery_route.final_address_line1",
                 "--purpose", "delivery_next_stop",
                 "--relationship", "assigned_delivery_leg",
                 "--scope", "tenant_id=commerce_tenant",
-                "--scope", "delivery_leg_id=leg-1",
+                "--scope", "leg_id=leg-1",
             ],
             "deny",
-            {"delivery_route.next_stop_label": "allow", "delivery_route.final_address": "deny"},
+            {"delivery_route.next_stop_label": "allow", "delivery_route.final_address_line1": "deny"},
+        ))
+        cases.append(run_case(
+            tmp,
+            "station_operator_handoff_only",
+            [
+                "--role", "station_operator",
+                "--entity", "delivery_route_legs",
+                "--field", "delivery_route.pickup_station_label",
+                "--field", "delivery_route.final_address_line1",
+                "--purpose", "station_handoff",
+                "--relationship", "assigned_station_leg",
+                "--scope", "tenant_id=commerce_tenant",
+                "--scope", "leg_id=leg-2",
+            ],
+            "deny",
+            {"delivery_route.pickup_station_label": "allow", "delivery_route.final_address_line1": "deny"},
+        ))
+        cases.append(run_case(
+            tmp,
+            "last_mile_courier_exact_dropoff",
+            [
+                "--role", "last_mile_courier",
+                "--entity", "delivery_route_legs",
+                "--field", "delivery_route.final_address_line1",
+                "--field", "delivery_route.recipient_phone",
+                "--purpose", "last_mile_delivery",
+                "--relationship", "assigned_last_mile_leg",
+                "--scope", "tenant_id=commerce_tenant",
+                "--scope", "leg_id=leg-3",
+            ],
+            "mask",
+            {"delivery_route.final_address_line1": "allow", "delivery_route.recipient_phone": "mask"},
         ))
         cases.append(run_case(
             tmp,
@@ -113,6 +145,22 @@ def main() -> int:
             ],
             "mask",
             {"orders.order_id": "allow", "customer_profile.address_line1": "mask"},
+        ))
+        cases.append(run_case(
+            tmp,
+            "fraud_payment_status_no_contact",
+            [
+                "--role", "fraud_analyst",
+                "--entity", "order_payment",
+                "--field", "order_payment.risk_score",
+                "--field", "orders.buyer_email",
+                "--purpose", "fraud_review",
+                "--relationship", "fraud_review_queue",
+                "--scope", "tenant_id=commerce_tenant",
+                "--scope", "case_id=fraud-1",
+            ],
+            "deny",
+            {"order_payment.risk_score": "allow", "orders.buyer_email": "deny"},
         ))
         cases.append(run_case(
             tmp,

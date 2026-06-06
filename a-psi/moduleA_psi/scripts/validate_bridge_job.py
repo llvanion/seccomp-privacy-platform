@@ -147,16 +147,26 @@ def ensure_file(path: str) -> None:
         die(f"missing file: {path}")
 
 
-def _normalize_policy(policy: Any, *, value_mode: Any) -> Dict[str, Any] | None:
+def _normalize_policy(policy: Any, *, value_mode: Any, value_column: Any = None) -> Dict[str, Any] | None:
     if policy is None:
         if value_mode == "raw_int":
-            return {"min_value": 0, "max_value": None, "allow_negative": False}
+            return {
+                "min_value": 0,
+                "max_value": None,
+                "allow_negative": False,
+                "allowed_value_columns": [],
+                "value_unit": None,
+                "currency": None,
+            }
         return None
     if not isinstance(policy, dict):
         die("input commitment client.value_policy must be an object or null")
     allow_negative = bool(policy.get("allow_negative", False))
     min_value = policy.get("min_value")
     max_value = policy.get("max_value")
+    allowed_value_columns = _normalize_allowed_value_columns(policy.get("allowed_value_columns"))
+    value_unit = _normalize_policy_label(policy.get("value_unit"), "value_unit")
+    currency = _normalize_policy_currency(policy.get("currency"))
     for label, value in (("min_value", min_value), ("max_value", max_value)):
         if value is not None and not isinstance(value, int):
             die(f"input commitment client.value_policy.{label} must be an integer or null")
@@ -164,11 +174,67 @@ def _normalize_policy(policy: Any, *, value_mode: Any) -> Dict[str, Any] | None:
         die("input commitment client.value_policy min_value > max_value")
     if not allow_negative and min_value is not None and min_value < 0:
         die("input commitment client.value_policy min_value is negative while allow_negative=false")
+    if value_mode != "raw_int" and (allowed_value_columns or value_unit is not None or currency is not None):
+        die("input commitment client.value_policy semantic fields require value_mode=raw_int")
+    if allowed_value_columns and value_column not in allowed_value_columns:
+        die(
+            "input commitment client.value_policy.allowed_value_columns "
+            f"does not include value_column {value_column!r}"
+        )
+    if currency is not None and value_unit is None:
+        die("input commitment client.value_policy.currency requires value_unit")
+    if value_unit == "minor_currency_unit" and currency is None:
+        die("input commitment client.value_policy value_unit=minor_currency_unit requires currency")
     return {
         "min_value": min_value,
         "max_value": max_value,
         "allow_negative": allow_negative,
+        "allowed_value_columns": allowed_value_columns,
+        "value_unit": value_unit,
+        "currency": currency,
     }
+
+
+def _normalize_allowed_value_columns(value: Any) -> list[str]:
+    if value in (None, ""):
+        return []
+    if not isinstance(value, list):
+        die("input commitment client.value_policy.allowed_value_columns must be a list")
+    out = []
+    for idx, item in enumerate(value):
+        out.append(_normalize_required_policy_label(item, f"allowed_value_columns[{idx}]"))
+    return sorted(set(out))
+
+
+def _normalize_policy_label(value: Any, label: str) -> str | None:
+    if value in (None, ""):
+        return None
+    return _normalize_required_policy_label(value, label)
+
+
+def _normalize_required_policy_label(value: Any, label: str) -> str:
+    if not isinstance(value, str):
+        die(f"input commitment client.value_policy.{label} must be a string")
+    text = value.strip()
+    if not text:
+        die(f"input commitment client.value_policy.{label} must be non-empty")
+    if len(text) > 128:
+        die(f"input commitment client.value_policy.{label} is too long")
+    allowed = set("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_-./")
+    if any(ch not in allowed for ch in text):
+        die(f"input commitment client.value_policy.{label} contains unsupported characters")
+    return text
+
+
+def _normalize_policy_currency(value: Any) -> str | None:
+    if value in (None, ""):
+        return None
+    if not isinstance(value, str):
+        die("input commitment client.value_policy.currency must be a string")
+    currency = value.strip().upper()
+    if len(currency) != 3 or not currency.isalpha() or not currency.isupper():
+        die("input commitment client.value_policy.currency must be a 3-letter ISO 4217 code")
+    return currency
 
 
 def _validate_value_summary_against_policy(summary: Dict[str, Any], policy: Dict[str, Any], label: str) -> None:
@@ -256,7 +322,7 @@ def validate_bridge_meta(meta: Dict[str, Any], job_dir: str) -> None:
         die("bridge.client.value_column required when value_mode=raw_int")
     client_value_policy = client.get("value_policy")
     if client_value_policy is not None:
-        _normalize_policy(client_value_policy, value_mode=client_value_mode)
+        _normalize_policy(client_value_policy, value_mode=client_value_mode, value_column=client.get("value_column"))
 
     server_csv = os.path.join(job_dir, "server.csv")
     client_csv = os.path.join(job_dir, "client.csv")
@@ -391,8 +457,16 @@ def validate_input_commitment(
                     "input commitment client.value_column mismatch: "
                     f"commitment={party.get('value_column')!r} meta={role_expected['value_column']!r}"
                 )
-            commitment_policy = _normalize_policy(party.get("value_policy"), value_mode=party.get("value_mode"))
-            meta_policy = _normalize_policy(bridge_role.get("value_policy"), value_mode=bridge_role.get("value_mode"))
+            commitment_policy = _normalize_policy(
+                party.get("value_policy"),
+                value_mode=party.get("value_mode"),
+                value_column=party.get("value_column"),
+            )
+            meta_policy = _normalize_policy(
+                bridge_role.get("value_policy"),
+                value_mode=bridge_role.get("value_mode"),
+                value_column=bridge_role.get("value_column"),
+            )
             if commitment_policy != meta_policy:
                 die(
                     "input commitment client.value_policy mismatch: "

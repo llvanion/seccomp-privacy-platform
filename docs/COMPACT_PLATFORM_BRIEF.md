@@ -3,6 +3,8 @@
 这份文档用于替代“先把 `docs/` 全读一遍”的做法。
 
 > 2026-06-01 更新：如果要判断协议安全、功能完整性、真实攻击防护或当前剩余问题，先读 [CURRENT_SECURITY_AND_COMPLETION_AUDIT.md](CURRENT_SECURITY_AND_COMPLETION_AUDIT.md)；如果要开始补齐任务，读 [REMAINING_WORK_IMPLEMENTATION_BACKLOG.md](REMAINING_WORK_IMPLEMENTATION_BACKLOG.md)。本文件只负责快速建立项目上下文。
+>
+> 2026-06-05 更新：如果当前任务是解释“哪些问题已经靠 repo-side 收口、哪些必须线上+线下双管齐下、哪些只剩 malicious-secure backend 或外部 trust-root 才能解决”，直接读 [ONLINE_OFFLINE_SECURITY_GOVERNANCE.md](ONLINE_OFFLINE_SECURITY_GOVERNANCE.md)。
 
 目标：
 
@@ -19,12 +21,17 @@
 
 ## 1. 项目是什么
 
-这个仓库当前是一个面向电商隐私数据场景的比赛版平台基线。
+这个仓库当前最准确的定位是：
+
+一个**面向电商隐私分析场景**的比赛版隐私计算平台基线，其中
+**数据库/控制面 + SSE + Google PJC** 是技术内核，电商订单/归因/
+物流/客服/审批流是关键业务适配场景，而不是替代技术内核的项目本体。
 
 主链路：
 
 ```text
-SSE candidate export
+metadata / encrypted record store
+-> SSE candidate export
 -> controlled record recovery
 -> Rust bridge tokenization
 -> A-PSI / PJC
@@ -39,9 +46,49 @@ SSE candidate export
 4. `scripts/`：pipeline orchestration、sidecar API、benchmark、验证工具
 5. `migrations/metadata/` + SQLite sidecar：控制面 metadata / audit / policy 查询与管理
 
+这里的“数据库”主要指两层：
+
+1. `migrations/metadata/` + metadata sidecar：控制面 / workflow / policy /
+   audit / privacy-budget 状态库
+2. `services/record_recovery/encrypted_record_store.py`：用于敏感记录恢复的
+   加密记录库
+
+这里的 `SSE` 不是演示壳，而是 candidate selection 的核心能力；被退休的是
+旧的 legacy WebSocket 暴露面，而不是 searchable encryption 本身。
+
+这里的 `PJC` 计算内核来自 Google 开源实现。当前项目的重点不是重写 PJC
+协议，而是在它前后增加控制面、输入约束、证据绑定、发布门控和 live
+verifier evidence。
+
 ## 2. 当前状态
 
-当前代码已经超过“原型 demo”，但还没到“真实生产电商平台”。
+当前代码已经超过“原型 demo”，但不应被描述成“完整商业电商平台”。
+更准确的说法是：
+
+1. 面向电商场景的隐私计算平台工程已经成型
+2. 顶层 verifier-facing live 收口已经完成
+3. 核心计算安全边界仍然应按 `semi-honest/operator-controlled` 表述
+
+截至当前 authoritative 汇总，16 个顶层 verifier-facing 模块都已达到：
+
+- `status=ok`
+- `repo_side_status=ok`
+- `live_status=ok`
+
+顶层 authoritative 结果见：
+
+- `tmp/production_security_closure_gate/production_security_closure_gate.json`
+- `tmp/final_live_blockers_report.json`
+
+关键摘要：
+
+- `module_count=16`
+- `live_ok_count=16`
+- `live_fail_count=0`
+- `live_skipped_count=0`
+- `remaining_live_module_count=0`
+
+这说明当前项目已经从“平台基线版”推进到了“平台级收口已绿”的状态。
 
 截至 `2026-05-03`，五条任务线都已经完成“平台基线版”定义范围内的实现。继续推进时，请不要再把工作描述成“补当前基线剩余 block”，而应改读 [POST_BASELINE_ROADMAP.md](/home/llvanion/Desktop/seccomp-privacy-platform/docs/POST_BASELINE_ROADMAP.md) 里的下一阶段 tranche 规划。
 
@@ -55,16 +102,40 @@ SSE candidate export
    - PostgreSQL-ready portability gate
    - registry/policy/permission managed write baseline
    - key registry / key version managed write + read baseline
+4. protocol-external governance 基线已新增并接通：
+   - `source_export_manifest/v1`
+   - `source_attestation/v1`
+   - `source_truthfulness_report/v1`
+   - `release_governance_report/v1`
+   - query request / submit / worker / pipeline / release gate / audit chain
+     之间已经能透传并绑定 source-truthfulness、signoff、input commitment
+   - 2026-06-06：strict source-attestation 进一步收紧为
+     dual-signoff / reviewer-separation / source-export-manifest scope binding；
+     strict release gate 进一步收紧为 dual-signoff requirement、truthfulness
+     report strictness binding、external-anchor job binding；privacy-budget
+     heuristics 进一步覆盖 close-window / threshold-round / cross-bucket
+     differencing deny；HTTP recovery production gate 进一步要求
+     output-root / record-store-root / max_rows_per_request 全部存在
+   - 这属于 protocol-external governance，不是 `malicious-secure` 计算声明
 
-还没完成（2026-05-08 之后更新）：
+安全上还没完成的，当前应只按两类表述：
 
-1. 真实 Keycloak / OpenFGA / Vault / cloud KMS 的长期运行环境和凭证托管（repo 内 adapter、compose、dry-run/live 工具已完成；默认不启动外部服务）
-2. authority source 的生产凭证轮换和 SRE 托管流程
-3. durable workflow / 真实 SPA 壳：Track-E3 已落 `console_manifest/v1` 契约 + 静态占位页 + 渲染/校验脚本；I3-a/I3-b repo-side 已实现 `POST /v1/request/submit`、`GET /v1/requests`、`GET /v1/requests/{submission_id}`、approve/reject endpoints、`workflow_submissions` pending/approved/rejected queue、`operator_request_submission/v1` 和 `operator_request_submission_list/v1`；完整 SPA 仍属后续产品工作
-4. SQL sidecar 更深的 Postgres 迁移与 importer repair
-5. caller 画像仍然主要停留在"平台操作者 / 查询发起者"层级，但 Track-E2 已经把买家、商家店员、客服、快递员、地推这五类业务身份作为 `business_identities` 注解层落基线；详见 [ECOMMERCE_ACCESS_MODEL.md](/home/llvanion/Desktop/seccomp-privacy-platform/docs/ECOMMERCE_ACCESS_MODEL.md) §业务身份扩展
-6. SQL sidecar 仍然不是完整电商数仓，但 Track-E1 已落 `orders / order_items / order_attribution / order_payment / order_fulfillment / customer_service_interactions` 六张事实表（`migrations/metadata/010_*.sql`，Postgres DDL 同步），当前限制是仍需要 operator 提供真实/脱敏数据导入；详见 [ECOMMERCE_FACT_LAYER_PLAN.md](/home/llvanion/Desktop/seccomp-privacy-platform/docs/ECOMMERCE_FACT_LAYER_PLAN.md)
-7. 面向真实电商订单分析的事实层当前是窄口径基线，不覆盖 customer 360、完整商品/库存/物流轨迹或实时数仓。
+1. **协议内 / 架构内强化**
+   - `PJC` 从当前 `semi-honest` 计算内核推进到更强的恶意方安全等级
+   - 更强的 `SSE` 搜索模式 / 访问模式泄露缓解（如 ORAM、forward-private
+     SSE、OPRF-blinded query 等）
+2. **真实外部 operator / enterprise trust root**
+   - 真实 Keycloak / OpenFGA / Vault / cloud KMS 的长期生产托管、
+     轮换、吊销、回滚和 SRE 值守流程
+   - 真实 immutable anchor、企业身份根、live HA / worker / SRE 证据
+
+更完整的电商事实域与 customer 360 仍然只是业务扩展方向，不是当前平台技
+术内核安全闭环的剩余 blocker。
+
+电商平台这个词在答辩叙事里是重要的，但应表述为：
+
+> 我们做的是一个面向电商隐私分析场景的隐私计算平台；
+> 电商是关键业务适配场景，数据库/控制面 + SSE + Google PJC 是技术主线。
 
 当前剩余问题和生产安全判断以 [CURRENT_SECURITY_AND_COMPLETION_AUDIT.md](CURRENT_SECURITY_AND_COMPLETION_AUDIT.md) 为准；具体实现级任务以 [REMAINING_WORK_IMPLEMENTATION_BACKLOG.md](REMAINING_WORK_IMPLEMENTATION_BACKLOG.md) 为准；历史 block 估算只作为追溯资料保留在 [PLATFORM_LEVEL_REMAINING_ESTIMATE.md](/home/llvanion/Desktop/seccomp-privacy-platform/docs/PLATFORM_LEVEL_REMAINING_ESTIMATE.md)。
 
@@ -79,6 +150,9 @@ SSE candidate export
 3. 支持 standalone recovery service，Unix socket / HTTP 两种 transport
 4. 支持 request timestamp anti-replay、HMAC request signing
 5. 支持 replay 验证、mainline contract check、audit chain / seal / archive
+6. 支持 source-truthfulness / release legitimacy 的 repo-side 治理闭环：
+   source export manifest、signed source attestation、strict verifier、
+   release gate 绑定、release governance report
 
 ### 3.2 权限与授权
 

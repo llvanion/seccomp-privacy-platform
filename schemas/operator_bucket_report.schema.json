@@ -24,6 +24,28 @@
     "dp_sensitivity": { "type": ["integer", "null"], "minimum": 1 },
     "round_sum_to": { "type": ["integer", "null"], "minimum": 1 },
     "public_report_path": { "type": "string" },
+    "bucket_policy": {
+      "type": ["object", "null"],
+      "properties": {
+        "bucket_field": { "type": ["string", "null"] },
+        "bucket_policy_sha256": { "type": ["string", "null"], "pattern": "^[0-9a-f]{64}$" },
+        "allowed_bucket_fields": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 },
+          "uniqueItems": true
+        },
+        "allowed_buckets": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 },
+          "uniqueItems": true
+        },
+        "max_buckets": { "type": ["integer", "null"], "minimum": 1 },
+        "bucket_label_pattern": { "type": ["string", "null"] },
+        "require_exact_allowed_buckets": { "type": "boolean" },
+        "enforcement": { "type": "string" }
+      },
+      "additionalProperties": false
+    },
     "buckets": {
       "type": "array",
       "items": {

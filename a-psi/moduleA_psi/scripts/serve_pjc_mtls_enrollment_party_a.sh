@@ -15,6 +15,7 @@ DASHBOARD_PORT="${DASHBOARD_PORT:-18134}"
 OUT_BASE="${OUT_BASE:-tmp/operator_dashboard_mtls_enrollment}"
 HISTORY_ROOT="${HISTORY_ROOT:-tmp}"
 FORCE_REGENERATE="${FORCE_REGENERATE:-0}"
+CERT_DIR="${CERT_DIR:-$REPO_ROOT/tmp/pjc_mtls_shared/certs}"
 TOKEN_FILE="${PJC_MTLS_PAIRING_TOKEN_FILE:-$REPO_ROOT/tmp/pjc_mtls_shared/pairing_token}"
 TOKEN_META_FILE="$REPO_ROOT/tmp/pjc_mtls_shared/pairing_token_meta.json"
 PJC_MTLS_PAIRING_TOKEN_TTL_SECONDS="${PJC_MTLS_PAIRING_TOKEN_TTL_SECONDS:-600}"
@@ -65,9 +66,9 @@ os.chmod(meta_path, 0o600)
 PY
 
 echo "[info] preparing Party A PJC mTLS material..."
-FORCE_REGENERATE="$FORCE_REGENERATE" bash "$SCRIPT_DIR/prepare_pjc_mtls_party_a.sh"
+CERT_DIR="$CERT_DIR" FORCE_REGENERATE="$FORCE_REGENERATE" bash "$SCRIPT_DIR/prepare_pjc_mtls_party_a.sh"
 
-FINGERPRINT="$(openssl x509 -in "$REPO_ROOT/tmp/pjc_mtls_shared/certs/ca.crt" -fingerprint -sha256 -noout)"
+FINGERPRINT="$(openssl x509 -in "$CERT_DIR/ca.crt" -fingerprint -sha256 -noout)"
 if [[ -n "${SERVER_HOST:-}" ]]; then
   ENROLL_URL="${PJC_MTLS_ENROLL_URL:-http://${SERVER_HOST}:${DASHBOARD_PORT}/v1/pjc-mtls/enroll}"
   B_SERVER_HOST="$SERVER_HOST"

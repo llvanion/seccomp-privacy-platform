@@ -116,6 +116,9 @@ run_expect_fail "pipeline_missing_pjc_resource_limits" "--pjc-resource-limits is
       --client-normalizer email \
       --client-value-mode raw-int \
       --client-value-max 1000000 \
+      --client-allowed-value-field amount \
+      --client-value-unit minor_currency_unit \
+      --client-value-currency USD \
       --token-scope pjc-prod-gate-scope \
       --token-secret-env PROD_GATE_TOKEN_SECRET \
       --job-id pjc_prod_gate_pipeline \
@@ -137,6 +140,9 @@ run_expect_fail "pipeline_missing_release_policy_gate_config" "--release-policy-
       --client-normalizer email \
       --client-value-mode raw-int \
       --client-value-max 1000000 \
+      --client-allowed-value-field amount \
+      --client-value-unit minor_currency_unit \
+      --client-value-currency USD \
       --token-scope pjc-prod-gate-scope \
       --token-secret-env PROD_GATE_TOKEN_SECRET \
       --job-id pjc_prod_gate_pipeline_release_gate \

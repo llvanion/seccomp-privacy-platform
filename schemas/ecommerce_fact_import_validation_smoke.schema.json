@@ -17,7 +17,9 @@
     "allow_decision": { "const": "allow" },
     "address_decision": { "const": "deny" },
     "negative_value_decision": { "const": "deny" },
-    "support_transcript_decision": { "const": "deny" }
+    "support_transcript_decision": { "const": "deny" },
+    "delivery_leg_allow_decision": { "const": "allow" },
+    "delivery_leg_sensitive_decision": { "const": "deny" }
   },
   "additionalProperties": false
 }

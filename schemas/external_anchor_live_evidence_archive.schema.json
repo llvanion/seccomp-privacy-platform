@@ -1,0 +1,53 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "external_anchor_live_evidence_archive/v1",
+  "title": "External anchor live evidence archive",
+  "type": "object",
+  "required": [
+    "schema",
+    "generated_at_utc",
+    "status",
+    "job_id",
+    "live_artifact_count",
+    "live_artifacts",
+    "findings",
+    "artifacts",
+    "aggregate_sha256"
+  ],
+  "properties": {
+    "schema": { "const": "external_anchor_live_evidence_archive/v1" },
+    "generated_at_utc": { "type": "string", "minLength": 1 },
+    "status": { "enum": ["ok", "fail"] },
+    "job_id": { "type": "string", "minLength": 1 },
+    "live_artifact_count": { "type": "integer", "minimum": 0 },
+    "live_artifacts": {
+      "type": "object",
+      "required": ["live_report", "live_ledger"],
+      "properties": {
+        "live_report": {},
+        "live_ledger": {}
+      },
+      "additionalProperties": false
+    },
+    "findings": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 }
+    },
+    "artifacts": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["path", "size_bytes", "sha256"],
+        "properties": {
+          "path": { "type": "string", "minLength": 1 },
+          "size_bytes": { "type": "integer", "minimum": 0 },
+          "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" }
+        },
+        "additionalProperties": false
+      }
+    },
+    "aggregate_sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" }
+  },
+  "additionalProperties": false
+}

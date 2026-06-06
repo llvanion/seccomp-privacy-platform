@@ -56,6 +56,8 @@
 8. API smoke schema：[schemas/business_access_api_smoke.schema.json](/home/llvanion/Desktop/seccomp-privacy-platform/schemas/business_access_api_smoke.schema.json)
 9. 候选事实导入校验：[scripts/validate_ecommerce_fact_import.py](/home/llvanion/Desktop/seccomp-privacy-platform/scripts/validate_ecommerce_fact_import.py)
 10. 验证优先的事务导入：[scripts/import_ecommerce_fact_rows.py](/home/llvanion/Desktop/seccomp-privacy-platform/scripts/import_ecommerce_fact_rows.py)
+11. Console 业务访问工作台：[console/src/routes/business-access.tsx](/home/llvanion/Desktop/seccomp-privacy-platform/console/src/routes/business-access.tsx)
+12. Validator-first ETL import job wrapper：[scripts/run_ecommerce_fact_import_job.py](/home/llvanion/Desktop/seccomp-privacy-platform/scripts/run_ecommerce_fact_import_job.py)
 
 这层是 repo-side field-level contract，不改变冻结的 `SSE -> record recovery -> bridge -> PJC -> policy release` 主链路，也不替代平台 caller 权限。它用于把业务角色的字段级 allow/mask/deny 明确下来，并让 CI 能发现策略漂移。
 
@@ -76,7 +78,10 @@
 | `merchant_staff` | 允许订单、商品、履约状态；拒绝买家地址、联系方式、快递路线、operator-only 字段。 |
 | `customer_service_agent` | 允许工单/履约状态；买家联系方式只能 mask；拒绝地址、内部 operator 字段。 |
 | `courier` | 只允许 `delivery_route.next_stop_*` 和履约状态；拒绝完整路线、最终地址、收件电话、订单/买家字段。 |
+| `station_operator` | 只允许当前站点交接腿和站内交接字段；拒绝最终地址、下游腿地址和买家联系信息。 |
+| `last_mile_courier` | 只在 `assigned_last_mile_leg` 下允许读取最终投递腿的真实投递地址；收件电话默认只给 masked 版本。 |
 | `field_marketer` | 只允许 campaign attribution 字段；拒绝买家、物流、客服和 operator-only 字段。 |
+| `fraud_analyst` | 允许支付方式、风险分、争议状态等 payment status 字段；拒绝买家联系方式、地址、完整路线、raw support 和 operator-only 字段。 |
 | `compliance_auditor` | 允许审计目的下的业务元数据；买家地址/联系方式只能 mask；拒绝 raw operator-only 和完整路线。 |
 
 验证命令：
@@ -86,6 +91,7 @@ python3 scripts/check_business_access_policy_smoke.py
 python3 scripts/check_business_access_api_smoke.py --out-dir tmp/business_access_api_smoke
 python3 scripts/check_ecommerce_fact_import_validation.py --out-dir tmp/ecommerce_fact_import_validation
 python3 scripts/check_ecommerce_fact_import.py --out-dir tmp/ecommerce_fact_import_smoke
+python3 scripts/check_ecommerce_production_exposure_gate.py --out-dir tmp/ecommerce_production_exposure_gate
 python3 scripts/validate_json_contract.py \
   --schema schemas/business_data_read_preview.schema.json \
   --json tmp/business_access_api_smoke/business_read_preview_masked.json
@@ -98,6 +104,68 @@ python3 scripts/validate_json_contract.py \
 bash scripts/check_json_contracts.sh
 ```
 
+2026-06-03 更新：新增 `ecommerce_production_exposure_gate/v1` 作为验证者可读的 repo-side 聚合门禁。它会同时检查：
+
+1. 六张事实表和索引仍在 migration 中。
+2. `business_access_policy/v1` 覆盖 buyer / merchant / support / courier / field_marketer / fraud_analyst / compliance_auditor，并保护 `orders.buyer_email`、地址和 raw support transcript。
+3. metadata API read-preview 的 allow / deny / mask / sensitive-filter / role-spoof / fraud payment allow / fraud contact deny / field marketer attribution allow / field marketer contact deny 路径，以及 `business-identities` 目录对非特权 caller 的 caller-scoped / cross-tenant denial。
+4. operator request workflow 的 submit / detail / approve / reject / self-approval deny 证据，以及 submitter 不能伪造 caller/tenant/dataset、不能无权限开启 recovery 路径或漂移 `record_recovery_service_id`、non-review analyst 不可见/不可批、compliance auditor 可拒绝但不可批准 的权限负例。direct query/workflow API 的 identity-bound dry-run 也覆盖了同一个 recovery service scope 约束，避免绕过 request workflow 走旁路。
+5. console manifest 没有把直接 job/PJC mutation endpoint 暴露给 campaign/fraud analyst 角色。
+6. 一个结构化 `exposure_matrix`：把 attacker、internal adversary、verifier 三种视角各自要看的风险、控制与证据文件固定下来，便于 release 归档和验证者复核。
+7. 独立的 `identity_jwks_evidence_gate/v1` 证明 repo-side RS256/JWKS claim mapping、JWKS-backed `/v1/identity`、以及 JWKS-backed key-agent / external-KMS 身份路径可被验证者单独复核；它仍是 synthetic/file-JWKS 证据，不是 live Keycloak 证据。
+8. `live_identity_authority_evidence_gate/v1` 在此基础上再上一层：它保留 repo-side JWKS 基线，同时把 live client-credentials、live JWKS claim verification、live `resolve_api_identity`、以及 live metadata `/v1/identity` 组织成 `ok|fail|skipped` 的 verifier-facing 报告；缺少 operator 提供的 live endpoint/secret 时会明确标记为 `skipped`，而不是冒充生产完成。
+9. 新增物流分段可见性基线：`delivery_route_legs` 事实表现在承载 `leg_id / route_id / leg_sequence / leg_kind / assigned_courier_id / assigned_station_id / next_stop_* / pickup_station_* / final_*` 字段。repo-side smoke 已证明：
+   - `courier` 在 `assigned_delivery_leg` + `delivery_next_stop` 下可以读取当前腿的 `next_stop`，但不能读取 `final_address_line1`
+   - `station_operator` 在 `assigned_station_leg` + `station_handoff` 下可以读取站点交接字段，但不能读取 `final_address_line1`
+   - `last_mile_courier` 在 `assigned_last_mile_leg` + `last_mile_delivery` 下可以读取最终投递地址，但 `recipient_phone` 仍默认以 masked 形式返回
+   - 因此“北京小区站 -> 城市中转站 -> 北京末端站 / 楼栋”这类分段物流权限现在不再只是策略占位，而是有数据模型、导入校验和 metadata read-preview 验证
+10. As of 2026-06-04, the repo-side gate no longer trusts caller-supplied
+    `relationship` / `scope` hints by themselves for the main commerce personas.
+    The fact layer now carries explicit relationship-binding columns:
+    - `orders.merchant_business_identity_id`
+    - `orders.buyer_business_identity_id`
+    - `order_attribution.assigned_marketer_business_identity_id`
+    - `order_payment.assigned_fraud_analyst_business_identity_id`
+    - `order_payment.fraud_case_id`
+    - `customer_service_interactions.case_id`
+    and `serve_metadata_api.py` binds those back to `business_identities`
+    before returning `business_access_check_report/v1` or
+    `business_data_read_preview/v1`.
+11. The resulting repo-side hardening is:
+    - `merchant_staff` can no longer self-assert `merchant_of_order`; the order
+      row must already point at the caller's `merchant_business_identity_id`.
+    - `buyer` self-service can no longer self-assert another buyer; the order
+      row must already point at the caller's `buyer_business_identity_id`.
+    - `courier` / `station_operator` / `last_mile_courier` can no longer pivot
+      by swapping `assigned_*` scope fields; the delivery leg row must already
+      be assigned to the caller's business identity, and the caller-supplied
+      scope anchor must match that bound identity.
+    - `fraud_analyst` and `field_marketer` now require a bound fraud case /
+      assigned campaign record in the fact rows, rather than only a declared
+      `case_id` / `campaign_id`.
+12. `customer_service_agent` relation binding is now implemented in the same
+    repo-side handler path and yields a valid
+    `business_access_check_report/v1` with `relationship_binding.status=ok`.
+    The loopback HTTP smoke now also proves the same non-privileged support
+    caller path: support sees masked buyer contact on its assigned case, and
+    spoofing another `case_id` is rejected with HTTP 403. This is still
+    repo-side evidence, not deployment proof.
+13. As of 2026-06-05, the operator console now has a dedicated repo-side
+    `Business Access Workbench` route. It calls
+    `POST /v1/business-access/check` and
+    `POST /v1/business-data/read-preview` through the metadata sidecar client,
+    and ships curated merchant/support/courier/last-mile/fraud presets so
+    reviewer-facing browser flows stay on the same contract as the API smoke.
+14. As of 2026-06-05, external ETL/event-stream style imports also have a
+    verifier-facing wrapper:
+    `ecommerce_fact_import_job/v1` via
+    `scripts/run_ecommerce_fact_import_job.py`.
+    It is a manifest-driven wrapper around
+    `import_ecommerce_fact_rows.py`; the smoke proves an allowed batch commits
+    and a protected-column batch is denied without mutating final row count.
+
+这个 gate 是 repo-side production exposure evidence，不是 live deployment evidence。真实生产仍要补真实 OIDC/JWKS 身份、OpenFGA/ABAC 或等价外部授权、真实/批准的电商数据导入报告、TLS/mTLS 和 NetworkPolicy 部署证据、Postgres backup/restore/failover、以及外部 immutable audit anchor。
+
 边界仍然保留：
 
 1. 这还不是完整业务 API ABAC；当前强制读取路径是 metadata API 的 read-preview。
@@ -105,6 +173,10 @@ bash scripts/check_json_contracts.sh
 3. repo-side 已有验证优先的事务批量导入命令；生产外部 ETL、事件流或数据仓库任务仍必须调用该命令或实现等价 policy gate，才能支撑生产 ingest 声明。
 4. 还需要 OpenFGA/ABAC 决策，才能支撑外部化生产授权声明。
 5. 真实地址、物流路线、客服 transcript 仍未进入当前 fact-layer；如果加入，必须先扩展策略、schema、read gate、import validator 和事务 importer。
+6. Console `Business Access Workbench` 和 `ecommerce_fact_import_job/v1`
+   目前都只是 repo-side evidence：它们证明浏览器接触面和 ETL wrapper
+   已经接到同一套 gate，不代表已经存在 live browser session evidence 或
+   真实 external ETL deployment evidence。
 
 ## 业务身份扩展（Track-E2，2026-05-08 落基线）
 
@@ -125,14 +197,15 @@ bash scripts/check_json_contracts.sh
 | `customer_service_agent` | 客服 | `caller` 一般是 `compliance_auditor` 或专门的 supervisor |
 | `courier` | 快递员 / 物流履约人员 | 不发起查询；只在 `customer_service_interactions.agent_id` / `order_fulfillment.carrier_id` 里出现 |
 | `field_marketer` | 地推 / 渠道投放执行人员 | `caller` 一般是 `campaign_analyst` |
+| `fraud_analyst` | 风控 / 支付争议分析 | `caller` 一般是 `fraud_analyst` 或带同等业务身份的审计/风控服务账号 |
 
 字段定义（详见迁移）：`id` / `business_identity_id` / `tenant_id` / `dataset_id` / `identity_kind` / `caller_id` / `subject_external_id` / `display_label` / `enabled` / `created_at_utc` / `updated_at_utc` / `metadata_json`。约束：
 
 - `(tenant_id, business_identity_id)` 唯一。
 - `caller_id` 可空；非空时必须能在 `caller_permissions` 找到匹配 row。
-- `identity_kind` 受控集合：`buyer` / `merchant_staff` / `customer_service_agent` / `courier` / `field_marketer`。
+- `identity_kind` 受控集合：`buyer` / `merchant_staff` / `customer_service_agent` / `courier` / `field_marketer` / `fraud_analyst`。
 
-读取入口：`query_metadata.py --list-entity business-identities`（与现有 `caller-permissions` 视图同形态）。
+读取入口：`query_metadata.py --list-entity business-identities`（与现有 `caller-permissions` 视图同形态）。对非特权 identity，这个目录现在按 `caller_id` fail-closed 收窄，并拒绝 caller/tenant 冒充；只有特权 platform 角色保留广域枚举能力。
 
 边界保留：
 

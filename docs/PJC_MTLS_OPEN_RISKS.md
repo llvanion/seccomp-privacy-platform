@@ -6,6 +6,11 @@ This document tracks the remaining risks in the cross-machine PJC mTLS and
 business-bucket test workflow. It focuses on risks that are not fully solved by
 the current scripts.
 
+For the broader cross-cutting answer about which issues are already closed
+repo-side, which require online + offline governance together, and which only a
+malicious-secure backend could solve, see
+[ONLINE_OFFLINE_SECURITY_GOVERNANCE.md](ONLINE_OFFLINE_SECURITY_GOVERNANCE.md).
+
 ## Current Coverage
 
 | Risk | Status | Current control |
@@ -21,7 +26,7 @@ the current scripts.
 | Enrollment endpoint public exposure | Solved | Dashboard server auto-shuts down after `MAX_ENROLLMENTS`, TTL expiry, or `PJC_MTLS_ENROLLMENT_IDLE_TIMEOUT_SECONDS`, AND `serve_pjc_mtls_enrollment_party_a.sh` now launches the dashboard with `--mtls-enrollment-only-mode` — every endpoint except `/healthz` and `POST /v1/pjc-mtls/enroll` returns 404 `enrollment_only_mode`. |
 | Synchronous bucketed-scale-test HTTP endpoint | Solved | `POST /v1/bucketed-scale-test/run` is now async by default (returns 202 + `job_id`); state via `GET /v1/bucketed-scale-test/{job_id}` and `GET /v1/bucketed-scale-test`. `?sync=1` or `{"sync": true}` is the explicit opt-in for the legacy blocking path. |
 | Small bucket leakage | Solved at report layer | `policy_postprocess_buckets.py` now writes release-safe `bucket_public_report/v1`: below-k bucket labels are omitted, exact bucket sizes and `dp_noise` are redacted, and full raw/noise evidence moves to `operator_bucket_report/v1`. `--require-dp` remains fail-closed. |
-| Basic differencing resistance | Partially solved | Total and per-bucket reports support Laplace DP noise. `--require-dp` is now available on `policy_release.py` and `policy_postprocess_buckets.py` and is on by default in `run_bucketed_scale_test.sh`. Exact duplicate query denial and optional privacy budget ledger exist. Tenant-wide enforcement and metadata-read-model integration are still pending (S3). |
+| Basic differencing resistance | Repo-side tightened, still not protocol-complete | Total and per-bucket reports support Laplace DP noise. `--require-dp` is now available on `policy_release.py` and `policy_postprocess_buckets.py` and is on by default in `run_bucketed_scale_test.sh`. Exact duplicate query denial, overlap deny, close-window/threshold-round heuristics, and cross-bucket bucket-probe denial now exist in the privacy-budget ledger path. This is still software governance, not a malicious-secure proof against adaptive statistical attacks. |
 
 ## Open Risks
 
@@ -265,11 +270,11 @@ is empty. The target is a single guided flow, not a collection of manual scripts
 | Preflight API | Repo-side implemented | `POST /v1/pjc-mtls/preflight` now produces `pjc_two_party_preflight/v1`; still needs real two-host evidence | `pjc_two_party_preflight/v1` from both parties on the same live job |
 | Role package API | Repo-side implemented | `POST /v1/pjc/role-package/export` and `/import` validate hashes and undeclared files; still needs cross-host operator exercise | exported package manifest, imported package validation report from both hosts |
 | Cross-host role lifecycle | Repo-side implemented | `/v1/pjc/roles/{server,client}/start`, `/status`, `/cancel` persist PID/log/hash state; still needs real Party A/B run evidence | server/client status JSON, log hashes, cancellation evidence |
-| Evidence merge gate | Repo-side implemented | `/v1/pjc/evidence/verify-merge` compares job id, commit, input manifests, TLS identity, result hash, policy decision, and audit chain; still needs real two-party artifacts | merged evidence bundle with allow/deny decision |
+| Evidence merge gate | Repo-side implemented | `/v1/pjc/evidence/verify-merge` compares job id, commit, input manifests, optional bucket-policy/shard-manifest hashes, TLS identity, result hash, policy decision, and audit chain; still needs real two-party artifacts | merged evidence bundle with allow/deny decision, including bucket/shard scope hash match when bucketed/sharded jobs are used |
 | Negative-case panel | Repo-side implemented | `/v1/pjc-mtls/negative-cases/run` covers wrong token, expired token, wrong CA, wrong peer, closed port, commit mismatch, modified CSV, and privacy denial; still needs live negative evidence | typed negative-case summary with every expected denial |
-| Public 10502 TLS EOF unresolved | Live evidence open | The latest VPS bucketed attempt reached the port but failed during TLS handshake; `POST /v1/pjc-mtls/tls-diagnostic` can now classify `tls_eof`, capture local cert/log context, and suggest next action, but the live root cause is not closed. | root-cause report plus passing two-host run |
+| Public bucketed TLS EOF noise | Mitigated by live evidence + typed readiness | The completed clean-room `cross-vps-008` public run on `118.190.61.66:10504` proves `TLSv1.3` mTLS succeeds for all 8 buckets. The repeated `SSL_accept unexpected eof` lines on Party A correlate with the old plain-TCP readiness touch, not with workload failure. `pjc_tls_readiness/v1` now exists to replace that probe with a real typed mTLS readiness check. | Keep bucketed wrappers on `pjc_tls_readiness/v1`; archive future public runs with `public_two_host_live_evidence_archive/v1` |
 | Full guided frontend wizard | Repo-side implemented | The `#s9-wizard` flow exists in `scripts/serve_operator_dashboard.py`; it still needs an operator walkthrough on two hosts. | operator walkthrough recording or screenshots plus successful API trace |
-| Server-side DP gate | Repo-side implemented | `POST /v1/release/policy-gate` and `scripts/check_release_policy_gate.py` enforce DP metadata, k, privacy-budget ledger, and duplicate-query defenses; live release workflows still need to route through it. | repeated-query denial, low-k denial, DP metadata evidence from the deployed release path |
+| Server-side release gate | Repo-side implemented | `POST /v1/release/policy-gate` and `scripts/check_release_policy_gate.py` enforce DP metadata, k, privacy-budget ledger, duplicate-query defenses, bound PJC evidence, and uploaded external-anchor evidence when configured. | repeated-query denial, low-k denial, DP metadata evidence, PJC result-binding denial, and live S3/Rekor anchor evidence from the deployed release path |
 
 ## Project Security Risk Register
 
@@ -278,12 +283,28 @@ roots. The project should close code, schema, and scriptable verification gaps;
 it should not claim ownership of enterprise accounts, external WORM storage,
 or production network identity systems supplied by an operator.
 
+For reviewer-facing language, this project should be described as:
+
+- a **database/control-plane + SSE + Google PJC** privacy-compute platform
+- with `ecommerce` as a **key business-adaptation narrative**, not the
+  replacement for the technical kernel
+- and with the current PJC compute core explicitly bounded as
+  `semi-honest/operator-controlled`
+
+Here `semi-honest` means both parties are assumed to follow the Google PJC
+protocol steps correctly while still trying to infer as much as possible from
+allowed views such as inputs, outputs, logs, timing, and metadata. It does
+**not** mean the project is unsafe, and it does **not** mean the parties are
+trusted to provide truthful business data or to avoid malicious protocol
+deviation forever. It means the current safety story is split across protocol
+assumptions, engineering controls, and governance controls.
+
 | Risk | Project-side control | Remaining verification |
 | --- | -------------------- | ---------------------- |
 | Real cross-machine mTLS evidence | S9 preflight, role package, role lifecycle, evidence merge, negative-case runner, and TLS diagnostic endpoints are implemented. | Run the full scriptable flow on two hosts and archive both parties' reports. |
-| Public `10502` TLS EOF | `pjc_tls_diagnostic/v1` records TCP/TLS category, peer cert when available, local cert/key/CA presence, and server-log tail. | Re-run against the VPS and close the live root cause. |
+| Public post-run `tcp_refused` after a completed run | Not a blocker when a fresh completed archive exists | `pjc_tls_diagnostic/v1` run after Party A exits will legitimately report `tcp_refused`. `public_two_host_production_readiness_gate/v1` now prefers a fresh `public_two_host_live_evidence_archive/v1` over a post-run listener probe when the archive proves the completed run. | Preserve fresh archive + clean-room report so the gate can distinguish “listener exited after success” from “listener never came up” |
 | Malicious or malformed participant input | Input manifests, package hashes, preflight CSV/hash checks, and negative cases catch tampering at the wrapper layer. | S8 commit-and-prove / malicious-secure PSI-SUM remains a protocol-hardening path for adversarial participants. |
-| Public release bypass | `release_policy_gate/v1` enforces DP/k/privacy-budget conditions before release. | Ensure every deployed public-release path calls the gate; no direct bypass to lower-level scripts. |
+| Public release bypass | `release_policy_gate/v1` enforces DP/k/privacy-budget/PJC-evidence/external-anchor conditions before release. | Ensure every deployed public-release path calls the gate; no direct bypass to lower-level scripts. |
 | Metadata / side-channel leakage | Public-report redaction, bucket suppression, DP metadata, min-row side-channel controls, audit API caller-safe summaries, and repo-side dashboard role-gated public summaries exist. | Small-shard merge/padding, console route-level caller-safe views, and live/operator review of the deployed dashboard auth path remain open. |
 | Resource exhaustion / DoS | Role lifecycle uses controlled env allowlists, timeout/cancel state, preflight resource fields, and role status logs. | Real large-input and timeout evidence on the deployment hosts. |
 | Audit credibility | The project produces structured evidence, hashes, merge reports, policy-gate reports, and external-anchor interfaces. | The immutable trust root is operator-provided: Rekor/Sigstore, S3 Object Lock, enterprise WORM storage, timestamp authority, or internal audit platform. AWS S3 Object Lock is not required for student validation when no enterprise account is available. |
@@ -292,6 +313,77 @@ Audit credibility is therefore an integration boundary, not an unsolved
 student-side defect. The platform's responsibility is to emit stable,
 hash-addressed reports and expose anchoring hooks; the deployment's
 responsibility is to provide and operate the external immutable sink.
+
+## Malicious-Participant Narrative
+
+The remaining PJC security problem should be described precisely. The most
+important unresolved risk is **not** "the attacker immediately reads all
+plaintext". The more realistic remaining risk is:
+
+1. a participant can provide semantically false but structurally valid source
+   data and obtain a mathematically correct result over dishonest business input
+2. a participant can deviate from the protocol or selectively abort, producing
+   misleading evidence or misleading business conclusions
+3. a participant can try to package a false result as a normal run unless the
+   release, approval, and audit chain stop it
+
+That is why the current project should not claim `malicious-secure` PJC.
+
+### What is already solved inside the current framework
+
+The project already has meaningful engineering controls:
+
+1. `SSE` limits the data entering the computation to candidate-selection output
+   rather than exchanging full raw datasets
+2. record recovery and bridge tokenization constrain the plaintext boundary
+3. input manifests, package hashes, preflight CSV/hash checks, and negative
+   cases catch many wrapper-layer tampering mistakes
+4. signed two-party evidence, release binding, privacy budget, approval flow,
+   audit chain, and external-anchor hooks make false publication harder to hide
+
+These controls are valuable and should be claimed as such. They are stronger
+than a bare protocol demo. They are **not** the same thing as full
+malicious-secure computation.
+
+### What must be explained as protocol-internal vs protocol-external
+
+The remaining security story should be split into two tracks:
+
+1. **Protocol-internal hardening**
+   This is the part that would actually change the PJC adversary model. It
+   requires a stronger active-secure or malicious-secure backend, such as an
+   active-secure PSI-SUM / 2PC path, rather than simply wrapping the current
+   Google PJC binary and claiming the core changed.
+2. **Protocol-external governance**
+   This addresses source truthfulness and release legitimacy through signed
+   approvals, sealed/hash-bound inputs, release gates, immutable archives, and
+   post-run audit accountability. This track is a legitimate part of the
+   security story because real business-data truthfulness and formal release
+   authority are not solved by the compute kernel alone.
+
+   Status update as of 2026-06-05:
+
+   - Repo-side typed artifacts now exist for this track:
+     `source_export_manifest/v1`, `source_attestation/v1`,
+     `source_truthfulness_report/v1`, and `release_governance_report/v1`.
+   - Strict release configs can now fail closed on missing attestation,
+     unsigned signoff, stale/planned/local/manual evidence, and unbound
+     input-commitment / release-hash drift.
+   - This closes the remaining **repo-side** governance gap for
+     source-truthfulness and release-legitimacy claims. It does **not** upgrade
+     Google PJC from `semi-honest` to `malicious-secure`.
+
+### Competition-safe wording
+
+For a competition artifact, the stable claim should therefore be:
+
+- the current platform provides a **semi-honest compute core with strong
+  engineering constraints and verifier-facing evidence**
+- the remaining malicious-participant gap is explicitly understood
+- source truthfulness and release legitimacy are controlled partly through
+  governance and partly through the release/audit pipeline
+- the project does **not** overclaim that "adding a proof layer" automatically
+  turns Google PJC into a malicious-secure protocol
 
 ## Scriptable Two-Host Verification Path
 
@@ -325,6 +417,13 @@ over manual inspection:
    `pjc_role_package/v1`, `pjc_role_status/v1`,
    `pjc_two_party_evidence_merge/v1`, `release_policy_gate/v1`,
    `pjc_two_party_negative_cases/v1`, and `pjc_tls_diagnostic/v1` reports.
+8. Before spending operator time on a new public run, execute
+   `scripts/check_public_two_host_production_readiness_gate.py`. It now
+   packages the repo-side two-party/TLS/release baseline, archived S7/K3
+   evidence integrity, and optional live VPS management/data-plane probes into a
+   single report. A TCP-reachable host that answers candidate admin ports with
+   an HTTP `502 Bad Gateway` pattern is a live blocker, not valid management
+   evidence.
 
 The existing local regression scripts remain the fast gate before attempting
 the live run:
@@ -498,27 +597,43 @@ a real cluster or two real hosts.
    gate via `--assert-allow`.
 5. **Server-side release policy gate.** `POST /v1/release/policy-gate` +
    `scripts/check_release_policy_gate.py` consume a public report (and an
-   optional operator report + privacy budget ledger) against
+   optional operator report, privacy budget ledger, PJC evidence merge, policy
+   audit log, and external anchor report) against
    `config/release_policy_gate.example.json` and emit
    `release_policy_gate/v1`. They close the `--require-dp` CLI bypass by
    requiring DP metadata, k threshold ≥ policy minimum, an allowed-deny
    reason code for denied releases, a privacy-budget ledger record for
    allowed releases, and a defense-in-depth check that any
-   duplicate-query budget decision is not silently released. Smoke:
+   duplicate-query budget decision is not silently released. Strict production
+   config also requires bound two-party PJC evidence and an uploaded S3
+   Object Lock/Rekor external anchor report before public release. Smoke:
    `scripts/check_release_policy_gate_smoke.py` covers missing ledger,
-   low-k, missing DP, allowed release, and duplicate-query leak.
+   low-k, missing DP, allowed release, duplicate-query leak, result-hash
+   replacement, missing external anchor, planned/local anchor denial, and
+   uploaded S3 anchor allow.
 
 Still required before claiming live "two-party out-of-box" certified:
 
 1. A real two-host / VPS run that produces matching `pjc_two_party_preflight/v1`
    reports on Party A and Party B, a matching pair of role packages and import
-   validations, role lifecycle status JSON with non-zero TLS bytes, an evidence
-   merge with `decision="allow"`, a passing `release_policy_gate/v1`, and the
-   negative-case summary recorded against real certificates.
+   validations, role lifecycle status JSON with non-zero TLS bytes, bucket/shard
+   policy hash evidence for bucketed or sharded jobs, an evidence merge with
+   `decision="allow"`, an uploaded external anchor report bound by a passing
+   `release_policy_gate/v1`, and the negative-case summary recorded against
+   real certificates.
 2. Root-cause and resolution for the public-10502 TLS EOF observed in the
    previous bucketed VPS attempt — the diagnostic now records the
    `tls_eof` category and a suggested action; the underlying network /
    socat / Envoy decision is owed.
 3. Operator-tested rollout of the SPIFFE/SPIRE + Envoy templates against a
    real cluster (the templates are structural references that the lint
-   guarantees stay coherent; cluster validation is still owed).
+   guarantees stay coherent; cluster validation is still owed). This boundary
+   is now tracked explicitly by `spiffe_envoy_identity_gate/v1`: repo-side
+   template and allowlist coherence are frozen, but live SPIFFE/Envoy evidence
+   remains `skipped` until operator artifacts are supplied. Those artifacts now
+   also have a stable archive shape: `spiffe_envoy_live_evidence_archive/v1`.
+4. Immutable external anchor publication is now tracked the same way:
+   `external_anchor_evidence_gate/v1` freezes repo-side publisher + release-gate
+   semantics, while `external_anchor_live_evidence_archive/v1` provides the
+   bundle shape for live S3 Object Lock / Rekor evidence once operator
+   credentials and real sinks are available.

@@ -188,6 +188,7 @@ def build_parser() -> argparse.ArgumentParser:
     query_submit.add_argument("--request-file", required=True, help="JSON request file")
     query_submit.add_argument("--request-base-dir", default="", help="Optional absolute request base dir for path resolution")
     query_submit.add_argument("--execute", action="store_true", help="Call /execute instead of /dry-run")
+    query_submit.add_argument("--enqueue", action="store_true", help="Call /enqueue instead of /dry-run or /execute")
     add_output_arg(query_submit)
 
     query_status = sub.add_parser("query-status", help="GET /v1/query-workflows/status from the query-workflow API")
@@ -289,7 +290,15 @@ def main() -> int:
             if not request_dir.is_absolute():
                 raise SystemExit("[ERROR] --request-base-dir must be an absolute path when provided")
             headers["X-Request-Base-Dir"] = str(request_dir)
-        path = "/v1/query-workflows/execute" if args.execute else "/v1/query-workflows/dry-run"
+        if args.execute and args.enqueue:
+            raise SystemExit("[ERROR] --execute and --enqueue are mutually exclusive")
+        path = (
+            "/v1/query-workflows/enqueue"
+            if args.enqueue
+            else "/v1/query-workflows/execute"
+            if args.execute
+            else "/v1/query-workflows/dry-run"
+        )
         payload, exit_code = request_json(
             url=build_url(args.base_url, path),
             method="POST",

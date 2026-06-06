@@ -386,7 +386,7 @@ def validate_query_api(tmp_dir: Path) -> None:
     require_query_status_payload(
         ((status_payload.get("result") or {}).get("status") or {}),
         label="query workflow API status payload",
-        expected_job_id="contract-query-workflow",
+        expected_job_id="contract-query-workflow_dry_run",
         expected_caller="auto_demo",
         expected_state="accepted",
     )
@@ -395,14 +395,22 @@ def validate_query_api(tmp_dir: Path) -> None:
     require_query_status_payload(
         ((client_status_payload.get("result") or {}).get("status") or {}),
         label="platform API client query status payload",
-        expected_job_id="contract-query-workflow",
+        expected_job_id="contract-query-workflow-api-client",
         expected_caller="auto_demo",
         expected_state="accepted",
     )
 
-    for payload, label in (
-        (execute_run_failed, "query workflow API execute run-failed payload"),
-        (client_execute_run_failed, "platform API client execute run-failed payload"),
+    for payload, label, expected_job_id in (
+        (
+            execute_run_failed,
+            "query workflow API execute run-failed payload",
+            "contract-query-workflow-execute-run-failed",
+        ),
+        (
+            client_execute_run_failed,
+            "platform API client execute run-failed payload",
+            "contract-query-workflow-execute-run-failed-client",
+        ),
     ):
         require(payload.get("schema") == "query_workflow_api_response/v1", f"{label} returned wrong schema: {payload}")
         result = payload.get("result") or {}
@@ -416,7 +424,7 @@ def validate_query_api(tmp_dir: Path) -> None:
         require_query_status_payload(
             result.get("status") or {},
             label=f"{label} embedded status",
-            expected_job_id="contract-query-workflow-execute-run-failed",
+            expected_job_id=expected_job_id,
             expected_caller="auto_demo",
             expected_state="failed",
             expected_mode="execute",
@@ -438,22 +446,23 @@ def validate_query_api(tmp_dir: Path) -> None:
     require_query_status_payload(
         ((client_execute_run_failed_status.get("result") or {}).get("status") or {}),
         label="platform API client execute run-failed status payload",
-        expected_job_id="contract-query-workflow-execute-run-failed",
+        expected_job_id="contract-query-workflow-execute-run-failed-client",
         expected_caller="auto_demo",
         expected_state="failed",
         expected_mode="execute",
     )
-    execute_receipts = load_jsonl(tmp_dir / "query_workflow_execute_fail_out" / "query_workflow" / "execution_receipts.jsonl")
-    require(
-        len(execute_receipts) >= 2
-        and len(execute_receipts) % 2 == 0
-        and all(
-            execute_receipts[index].get("event") == "started"
-            and execute_receipts[index + 1].get("event") == "failed"
-            for index in range(0, len(execute_receipts), 2)
-        ),
-        f"execute query workflow receipts returned wrong events: {execute_receipts}",
-    )
+    for receipts_dir in ("query_workflow_execute_fail_out", "query_workflow_execute_fail_client_out"):
+        execute_receipts = load_jsonl(tmp_dir / receipts_dir / "query_workflow" / "execution_receipts.jsonl")
+        require(
+            len(execute_receipts) >= 2
+            and len(execute_receipts) % 2 == 0
+            and all(
+                execute_receipts[index].get("event") == "started"
+                and execute_receipts[index + 1].get("event") == "failed"
+                for index in range(0, len(execute_receipts), 2)
+            ),
+            f"execute query workflow receipts returned wrong events: {execute_receipts}",
+        )
 
     for lifecycle_name in ("query_workflow_api.pid", "query_workflow_api.ready"):
         require(not (tmp_dir / lifecycle_name).exists(), "query workflow API lifecycle files still exist after shutdown")
@@ -813,6 +822,8 @@ def validate_identity_api_authz(tmp_dir: Path) -> None:
     query_identity_dry_run = load(tmp_dir / "query_workflow_identity_dry_run.json")
     query_identity_status = load(tmp_dir / "query_workflow_identity_status.json")
     query_identity_execute_forbidden = load(tmp_dir / "query_workflow_identity_execute_forbidden.json")
+    query_identity_recovery_dry_run = load(tmp_dir / "query_workflow_identity_recovery_dry_run.json")
+    query_identity_recovery_spoof_forbidden = load(tmp_dir / "query_workflow_identity_recovery_spoof_forbidden.json")
     audit_identity_public_report = load(tmp_dir / "audit_query_api_identity_public_report.json")
     audit_identity_audit_chain = load(tmp_dir / "audit_query_api_identity_audit_chain.json")
     audit_identity_observability = load(tmp_dir / "audit_query_api_identity_observability.json")
@@ -851,6 +862,11 @@ def validate_identity_api_authz(tmp_dir: Path) -> None:
     require(dry_run_identity.get("caller") == "marketing_analyst_demo", f"identity query dry-run returned wrong identity: {query_identity_dry_run}")
     dry_run_manifest = (query_identity_dry_run.get("result") or {}).get("manifest") or {}
     require(dry_run_manifest.get("schema") == "query_workflow_submission/v1", f"identity query dry-run returned wrong manifest: {query_identity_dry_run}")
+    recovery_manifest = (query_identity_recovery_dry_run.get("result") or {}).get("manifest") or {}
+    recovery_summary = recovery_manifest.get("request_summary") or {}
+    require(recovery_manifest.get("schema") == "query_workflow_submission/v1", f"identity recovery dry-run returned wrong manifest: {query_identity_recovery_dry_run}")
+    require(recovery_summary.get("record_recovery_service_id") == "orders-recovery", f"identity recovery dry-run returned wrong service binding: {query_identity_recovery_dry_run}")
+    require(recovery_summary.get("record_recovery_service_mode") == "manual", f"identity recovery dry-run returned wrong recovery mode: {query_identity_recovery_dry_run}")
     require(query_identity_status.get("schema") == "query_workflow_status_api_response/v1", f"identity query status returned wrong schema: {query_identity_status}")
     require_query_status_payload(
         ((query_identity_status.get("result") or {}).get("status") or {}),
@@ -865,6 +881,13 @@ def validate_identity_api_authz(tmp_dir: Path) -> None:
         schema="query_workflow_api_error/v1",
         text="privacy_operator or platform_admin",
         label="identity query execute forbidden payload",
+        error_class="authz_rejected",
+    )
+    require_error_contains(
+        query_identity_recovery_spoof_forbidden,
+        schema="query_workflow_api_error/v1",
+        text="record_recovery_service_id",
+        label="identity query recovery scope spoof forbidden payload",
         error_class="authz_rejected",
     )
 

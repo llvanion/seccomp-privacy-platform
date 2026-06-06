@@ -64,6 +64,15 @@ struct GenerateArgs {
     #[arg(long)]
     value_allow_negative: bool,
 
+    #[arg(long)]
+    allowed_value_column: Vec<String>,
+
+    #[arg(long)]
+    value_unit: Option<String>,
+
+    #[arg(long)]
+    value_currency: Option<String>,
+
     #[arg(long, value_enum, default_value_t = Normalizer::Identity)]
     normalizer: Normalizer,
 
@@ -135,6 +144,15 @@ struct PrepareJobArgs {
 
     #[arg(long)]
     client_value_allow_negative: bool,
+
+    #[arg(long)]
+    client_allowed_value_column: Vec<String>,
+
+    #[arg(long)]
+    client_value_unit: Option<String>,
+
+    #[arg(long)]
+    client_value_currency: Option<String>,
 
     #[arg(long, value_enum, default_value_t = Normalizer::Identity)]
     client_normalizer: Normalizer,
@@ -212,6 +230,12 @@ struct ValuePolicy {
     min_value: Option<i64>,
     max_value: Option<i64>,
     allow_negative: bool,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    allowed_value_columns: Vec<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    value_unit: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    currency: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -321,6 +345,10 @@ fn run_generate(args: GenerateArgs, started_at: Instant) -> Result<()> {
             args.value_max,
             args.value_allow_negative,
             production_mode,
+            args.value_column.as_deref(),
+            &args.allowed_value_column,
+            args.value_unit.as_deref(),
+            args.value_currency.as_deref(),
         )?)
     } else {
         None
@@ -547,6 +575,10 @@ fn run_prepare_job(args: PrepareJobArgs, started_at: Instant) -> Result<()> {
         args.client_value_max,
         args.client_value_allow_negative,
         production_mode,
+        args.client_value_column.as_deref(),
+        &args.client_allowed_value_column,
+        args.client_value_unit.as_deref(),
+        args.client_value_currency.as_deref(),
     )?;
     let client_source_value_summary =
         source_value_summary(&client_rows, args.client_value_mode, &client_value_policy)?;
@@ -1003,18 +1035,45 @@ fn build_value_policy(
     max_value: Option<i64>,
     allow_negative: bool,
     production_mode: bool,
+    value_column: Option<&str>,
+    allowed_value_columns: &[String],
+    value_unit: Option<&str>,
+    value_currency: Option<&str>,
 ) -> Result<ValuePolicy> {
     if matches!(value_mode, ValueMode::Count) {
-        if min_value.is_some() || max_value.is_some() || allow_negative {
+        if min_value.is_some()
+            || max_value.is_some()
+            || allow_negative
+            || !allowed_value_columns.is_empty()
+            || value_unit.is_some()
+            || value_currency.is_some()
+        {
             bail!("value policy flags are only valid with value-mode raw-int");
         }
         return Ok(ValuePolicy {
             min_value: Some(1),
             max_value: Some(1),
             allow_negative: false,
+            allowed_value_columns: Vec::new(),
+            value_unit: None,
+            currency: None,
         });
     }
 
+    let Some(value_column) = value_column else {
+        bail!("client role with value-mode raw-int requires --client-value-column/--value-column");
+    };
+    let normalized_allowed_columns = normalize_allowed_value_columns(allowed_value_columns)?;
+    if !normalized_allowed_columns.is_empty()
+        && !normalized_allowed_columns
+            .iter()
+            .any(|allowed| allowed == value_column)
+    {
+        bail!(
+            "client value column {} is not listed in value policy allowed_value_columns",
+            value_column
+        );
+    }
     if let (Some(min), Some(max)) = (min_value, max_value) {
         if min > max {
             bail!("value policy min cannot be greater than max");
@@ -1026,12 +1085,77 @@ fn build_value_policy(
     if !allow_negative && min_value.map_or(false, |min| min < 0) {
         bail!("value policy min is negative but negative values are not allowed");
     }
+    if production_mode && normalized_allowed_columns.is_empty() {
+        bail!(
+            "production raw-int value policy requires --client-allowed-value-column/--allowed-value-column"
+        );
+    }
+    let normalized_unit = normalize_policy_label("value_unit", value_unit)?;
+    if production_mode && normalized_unit.is_none() {
+        bail!("production raw-int value policy requires --client-value-unit/--value-unit");
+    }
+    let normalized_currency = normalize_currency(value_currency)?;
+    if normalized_currency.is_some() && normalized_unit.is_none() {
+        bail!("value policy currency requires value_unit");
+    }
+    if normalized_unit.as_deref() == Some("minor_currency_unit") && normalized_currency.is_none() {
+        bail!(
+            "value policy value_unit=minor_currency_unit requires --client-value-currency/--value-currency"
+        );
+    }
 
     Ok(ValuePolicy {
         min_value: Some(min_value.unwrap_or(0)),
         max_value,
         allow_negative,
+        allowed_value_columns: normalized_allowed_columns,
+        value_unit: normalized_unit,
+        currency: normalized_currency,
     })
+}
+
+fn normalize_allowed_value_columns(columns: &[String]) -> Result<Vec<String>> {
+    let mut out = BTreeSet::new();
+    for column in columns {
+        let normalized = normalize_required_policy_label("allowed_value_columns entry", column)?;
+        out.insert(normalized);
+    }
+    Ok(out.into_iter().collect())
+}
+
+fn normalize_policy_label(label: &str, value: Option<&str>) -> Result<Option<String>> {
+    match value {
+        Some(raw) => Ok(Some(normalize_required_policy_label(label, raw)?)),
+        None => Ok(None),
+    }
+}
+
+fn normalize_required_policy_label(label: &str, raw: &str) -> Result<String> {
+    let trimmed = raw.trim();
+    if trimmed.is_empty() {
+        bail!("value policy {} cannot be empty", label);
+    }
+    if trimmed.len() > 128 {
+        bail!("value policy {} is too long", label);
+    }
+    if !trimmed
+        .chars()
+        .all(|ch| ch.is_ascii_alphanumeric() || matches!(ch, '_' | '-' | '.' | '/'))
+    {
+        bail!("value policy {} contains unsupported characters", label);
+    }
+    Ok(trimmed.to_string())
+}
+
+fn normalize_currency(value: Option<&str>) -> Result<Option<String>> {
+    let Some(raw) = value else {
+        return Ok(None);
+    };
+    let currency = raw.trim().to_ascii_uppercase();
+    if currency.len() != 3 || !currency.chars().all(|ch| ch.is_ascii_uppercase()) {
+        bail!("value policy currency must be a 3-letter ISO 4217 code");
+    }
+    Ok(Some(currency))
 }
 
 fn source_value_summary(
@@ -1276,6 +1400,9 @@ fn test_value_policy() -> ValuePolicy {
         min_value: Some(0),
         max_value: Some(10_000),
         allow_negative: false,
+        allowed_value_columns: vec!["amount".to_string()],
+        value_unit: Some("minor_currency_unit".to_string()),
+        currency: Some("USD".to_string()),
     }
 }
 
@@ -1427,7 +1554,105 @@ mod tests {
 
     #[test]
     fn production_raw_int_requires_max_value_policy() {
-        assert!(build_value_policy(ValueMode::RawInt, None, None, false, true).is_err());
+        assert!(
+            build_value_policy(
+                ValueMode::RawInt,
+                None,
+                None,
+                false,
+                true,
+                Some("amount"),
+                &["amount".to_string()],
+                Some("minor_currency_unit"),
+                Some("USD"),
+            )
+            .is_err()
+        );
+    }
+
+    #[test]
+    fn production_raw_int_requires_allowed_value_column() {
+        let err = build_value_policy(
+            ValueMode::RawInt,
+            None,
+            Some(10_000),
+            false,
+            true,
+            Some("amount"),
+            &[],
+            Some("minor_currency_unit"),
+            Some("USD"),
+        )
+        .unwrap_err();
+        assert!(format!("{:#}", err).contains("requires --client-allowed-value-column"));
+    }
+
+    #[test]
+    fn raw_int_rejects_unlisted_value_column() {
+        let err = build_value_policy(
+            ValueMode::RawInt,
+            None,
+            Some(10_000),
+            false,
+            true,
+            Some("amount"),
+            &["other_amount".to_string()],
+            Some("minor_currency_unit"),
+            Some("USD"),
+        )
+        .unwrap_err();
+        assert!(format!("{:#}", err).contains("not listed in value policy allowed_value_columns"));
+    }
+
+    #[test]
+    fn production_raw_int_requires_value_unit() {
+        let err = build_value_policy(
+            ValueMode::RawInt,
+            None,
+            Some(10_000),
+            false,
+            true,
+            Some("amount"),
+            &["amount".to_string()],
+            None,
+            Some("USD"),
+        )
+        .unwrap_err();
+        assert!(format!("{:#}", err).contains("requires --client-value-unit"));
+    }
+
+    #[test]
+    fn minor_currency_unit_requires_currency() {
+        let err = build_value_policy(
+            ValueMode::RawInt,
+            None,
+            Some(10_000),
+            false,
+            true,
+            Some("amount"),
+            &["amount".to_string()],
+            Some("minor_currency_unit"),
+            None,
+        )
+        .unwrap_err();
+        assert!(format!("{:#}", err).contains("requires --client-value-currency"));
+    }
+
+    #[test]
+    fn raw_int_rejects_invalid_currency() {
+        let err = build_value_policy(
+            ValueMode::RawInt,
+            None,
+            Some(10_000),
+            false,
+            true,
+            Some("amount"),
+            &["amount".to_string()],
+            Some("minor_currency_unit"),
+            Some("US1"),
+        )
+        .unwrap_err();
+        assert!(format!("{:#}", err).contains("3-letter ISO 4217"));
     }
 
     #[test]

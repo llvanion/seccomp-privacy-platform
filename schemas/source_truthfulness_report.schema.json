@@ -1,0 +1,72 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "source_truthfulness_report/v1",
+  "title": "Verifier-facing report for source truthfulness and input attestation binding",
+  "type": "object",
+  "required": [
+    "schema",
+    "generated_at_utc",
+    "decision",
+    "reason_code",
+    "strict_mode",
+    "require_signed_signoff",
+    "job_id",
+    "caller",
+    "tenant",
+    "dataset",
+    "purpose",
+    "checks",
+    "findings"
+  ],
+  "properties": {
+    "schema": { "const": "source_truthfulness_report/v1" },
+    "generated_at_utc": { "type": "string", "minLength": 1 },
+    "decision": { "enum": ["allow", "deny"] },
+    "reason_code": { "type": "string", "minLength": 1 },
+    "reason": { "type": ["string", "null"] },
+    "strict_mode": { "type": "boolean" },
+    "max_age_hours": { "type": "number", "minimum": 0 },
+    "require_signed_signoff": { "type": "boolean" },
+    "require_dual_signoff": { "type": "boolean" },
+    "job_id": { "type": ["string", "null"] },
+    "caller": { "type": ["string", "null"] },
+    "tenant": { "type": ["string", "null"] },
+    "dataset": { "type": ["string", "null"] },
+    "purpose": { "type": ["string", "null"] },
+    "attestation_path": { "type": ["string", "null"] },
+    "attestation_sha256": { "type": ["string", "null"] },
+    "source_export_manifest_path": { "type": ["string", "null"] },
+    "source_export_manifest_sha256": { "type": ["string", "null"] },
+    "summary": { "type": "object" },
+    "checks": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["name", "status"],
+        "properties": {
+          "name": { "type": "string", "minLength": 1 },
+          "status": { "enum": ["ok", "skip", "deny"] },
+          "expected": {},
+          "actual": {},
+          "message": { "type": ["string", "null"] }
+        },
+        "additionalProperties": false
+      }
+    },
+    "findings": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["kind", "message"],
+        "properties": {
+          "kind": { "type": "string", "minLength": 1 },
+          "message": { "type": "string", "minLength": 1 },
+          "expected": {},
+          "actual": {}
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  "additionalProperties": false
+}

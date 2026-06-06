@@ -222,14 +222,24 @@ server-side gate that runs independently of the CLI:
   - `require_pjc_evidence_merge` → production config requires
     `pjc_two_party_evidence_merge/v1` and checks its result hashes against the
     `policy_audit/v1` `pjc_result_sha256` before public release.
+  - `require_external_anchor` → strict production config requires an uploaded
+    S3 Object Lock/Rekor `external_audit_anchor_report/v1`; missing, local,
+    planned, unuploaded, or production-finding anchor reports deny release.
 - Output: `release_policy_gate/v1` with per-check status, first failing
-  finding, and the public-report SHA-256. Wired into the contracts gate
-  via the new schemas in `scripts/check_json_contracts.sh`.
-- Smoke: `scripts/check_release_policy_gate_smoke.py` (8/8 cases pass
-  locally on 2026-06-02) — missing ledger, low-k, missing DP, allowed
-  release, duplicate-query leak, public operator-field leak, bound PJC evidence
-  allow, and PJC result replacement denial. Registered in
-  `scripts/check_ci_smoke.sh`.
+  finding, public-report SHA-256, PJC evidence path, policy-audit path, and
+  external-anchor report path. Wired into the contracts gate via the new schemas
+  in `scripts/check_json_contracts.sh`.
+- Smoke: `scripts/check_release_policy_gate_smoke.py` (11/11 cases pass locally
+  on 2026-06-03) — missing ledger, low-k, missing DP, allowed release,
+  duplicate-query leak, public operator-field leak, bound PJC evidence allow,
+  PJC result replacement denial, missing external anchor denial, planned/local
+  external anchor denial, and uploaded S3 Object Lock anchor allow. Registered
+  in `scripts/check_ci_smoke.sh`.
+- Operator-visible state is tied to the same decision. `serve_operator_dashboard.py`
+  maps external-anchor release-gate denials to `pending_external_anchor`, maps
+  other gate denials to `blocked`, exposes that state in both full and
+  caller-safe dashboard summaries, and uses it for `/v1/runs?state=...`
+  filtering.
 
 Use this gate as the canonical "should this release become public" check;
 the CLI flags remain useful for ergonomics but they are no longer the

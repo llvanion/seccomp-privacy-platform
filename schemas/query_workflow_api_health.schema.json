@@ -29,6 +29,12 @@
     "metadata_db_dsn": {
       "type": ["string", "null"]
     },
+    "workflow_execution_db_path": {
+      "type": ["string", "null"]
+    },
+    "workflow_execution_db_dsn": {
+      "type": ["string", "null"]
+    },
     "request_base_dir_default": {
       "type": "string",
       "minLength": 1

@@ -15,6 +15,13 @@
     "duplicate_query_denied": { "type": "boolean" },
     "require_public_report_redaction": { "type": "boolean" },
     "require_pjc_evidence_merge": { "type": "boolean" },
+    "require_source_attestation": { "type": "boolean" },
+    "require_signed_signoff": { "type": "boolean" },
+    "require_dual_signoff": { "type": "boolean" },
+    "require_bound_input_commitment": { "type": "boolean" },
+    "strict_source_attestation": { "type": "boolean" },
+    "max_source_attestation_age_hours": { "type": "number", "minimum": 0 },
+    "require_external_anchor": { "type": "boolean" },
     "allowed_deny_reason_codes": {
       "type": "array",
       "minItems": 1,

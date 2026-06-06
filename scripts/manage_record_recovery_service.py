@@ -28,6 +28,10 @@ from services.record_recovery.config import (  # noqa: E402
     merged_record_recovery_service_value,
 )
 from services.record_recovery.client import request_record_recovery_health  # noqa: E402
+from services.record_recovery.production import (  # noqa: E402
+    enforce_record_recovery_production_gate,
+    production_mode_enabled,
+)
 
 
 def normalize_path(path_value: str) -> str:
@@ -89,6 +93,7 @@ def resolve_runtime(args: argparse.Namespace) -> dict:
     pid_file = merged_record_recovery_service_value(getattr(args, "pid_file", ""), config.get("pid_file", ""))
     ready_file = merged_record_recovery_service_value(getattr(args, "ready_file", ""), config.get("ready_file", ""))
     log_file = merged_record_recovery_service_value(getattr(args, "log_file", ""), config.get("log_file", ""))
+    production_mode = production_mode_enabled(getattr(args, "production_mode", False), config.get("production_mode", False))
     max_rows_per_request = merged_record_recovery_service_value(
         getattr(args, "max_rows_per_request", 0),
         config.get("max_rows_per_request", 0),
@@ -124,6 +129,7 @@ def resolve_runtime(args: argparse.Namespace) -> dict:
         "ready_file": ready_file,
         "log_file": log_file,
         "tls": tls_config,
+        "production_mode": production_mode,
         "max_rows_per_request": int(max_rows_per_request or 0),
     }
 
@@ -294,6 +300,8 @@ def build_service_command(runtime: dict) -> list[str]:
         cmd.extend(["--ready-file", normalize_path(ready_file)])
     if max_rows_per_request > 0:
         cmd.extend(["--max-rows-per-request", str(max_rows_per_request)])
+    if runtime.get("production_mode"):
+        cmd.append("--production-mode")
     return cmd
 
 
@@ -503,6 +511,8 @@ def cmd_start(args: argparse.Namespace) -> int:
         raise SystemExit("[ERROR] --socket-path or --config with socket_path is required")
     if transport == "http" and not endpoint_url:
         raise SystemExit("[ERROR] --endpoint-url or --config with endpoint_url/http_listener is required")
+    if runtime.get("production_mode"):
+        enforce_record_recovery_production_gate(runtime)
     if not pid_file:
         raise SystemExit("[ERROR] --pid-file or --config with lifecycle.pid_file is required")
 
@@ -595,6 +605,8 @@ def cmd_stop(args: argparse.Namespace) -> int:
 
 def cmd_render_systemd(args: argparse.Namespace) -> int:
     runtime = resolve_runtime(args)
+    if runtime.get("production_mode"):
+        enforce_record_recovery_production_gate(runtime)
     command = build_service_command(runtime)
     unit_name = derived_unit_name(args.unit_name, runtime)
     description = args.description or (
@@ -635,6 +647,7 @@ def cmd_render_systemd(args: argparse.Namespace) -> int:
     result = {
         "unit_name": unit_name,
         "transport": runtime["transport"],
+        "production_mode": bool(runtime.get("production_mode")),
         "service_id": runtime["service_id"] or None,
         "config_path": runtime["config_path"] or None,
         "exec_start": format_systemd_execstart(command),
@@ -682,6 +695,7 @@ def main() -> int:
     start.add_argument("--ready-file", default="")
     start.add_argument("--log-file", default="")
     start.add_argument("--max-rows-per-request", type=int, default=None)
+    start.add_argument("--production-mode", action="store_true", default=False)
     start.add_argument("--timeout-sec", type=float, default=10.0)
 
     status = sub.add_parser("status")
@@ -729,6 +743,7 @@ def main() -> int:
     render.add_argument("--ready-file", default="")
     render.add_argument("--log-file", default="")
     render.add_argument("--max-rows-per-request", type=int, default=None)
+    render.add_argument("--production-mode", action="store_true", default=False)
     render.add_argument("--unit-name", default="")
     render.add_argument("--description", default="")
     render.add_argument("--service-user", default="record-recovery")

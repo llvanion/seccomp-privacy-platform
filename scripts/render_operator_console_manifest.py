@@ -29,6 +29,7 @@ EXPECTED_SECTIONS = [
     "home",
     "jobs",
     "requests",
+    "business_access",
     "privacy_budget_approvals",
     "audit",
     "pjc_two_party",

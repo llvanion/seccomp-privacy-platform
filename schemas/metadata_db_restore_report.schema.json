@@ -35,6 +35,9 @@
         "path",
         "size_bytes",
         "sha256",
+        "expected_sha256",
+        "sha256_match",
+        "report_path",
         "format"
       ],
       "properties": {
@@ -47,6 +50,15 @@
           "minimum": 0
         },
         "sha256": {
+          "type": ["string", "null"]
+        },
+        "expected_sha256": {
+          "type": ["string", "null"]
+        },
+        "sha256_match": {
+          "type": ["boolean", "null"]
+        },
+        "report_path": {
           "type": ["string", "null"]
         },
         "format": {

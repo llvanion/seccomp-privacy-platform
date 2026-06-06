@@ -52,12 +52,15 @@ SCHEMAS=(
   "$REPO_ROOT/schemas/record_recovery_service_log.schema.json"
   "$REPO_ROOT/schemas/record_recovery_service_metrics.schema.json"
   "$REPO_ROOT/schemas/record_recovery_boundary_check.schema.json"
+  "$REPO_ROOT/schemas/record_recovery_production_gate_check.schema.json"
   "$REPO_ROOT/schemas/platform_health.schema.json"
   "$REPO_ROOT/schemas/sse_encrypted_record_store.schema.json"
   "$REPO_ROOT/schemas/bridge_job_meta.schema.json"
   "$REPO_ROOT/schemas/bridge_audit.schema.json"
   "$REPO_ROOT/schemas/pjc_input_commitment.schema.json"
   "$REPO_ROOT/schemas/pjc_audit.schema.json"
+  "$REPO_ROOT/schemas/pjc_protocol_security_evidence_gate.schema.json"
+  "$REPO_ROOT/schemas/pjc_protocol_live_evidence_archive.schema.json"
   "$REPO_ROOT/schemas/public_report.schema.json"
   "$REPO_ROOT/schemas/policy_audit.schema.json"
   "$REPO_ROOT/schemas/privacy_budget_ledger.schema.json"
@@ -66,6 +69,9 @@ SCHEMAS=(
   "$REPO_ROOT/schemas/privacy_budget_approval_list.schema.json"
   "$REPO_ROOT/schemas/privacy_budget_approval_transition.schema.json"
   "$REPO_ROOT/schemas/privacy_budget_check_report.schema.json"
+  "$REPO_ROOT/schemas/privacy_budget_concurrency_check.schema.json"
+  "$REPO_ROOT/schemas/privacy_budget_approval_flow_check.schema.json"
+  "$REPO_ROOT/schemas/privacy_budget_approval_api_smoke.schema.json"
   "$REPO_ROOT/schemas/audit_chain.schema.json"
   "$REPO_ROOT/schemas/audit_chain_public_summary.schema.json"
   "$REPO_ROOT/schemas/audit_archive_index.schema.json"
@@ -74,6 +80,7 @@ SCHEMAS=(
   "$REPO_ROOT/schemas/audit_bundle_verification.schema.json"
   "$REPO_ROOT/schemas/audit_tamper_resistance.schema.json"
   "$REPO_ROOT/schemas/http_malformed_input_gate.schema.json"
+  "$REPO_ROOT/schemas/legacy_sse_production_gate.schema.json"
   "$REPO_ROOT/schemas/recovery_mtls_benchmark.schema.json"
   "$REPO_ROOT/schemas/observability_topology_report.schema.json"
   "$REPO_ROOT/schemas/ecommerce_fact_layer_report.schema.json"
@@ -81,18 +88,37 @@ SCHEMAS=(
   "$REPO_ROOT/schemas/ecommerce_fact_import_validation_smoke.schema.json"
   "$REPO_ROOT/schemas/ecommerce_fact_import_result.schema.json"
   "$REPO_ROOT/schemas/ecommerce_fact_import_smoke.schema.json"
+  "$REPO_ROOT/schemas/ecommerce_fact_import_job.schema.json"
+  "$REPO_ROOT/schemas/ecommerce_fact_import_job_smoke.schema.json"
+  "$REPO_ROOT/schemas/ecommerce_production_exposure_gate.schema.json"
+  "$REPO_ROOT/schemas/ecommerce_deployment_evidence_gate.schema.json"
+  "$REPO_ROOT/schemas/ecommerce_live_evidence_archive.schema.json"
+  "$REPO_ROOT/schemas/ecommerce_live_oidc_abac_report.schema.json"
+  "$REPO_ROOT/schemas/ecommerce_live_fact_import_report.schema.json"
+  "$REPO_ROOT/schemas/ecommerce_live_tls_network_policy_report.schema.json"
+  "$REPO_ROOT/schemas/ecommerce_live_postgres_anchor_report.schema.json"
+  "$REPO_ROOT/schemas/ecommerce_logistics_live_rollout_report.schema.json"
+  "$REPO_ROOT/schemas/ecommerce_live_rollout_fixture_bundle.schema.json"
   "$REPO_ROOT/schemas/business_access_policy.schema.json"
   "$REPO_ROOT/schemas/business_access_check_report.schema.json"
   "$REPO_ROOT/schemas/business_data_read_preview.schema.json"
   "$REPO_ROOT/schemas/business_access_api_smoke.schema.json"
+  "$REPO_ROOT/schemas/query_workflow_identity_scope_smoke.schema.json"
   "$REPO_ROOT/schemas/console_token_storage_check.schema.json"
   "$REPO_ROOT/schemas/console_browser_session_check.schema.json"
+  "$REPO_ROOT/schemas/console_deployment_evidence_gate.schema.json"
+  "$REPO_ROOT/schemas/console_live_evidence_archive.schema.json"
+  "$REPO_ROOT/schemas/console_release_gate_check.schema.json"
   "$REPO_ROOT/schemas/console_security_headers_check.schema.json"
+  "$REPO_ROOT/schemas/supply_chain_evidence.schema.json"
   "$REPO_ROOT/schemas/console_audit_public_summary_check.schema.json"
   "$REPO_ROOT/schemas/console_dashboard_public_summary_check.schema.json"
   "$REPO_ROOT/schemas/console_manifest.schema.json"
   "$REPO_ROOT/schemas/operator_console_manifest_report.schema.json"
+  "$REPO_ROOT/schemas/console_business_access_workbench_check.schema.json"
   "$REPO_ROOT/schemas/operator_dashboard_public_summary.schema.json"
+  "$REPO_ROOT/schemas/final_live_blockers_report.schema.json"
+  "$REPO_ROOT/schemas/live_rollout_collection_report.schema.json"
   "$REPO_ROOT/schemas/operator_dashboard_public_summary_smoke.schema.json"
   "$REPO_ROOT/schemas/alert_daemon_heartbeat.schema.json"
   "$REPO_ROOT/schemas/key_manifest.schema.json"
@@ -102,6 +128,13 @@ SCHEMAS=(
   "$REPO_ROOT/schemas/external_kms_config.schema.json"
   "$REPO_ROOT/schemas/api_identity_token_map.schema.json"
   "$REPO_ROOT/schemas/api_identity_resolution.schema.json"
+  "$REPO_ROOT/schemas/identity_jwks_evidence_gate.schema.json"
+  "$REPO_ROOT/schemas/live_identity_authority_evidence_gate.schema.json"
+  "$REPO_ROOT/schemas/pjc_binary_capability_gate.schema.json"
+  "$REPO_ROOT/schemas/pjc_resource_isolation_evidence_gate.schema.json"
+  "$REPO_ROOT/schemas/pjc_resource_isolation_live_evidence_archive.schema.json"
+  "$REPO_ROOT/schemas/s7_k3_evidence_integrity_report.schema.json"
+  "$REPO_ROOT/schemas/public_two_host_production_readiness_gate.schema.json"
   "$REPO_ROOT/schemas/identity_proxy_auth_smoke.schema.json"
   "$REPO_ROOT/schemas/key_access_audit.schema.json"
   "$REPO_ROOT/schemas/key_lifecycle_audit.schema.json"
@@ -112,6 +145,7 @@ SCHEMAS=(
   "$REPO_ROOT/schemas/catalog_lineage.schema.json"
   "$REPO_ROOT/schemas/catalog_lineage_public_summary.schema.json"
   "$REPO_ROOT/schemas/schema_backcompat_check.schema.json"
+  "$REPO_ROOT/schemas/production_security_closure_gate.schema.json"
   "$REPO_ROOT/schemas/query_workflow_benchmark.schema.json"
   "$REPO_ROOT/schemas/read_adapter_benchmark.schema.json"
   "$REPO_ROOT/schemas/read_adapter_backend_comparison.schema.json"
@@ -138,6 +172,7 @@ SCHEMAS=(
   "$REPO_ROOT/schemas/metadata_db_restore.schema.json"
   "$REPO_ROOT/schemas/metadata_db_backup_report.schema.json"
   "$REPO_ROOT/schemas/metadata_db_restore_report.schema.json"
+  "$REPO_ROOT/schemas/metadata_backup_restore_drill.schema.json"
   "$REPO_ROOT/schemas/k8s_recovery_service_topology_report.schema.json"
   "$REPO_ROOT/schemas/prometheus_alert_rules_report.schema.json"
   "$REPO_ROOT/schemas/recovery_service_failover_test.schema.json"
@@ -163,10 +198,15 @@ SCHEMAS=(
   "$REPO_ROOT/schemas/query_workflow_submission.schema.json"
   "$REPO_ROOT/schemas/query_workflow_receipt.schema.json"
   "$REPO_ROOT/schemas/query_workflow_status.schema.json"
+  "$REPO_ROOT/schemas/query_workflow_deployment_evidence_gate.schema.json"
+  "$REPO_ROOT/schemas/query_workflow_live_evidence_archive.schema.json"
   "$REPO_ROOT/schemas/query_workflow_api_health.schema.json"
   "$REPO_ROOT/schemas/query_workflow_api_response.schema.json"
   "$REPO_ROOT/schemas/query_workflow_status_api_response.schema.json"
   "$REPO_ROOT/schemas/query_workflow_api_error.schema.json"
+  "$REPO_ROOT/schemas/query_workflow_worker_run.schema.json"
+  "$REPO_ROOT/schemas/query_workflow_cancel_request.schema.json"
+  "$REPO_ROOT/schemas/query_workflow_durability_check.schema.json"
   "$REPO_ROOT/schemas/operator_request_submission.schema.json"
   "$REPO_ROOT/schemas/operator_request_submission_list.schema.json"
   "$REPO_ROOT/schemas/observability_dashboard.schema.json"
@@ -175,17 +215,24 @@ SCHEMAS=(
   "$REPO_ROOT/schemas/workflow_retry_eligibility.schema.json"
   "$REPO_ROOT/schemas/operator_triage_report.schema.json"
   "$REPO_ROOT/schemas/identity_proxy_health.schema.json"
+  "$REPO_ROOT/schemas/source_export_manifest.schema.json"
+  "$REPO_ROOT/schemas/source_attestation.schema.json"
+  "$REPO_ROOT/schemas/source_truthfulness_report.schema.json"
+  "$REPO_ROOT/schemas/source_truthfulness_smoke.schema.json"
+  "$REPO_ROOT/schemas/source_attestation_pipeline_smoke.schema.json"
+  "$REPO_ROOT/schemas/release_governance_report.schema.json"
   "$REPO_ROOT/schemas/openfga_sync_report.schema.json"
   "$REPO_ROOT/schemas/openfga_check_result.schema.json"
   "$REPO_ROOT/schemas/openfga_model_setup_report.schema.json"
   "$REPO_ROOT/schemas/oidc_client_credentials_report.schema.json"
   "$REPO_ROOT/schemas/kms_reachability_report.schema.json"
-  "$REPO_ROOT/schemas/vault_http_client_config.schema.json"
   "$REPO_ROOT/schemas/mtls_cert_issue_report.schema.json"
   "$REPO_ROOT/schemas/cloud_kms_adapter_result.schema.json"
   "$REPO_ROOT/schemas/service_token_report.schema.json"
   "$REPO_ROOT/schemas/authority_governance_report.schema.json"
   "$REPO_ROOT/schemas/control_plane_deepening_report.schema.json"
+  "$REPO_ROOT/schemas/control_plane_deployment_evidence_gate.schema.json"
+  "$REPO_ROOT/schemas/control_plane_live_evidence_archive.schema.json"
   "$REPO_ROOT/schemas/k8s_network_policy_report.schema.json"
   "$REPO_ROOT/schemas/postgres_ha_topology_report.schema.json"
   "$REPO_ROOT/schemas/patroni_failover_topology_report.schema.json"
@@ -197,6 +244,25 @@ SCHEMAS=(
   "$REPO_ROOT/schemas/pjc_two_party_evidence_merge.schema.json"
   "$REPO_ROOT/schemas/pjc_two_party_negative_cases.schema.json"
   "$REPO_ROOT/schemas/pjc_tls_diagnostic.schema.json"
+  "$REPO_ROOT/schemas/pjc_tls_readiness.schema.json"
+  "$REPO_ROOT/schemas/public_two_host_live_evidence_archive.schema.json"
+  "$REPO_ROOT/schemas/spiffe_envoy_live_evidence_archive.schema.json"
+  "$REPO_ROOT/schemas/external_anchor_evidence_gate.schema.json"
+  "$REPO_ROOT/schemas/external_anchor_live_evidence_archive.schema.json"
+  "$REPO_ROOT/schemas/postgres_ha_evidence_gate.schema.json"
+  "$REPO_ROOT/schemas/postgres_ha_live_evidence_archive.schema.json"
+  "$REPO_ROOT/schemas/supply_chain_evidence_gate.schema.json"
+  "$REPO_ROOT/schemas/supply_chain_live_evidence_archive.schema.json"
+  "$REPO_ROOT/schemas/authority_evidence_gate.schema.json"
+  "$REPO_ROOT/schemas/authority_live_evidence_archive.schema.json"
+  "$REPO_ROOT/schemas/observability_evidence_gate.schema.json"
+  "$REPO_ROOT/schemas/observability_live_evidence_archive.schema.json"
+  "$REPO_ROOT/schemas/recovery_service_deployment_evidence_gate.schema.json"
+  "$REPO_ROOT/schemas/recovery_service_live_evidence_archive.schema.json"
+  "$REPO_ROOT/schemas/privacy_budget_deployment_evidence_gate.schema.json"
+  "$REPO_ROOT/schemas/privacy_budget_live_evidence_archive.schema.json"
+  "$REPO_ROOT/schemas/legacy_sse_query_surface_evidence_gate.schema.json"
+  "$REPO_ROOT/schemas/legacy_sse_live_evidence_archive.schema.json"
   "$REPO_ROOT/schemas/spiffe_envoy_peer_allowlist.schema.json"
   "$REPO_ROOT/schemas/spiffe_envoy_template_check.schema.json"
   "$REPO_ROOT/schemas/release_policy_gate.schema.json"
@@ -259,6 +325,12 @@ python3 "$VALIDATOR" \
   --schema "$REPO_ROOT/schemas/query_workflow_request.schema.json" \
   --json "$REPO_ROOT/docs/examples/query_request.json"
 python3 "$VALIDATOR" \
+  --schema "$REPO_ROOT/schemas/source_export_manifest.schema.json" \
+  --json "$REPO_ROOT/docs/examples/source_export_manifest.example.json"
+python3 "$VALIDATOR" \
+  --schema "$REPO_ROOT/schemas/source_attestation.schema.json" \
+  --json "$REPO_ROOT/docs/examples/source_attestation.example.json"
+python3 "$VALIDATOR" \
   --schema "$REPO_ROOT/schemas/metadata_registry_manifest.schema.json" \
   --json "$REPO_ROOT/config/metadata_registry.example.json"
 
@@ -294,6 +366,219 @@ python3 "$REPO_ROOT/scripts/check_business_access_api_smoke.py" \
 python3 "$VALIDATOR" \
   --schema "$REPO_ROOT/schemas/business_access_api_smoke.schema.json" \
   --json "$tmp/business_access_api_smoke/business_access_api_smoke.json"
+python3 -c 'import json,sys; p=json.load(open(sys.argv[1])); assert p["business_identity_count"] >= 1, p; assert p["business_identity_spoof_status"] == 403, p; assert p["business_identity_cross_tenant_status"] == 403, p; assert p["merchant_relationship_spoof_status"] == 403, p; assert p["buyer_self_preview_decision"] == "allow", p; assert p["buyer_relationship_spoof_status"] == 403, p; assert p["courier_relationship_spoof_status"] == 403, p; assert p["fraud_relationship_spoof_status"] == 403, p; assert p["field_marketer_relationship_spoof_status"] == 403, p' "$tmp/business_access_api_smoke/business_access_api_smoke.json"
+python3 "$REPO_ROOT/scripts/check_business_access_support_relation_binding.py" \
+  --output "$tmp/business_access_support_relation_binding.json" > /dev/null
+python3 "$VALIDATOR" \
+  --schema "$REPO_ROOT/schemas/business_access_check_report.schema.json" \
+  --json "$tmp/business_access_support_relation_binding.json"
+python3 -c 'import json,sys; p=json.load(open(sys.argv[1])); assert p["decision"] == "mask", p; rb=p["relationship_binding"]; assert rb["status"]=="ok", p; assert rb["bound_identity_id"]=="support-1", p; assert rb["bound_case_id"]=="case-1", p' "$tmp/business_access_support_relation_binding.json"
+python3 "$REPO_ROOT/scripts/check_query_workflow_identity_scope_smoke.py" \
+  --out-dir "$tmp/query_workflow_identity_scope_smoke" > /dev/null
+python3 "$VALIDATOR" \
+  --schema "$REPO_ROOT/schemas/query_workflow_identity_scope_smoke.schema.json" \
+  --json "$tmp/query_workflow_identity_scope_smoke/query_workflow_identity_scope_smoke.json"
+python3 -c 'import json,sys; p=json.load(open(sys.argv[1])); assert p["dry_run_identity_caller"]=="marketing_analyst_demo", p; assert p["caller_spoof_status"]==403, p; assert p["tenant_spoof_status"]==403, p; assert p["dataset_spoof_status"]==403, p; assert p["recovery_allowed_service_id"]=="orders-recovery", p; assert p["recovery_spoof_status"]==403, p; assert p["execute_forbidden_status"]==403, p; assert p["execute_allowed_http_status"]==502, p; assert p["execute_allowed_identity_caller"]=="commerce_ops_demo", p; assert p["status_caller"]=="marketing_analyst_demo", p; assert p["status_cross_caller_forbidden_status"]==403, p' "$tmp/query_workflow_identity_scope_smoke/query_workflow_identity_scope_smoke.json"
+python3 "$REPO_ROOT/scripts/check_identity_jwks_evidence_gate.py" \
+  --out-dir "$tmp/identity_jwks_evidence_gate" > /dev/null
+python3 "$VALIDATOR" \
+  --schema "$REPO_ROOT/schemas/identity_jwks_evidence_gate.schema.json" \
+  --json "$tmp/identity_jwks_evidence_gate/identity_jwks_evidence_gate.json"
+python3 "$REPO_ROOT/scripts/check_live_identity_authority_evidence_gate.py" \
+  --out-dir "$tmp/live_identity_authority_evidence_gate" > /dev/null
+python3 "$VALIDATOR" \
+  --schema "$REPO_ROOT/schemas/live_identity_authority_evidence_gate.schema.json" \
+  --json "$tmp/live_identity_authority_evidence_gate/live_identity_authority_evidence_gate.json"
+python3 -c 'import json,sys; p=json.load(open(sys.argv[1])); assert p["status"]=="ok", p; assert p["repo_side_status"]=="ok", p; assert p["live_status"] in {"ok","skipped"}, p; repo={c["name"]:c["status"] for c in p["repo_side_checks"]}; assert repo["repo_side_jwks_evidence_gate"]=="ok", repo; assert repo["oidc_client_credentials_dry_run"]=="ok", repo; assert repo["identity_proxy_auth_smoke"]=="ok", repo; live={c["name"]:c["status"] for c in p["live_checks"]}; assert live["live_client_credentials_execute"] in {"ok","skipped"}, live; assert live["live_oidc_claim_map"] in {"ok","skipped"}, live; assert live["live_api_identity_resolution"] in {"ok","skipped"}, live; assert live["live_metadata_identity_endpoint"] in {"ok","skipped"}, live; assert len(p["artifacts"])>=3, p' "$tmp/live_identity_authority_evidence_gate/live_identity_authority_evidence_gate.json"
+python3 "$REPO_ROOT/scripts/check_pjc_binary_capability_gate.py" \
+  --workspace "$REPO_ROOT/a-psi/private-join-and-compute" \
+  --requested-bin-dir "$REPO_ROOT/a-psi/private-join-and-compute/bazel-bin" \
+  --require-streaming \
+  --out "$tmp/pjc_binary_capability_gate.json" > /dev/null
+python3 "$VALIDATOR" \
+  --schema "$REPO_ROOT/schemas/pjc_binary_capability_gate.schema.json" \
+  --json "$tmp/pjc_binary_capability_gate.json"
+python3 -c 'import json,sys; p=json.load(open(sys.argv[1])); assert p["status"]=="ok", p; assert p["binaries"]["server"]["supports_streaming_flag"] is True, p; assert p["binaries"]["client"]["supports_streaming_flag"] is True, p; assert p["resolved_bin_dir"], p' "$tmp/pjc_binary_capability_gate.json"
+python3 "$REPO_ROOT/scripts/archive_pjc_resource_isolation_live_evidence.py" \
+  --job-id pjc-resource-isolation-contract \
+  --output-dir "$tmp/pjc_resource_isolation_live_archive" > /dev/null
+python3 "$VALIDATOR" \
+  --schema "$REPO_ROOT/schemas/pjc_resource_isolation_live_evidence_archive.schema.json" \
+  --json "$tmp/pjc_resource_isolation_live_archive/pjc_resource_isolation_live_evidence_archive.json"
+python3 -c 'import json,sys; p=json.load(open(sys.argv[1])); assert p["status"]=="ok", p; assert p["live_artifact_count"]==0, p; assert p["live_artifacts"]["live_systemd_limits_report"] is None, p; assert p["live_artifacts"]["live_streaming_success_report"] is None, p' "$tmp/pjc_resource_isolation_live_archive/pjc_resource_isolation_live_evidence_archive.json"
+python3 "$REPO_ROOT/scripts/check_pjc_resource_isolation_evidence_gate.py" \
+  --out-dir "$tmp/pjc_resource_isolation_evidence_gate" \
+  --live-evidence-archive "$tmp/pjc_resource_isolation_live_archive/pjc_resource_isolation_live_evidence_archive.json" > /dev/null
+python3 "$VALIDATOR" \
+  --schema "$REPO_ROOT/schemas/pjc_resource_isolation_evidence_gate.schema.json" \
+  --json "$tmp/pjc_resource_isolation_evidence_gate/pjc_resource_isolation_evidence_gate.json"
+python3 -c 'import json,sys; p=json.load(open(sys.argv[1])); assert p["status"]=="ok", p; assert p["repo_side_status"]=="ok", p; assert p["live_status"] in {"ok","skipped"}, p; repo={c["name"]:c["status"] for c in p["repo_side_checks"]}; assert repo["repo_side_pjc_preflight"]=="ok", repo; assert repo["repo_side_pjc_binary_capability"] in {"ok","skipped"}, repo; assert repo["repo_side_pjc_fail_closed_wrappers"]=="ok", repo; assert repo["repo_side_pjc_worker_timeout_cancel_surface"] in {"ok","skipped"}, repo; live={c["name"]:c["status"] for c in p["live_checks"]}; assert live["live_pjc_resource_isolation_archive"] in {"ok","skipped"}, live' "$tmp/pjc_resource_isolation_evidence_gate/pjc_resource_isolation_evidence_gate.json"
+python3 "$REPO_ROOT/scripts/archive_pjc_protocol_live_evidence.py" \
+  --job-id pjc-protocol-contract \
+  --output-dir "$tmp/pjc_protocol_live_archive" > /dev/null
+python3 "$VALIDATOR" \
+  --schema "$REPO_ROOT/schemas/pjc_protocol_live_evidence_archive.schema.json" \
+  --json "$tmp/pjc_protocol_live_archive/pjc_protocol_live_evidence_archive.json"
+python3 -c 'import json,sys; p=json.load(open(sys.argv[1])); assert p["status"]=="ok", p; assert p["live_artifact_count"]>=1, p; assert isinstance(p["live_artifacts"]["live_public_two_host_archive"], dict), p; assert p["live_artifacts"]["live_two_host_signed_manifest_report"] is None, p; assert p["live_artifacts"]["live_malicious_secure_report"] is None, p' "$tmp/pjc_protocol_live_archive/pjc_protocol_live_evidence_archive.json"
+python3 "$REPO_ROOT/scripts/check_pjc_protocol_security_evidence_gate.py" \
+  --out-dir "$tmp/pjc_protocol_security_evidence_gate" \
+  --live-evidence-archive "$tmp/pjc_protocol_live_archive/pjc_protocol_live_evidence_archive.json" > /dev/null
+python3 "$VALIDATOR" \
+  --schema "$REPO_ROOT/schemas/pjc_protocol_security_evidence_gate.schema.json" \
+  --json "$tmp/pjc_protocol_security_evidence_gate/pjc_protocol_security_evidence_gate.json"
+python3 -c 'import json,sys; p=json.load(open(sys.argv[1])); assert p["status"]=="ok", p; assert p["repo_side_status"]=="ok", p; assert p["live_status"] in {"ok","skipped"}, p; assert p["claim_status"]=="semi_honest_only", p; repo={c["name"]:c["status"] for c in p["repo_side_checks"]}; assert repo["repo_side_input_commitment_gate"]=="ok", repo; assert repo["repo_side_signed_two_party_evidence"] in {"ok","skipped"}, repo; assert repo["repo_side_release_binding"]=="ok", repo; live={c["name"]:c["status"] for c in p["live_checks"]}; assert live["live_pjc_protocol_evidence_archive"]=="ok", live; assert live["live_public_two_host_protocol_foundation"]=="ok", live; assert live["live_signed_manifest_and_release_binding"] in {"ok","skipped"}, live' "$tmp/pjc_protocol_security_evidence_gate/pjc_protocol_security_evidence_gate.json"
+python3 "$REPO_ROOT/scripts/materialize_public_two_host_live_run.py" \
+  --source-job-dir "$REPO_ROOT/tmp/pjc_bucketed_scale_cross-vps-008_cleanrun" \
+  --source-session-dir "$REPO_ROOT/tmp/pjc_mtls_sessions/cross-vps-008" \
+  --out-dir "$tmp/public_two_host_live_cleanroom" \
+  --tls-port-base 10504 \
+  --pjc-local-port-base 10520 \
+  --local-proxy-port-base 10540 \
+  --tls-port-mode shared \
+  --pjc-local-port-mode increment \
+  --local-proxy-port-mode increment > /dev/null
+python3 "$VALIDATOR" \
+  --schema "$REPO_ROOT/schemas/public_two_host_live_materialization_report.schema.json" \
+  --json "$tmp/public_two_host_live_cleanroom/public_two_host_live_materialization_report.json"
+python3 -c 'import json,sys; p=json.load(open(sys.argv[1])); assert p["status"]=="ok", p; assert p["contamination_summary"]["staged_output_file_count"]==0, p; assert p["contamination_summary"]["source_output_file_count"]>=0, p; assert "party_a" in p["parties"], p; assert "party_b" in p["parties"], p' "$tmp/public_two_host_live_cleanroom/public_two_host_live_materialization_report.json"
+python3 "$REPO_ROOT/scripts/check_pjc_tls_readiness_smoke.py" > /dev/null
+python3 "$REPO_ROOT/scripts/archive_public_two_host_live_evidence.py" \
+  --job-id cross-vps-008 \
+  --party-b-job-dir "$REPO_ROOT/tmp/pjc_bucketed_scale_cross-vps-008_live_10504_cleanroom/party_b_job" \
+  --party-b-cert-dir "$REPO_ROOT/tmp/pjc_bucketed_scale_cross-vps-008_live_10504_cleanroom/party_b_bundle" \
+  --party-a-server-log "$REPO_ROOT/tmp/cross_vps_008_party_a_server.log" \
+  --cleanroom-report "$REPO_ROOT/tmp/pjc_bucketed_scale_cross-vps-008_live_cleanroom/public_two_host_live_materialization_report.json" \
+  --peer-host 118.190.61.66 \
+  --peer-port 10504 \
+  --server-hostname pjc-server \
+  --output-dir "$tmp/public_two_host_live_archive_cross-vps-008" > /dev/null
+python3 "$VALIDATOR" \
+  --schema "$REPO_ROOT/schemas/public_two_host_live_evidence_archive.schema.json" \
+  --json "$tmp/public_two_host_live_archive_cross-vps-008/public_two_host_live_evidence_archive.json"
+python3 -c 'import json,sys; p=json.load(open(sys.argv[1])); assert p["status"]=="ok", p; assert p["bucket_count"]==8, p; assert p["merged_result"]["bucket_count_merged"]==8, p; assert p["merged_result"]["intersection_size"]==420, p; assert p["tls_identity"]["client"]["decision"]=="allow", p; assert p["tls_identity"]["server"]["decision"]=="allow", p' "$tmp/public_two_host_live_archive_cross-vps-008/public_two_host_live_evidence_archive.json"
+python3 "$REPO_ROOT/scripts/check_public_two_host_production_readiness_gate.py" \
+  --out-dir "$tmp/public_two_host_production_readiness_gate" > /dev/null
+python3 "$VALIDATOR" \
+  --schema "$REPO_ROOT/schemas/public_two_host_production_readiness_gate.schema.json" \
+  --json "$tmp/public_two_host_production_readiness_gate/public_two_host_production_readiness_gate.json"
+python3 -c 'import json,sys; p=json.load(open(sys.argv[1])); assert p["status"]=="ok", p; assert p["repo_side_status"]=="ok", p; repo={c["name"]:c["status"] for c in p["repo_side_checks"]}; assert repo["repo_side_two_party_smoke"]=="ok", repo; assert repo["repo_side_tls_diagnostic_smoke"]=="ok", repo; assert repo["repo_side_release_policy_gate_smoke"]=="ok", repo; assert repo["repo_side_pjc_binary_capability"]=="ok", repo; assert repo["archived_s7_k3_evidence_integrity"]=="ok", repo; live={c["name"]:c["status"] for c in p["live_checks"]}; assert live["live_management_entrypoint"] in {"ok","skipped"}, live; assert live["live_dataplane_entrypoint"] in {"ok","skipped"}, live; assert live["live_fresh_two_host_evidence_archive"] in {"ok","skipped"}, live; assert live["live_clean_materialization"] in {"ok","skipped"}, live; assert p["live_status"] in {"ok","skipped"}, p; assert len(p["artifacts"])>=4, p' "$tmp/public_two_host_production_readiness_gate/public_two_host_production_readiness_gate.json"
+python3 "$REPO_ROOT/scripts/check_spiffe_envoy_identity_gate.py" \
+  --out-dir "$tmp/spiffe_envoy_identity_gate" > /dev/null
+python3 "$VALIDATOR" \
+  --schema "$REPO_ROOT/schemas/spiffe_envoy_identity_gate.schema.json" \
+  --json "$tmp/spiffe_envoy_identity_gate/spiffe_envoy_identity_gate.json"
+python3 -c 'import json,sys; p=json.load(open(sys.argv[1])); assert p["status"]=="ok", p; assert p["repo_side_status"]=="ok", p; assert p["live_status"] in {"ok","skipped"}, p; repo={c["name"]:c["status"] for c in p["repo_side_checks"]}; assert repo["repo_side_spiffe_peer_allowlist"]=="ok", repo; assert repo["repo_side_spiffe_envoy_template_lint"]=="ok", repo; live={c["name"]:c["status"] for c in p["live_checks"]}; assert live["live_positive_run"] in {"ok","skipped"}, live; assert live["live_wrong_peer_reject"] in {"ok","skipped"}, live; assert live["live_expired_svid_reject"] in {"ok","skipped"}, live; assert live["live_trust_bundle_reject"] in {"ok","skipped"}, live; assert live["live_envoy_access_log"] in {"ok","skipped"}, live' "$tmp/spiffe_envoy_identity_gate/spiffe_envoy_identity_gate.json"
+python3 "$REPO_ROOT/scripts/archive_spiffe_envoy_live_evidence.py" \
+  --job-id spiffe-envoy-contract \
+  --templates-dir "$REPO_ROOT/deploy/spiffe_envoy" \
+  --output-dir "$tmp/spiffe_envoy_live_archive" > /dev/null
+python3 "$VALIDATOR" \
+  --schema "$REPO_ROOT/schemas/spiffe_envoy_live_evidence_archive.schema.json" \
+  --json "$tmp/spiffe_envoy_live_archive/spiffe_envoy_live_evidence_archive.json"
+python3 -c 'import json,sys; p=json.load(open(sys.argv[1])); assert p["status"]=="ok", p; assert p["live_artifact_count"]==0, p; assert p["live_artifacts"]["live_positive_run"] is None, p; assert p["live_artifacts"]["live_envoy_access_log"] is None, p' "$tmp/spiffe_envoy_live_archive/spiffe_envoy_live_evidence_archive.json"
+python3 "$REPO_ROOT/scripts/archive_external_anchor_live_evidence.py" \
+  --job-id external-anchor-contract \
+  --output-dir "$tmp/external_anchor_live_archive" > /dev/null
+python3 "$VALIDATOR" \
+  --schema "$REPO_ROOT/schemas/external_anchor_live_evidence_archive.schema.json" \
+  --json "$tmp/external_anchor_live_archive/external_anchor_live_evidence_archive.json"
+python3 -c 'import json,sys; p=json.load(open(sys.argv[1])); assert p["status"]=="ok", p; assert p["live_artifact_count"]==0, p; assert p["live_artifacts"]["live_report"] is None, p; assert p["live_artifacts"]["live_ledger"] is None, p' "$tmp/external_anchor_live_archive/external_anchor_live_evidence_archive.json"
+python3 "$REPO_ROOT/scripts/check_external_anchor_evidence_gate.py" \
+  --out-dir "$tmp/external_anchor_evidence_gate" > /dev/null
+python3 "$VALIDATOR" \
+  --schema "$REPO_ROOT/schemas/external_anchor_evidence_gate.schema.json" \
+  --json "$tmp/external_anchor_evidence_gate/external_anchor_evidence_gate.json"
+python3 -c 'import json,sys; p=json.load(open(sys.argv[1])); assert p["status"]=="ok", p; assert p["repo_side_status"]=="ok", p; assert p["live_status"] in {"ok","skipped"}, p; repo={c["name"]:c["status"] for c in p["repo_side_checks"]}; assert repo["repo_side_rekor_planned_report"]=="ok", repo; assert repo["repo_side_anchor_gate_verify_script"]=="ok", repo; live={c["name"]:c["status"] for c in p["live_checks"]}; assert live["live_external_anchor_archive"] in {"ok","skipped"}, live' "$tmp/external_anchor_evidence_gate/external_anchor_evidence_gate.json"
+python3 "$REPO_ROOT/scripts/archive_postgres_ha_live_evidence.py" \
+  --job-id postgres-ha-contract \
+  --output-dir "$tmp/postgres_ha_live_archive" > /dev/null
+python3 "$VALIDATOR" \
+  --schema "$REPO_ROOT/schemas/postgres_ha_live_evidence_archive.schema.json" \
+  --json "$tmp/postgres_ha_live_archive/postgres_ha_live_evidence_archive.json"
+python3 -c 'import json,sys; p=json.load(open(sys.argv[1])); assert p["status"]=="ok", p; assert p["live_artifact_count"]>=1, p; assert isinstance(p["live_artifacts"]["live_repo_side_postgres_ha_foundation"], dict), p; assert p["live_artifacts"]["live_primary_replica_report"] is None, p; assert p["live_artifacts"]["live_restored_api_smoke"] is None, p' "$tmp/postgres_ha_live_archive/postgres_ha_live_evidence_archive.json"
+python3 "$REPO_ROOT/scripts/check_postgres_ha_evidence_gate.py" \
+  --out-dir "$tmp/postgres_ha_evidence_gate" \
+  --live-evidence-archive "$tmp/postgres_ha_live_archive/postgres_ha_live_evidence_archive.json" > /dev/null
+python3 "$VALIDATOR" \
+  --schema "$REPO_ROOT/schemas/postgres_ha_evidence_gate.schema.json" \
+  --json "$tmp/postgres_ha_evidence_gate/postgres_ha_evidence_gate.json"
+python3 -c 'import json,sys; p=json.load(open(sys.argv[1])); assert p["status"]=="ok", p; assert p["repo_side_status"]=="ok", p; assert p["live_status"] in {"ok","skipped"}, p; repo={c["name"]:c["status"] for c in p["repo_side_checks"]}; assert repo["repo_side_metadata_backup_restore_drill"]=="ok", repo; assert repo["repo_side_metadata_db_failover_test"]=="ok", repo; assert repo["repo_side_postgres_primary_replica_topology"]=="ok", repo; assert repo["repo_side_patroni_failover_topology"]=="ok", repo; assert repo["repo_side_pgbouncer_topology"]=="ok", repo; live={c["name"]:c["status"] for c in p["live_checks"]}; assert live["live_postgres_ha_evidence_archive"]=="ok", live; assert live["live_postgres_ha_foundation"]=="ok", live; assert live["live_real_postgres_ha_rollout"] in {"ok","skipped"}, live' "$tmp/postgres_ha_evidence_gate/postgres_ha_evidence_gate.json"
+python3 "$REPO_ROOT/scripts/archive_supply_chain_live_evidence.py" \
+  --job-id supply-chain-contract \
+  --output-dir "$tmp/supply_chain_live_archive" > /dev/null
+python3 "$VALIDATOR" \
+  --schema "$REPO_ROOT/schemas/supply_chain_live_evidence_archive.schema.json" \
+  --json "$tmp/supply_chain_live_archive/supply_chain_live_evidence_archive.json"
+python3 -c 'import json,sys; p=json.load(open(sys.argv[1])); assert p["status"]=="ok", p; assert p["live_artifact_count"]>=1, p; assert isinstance(p["live_artifacts"]["live_repo_side_supply_chain_foundation"], dict), p; assert p["live_artifacts"]["live_advisory_report"] is None, p' "$tmp/supply_chain_live_archive/supply_chain_live_evidence_archive.json"
+python3 "$REPO_ROOT/scripts/check_supply_chain_evidence_gate.py" \
+  --out-dir "$tmp/supply_chain_evidence_gate" \
+  --live-evidence-archive "$tmp/supply_chain_live_archive/supply_chain_live_evidence_archive.json" > /dev/null
+python3 "$VALIDATOR" \
+  --schema "$REPO_ROOT/schemas/supply_chain_evidence_gate.schema.json" \
+  --json "$tmp/supply_chain_evidence_gate/supply_chain_evidence_gate.json"
+python3 -c 'import json,sys; p=json.load(open(sys.argv[1])); assert p["status"]=="ok", p; assert p["repo_side_status"]=="ok", p; assert p["live_status"] in {"ok","skipped"}, p; repo={c["name"]:c["status"] for c in p["repo_side_checks"]}; assert repo["repo_side_supply_chain_report"]=="ok", repo; live={c["name"]:c["status"] for c in p["live_checks"]}; assert live["live_supply_chain_archive"]=="ok", live; assert live["live_supply_chain_foundation"]=="ok", live; assert live["live_real_supply_chain_rollout"] in {"ok","skipped"}, live' "$tmp/supply_chain_evidence_gate/supply_chain_evidence_gate.json"
+python3 "$REPO_ROOT/scripts/archive_authority_live_evidence.py" \
+  --job-id authority-contract \
+  --output-dir "$tmp/authority_live_archive" > /dev/null
+python3 "$VALIDATOR" \
+  --schema "$REPO_ROOT/schemas/authority_live_evidence_archive.schema.json" \
+  --json "$tmp/authority_live_archive/authority_live_evidence_archive.json"
+python3 -c 'import json,sys; p=json.load(open(sys.argv[1])); assert p["status"]=="ok", p; assert p["live_artifact_count"]>=1, p; assert isinstance(p["live_artifacts"]["live_repo_side_authority_foundation"], dict), p; assert p["live_artifacts"]["live_keycloak_report"] is None, p; assert p["live_artifacts"]["live_cloud_kms_report"] is None, p' "$tmp/authority_live_archive/authority_live_evidence_archive.json"
+python3 "$REPO_ROOT/scripts/check_authority_evidence_gate.py" \
+  --out-dir "$tmp/authority_evidence_gate" > /dev/null
+python3 "$VALIDATOR" \
+  --schema "$REPO_ROOT/schemas/authority_evidence_gate.schema.json" \
+  --json "$tmp/authority_evidence_gate/authority_evidence_gate.json"
+python3 -c 'import json,sys; p=json.load(open(sys.argv[1])); assert p["status"]=="ok", p; assert p["repo_side_status"]=="ok", p; assert p["live_status"] in {"ok","skipped"}, p; repo={c["name"]:c["status"] for c in p["repo_side_checks"]}; assert repo["repo_side_authority_governance"]=="ok", repo; assert repo["repo_side_live_identity_authority_gate"] in {"ok","skipped"}, repo; live={c["name"]:c["status"] for c in p["live_checks"]}; assert live["live_authority_evidence_archive"]=="ok", live; assert live["live_authority_foundation"]=="ok", live; assert live["live_real_authority_rollout"] in {"ok","skipped"}, live' "$tmp/authority_evidence_gate/authority_evidence_gate.json"
+python3 "$REPO_ROOT/scripts/archive_observability_live_evidence.py" \
+  --job-id observability-contract \
+  --output-dir "$tmp/observability_live_archive" > /dev/null
+python3 "$VALIDATOR" \
+  --schema "$REPO_ROOT/schemas/observability_live_evidence_archive.schema.json" \
+  --json "$tmp/observability_live_archive/observability_live_evidence_archive.json"
+python3 -c 'import json,sys; p=json.load(open(sys.argv[1])); assert p["status"]=="ok", p; assert p["live_artifact_count"]>=1, p; assert isinstance(p["live_artifacts"]["live_repo_side_observability_foundation"], dict), p; assert p["live_artifacts"]["live_tempo_push_report"] is None, p; assert p["live_artifacts"]["live_grafana_render_report"] is None, p' "$tmp/observability_live_archive/observability_live_evidence_archive.json"
+python3 "$REPO_ROOT/scripts/check_observability_evidence_gate.py" \
+  --out-dir "$tmp/observability_evidence_gate" \
+  --live-evidence-archive "$tmp/observability_live_archive/observability_live_evidence_archive.json" > /dev/null
+python3 "$VALIDATOR" \
+  --schema "$REPO_ROOT/schemas/observability_evidence_gate.schema.json" \
+  --json "$tmp/observability_evidence_gate/observability_evidence_gate.json"
+python3 -c 'import json,sys; p=json.load(open(sys.argv[1])); assert p["status"]=="ok", p; assert p["repo_side_status"]=="ok", p; assert p["live_status"] in {"ok","skipped"}, p; repo={c["name"]:c["status"] for c in p["repo_side_checks"]}; assert repo["repo_side_observability_topology"]=="ok", repo; assert repo["repo_side_alert_webhook_smoke"] in {"ok","skipped"}, repo; live={c["name"]:c["status"] for c in p["live_checks"]}; assert live["live_observability_evidence_archive"]=="ok", live; assert live["live_observability_foundation"]=="ok", live; assert live["live_real_observability_rollout"] in {"ok","skipped"}, live' "$tmp/observability_evidence_gate/observability_evidence_gate.json"
+python3 "$REPO_ROOT/scripts/archive_recovery_service_live_evidence.py" \
+  --job-id recovery-service-contract \
+  --output-dir "$tmp/recovery_service_live_archive" > /dev/null
+python3 "$VALIDATOR" \
+  --schema "$REPO_ROOT/schemas/recovery_service_live_evidence_archive.schema.json" \
+  --json "$tmp/recovery_service_live_archive/recovery_service_live_evidence_archive.json"
+python3 -c 'import json,sys; p=json.load(open(sys.argv[1])); assert p["status"]=="ok", p; assert p["live_artifact_count"]==0, p; assert p["live_artifacts"]["live_systemd_sandbox_report"] is None, p; assert p["live_artifacts"]["live_public_mtls_report"] is None, p' "$tmp/recovery_service_live_archive/recovery_service_live_evidence_archive.json"
+python3 "$REPO_ROOT/scripts/check_recovery_service_deployment_evidence_gate.py" \
+  --out-dir "$tmp/recovery_service_deployment_evidence_gate" \
+  --live-evidence-archive "$tmp/recovery_service_live_archive/recovery_service_live_evidence_archive.json" > /dev/null
+python3 "$VALIDATOR" \
+  --schema "$REPO_ROOT/schemas/recovery_service_deployment_evidence_gate.schema.json" \
+  --json "$tmp/recovery_service_deployment_evidence_gate/recovery_service_deployment_evidence_gate.json"
+python3 -c 'import json,sys; p=json.load(open(sys.argv[1])); assert p["status"]=="ok", p; assert p["repo_side_status"]=="ok", p; assert p["live_status"] in {"ok","skipped"}, p; repo={c["name"]:c["status"] for c in p["repo_side_checks"]}; assert repo["repo_side_record_recovery_production_gate"]=="ok", repo; assert repo["repo_side_recovery_service_failover"] in {"ok","skipped"}, repo; assert repo["repo_side_recovery_service_k8s_topology"]=="ok", repo; assert repo["repo_side_recovery_service_network_policy"]=="ok", repo; live={c["name"]:c["status"] for c in p["live_checks"]}; assert live["live_recovery_service_evidence_archive"] in {"ok","skipped"}, live' "$tmp/recovery_service_deployment_evidence_gate/recovery_service_deployment_evidence_gate.json"
+python3 "$REPO_ROOT/scripts/archive_legacy_sse_live_evidence.py" \
+  --job-id legacy-sse-contract \
+  --output-dir "$tmp/legacy_sse_live_archive" > /dev/null
+python3 "$VALIDATOR" \
+  --schema "$REPO_ROOT/schemas/legacy_sse_live_evidence_archive.schema.json" \
+  --json "$tmp/legacy_sse_live_archive/legacy_sse_live_evidence_archive.json"
+python3 -c 'import json,sys; p=json.load(open(sys.argv[1])); assert p["status"]=="ok", p; assert p["live_artifact_count"]==0, p; assert p["live_artifacts"]["live_route_inventory_report"] is None, p; assert p["live_artifacts"]["live_socket_inventory_report"] is None, p' "$tmp/legacy_sse_live_archive/legacy_sse_live_evidence_archive.json"
+python3 "$REPO_ROOT/scripts/check_legacy_sse_query_surface_evidence_gate.py" \
+  --out-dir "$tmp/legacy_sse_query_surface_evidence_gate" \
+  --live-evidence-archive "$tmp/legacy_sse_live_archive/legacy_sse_live_evidence_archive.json" > /dev/null
+python3 "$VALIDATOR" \
+  --schema "$REPO_ROOT/schemas/legacy_sse_query_surface_evidence_gate.schema.json" \
+  --json "$tmp/legacy_sse_query_surface_evidence_gate/legacy_sse_query_surface_evidence_gate.json"
+python3 -c 'import json,sys; p=json.load(open(sys.argv[1])); assert p["status"]=="ok", p; assert p["repo_side_status"]=="ok", p; assert p["live_status"] in {"ok","skipped"}, p; repo={c["name"]:c["status"] for c in p["repo_side_checks"]}; assert repo["repo_side_legacy_sse_retirement_gate"]=="ok", repo; live={c["name"]:c["status"] for c in p["live_checks"]}; assert live["live_legacy_sse_evidence_archive"] in {"ok","skipped"}, live' "$tmp/legacy_sse_query_surface_evidence_gate/legacy_sse_query_surface_evidence_gate.json"
+python3 "$REPO_ROOT/scripts/check_spiffe_envoy_identity_gate.py" \
+  --out-dir "$tmp/spiffe_envoy_identity_gate_archive" \
+  --live-evidence-archive "$tmp/spiffe_envoy_live_archive/spiffe_envoy_live_evidence_archive.json" > /dev/null
+python3 "$VALIDATOR" \
+  --schema "$REPO_ROOT/schemas/spiffe_envoy_identity_gate.schema.json" \
+  --json "$tmp/spiffe_envoy_identity_gate_archive/spiffe_envoy_identity_gate.json"
+python3 -c 'import json,sys; p=json.load(open(sys.argv[1])); assert p["status"]=="ok", p; assert p["repo_side_status"]=="ok", p; assert p["live_status"] in {"ok","skipped"}, p; live={c["name"]:c["status"] for c in p["live_checks"]}; assert live["live_spiffe_envoy_evidence_archive"] in {"ok","skipped"}, live; assert live["live_positive_run"] in {"ok","skipped"}, live' "$tmp/spiffe_envoy_identity_gate_archive/spiffe_envoy_identity_gate.json"
 python3 "$VALIDATOR" \
   --schema "$REPO_ROOT/schemas/business_data_read_preview.schema.json" \
   --json "$tmp/business_access_api_smoke/business_read_preview_allow.json"
@@ -310,11 +595,45 @@ python3 "$REPO_ROOT/scripts/check_console_browser_session.py" \
 python3 "$VALIDATOR" \
   --schema "$REPO_ROOT/schemas/console_browser_session_check.schema.json" \
   --json "$tmp/console_browser_session_check.json"
+python3 "$REPO_ROOT/scripts/archive_console_live_evidence.py" \
+  --job-id console-contract \
+  --output-dir "$tmp/console_live_archive" > /dev/null
+python3 "$VALIDATOR" \
+  --schema "$REPO_ROOT/schemas/console_live_evidence_archive.schema.json" \
+  --json "$tmp/console_live_archive/console_live_evidence_archive.json"
+python3 -c 'import json,sys; p=json.load(open(sys.argv[1])); assert p["status"]=="ok", p; assert p["live_artifact_count"]>=1, p; assert isinstance(p["live_artifacts"]["live_repo_side_console_foundation"], dict), p; assert p["live_artifacts"]["live_https_secure_cookie_report"] is None, p; assert p["live_artifacts"]["live_release_run_report"] is None, p' "$tmp/console_live_archive/console_live_evidence_archive.json"
+python3 "$REPO_ROOT/scripts/check_console_deployment_evidence_gate.py" \
+  --out-dir "$tmp/console_deployment_evidence_gate" \
+  --live-evidence-archive "$tmp/console_live_archive/console_live_evidence_archive.json" > /dev/null
+python3 "$VALIDATOR" \
+  --schema "$REPO_ROOT/schemas/console_deployment_evidence_gate.schema.json" \
+  --json "$tmp/console_deployment_evidence_gate/console_deployment_evidence_gate.json"
+python3 -c 'import json,sys; p=json.load(open(sys.argv[1])); assert p["status"]=="ok", p; assert p["repo_side_status"]=="ok", p; assert p["live_status"] in {"ok","skipped"}, p; repo={c["name"]:c["status"] for c in p["repo_side_checks"]}; assert repo["repo_side_console_token_storage"]=="ok", repo; assert repo["repo_side_console_browser_session"] in {"ok","skipped"}, repo; assert repo["repo_side_console_security_headers"] in {"ok","skipped"}, repo; assert repo["repo_side_console_release_gate"]=="ok", repo; live={c["name"]:c["status"] for c in p["live_checks"]}; assert live["live_console_evidence_archive"]=="ok", live; assert live["live_console_foundation"]=="ok", live; assert live["live_real_console_rollout"] in {"ok","skipped"}, live' "$tmp/console_deployment_evidence_gate/console_deployment_evidence_gate.json"
+python3 "$REPO_ROOT/scripts/check_console_release_gate.py" \
+  --out "$tmp/console_release_gate_check.json" > /dev/null
+python3 "$VALIDATOR" \
+  --schema "$REPO_ROOT/schemas/console_release_gate_check.schema.json" \
+  --json "$tmp/console_release_gate_check.json"
 python3 "$REPO_ROOT/scripts/check_console_security_headers.py" \
   --out "$tmp/console_security_headers_check.json" > /dev/null
 python3 "$VALIDATOR" \
   --schema "$REPO_ROOT/schemas/console_security_headers_check.schema.json" \
   --json "$tmp/console_security_headers_check.json"
+python3 "$REPO_ROOT/scripts/check_supply_chain_gate.py" \
+  --out "$tmp/supply_chain_evidence.json" > /dev/null
+python3 "$VALIDATOR" \
+  --schema "$REPO_ROOT/schemas/supply_chain_evidence.schema.json" \
+  --json "$tmp/supply_chain_evidence.json"
+python3 "$REPO_ROOT/scripts/check_legacy_sse_production_gate.py" \
+  --out "$tmp/legacy_sse_production_gate.json" > /dev/null
+python3 "$VALIDATOR" \
+  --schema "$REPO_ROOT/schemas/legacy_sse_production_gate.schema.json" \
+  --json "$tmp/legacy_sse_production_gate.json"
+python3 "$REPO_ROOT/scripts/check_record_recovery_production_gate.py" \
+  --out "$tmp/record_recovery_production_gate_check.json" > /dev/null
+python3 "$VALIDATOR" \
+  --schema "$REPO_ROOT/schemas/record_recovery_production_gate_check.schema.json" \
+  --json "$tmp/record_recovery_production_gate_check.json"
 python3 "$REPO_ROOT/scripts/check_identity_proxy_auth_smoke.py" \
   --out "$tmp/identity_proxy_auth_smoke.json" > /dev/null
 python3 "$VALIDATOR" \
@@ -883,6 +1202,18 @@ printf '%s\n' \
 printf '%s\n' \
   '{"job_id":"privacy-budget-job-4","window_start":"2026-01-15T00:00:00Z","window_end":"2026-02-15T00:00:00Z","bucket":"campaign-a"}' \
   > "$tmp/privacy_budget_meta_4.json"
+printf '%s\n' \
+  '{"schema":"privacy_budget_config/v1","default":{"max_queries":10,"near_duplicate_window_seconds":86400,"near_duplicate_window_round_seconds":3600,"near_duplicate_threshold_round_step":5},"scopes":[]}' \
+  > "$tmp/privacy_budget_scope_config.json"
+printf '%s\n' \
+  '{"job_id":"privacy-budget-heuristic-1","window_start":"2026-03-01T00:00:00Z","window_end":"2026-03-31T00:00:00Z","bucket":"campaign-a"}' \
+  > "$tmp/privacy_budget_meta_heuristic_1.json"
+printf '%s\n' \
+  '{"job_id":"privacy-budget-heuristic-2","window_start":"2026-04-01T00:00:00Z","window_end":"2026-04-30T00:00:00Z","bucket":"campaign-a"}' \
+  > "$tmp/privacy_budget_meta_heuristic_2.json"
+printf '%s\n' \
+  '{"job_id":"privacy-budget-heuristic-3","window_start":"2026-03-01T00:00:00Z","window_end":"2026-03-31T00:00:00Z","bucket":"campaign-b"}' \
+  > "$tmp/privacy_budget_meta_heuristic_3.json"
 python3 "$REPO_ROOT/a-psi/moduleA_psi/scripts/policy_release.py" \
   --input "$tmp/privacy_budget_result.json" \
   --job-meta "$tmp/privacy_budget_meta_1.json" \
@@ -928,6 +1259,44 @@ python3 "$REPO_ROOT/a-psi/moduleA_psi/scripts/policy_release.py" \
   --privacy-budget-limit 10 \
   --privacy-budget-approval-queue "$tmp/privacy_budget_approval_queue.jsonl" \
   > /dev/null
+python3 "$REPO_ROOT/a-psi/moduleA_psi/scripts/policy_release.py" \
+  --input "$tmp/privacy_budget_result.json" \
+  --job-meta "$tmp/privacy_budget_meta_heuristic_1.json" \
+  --out "$tmp/privacy_budget_heuristic_report_1.json" \
+  --audit-log "$tmp/privacy_budget_heuristic_policy_audit.jsonl" \
+  --caller "privacy_budget_demo" \
+  --threshold-k 1 \
+  --max-queries 10 \
+  --privacy-budget-ledger "$tmp/privacy_budget_heuristic_ledger.jsonl" \
+  --privacy-budget-config "$tmp/privacy_budget_scope_config.json" \
+  --privacy-budget-limit 10 \
+  > /dev/null
+python3 "$REPO_ROOT/a-psi/moduleA_psi/scripts/policy_release.py" \
+  --input "$tmp/privacy_budget_result.json" \
+  --job-meta "$tmp/privacy_budget_meta_heuristic_2.json" \
+  --out "$tmp/privacy_budget_heuristic_report_2.json" \
+  --audit-log "$tmp/privacy_budget_heuristic_policy_audit.jsonl" \
+  --caller "privacy_budget_demo" \
+  --threshold-k 4 \
+  --max-queries 10 \
+  --privacy-budget-ledger "$tmp/privacy_budget_heuristic_ledger.jsonl" \
+  --privacy-budget-config "$tmp/privacy_budget_scope_config.json" \
+  --privacy-budget-limit 10 \
+  --privacy-budget-approval-queue "$tmp/privacy_budget_heuristic_approval_queue.jsonl" \
+  > /dev/null
+python3 "$REPO_ROOT/a-psi/moduleA_psi/scripts/policy_release.py" \
+  --input "$tmp/privacy_budget_result.json" \
+  --job-meta "$tmp/privacy_budget_meta_heuristic_3.json" \
+  --out "$tmp/privacy_budget_heuristic_report_3.json" \
+  --audit-log "$tmp/privacy_budget_heuristic_policy_audit.jsonl" \
+  --caller "privacy_budget_demo" \
+  --threshold-k 1 \
+  --max-queries 10 \
+  --privacy-budget-ledger "$tmp/privacy_budget_heuristic_ledger.jsonl" \
+  --privacy-budget-config "$tmp/privacy_budget_scope_config.json" \
+  --privacy-budget-limit 10 \
+  --privacy-budget-approval-queue "$tmp/privacy_budget_heuristic_approval_queue.jsonl" \
+  > /dev/null
 python3 "$VALIDATOR" --schema "$REPO_ROOT/schemas/public_report.schema.json" --json "$tmp/privacy_budget_report_1.json"
 python3 "$VALIDATOR" --schema "$REPO_ROOT/schemas/public_report.schema.json" --json "$tmp/privacy_budget_report_2.json"
 python3 "$VALIDATOR" --schema "$REPO_ROOT/schemas/public_report.schema.json" --json "$tmp/privacy_budget_report_3.json"
@@ -935,6 +1304,8 @@ python3 "$VALIDATOR" --schema "$REPO_ROOT/schemas/public_report.schema.json" --j
 python3 "$VALIDATOR" --schema "$REPO_ROOT/schemas/policy_audit.schema.json" --jsonl "$tmp/privacy_budget_policy_audit.jsonl"
 python3 "$VALIDATOR" --schema "$REPO_ROOT/schemas/privacy_budget_ledger.schema.json" --jsonl "$tmp/privacy_budget_ledger.jsonl"
 python3 "$VALIDATOR" --schema "$REPO_ROOT/schemas/privacy_budget_approval_request.schema.json" --jsonl "$tmp/privacy_budget_approval_queue.jsonl"
+python3 "$VALIDATOR" --schema "$REPO_ROOT/schemas/privacy_budget_ledger.schema.json" --jsonl "$tmp/privacy_budget_heuristic_ledger.jsonl"
+python3 "$VALIDATOR" --schema "$REPO_ROOT/schemas/privacy_budget_approval_request.schema.json" --jsonl "$tmp/privacy_budget_heuristic_approval_queue.jsonl"
 python3 "$REPO_ROOT/scripts/manage_privacy_budget_approval.py" \
   --store "$tmp/privacy_budget_ledger.jsonl.sqlite" \
   --approval-queue "$tmp/privacy_budget_approval_queue.jsonl" \
@@ -948,6 +1319,9 @@ python3 "$VALIDATOR" --schema "$REPO_ROOT/schemas/privacy_budget_approval_decisi
 python3 "$VALIDATOR" --schema "$REPO_ROOT/schemas/privacy_budget_approval_decision.schema.json" --jsonl "$tmp/privacy_budget_approval_decisions.jsonl"
 python3 "$REPO_ROOT/scripts/check_privacy_budget_approval_api_smoke.py" \
   --out-dir "$tmp/privacy_budget_approval_api_smoke" > /dev/null
+python3 "$VALIDATOR" \
+  --schema "$REPO_ROOT/schemas/privacy_budget_approval_api_smoke.schema.json" \
+  --json "$tmp/privacy_budget_approval_api_smoke/privacy_budget_approval_api_smoke.json"
 python3 "$VALIDATOR" \
   --schema "$REPO_ROOT/schemas/privacy_budget_approval_list.schema.json" \
   --json "$tmp/privacy_budget_approval_api_smoke/privacy_budget_approval_list.json"
@@ -966,10 +1340,37 @@ python3 "$REPO_ROOT/scripts/check_privacy_budget.py" \
   --output "$tmp/privacy_budget_check_report.json" \
   > /dev/null
 python3 "$VALIDATOR" --schema "$REPO_ROOT/schemas/privacy_budget_check_report.schema.json" --json "$tmp/privacy_budget_check_report.json"
+python3 "$REPO_ROOT/scripts/check_privacy_budget_concurrency.py" \
+  --work-dir "$tmp/privacy_budget_concurrency" > "$tmp/privacy_budget_concurrency_check.json"
+python3 "$VALIDATOR" \
+  --schema "$REPO_ROOT/schemas/privacy_budget_concurrency_check.schema.json" \
+  --json "$tmp/privacy_budget_concurrency_check.json"
+python3 "$REPO_ROOT/scripts/check_privacy_budget_approval_flow.py" \
+  --work-dir "$tmp/privacy_budget_approval_flow" > "$tmp/privacy_budget_approval_flow_check.json"
+python3 "$VALIDATOR" \
+  --schema "$REPO_ROOT/schemas/privacy_budget_approval_flow_check.schema.json" \
+  --json "$tmp/privacy_budget_approval_flow_check.json"
 python3 -c 'import json, sys; reports=[json.load(open(p, "r", encoding="utf-8")) for p in sys.argv[1:5]]; assert reports[0]["released"] is True, reports[0]; assert reports[1]["released"] is False and reports[1]["reason_code"] == "privacy_budget_duplicate_query", reports[1]; assert reports[2]["released"] is False and reports[2]["reason_code"] == "privacy_budget_exhausted", reports[2]; assert reports[3]["released"] is False and reports[3]["reason_code"] == "privacy_budget_near_duplicate", reports[3]' "$tmp/privacy_budget_report_1.json" "$tmp/privacy_budget_report_2.json" "$tmp/privacy_budget_report_3.json" "$tmp/privacy_budget_report_4.json"
 python3 -c 'import json, sys; rows=[json.loads(line) for line in open(sys.argv[1], "r", encoding="utf-8") if line.strip()]; assert len(rows) == 4, rows; assert rows[0]["budget"]["consumed"] is True, rows; assert rows[1]["abuse_signal"] == "exact_duplicate" and rows[1]["budget"]["consumed"] is False, rows[1]; assert rows[2]["abuse_signal"] == "budget_exhausted" and rows[2]["budget"]["consumed"] is False, rows[2]; assert rows[3]["abuse_signal"] == "near_duplicate_or_differencing" and rows[3]["matched_prior_relation"] == "overlaps" and rows[3]["budget"]["consumed"] is False, rows[3]' "$tmp/privacy_budget_ledger.jsonl"
 python3 -c 'import json, sys; rows=[json.loads(line) for line in open(sys.argv[1], "r", encoding="utf-8") if line.strip()]; assert len(rows) == 1, rows; row=rows[0]; assert row["status"] == "pending_approval", row; assert row["reason_code"] == "privacy_budget_near_duplicate", row; assert row["approval_recommendation"] == "manual_review_required", row; assert row["matched_prior_relation"] == "overlaps", row; assert row["budget"]["consumed"] is False, row' "$tmp/privacy_budget_approval_queue.jsonl"
+python3 -c 'import json, sys; reports=[json.load(open(p, "r", encoding="utf-8")) for p in sys.argv[1:4]]; assert reports[0]["released"] is True, reports[0]; assert reports[1]["released"] is False and reports[1]["reason_code"] == "privacy_budget_near_duplicate", reports[1]; assert reports[2]["released"] is False and reports[2]["reason_code"] == "privacy_budget_bucket_probe", reports[2]' "$tmp/privacy_budget_heuristic_report_1.json" "$tmp/privacy_budget_heuristic_report_2.json" "$tmp/privacy_budget_heuristic_report_3.json"
+python3 -c 'import json, sys; rows=[json.loads(line) for line in open(sys.argv[1], "r", encoding="utf-8") if line.strip()]; assert len(rows) == 3, rows; assert rows[0]["decision"] == "allow" and rows[0]["budget"]["consumed"] is True, rows[0]; assert rows[1]["reason_code"] == "privacy_budget_near_duplicate" and rows[1]["matched_prior_relation"] == "unknown", rows[1]; assert rows[2]["reason_code"] == "privacy_budget_bucket_probe" and rows[2]["matched_prior_relation"] == "same", rows[2]' "$tmp/privacy_budget_heuristic_ledger.jsonl"
+python3 -c 'import json, sys; rows=[json.loads(line) for line in open(sys.argv[1], "r", encoding="utf-8") if line.strip()]; assert len(rows) == 2, rows; reasons={row["reason_code"] for row in rows}; assert {"privacy_budget_near_duplicate", "privacy_budget_bucket_probe"} == reasons, rows' "$tmp/privacy_budget_heuristic_approval_queue.jsonl"
 python3 -c 'import json, sys; payload=json.load(open(sys.argv[1], "r", encoding="utf-8")); summary=payload["summary"]; assert payload["status"] == "ok", payload; assert summary["total_records"] == 4, summary; assert summary["decision_counts"]["allow"] == 1 and summary["decision_counts"]["deny"] == 3, summary; assert summary["reason_code_counts"]["privacy_budget_duplicate_query"] == 1, summary; assert summary["reason_code_counts"]["privacy_budget_exhausted"] == 1, summary; assert summary["reason_code_counts"]["privacy_budget_near_duplicate"] == 1, summary; assert summary["callers"]["privacy_budget_demo"]["consumed_count"] == 1, summary' "$tmp/privacy_budget_check_report.json"
+python3 "$REPO_ROOT/scripts/archive_privacy_budget_live_evidence.py" \
+  --job-id privacy-budget-contract \
+  --output-dir "$tmp/privacy_budget_live_archive" > /dev/null
+python3 "$VALIDATOR" \
+  --schema "$REPO_ROOT/schemas/privacy_budget_live_evidence_archive.schema.json" \
+  --json "$tmp/privacy_budget_live_archive/privacy_budget_live_evidence_archive.json"
+python3 -c 'import json,sys; p=json.load(open(sys.argv[1])); assert p["status"]=="ok", p; assert p["live_artifact_count"]==0, p; assert p["live_artifacts"]["live_postgres_report"] is None, p; assert p["live_artifacts"]["live_browser_console_report"] is None, p' "$tmp/privacy_budget_live_archive/privacy_budget_live_evidence_archive.json"
+python3 "$REPO_ROOT/scripts/check_privacy_budget_deployment_evidence_gate.py" \
+  --out-dir "$tmp/privacy_budget_deployment_evidence_gate" \
+  --live-evidence-archive "$tmp/privacy_budget_live_archive/privacy_budget_live_evidence_archive.json" > /dev/null
+python3 "$VALIDATOR" \
+  --schema "$REPO_ROOT/schemas/privacy_budget_deployment_evidence_gate.schema.json" \
+  --json "$tmp/privacy_budget_deployment_evidence_gate/privacy_budget_deployment_evidence_gate.json"
+python3 -c 'import json,sys; p=json.load(open(sys.argv[1])); assert p["status"]=="ok", p; assert p["repo_side_status"]=="ok", p; assert p["live_status"] in {"ok","skipped"}, p; repo={c["name"]:c["status"] for c in p["repo_side_checks"]}; assert repo["repo_side_privacy_budget_concurrency"]=="ok", repo; assert repo["repo_side_privacy_budget_approval_flow"]=="ok", repo; assert repo["repo_side_privacy_budget_approval_api"] in {"ok","skipped"}, repo; assert repo["repo_side_privacy_budget_console_session"] in {"ok","skipped"}, repo; assert repo["repo_side_privacy_budget_identity_proxy"] in {"ok","skipped"}, repo; live={c["name"]:c["status"] for c in p["live_checks"]}; assert live["live_privacy_budget_evidence_archive"] in {"ok","skipped"}, live' "$tmp/privacy_budget_deployment_evidence_gate/privacy_budget_deployment_evidence_gate.json"
 python3 "$VALIDATOR" --schema "$REPO_ROOT/schemas/key_access_audit.schema.json" --jsonl "$tmp/key_access_audit.jsonl"
 python3 "$VALIDATOR" --schema "$REPO_ROOT/schemas/key_access_audit.schema.json" --jsonl "$tmp/external_key_access_audit.jsonl"
 python3 "$VALIDATOR" --schema "$REPO_ROOT/schemas/key_access_audit.schema.json" --jsonl "$tmp/key_agent_vault_access_audit.jsonl"
@@ -1315,6 +1716,11 @@ python3 "$VALIDATOR" \
 python3 "$VALIDATOR" \
   --schema "$REPO_ROOT/schemas/ecommerce_fact_import_result.schema.json" \
   --json "$tmp/ecommerce_fact_import/orders_duplicate_rollback_import.json"
+python3 "$REPO_ROOT/scripts/check_ecommerce_fact_import_job_smoke.py" \
+  --out-dir "$tmp/ecommerce_fact_import_job" > /dev/null
+python3 "$VALIDATOR" \
+  --schema "$REPO_ROOT/schemas/ecommerce_fact_import_job_smoke.schema.json" \
+  --json "$tmp/ecommerce_fact_import_job/ecommerce_fact_import_job_smoke.json"
 python3 "$VALIDATOR" \
   --schema "$REPO_ROOT/schemas/console_manifest.schema.json" \
   --json "$REPO_ROOT/config/operator_console/console_manifest.json"
@@ -1323,7 +1729,12 @@ python3 "$REPO_ROOT/scripts/render_operator_console_manifest.py" \
 python3 "$VALIDATOR" \
   --schema "$REPO_ROOT/schemas/operator_console_manifest_report.schema.json" \
   --json "$tmp/operator_console_manifest_report.json"
-python3 -c 'import json,sys; p=json.load(open(sys.argv[1])); s=p["summary"]; assert s["status"]=="ok", p; expected={"home","jobs","requests","audit","catalog","permissions","recovery","observability","compliance"}; assert expected.issubset(set(s["sections_present"])), p; assert not s["sections_missing"], p; assert s["section_count"] >= 9, p; assert s["endpoints_total"] >= 9, p; assert s["static_index_references_manifest"] is True, p; assert {"commerce_ops_owner","compliance_auditor","recovery_service_operator","privacy_operator","platform_auditor"}.issubset(set(s["roles_referenced"])), p; er=s["endpoint_roles"]; assert er["GET /v1/dashboard"]=="any_authenticated_public_summary", er; assert er["POST /v1/jobs/start"]=="privacy_operator", er; assert er["GET /v1/jobs/{job_id}"]=="platform_auditor", er; assert er["GET /v1/jobs/{job_id}/result"]=="platform_auditor", er; assert er["POST /v1/jobs/{job_id}/relaunch"]=="privacy_operator", er' "$tmp/operator_console_manifest_report.json"
+python3 -c 'import json,sys; p=json.load(open(sys.argv[1])); s=p["summary"]; assert s["status"]=="ok", p; expected={"home","jobs","requests","business_access","audit","catalog","permissions","recovery","observability","compliance"}; assert expected.issubset(set(s["sections_present"])), p; assert not s["sections_missing"], p; assert s["section_count"] >= 10, p; assert s["endpoints_total"] >= 9, p; assert s["static_index_references_manifest"] is True, p; assert {"commerce_ops_owner","compliance_auditor","recovery_service_operator","privacy_operator","platform_auditor"}.issubset(set(s["roles_referenced"])), p; er=s["endpoint_roles"]; assert er["GET /v1/dashboard"]=="any_authenticated_public_summary", er; assert er["POST /v1/jobs/start"]=="privacy_operator", er; assert er["GET /v1/jobs/{job_id}"]=="platform_auditor", er; assert er["GET /v1/jobs/{job_id}/result"]=="platform_auditor", er; assert er["POST /v1/jobs/{job_id}/relaunch"]=="privacy_operator", er; assert er["POST /v1/business-access/check"]=="query_submitter", er; assert er["POST /v1/business-data/read-preview"]=="query_submitter", er' "$tmp/operator_console_manifest_report.json"
+python3 "$REPO_ROOT/scripts/check_console_business_access_workbench.py" \
+  > "$tmp/console_business_access_workbench_check.json"
+python3 "$VALIDATOR" \
+  --schema "$REPO_ROOT/schemas/console_business_access_workbench_check.schema.json" \
+  --json "$tmp/console_business_access_workbench_check.json"
 python3 "$REPO_ROOT/scripts/check_operator_dashboard_public_summary.py" \
   --out-dir "$tmp/operator_dashboard_public_summary" > /dev/null
 python3 "$VALIDATOR" \
@@ -1350,7 +1761,47 @@ python3 "$VALIDATOR" \
 python3 "$VALIDATOR" \
   --schema "$REPO_ROOT/schemas/operator_request_submission.schema.json" \
   --json "$tmp/operator_request_submission_reject.json"
-python3 -c 'import json,sys; l=json.load(open(sys.argv[1])); d=json.load(open(sys.argv[2])); a=json.load(open(sys.argv[3])); r=json.load(open(sys.argv[4])); assert l["schema"]=="operator_request_submission_list/v1" and l["returned_count"]>=1, l; assert isinstance(d.get("request"), dict), d; assert a["status"]=="approved" and a["approved_by"]=="privacy_operator_demo", a; assert isinstance(a.get("job_control"), dict) and a["job_control"]["state"]=="running", a; assert r["status"]=="rejected" and r["rejection_reason"]=="smoke rejection", r' "$tmp/operator_request_submission_list.json" "$tmp/operator_request_submission_detail.json" "$tmp/operator_request_submission_approve.json" "$tmp/operator_request_submission_reject.json"
+python3 -c 'import json,sys; l=json.load(open(sys.argv[1])); d=json.load(open(sys.argv[2])); a=json.load(open(sys.argv[3])); r=json.load(open(sys.argv[4])); sc=json.load(open(sys.argv[5])); st=json.load(open(sys.argv[6])); sd=json.load(open(sys.argv[7])); rp=json.load(open(sys.argv[8])); ra=json.load(open(sys.argv[9])); rs=json.load(open(sys.argv[10])); al=json.load(open(sys.argv[11])); ad=json.load(open(sys.argv[12])); aa=json.load(open(sys.argv[13])); ar=json.load(open(sys.argv[14])); au_l=json.load(open(sys.argv[15])); au_d=json.load(open(sys.argv[16])); au_a=json.load(open(sys.argv[17])); au_r=json.load(open(sys.argv[18])); assert l["schema"]=="operator_request_submission_list/v1" and l["returned_count"]>=1, l; assert isinstance(d.get("request"), dict), d; assert a["status"]=="approved" and a["approved_by"]=="privacy_operator_demo", a; assert isinstance(a.get("job_control"), dict) and a["job_control"]["state"]=="running", a; assert r["status"]=="rejected" and r["rejection_reason"]=="smoke rejection", r; assert sc["status"]==403 and sc["response"]["error"]=="authz_rejected", sc; assert st["status"]==403 and st["response"]["error"]=="authz_rejected", st; assert sd["status"]==403 and sd["response"]["error"]=="authz_rejected", sd; assert rp["status"]==403 and rp["response"]["error"]=="authz_rejected", rp; assert ra["schema"]=="operator_request_submission/v1" and ra["service_id"]=="bridge-demo-recovery", ra; assert rs["status"]==403 and rs["response"]["error"]=="authz_rejected", rs; assert al["schema"]=="operator_request_submission_list/v1" and al["returned_count"]==0, al; assert ad["status"]==403 and ad["response"]["error"]=="authz_rejected", ad; assert aa["status"]==403 and aa["response"]["error"]=="authz_rejected", aa; assert ar["status"]==403 and ar["response"]["error"]=="authz_rejected", ar; assert au_l["schema"]=="operator_request_submission_list/v1" and au_l["returned_count"]>=1, au_l; assert au_d["schema"]=="operator_request_submission/v1", au_d; assert au_a["status"]==403 and au_a["response"]["error"]=="authz_rejected", au_a; assert au_r["status"]=="rejected" and au_r["rejected_by"]=="compliance_auditor_demo", au_r' "$tmp/operator_request_submission_list.json" "$tmp/operator_request_submission_detail.json" "$tmp/operator_request_submission_approve.json" "$tmp/operator_request_submission_reject.json" "$tmp/operator_request_submission_spoof_caller_reject.json" "$tmp/operator_request_submission_spoof_tenant_reject.json" "$tmp/operator_request_submission_spoof_dataset_reject.json" "$tmp/operator_request_submission_recovery_without_permission_reject.json" "$tmp/operator_request_submission_recovery_allowed_submit.json" "$tmp/operator_request_submission_recovery_service_spoof_reject.json" "$tmp/operator_request_submission_analyst_list.json" "$tmp/operator_request_submission_analyst_detail_reject.json" "$tmp/operator_request_submission_analyst_approve_reject.json" "$tmp/operator_request_submission_analyst_reject_reject.json" "$tmp/operator_request_submission_auditor_list.json" "$tmp/operator_request_submission_auditor_detail.json" "$tmp/operator_request_submission_auditor_approve_reject.json" "$tmp/operator_request_submission_auditor_reject.json"
+python3 "$REPO_ROOT/scripts/check_ecommerce_production_exposure_gate.py" \
+  --out-dir "$tmp/ecommerce_production_exposure_gate" > /dev/null
+python3 "$VALIDATOR" \
+  --schema "$REPO_ROOT/schemas/ecommerce_production_exposure_gate.schema.json" \
+  --json "$tmp/ecommerce_production_exposure_gate/ecommerce_production_exposure_gate.json"
+python3 -c 'import json,sys; p=json.load(open(sys.argv[1])); assert p["status"]=="ok", p; checks={c["name"]:c for c in p["checks"]}; required={"fact_layer_schema","business_access_policy","business_access_api","direct_query_workflow_identity_scope","operator_request_workflow","console_manifest","console_business_access_workbench","ecommerce_fact_import_job"}; assert required.issubset(checks), checks; assert checks["fact_layer_schema"]["status"]=="ok", checks; assert checks["business_access_policy"]["status"]=="ok", checks; assert checks["console_manifest"]["status"]=="ok", checks; assert checks["console_business_access_workbench"]["status"]=="ok", checks; assert checks["ecommerce_fact_import_job"]["status"]=="ok", checks; runtime_names={"business_access_api","direct_query_workflow_identity_scope","operator_request_workflow"}; assert all(checks[name]["status"] in {"ok","skipped"} for name in runtime_names), checks; m=p["exposure_matrix"]; runtime_all_ok=all(checks[name]["status"]=="ok" for name in runtime_names); assert len(m["attacker_view"])>=5 if runtime_all_ok else m["attacker_view"]==[], m; assert len(m["internal_adversary_view"])>=6 if runtime_all_ok else m["internal_adversary_view"]==[], m; assert len(m["verifier_view"]["artifacts"])>=19 if runtime_all_ok else len(m["verifier_view"]["artifacts"])>=5, m["verifier_view"]; statuses=[item["status"] for item in m["attacker_view"]+m["internal_adversary_view"]]; assert all(s=="ok" for s in statuses), m; risks={item["actor"]: item["status"] for item in m["attacker_view"]}; internal={item["actor"]: item["status"] for item in m["internal_adversary_view"]}; assert risks.get("tenant-scoped business caller","ok")=="ok", risks; assert risks.get("identity-bound direct query caller","ok")=="ok", risks; assert risks.get("field_marketer attacker","ok")=="ok", risks; assert internal.get("submitter spoofing caller/tenant/dataset","ok")=="ok", internal; assert internal.get("submitter spoofing recovery service scope","ok")=="ok", internal; assert internal.get("same_identity submitter/approver","ok")=="ok", internal; assert internal.get("non-review analyst","ok")=="ok", internal; assert internal.get("compliance auditor","ok")=="ok", internal' "$tmp/ecommerce_production_exposure_gate/ecommerce_production_exposure_gate.json"
+python3 "$REPO_ROOT/scripts/archive_ecommerce_live_evidence.py" \
+  --job-id ecommerce-contract \
+  --output-dir "$tmp/ecommerce_live_archive" > /dev/null
+python3 "$REPO_ROOT/scripts/render_ecommerce_live_rollout_fixtures.py" \
+  --out-dir "$tmp/ecommerce_live_rollout_fixtures" > /dev/null
+python3 "$VALIDATOR" \
+  --schema "$REPO_ROOT/schemas/ecommerce_live_rollout_fixture_bundle.schema.json" \
+  --json "$tmp/ecommerce_live_rollout_fixtures/ecommerce_live_rollout_fixture_bundle.json"
+python3 "$VALIDATOR" \
+  --schema "$REPO_ROOT/schemas/ecommerce_live_oidc_abac_report.schema.json" \
+  --json "$tmp/ecommerce_live_rollout_fixtures/ecommerce_live_oidc_abac_report.json"
+python3 "$VALIDATOR" \
+  --schema "$REPO_ROOT/schemas/ecommerce_live_fact_import_report.schema.json" \
+  --json "$tmp/ecommerce_live_rollout_fixtures/ecommerce_live_fact_import_report.json"
+python3 "$VALIDATOR" \
+  --schema "$REPO_ROOT/schemas/ecommerce_live_tls_network_policy_report.schema.json" \
+  --json "$tmp/ecommerce_live_rollout_fixtures/ecommerce_live_tls_network_policy_report.json"
+python3 "$VALIDATOR" \
+  --schema "$REPO_ROOT/schemas/ecommerce_live_postgres_anchor_report.schema.json" \
+  --json "$tmp/ecommerce_live_rollout_fixtures/ecommerce_live_postgres_anchor_report.json"
+python3 "$VALIDATOR" \
+  --schema "$REPO_ROOT/schemas/ecommerce_logistics_live_rollout_report.schema.json" \
+  --json "$tmp/ecommerce_live_rollout_fixtures/ecommerce_logistics_live_rollout_report.json"
+python3 "$VALIDATOR" \
+  --schema "$REPO_ROOT/schemas/ecommerce_live_evidence_archive.schema.json" \
+  --json "$tmp/ecommerce_live_archive/ecommerce_live_evidence_archive.json"
+python3 -c 'import json,sys; p=json.load(open(sys.argv[1])); assert p["status"]=="ok", p; assert p["live_artifact_count"]>=1, p; assert isinstance(p["live_artifacts"]["live_repo_side_ecommerce_foundation"], dict), p; assert p["live_artifacts"]["live_oidc_abac_report"] is None, p; assert p["live_artifacts"]["live_fact_import_report"] is None, p' "$tmp/ecommerce_live_archive/ecommerce_live_evidence_archive.json"
+python3 "$REPO_ROOT/scripts/check_ecommerce_deployment_evidence_gate.py" \
+  --out-dir "$tmp/ecommerce_deployment_evidence_gate" \
+  --live-evidence-archive "$tmp/ecommerce_live_archive/ecommerce_live_evidence_archive.json" > /dev/null
+python3 "$VALIDATOR" \
+  --schema "$REPO_ROOT/schemas/ecommerce_deployment_evidence_gate.schema.json" \
+  --json "$tmp/ecommerce_deployment_evidence_gate/ecommerce_deployment_evidence_gate.json"
+python3 -c 'import json,sys; p=json.load(open(sys.argv[1])); assert p["status"]=="ok", p; assert p["repo_side_status"]=="ok", p; repo={c["name"]:c["status"] for c in p["repo_side_checks"]}; assert repo["repo_side_ecommerce_production_exposure"] in {"ok","skipped"}, repo; live={c["name"]:c["status"] for c in p["live_checks"]}; assert live["live_ecommerce_evidence_archive"]=="ok", live; assert live["live_ecommerce_foundation"]=="ok", live; assert live["live_real_ecommerce_rollout"] in {"ok","skipped"}, live; assert p["live_status"] in {"ok","skipped"}, p' "$tmp/ecommerce_deployment_evidence_gate/ecommerce_deployment_evidence_gate.json"
 export SECCOMP_AUDIT_ARCHIVE_ANCHOR_KEY="contract-audit-anchor-key"
 python3 "$REPO_ROOT/scripts/archive_audit_bundle.py" \
   --audit-chain "$tmp/audit_chain.json" \
@@ -1734,6 +2185,7 @@ metadata_db_backup_s3_status="$(python3 "$RUNTIME_SERVICE_HELPERS" read-json-fie
 [[ "$metadata_db_backup_s3_status" == "planned" ]] || { echo "[ERROR] backup s3_upload status (expected planned dry-run): $metadata_db_backup_s3_status" >&2; exit 1; }
 python3 "$REPO_ROOT/scripts/restore_metadata_db.py" \
   --backup-path "$tmp/platform_metadata_f4.backup.db" \
+  --backup-report "$tmp/metadata_db_backup_report.json" \
   --out-db-path "$tmp/platform_metadata_f4.restored.db" \
   --verify-portability \
   --output "$tmp/metadata_db_restore_report.json" \
@@ -1751,6 +2203,17 @@ metadata_db_restore_portability="$(python3 "$RUNTIME_SERVICE_HELPERS" read-json-
   --json-file "$tmp/metadata_db_restore_report.json" \
   --field portability_check.status)"
 [[ "$metadata_db_restore_portability" == "ok" ]] || { echo "[ERROR] restore portability_check status: $metadata_db_restore_portability" >&2; exit 1; }
+metadata_db_restore_sha_match="$(python3 "$RUNTIME_SERVICE_HELPERS" read-json-field \
+  --json-file "$tmp/metadata_db_restore_report.json" \
+  --field backup.sha256_match)"
+[[ "$metadata_db_restore_sha_match" == "True" ]] || { echo "[ERROR] restore backup sha256_match expected True, got: $metadata_db_restore_sha_match" >&2; exit 1; }
+python3 "$REPO_ROOT/scripts/check_metadata_backup_restore_drill.py" \
+  --out "$tmp/metadata_backup_restore_drill.json" \
+  > /dev/null
+python3 "$VALIDATOR" \
+  --schema "$REPO_ROOT/schemas/metadata_backup_restore_drill.schema.json" \
+  --json "$tmp/metadata_backup_restore_drill.json"
+python3 -c 'import json, sys; p=json.load(open(sys.argv[1], "r", encoding="utf-8")); assert p["status"] == "ok", p; assert p["checks"]["restore"]["sha256_match"] is True, p; assert p["checks"]["restore"]["probe"]["probe_rows_present"] is True, p; assert p["checks"]["tampered_restore_denied"]["denied"] is True, p' "$tmp/metadata_backup_restore_drill.json"
 # Cross-backend rejection: a SQLite backup file fed into the postgres restore path must error out before touching any DSN.
 python3 "$REPO_ROOT/scripts/restore_metadata_db.py" \
   --backup-path "$tmp/platform_metadata_f4.backup.db" \
@@ -1785,6 +2248,20 @@ python3 "$VALIDATOR" \
   --schema "$REPO_ROOT/schemas/control_plane_deepening_report.schema.json" \
   --json "$tmp/control_plane_deepening.json"
 python3 -c 'import json, sys; payload=json.load(open(sys.argv[1], "r", encoding="utf-8")); s=payload["summary"]; assert payload["mode"] == "apply", payload; assert s["status"] == "ok", payload; assert s["job_transition_count"] >= 2, s; assert s["policy_version_count"] >= 1, s; assert s["service_version_count"] >= 1, s; assert s["catalog_lineage_count"] >= 4, s; assert s["retention_plan_count"] >= 1, s' "$tmp/control_plane_deepening.json"
+python3 "$REPO_ROOT/scripts/archive_control_plane_live_evidence.py" \
+  --job-id control-plane-contract \
+  --output-dir "$tmp/control_plane_live_archive" > /dev/null
+python3 "$VALIDATOR" \
+  --schema "$REPO_ROOT/schemas/control_plane_live_evidence_archive.schema.json" \
+  --json "$tmp/control_plane_live_archive/control_plane_live_evidence_archive.json"
+python3 -c 'import json,sys; p=json.load(open(sys.argv[1])); assert p["status"]=="ok", p; assert p["live_artifact_count"]>=1, p; assert isinstance(p["live_artifacts"]["live_repo_side_control_plane_foundation"], dict), p; assert p["live_artifacts"]["live_operator_runbook_report"] is None, p; assert p["live_artifacts"]["live_platform_api_report"] is None, p' "$tmp/control_plane_live_archive/control_plane_live_evidence_archive.json"
+python3 "$REPO_ROOT/scripts/check_control_plane_deployment_evidence_gate.py" \
+  --out-dir "$tmp/control_plane_deployment_evidence_gate" \
+  --live-evidence-archive "$tmp/control_plane_live_archive/control_plane_live_evidence_archive.json" > /dev/null
+python3 "$VALIDATOR" \
+  --schema "$REPO_ROOT/schemas/control_plane_deployment_evidence_gate.schema.json" \
+  --json "$tmp/control_plane_deployment_evidence_gate/control_plane_deployment_evidence_gate.json"
+python3 -c 'import json,sys; p=json.load(open(sys.argv[1])); assert p["status"]=="ok", p; assert p["repo_side_status"]=="ok", p; assert p["live_status"] in {"ok","skipped"}, p; repo={c["name"]:c["status"] for c in p["repo_side_checks"]}; assert repo["repo_side_operator_readiness"]=="ok", repo; assert repo["repo_side_http_malformed_input_gate"]=="ok", repo; assert repo["repo_side_control_plane_deepening"]=="ok", repo; assert repo["repo_side_metadata_api_redaction"] in {"ok","skipped"}, repo; live={c["name"]:c["status"] for c in p["live_checks"]}; assert live["live_control_plane_evidence_archive"]=="ok", live; assert live["live_control_plane_foundation"]=="ok", live; assert live["live_real_control_plane_rollout"] in {"ok","skipped"}, live' "$tmp/control_plane_deployment_evidence_gate/control_plane_deployment_evidence_gate.json"
 python3 "$REPO_ROOT/scripts/query_metadata.py" \
   --db-path "$tmp/platform_metadata.db" \
   --list-entity job-state-transitions \
@@ -2360,9 +2837,11 @@ python3 "$REPO_ROOT/scripts/query_metadata.py" \
   > "$tmp/platform_metadata_caller_permissions_page.json"
 mkdir -p "$tmp/query_requests"
 python3 "$REPO_ROOT/scripts/build_query_workflow_request_fixtures.py" \
+  --tmp-root "$tmp" \
   --default-out "$tmp/query_requests/cross_party_match.json" \
   --keep-out "$tmp/query_requests/cross_party_match_keep.json" \
   --ecommerce-out "$tmp/query_requests/ecommerce_cross_party_match.json" \
+  --api-client-out "$tmp/query_requests/cross_party_match_api_client.json" \
   --privacy-budget-out "$tmp/query_requests/cross_party_match_privacy_budget.json" \
   --privacy-budget-missing-config-out "$tmp/query_requests/cross_party_match_privacy_budget_missing_config.json" \
   --privacy-budget-missing-ledger-out "$tmp/query_requests/cross_party_match_privacy_budget_missing_ledger.json"
@@ -2380,6 +2859,7 @@ python3 -c 'import json, sys
 p=json.load(open(sys.argv[1], "r", encoding="utf-8"))
 cmd=p["command"]
 required=["--privacy-budget-required","--privacy-budget-config","--privacy-budget-ledger","--privacy-budget-approval-queue","--privacy-budget-purpose","--privacy-budget-limit","--privacy-budget-cost","--release-policy-gate-config","--require-dp","--dp-epsilon","--dp-sensitivity","--public-report-redact-operator-fields","--operator-report-path","--tenant-id","--dataset-id","--pjc-resource-limits"]
+required.extend(["--source-system","--source-attestation-mode","--source-attestation-approval-id","--source-attestation-operator-identity","--source-attestation-signoff-status","--source-attestation-signing-key-path"])
 missing=[flag for flag in required if flag not in cmd]
 assert not missing, (missing, cmd)
 assert cmd[cmd.index("--privacy-budget-approval-queue")+1].endswith("query_workflow_privacy_budget_approval_queue.jsonl"), cmd
@@ -2389,6 +2869,12 @@ assert cmd[cmd.index("--privacy-budget-cost")+1] == "1.0", cmd
 assert cmd[cmd.index("--release-policy-gate-config")+1].endswith("config/release_policy_gate.local-contract.example.json"), cmd
 assert cmd[cmd.index("--dp-epsilon")+1] == "1.0", cmd
 assert cmd[cmd.index("--dp-sensitivity")+1] == "500", cmd
+assert cmd[cmd.index("--source-system")+1] == "ecommerce_fact_import", cmd
+assert cmd[cmd.index("--source-attestation-mode")+1] == "operator", cmd
+assert cmd[cmd.index("--source-attestation-approval-id")+1] == "approval-contract-query-workflow", cmd
+assert cmd[cmd.index("--source-attestation-operator-identity")+1] == "privacy_operator_demo", cmd
+assert cmd[cmd.index("--source-attestation-signoff-status")+1] == "approved", cmd
+assert cmd[cmd.index("--source-attestation-signing-key-path")+1].endswith("source_attestation_signing_key.pem"), cmd
 assert cmd[cmd.index("--operator-report-path")+1].endswith("query_workflow_out_privacy_budget/a_psi_run/operator_report.json"), cmd
 assert cmd[cmd.index("--tenant-id")+1] == "demo_tenant", cmd
 assert cmd[cmd.index("--dataset-id")+1] == "bridge_demo_dataset", cmd
@@ -2444,15 +2930,15 @@ python3 "$REPO_ROOT/scripts/platform_api_client.py" \
   query-submit \
   --base-url "http://127.0.0.1:$query_workflow_api_port" \
   --auth-token-env SECCOMP_QUERY_WORKFLOW_API_TOKEN \
-  --request-file "$tmp/query_requests/cross_party_match.json" \
+  --request-file "$tmp/query_requests/cross_party_match_api_client.json" \
   --output-file "$tmp/query_workflow_client_dry_run.json" \
   > /dev/null
 python3 "$REPO_ROOT/scripts/platform_api_client.py" \
   query-status \
   --base-url "http://127.0.0.1:$query_workflow_api_port" \
   --auth-token-env SECCOMP_QUERY_WORKFLOW_API_TOKEN \
-  --out-base "$tmp/query_workflow_out" \
-  --job-id contract-query-workflow \
+  --out-base "$tmp/query_workflow_api_client_out" \
+  --job-id contract-query-workflow-api-client \
   --output-file "$tmp/query_workflow_client_status.json" \
   > /dev/null
 if python3 "$REPO_ROOT/scripts/platform_api_client.py" \
@@ -2473,6 +2959,7 @@ python3 "$REPO_ROOT/scripts/serve_query_workflow_api.py" \
   --bind-host 127.0.0.1 \
   --port "$query_workflow_execute_api_port" \
   --auth-token-env SECCOMP_QUERY_WORKFLOW_API_TOKEN \
+  --workflow-execution-db-path "$tmp/query_workflow_execution.db" \
   --allow-execute \
   > "$tmp/query_workflow_execute_api.log" 2>&1 &
 query_workflow_execute_api_pid=$!
@@ -2486,7 +2973,7 @@ if python3 "$REPO_ROOT/scripts/platform_api_client.py" \
   query-submit \
   --base-url "http://127.0.0.1:$query_workflow_execute_api_port" \
   --auth-token-env SECCOMP_QUERY_WORKFLOW_API_TOKEN \
-  --request-file "$tmp/query_requests/cross_party_match_execute_run_failed.json" \
+  --request-file "$tmp/query_requests/cross_party_match_execute_run_failed_client.json" \
   --execute \
   --output-file "$tmp/query_workflow_client_execute_run_failed.json" \
   > /dev/null; then
@@ -2497,10 +2984,82 @@ python3 "$REPO_ROOT/scripts/platform_api_client.py" \
   query-status \
   --base-url "http://127.0.0.1:$query_workflow_execute_api_port" \
   --auth-token-env SECCOMP_QUERY_WORKFLOW_API_TOKEN \
-  --out-base "$tmp/query_workflow_execute_fail_out" \
-  --job-id contract-query-workflow-execute-run-failed \
+  --out-base "$tmp/query_workflow_execute_fail_client_out" \
+  --job-id contract-query-workflow-execute-run-failed-client \
   --output-file "$tmp/query_workflow_client_execute_run_failed_status.json" \
   > /dev/null
+python3 - "$tmp/query_workflow_execution.db" <<'PY'
+import sqlite3
+import sys
+conn = sqlite3.connect(sys.argv[1])
+conn.row_factory = sqlite3.Row
+rows = conn.execute(
+    "SELECT job_id, state, terminal, last_exit_code FROM query_workflow_executions ORDER BY id"
+).fetchall()
+assert rows, "query_workflow_executions row missing"
+assert any(row["job_id"] == "contract-query-workflow-execute-run-failed" and row["state"] == "failed" and int(row["terminal"]) == 1 for row in rows), [dict(row) for row in rows]
+PY
+python3 - "$tmp/query_requests/cross_party_match_keep.json" "$tmp/query_requests/cross_party_match_worker.json" <<'PY'
+import json
+import pathlib
+import sys
+src, dst = sys.argv[1], sys.argv[2]
+payload = json.load(open(src, "r", encoding="utf-8"))
+payload["job_id"] = "contract-query-workflow-worker"
+payload["out_base"] = str(pathlib.Path(dst).resolve().parents[1] / "query_workflow_worker_out")
+payload["token_scope"] = "contract-query-scope-worker"
+json.dump(payload, open(dst, "w", encoding="utf-8"), indent=2)
+open(dst, "a", encoding="utf-8").write("\n")
+PY
+python3 "$REPO_ROOT/scripts/submit_query_workflow.py" \
+  --request-file "$tmp/query_requests/cross_party_match_worker.json" \
+  --enqueue \
+  --metadata-db-path "$tmp/query_workflow_worker.db" \
+  --manifest-out "$tmp/query_workflow_worker_enqueue_manifest.json" \
+  > "$tmp/query_workflow_worker_enqueue_stdout.json"
+python3 "$REPO_ROOT/scripts/run_query_workflow_worker.py" \
+  --metadata-db-path "$tmp/query_workflow_worker.db" \
+  --once \
+  --dry-run-command \
+  --worker-receipts "$tmp/query_workflow_worker_receipts.jsonl" \
+  > "$tmp/query_workflow_worker_run.json"
+python3 "$VALIDATOR" \
+  --schema "$REPO_ROOT/schemas/query_workflow_submission.schema.json" \
+  --json "$tmp/query_workflow_worker_enqueue_manifest.json"
+python3 "$VALIDATOR" \
+  --schema "$REPO_ROOT/schemas/query_workflow_worker_run.schema.json" \
+  --json "$tmp/query_workflow_worker_run.json"
+python3 "$VALIDATOR" \
+  --schema "$REPO_ROOT/schemas/query_workflow_status.schema.json" \
+  --json "$tmp/query_workflow_worker_out/query_workflow/status.json"
+python3 - "$tmp/query_requests/cross_party_match_keep.json" "$tmp/query_requests/cross_party_match_cancel.json" <<'PY'
+import json
+import pathlib
+import sys
+src, dst = sys.argv[1], sys.argv[2]
+payload = json.load(open(src, "r", encoding="utf-8"))
+payload["job_id"] = "contract-query-workflow-cancel"
+payload["out_base"] = str(pathlib.Path(dst).resolve().parents[1] / "query_workflow_cancel_out")
+payload["token_scope"] = "contract-query-scope-cancel"
+json.dump(payload, open(dst, "w", encoding="utf-8"), indent=2)
+open(dst, "a", encoding="utf-8").write("\n")
+PY
+python3 "$REPO_ROOT/scripts/submit_query_workflow.py" \
+  --request-file "$tmp/query_requests/cross_party_match_cancel.json" \
+  --enqueue \
+  --metadata-db-path "$tmp/query_workflow_cancel.db" \
+  --manifest-out "$tmp/query_workflow_cancel_enqueue_manifest.json" \
+  > "$tmp/query_workflow_cancel_enqueue_stdout.json"
+python3 "$REPO_ROOT/scripts/cancel_query_workflow_execution.py" \
+  --metadata-db-path "$tmp/query_workflow_cancel.db" \
+  --job-id contract-query-workflow-cancel \
+  --actor contract-operator \
+  --reason contract-cancel \
+  --out "$tmp/query_workflow_cancel_report.json" \
+  > /dev/null
+python3 "$VALIDATOR" \
+  --schema "$REPO_ROOT/schemas/query_workflow_cancel_request.schema.json" \
+  --json "$tmp/query_workflow_cancel_report.json"
 kill "$query_workflow_execute_api_pid" 2>/dev/null || true
 wait "$query_workflow_execute_api_pid" 2>/dev/null || true
 metadata_api_port="$(python3 "$RUNTIME_SERVICE_HELPERS" available-port)"
@@ -2756,10 +3315,16 @@ python3 "$VALIDATOR" \
   --json "$tmp/query_requests/ecommerce_cross_party_match.json"
 python3 "$VALIDATOR" \
   --schema "$REPO_ROOT/schemas/query_workflow_request.schema.json" \
+  --json "$tmp/query_requests/cross_party_match_api_client.json"
+python3 "$VALIDATOR" \
+  --schema "$REPO_ROOT/schemas/query_workflow_request.schema.json" \
   --json "$tmp/query_requests/cross_party_match_privacy_budget.json"
 python3 "$VALIDATOR" \
   --schema "$REPO_ROOT/schemas/query_workflow_request.schema.json" \
   --json "$tmp/query_requests/cross_party_match_execute_run_failed.json"
+python3 "$VALIDATOR" \
+  --schema "$REPO_ROOT/schemas/query_workflow_request.schema.json" \
+  --json "$tmp/query_requests/cross_party_match_execute_run_failed_client.json"
 python3 "$VALIDATOR" \
   --schema "$REPO_ROOT/schemas/query_workflow_submission.schema.json" \
   --json "$tmp/query_workflow_stdout.json"
@@ -2801,6 +3366,15 @@ python3 "$VALIDATOR" \
   --json "$tmp/query_workflow_out_keep/query_workflow/status.json"
 python3 "$VALIDATOR" \
   --schema "$REPO_ROOT/schemas/query_workflow_submission.schema.json" \
+  --json "$tmp/query_workflow_api_client_out/query_workflow/submission_manifest.json"
+python3 "$VALIDATOR" \
+  --schema "$REPO_ROOT/schemas/query_workflow_receipt.schema.json" \
+  --jsonl "$tmp/query_workflow_api_client_out/query_workflow/execution_receipts.jsonl"
+python3 "$VALIDATOR" \
+  --schema "$REPO_ROOT/schemas/query_workflow_status.schema.json" \
+  --json "$tmp/query_workflow_api_client_out/query_workflow/status.json"
+python3 "$VALIDATOR" \
+  --schema "$REPO_ROOT/schemas/query_workflow_submission.schema.json" \
   --json "$tmp/query_workflow_execute_fail_out/query_workflow/submission_manifest.json"
 python3 "$VALIDATOR" \
   --schema "$REPO_ROOT/schemas/query_workflow_receipt.schema.json" \
@@ -2808,6 +3382,15 @@ python3 "$VALIDATOR" \
 python3 "$VALIDATOR" \
   --schema "$REPO_ROOT/schemas/query_workflow_status.schema.json" \
   --json "$tmp/query_workflow_execute_fail_out/query_workflow/status.json"
+python3 "$VALIDATOR" \
+  --schema "$REPO_ROOT/schemas/query_workflow_submission.schema.json" \
+  --json "$tmp/query_workflow_execute_fail_client_out/query_workflow/submission_manifest.json"
+python3 "$VALIDATOR" \
+  --schema "$REPO_ROOT/schemas/query_workflow_receipt.schema.json" \
+  --jsonl "$tmp/query_workflow_execute_fail_client_out/query_workflow/execution_receipts.jsonl"
+python3 "$VALIDATOR" \
+  --schema "$REPO_ROOT/schemas/query_workflow_status.schema.json" \
+  --json "$tmp/query_workflow_execute_fail_client_out/query_workflow/status.json"
 python3 "$VALIDATOR" \
   --schema "$REPO_ROOT/schemas/query_workflow_api_health.schema.json" \
   --json "$tmp/query_workflow_api_health.json"
@@ -2935,11 +3518,17 @@ python3 "$VALIDATOR" \
   --schema "$REPO_ROOT/schemas/query_workflow_api_response.schema.json" \
   --json "$tmp/query_workflow_identity_dry_run.json"
 python3 "$VALIDATOR" \
+  --schema "$REPO_ROOT/schemas/query_workflow_api_response.schema.json" \
+  --json "$tmp/query_workflow_identity_recovery_dry_run.json"
+python3 "$VALIDATOR" \
   --schema "$REPO_ROOT/schemas/query_workflow_status_api_response.schema.json" \
   --json "$tmp/query_workflow_identity_status.json"
 python3 "$VALIDATOR" \
   --schema "$REPO_ROOT/schemas/query_workflow_api_error.schema.json" \
   --json "$tmp/query_workflow_identity_execute_forbidden.json"
+python3 "$VALIDATOR" \
+  --schema "$REPO_ROOT/schemas/query_workflow_api_error.schema.json" \
+  --json "$tmp/query_workflow_identity_recovery_spoof_forbidden.json"
 python3 -c 'import json, sys; payload=json.load(open(sys.argv[1], "r", encoding="utf-8")); identity=payload["result"]["identity"]; assert identity["caller"] == "recovery_ops_demo", identity; assert identity["issuer"] == "https://keycloak.example.com/realms/commerce", identity; assert identity["issuer_registered"] is True, identity; assert "service_operator" in identity["platform_roles"], identity' "$tmp/metadata_api_identity_jwks.json"
 
 # A5-A6 authority governance + remote authority smoke rollup.
@@ -3456,6 +4045,156 @@ python3 "$VALIDATOR" \
   --schema "$REPO_ROOT/schemas/operator_readiness.schema.json" \
   --json "$tmp/operator_readiness.json"
 
+python3 "$REPO_ROOT/scripts/check_query_workflow_durability.py" \
+  --out "$tmp/query_workflow_durability_check.json" > /dev/null
+python3 "$VALIDATOR" \
+  --schema "$REPO_ROOT/schemas/query_workflow_durability_check.schema.json" \
+  --json "$tmp/query_workflow_durability_check.json"
+python3 "$REPO_ROOT/scripts/archive_query_workflow_live_evidence.py" \
+  --job-id query-workflow-contract \
+  --output-dir "$tmp/query_workflow_live_archive" > /dev/null
+python3 "$VALIDATOR" \
+  --schema "$REPO_ROOT/schemas/query_workflow_live_evidence_archive.schema.json" \
+  --json "$tmp/query_workflow_live_archive/query_workflow_live_evidence_archive.json"
+python3 -c 'import json,sys; p=json.load(open(sys.argv[1])); assert p["status"]=="ok", p; assert p["live_artifact_count"]>=1, p; assert isinstance(p["live_artifacts"]["live_repo_side_query_workflow_foundation"], dict), p; assert p["live_artifacts"]["live_postgres_ha_report"] is None, p' "$tmp/query_workflow_live_archive/query_workflow_live_evidence_archive.json"
+python3 "$REPO_ROOT/scripts/check_query_workflow_deployment_evidence_gate.py" \
+  --out-dir "$tmp/query_workflow_deployment_evidence_gate" \
+  --live-evidence-archive "$tmp/query_workflow_live_archive/query_workflow_live_evidence_archive.json" > /dev/null
+python3 "$VALIDATOR" \
+  --schema "$REPO_ROOT/schemas/query_workflow_deployment_evidence_gate.schema.json" \
+  --json "$tmp/query_workflow_deployment_evidence_gate/query_workflow_deployment_evidence_gate.json"
+python3 -c 'import json,sys; p=json.load(open(sys.argv[1])); assert p["status"]=="ok", p; assert p["repo_side_status"]=="ok", p; assert p["live_status"] in {"ok","skipped"}, p; repo={c["name"]:c["status"] for c in p["repo_side_checks"]}; assert repo["repo_side_query_workflow_durability"]=="ok", repo; assert repo["repo_side_source_truthfulness_gate"]=="ok", repo; assert repo["repo_side_source_truthfulness_pipeline"]=="ok", repo; assert repo["repo_side_query_workflow_worker"] in {"ok","skipped"}, repo; live={c["name"]:c["status"] for c in p["live_checks"]}; assert live["live_query_workflow_evidence_archive"]=="ok", live; assert live["live_query_workflow_foundation"]=="ok", live; assert live["live_real_query_workflow_rollout"] in {"ok","skipped"}, live' "$tmp/query_workflow_deployment_evidence_gate/query_workflow_deployment_evidence_gate.json"
+python3 "$REPO_ROOT/scripts/check_source_attestation_smoke.py" \
+  --output "$tmp/source_truthfulness_smoke.json" > /dev/null
+python3 "$VALIDATOR" \
+  --schema "$REPO_ROOT/schemas/source_truthfulness_smoke.schema.json" \
+  --json "$tmp/source_truthfulness_smoke.json"
+python3 -c 'import json,sys; p=json.load(open(sys.argv[1])); assert p["status"]=="ok", p; assert p["total"] >= 9, p; names={c["name"] for c in p["cases"] if c["status"]=="pass"}; required={"positive_allow","missing_attestation_rejected","hash_mismatch_rejected","scope_mismatch_rejected","signoff_missing_rejected","planned_strict_rejected","local_strict_rejected","manual_strict_rejected","stale_strict_rejected"}; assert required.issubset(names), names' "$tmp/source_truthfulness_smoke.json"
+python3 "$REPO_ROOT/scripts/check_source_attestation_pipeline_smoke.py" \
+  --output "$tmp/source_attestation_pipeline_smoke.json" > /dev/null
+python3 "$VALIDATOR" \
+  --schema "$REPO_ROOT/schemas/source_attestation_pipeline_smoke.schema.json" \
+  --json "$tmp/source_attestation_pipeline_smoke.json"
+python3 -c 'import json,sys; p=json.load(open(sys.argv[1])); assert p["status"]=="ok", p; checks={c["name"]: c["status"] for c in p["checks"]}; required={"truthfulness_allow","release_gate_allow","release_governance_ok","attestation_signed","public_report_governance_bound","policy_audit_governance_bound","audit_chain_embeds_artifacts"}; assert required.issubset(checks), checks; assert all(checks[name]=="ok" for name in required), checks' "$tmp/source_attestation_pipeline_smoke.json"
+python3 - "$tmp" "$REPO_ROOT" <<'PY'
+import hashlib
+import json
+import sys
+from pathlib import Path
+
+tmp = Path(sys.argv[1]) / "release_governance_fixture"
+repo = Path(sys.argv[2])
+tmp.mkdir(parents=True, exist_ok=True)
+att = json.load(open(repo / "docs/examples/source_attestation.example.json", "r", encoding="utf-8"))
+att_path = tmp / "source_attestation.json"
+att_path.write_text(json.dumps(att, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+def sha(path: Path) -> str:
+    h = hashlib.sha256()
+    h.update(path.read_bytes())
+    return h.hexdigest()
+att_sha = sha(att_path)
+truth = {
+    "schema": "source_truthfulness_report/v1",
+    "generated_at_utc": "2026-06-05T00:00:00Z",
+    "decision": "allow",
+    "reason_code": "ok",
+    "reason": None,
+    "strict_mode": True,
+    "max_age_hours": 168,
+    "require_signed_signoff": False,
+    "require_dual_signoff": True,
+    "job_id": "source-attestation-example",
+    "caller": "marketing_analyst_demo",
+    "tenant": "commerce_tenant",
+    "dataset": "orders_analytics",
+    "purpose": "campaign_measurement",
+    "attestation_path": str(att_path),
+    "attestation_sha256": att_sha,
+    "source_export_manifest_path": None,
+    "source_export_manifest_sha256": None,
+    "summary": {},
+    "checks": [],
+    "findings": [],
+}
+truth_path = tmp / "source_truthfulness_report.json"
+truth_path.write_text(json.dumps(truth, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+truth_sha = sha(truth_path)
+public = {
+    "schema": "public_report/v2",
+    "generated_at_utc": "2026-06-05T00:00:00Z",
+    "policy_version": "smoke",
+    "job_id": "source-attestation-example",
+    "correlation_id": "source-attestation-example",
+    "caller": "marketing_analyst_demo",
+    "released": True,
+    "reason": "ok",
+    "reason_code": "threshold_passed",
+    "window": {"start": None, "end": None},
+    "k_threshold": 20,
+    "governance": {
+        "source_attestation_sha256": att_sha,
+        "source_truthfulness_report_sha256": truth_sha,
+        "source_attestation_signoff_status": att["signoff_status"],
+        "input_commitment_sha256": "3333333333333333333333333333333333333333333333333333333333333333",
+    },
+}
+public_path = tmp / "public_report.json"
+public_path.write_text(json.dumps(public, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+operator = {
+    "schema": "operator_release_report/v1",
+    "governance": public["governance"],
+}
+(tmp / "operator_report.json").write_text(json.dumps(operator, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+gate = {
+    "schema": "release_policy_gate/v1",
+    "generated_at_utc": "2026-06-05T00:00:00Z",
+    "decision": "allow",
+    "reason_code": "ok",
+    "reason": None,
+    "job_id": "source-attestation-example",
+    "public_report_path": str(public_path),
+    "public_report_sha256": sha(public_path),
+    "checks": [],
+}
+(tmp / "release_policy_gate.json").write_text(json.dumps(gate, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+(tmp / "policy_audit.jsonl").write_text(json.dumps({
+    "event": "policy_release",
+    "job_id": "source-attestation-example",
+    "caller": "marketing_analyst_demo",
+    "governance": public["governance"],
+}) + "\n", encoding="utf-8")
+PY
+python3 "$REPO_ROOT/scripts/build_release_governance_report.py" \
+  --source-attestation "$tmp/release_governance_fixture/source_attestation.json" \
+  --source-truthfulness-report "$tmp/release_governance_fixture/source_truthfulness_report.json" \
+  --public-report "$tmp/release_governance_fixture/public_report.json" \
+  --operator-report "$tmp/release_governance_fixture/operator_report.json" \
+  --policy-audit-log "$tmp/release_governance_fixture/policy_audit.jsonl" \
+  --release-policy-gate "$tmp/release_governance_fixture/release_policy_gate.json" \
+  --job-id source-attestation-example \
+  --output "$tmp/release_governance_fixture/release_governance_report.json" \
+  > /dev/null
+python3 "$VALIDATOR" \
+  --schema "$REPO_ROOT/schemas/release_governance_report.schema.json" \
+  --json "$tmp/release_governance_fixture/release_governance_report.json"
+python3 -c 'import json,sys; p=json.load(open(sys.argv[1])); assert p["status"]=="ok", p; assert p["summary"]["truthfulness_decision"]=="allow", p; assert p["source_attestation_sha256"], p; assert p["release_policy_gate_sha256"], p' "$tmp/release_governance_fixture/release_governance_report.json"
+python3 "$REPO_ROOT/scripts/check_production_security_closure_gate.py" \
+  --out-dir "$tmp/production_security_closure_gate" \
+  --reports-root "$tmp" > /dev/null
+python3 "$VALIDATOR" \
+  --schema "$REPO_ROOT/schemas/production_security_closure_gate.schema.json" \
+  --json "$tmp/production_security_closure_gate/production_security_closure_gate.json"
+python3 -c 'import json,sys; p=json.load(open(sys.argv[1])); assert p["status"]=="ok", p; assert p["repo_side_status"]=="ok", p; assert p["live_status"] in {"ok","skipped"}, p; assert p["summary"]["module_count"] >= 16, p; assert p["summary"]["live_ok_count"] >= 4, p; assert p["summary"]["live_skipped_count"] >= 1, p; assert p["summary"]["live_foundation_ok_count"] >= 9, p; names={m["name"]: m for m in p["modules"]}; required={"public_two_host","spiffe_envoy","external_anchor","postgres_ha","supply_chain","authority","observability","recovery_service","privacy_budget","legacy_sse","pjc_resource_isolation","query_workflow","ecommerce","console","control_plane","pjc_protocol"}; assert required.issubset(names), names.keys(); assert all(names[name]["repo_side_status"]=="ok" for name in required), names; assert names["public_two_host"]["live_status"]=="ok", names["public_two_host"]; assert names["external_anchor"]["live_status"]=="ok", names["external_anchor"]; assert names["spiffe_envoy"]["live_status"] in {"ok","skipped"}, names["spiffe_envoy"]; assert names["authority"]["live_status"] in {"ok","skipped"}, names["authority"]; assert names["query_workflow"]["live_foundation_status"]=="ok", names["query_workflow"]; assert names["ecommerce"]["live_foundation_status"]=="ok", names["ecommerce"]; assert names["console"]["live_foundation_status"]=="ok", names["console"]; assert names["control_plane"]["live_foundation_status"]=="ok", names["control_plane"]; assert names["pjc_protocol"]["live_foundation_status"]=="ok", names["pjc_protocol"]' "$tmp/production_security_closure_gate/production_security_closure_gate.json"
+python3 scripts/collect_spiffe_envoy_live_rollout.py --output "$tmp/spiffe_envoy_live_rollout_collection.json" > /dev/null
+python3 scripts/collect_authority_live_rollout.py --output "$tmp/authority_live_rollout_collection.json" > /dev/null
+python3 scripts/collect_ecommerce_live_rollout.py --output "$tmp/ecommerce_live_rollout_collection.json" > /dev/null
+python3 "$VALIDATOR" --schema "$REPO_ROOT/schemas/live_rollout_collection_report.schema.json" --json "$tmp/spiffe_envoy_live_rollout_collection.json"
+python3 "$VALIDATOR" --schema "$REPO_ROOT/schemas/live_rollout_collection_report.schema.json" --json "$tmp/authority_live_rollout_collection.json"
+python3 "$VALIDATOR" --schema "$REPO_ROOT/schemas/live_rollout_collection_report.schema.json" --json "$tmp/ecommerce_live_rollout_collection.json"
+python3 scripts/check_final_live_blockers.py --out "$tmp/final_live_blockers_report.json" > /dev/null
+python3 "$VALIDATOR" --schema "$REPO_ROOT/schemas/final_live_blockers_report.schema.json" --json "$tmp/final_live_blockers_report.json"
+python3 -c 'import json,sys; p=json.load(open(sys.argv[1])); assert p["remaining_live_module_count"]==0, p; assert p["remaining_modules"]==[], p; assert p["spiffe_envoy"]["status"]=="ok", p; assert p["authority"]["status"]=="ok", p' "$tmp/final_live_blockers_report.json"
+
 python3 "$REPO_ROOT/scripts/check_contract_smoke_reports.py" \
   --tmp-dir "$tmp"
 
@@ -3472,5 +4211,23 @@ python3 "$REPO_ROOT/scripts/check_spiffe_envoy_templates.py" \
 python3 "$VALIDATOR" \
   --schema "$REPO_ROOT/schemas/spiffe_envoy_template_check.schema.json" \
   --json "$tmp/spiffe_envoy_template_check.json"
+
+# Validate the current authoritative repo-side live reports separately from the
+# temporary contract fixture chain above. These files are expected to reflect the
+# latest real operator evidence frozen into the repository workspace.
+python3 "$VALIDATOR" \
+  --schema "$REPO_ROOT/schemas/live_rollout_collection_report.schema.json" \
+  --json "$REPO_ROOT/tmp/spiffe_envoy_live_rollout_collection.json"
+python3 "$VALIDATOR" \
+  --schema "$REPO_ROOT/schemas/live_rollout_collection_report.schema.json" \
+  --json "$REPO_ROOT/tmp/authority_live_rollout_collection.json"
+python3 "$VALIDATOR" \
+  --schema "$REPO_ROOT/schemas/final_live_blockers_report.schema.json" \
+  --json "$REPO_ROOT/tmp/final_live_blockers_report.json"
+python3 -c 'import json,sys; p=json.load(open(sys.argv[1])); assert p["remaining_live_module_count"]==0, p; assert p["remaining_modules"]==[], p; assert p["spiffe_envoy"]["status"]=="ok", p; assert p["authority"]["status"]=="ok", p' "$REPO_ROOT/tmp/final_live_blockers_report.json"
+python3 "$VALIDATOR" \
+  --schema "$REPO_ROOT/schemas/production_security_closure_gate.schema.json" \
+  --json "$REPO_ROOT/tmp/production_security_closure_gate/production_security_closure_gate.json"
+python3 -c 'import json,sys; p=json.load(open(sys.argv[1])); assert p["status"]=="ok", p; assert p["repo_side_status"]=="ok", p; assert p["live_status"]=="ok", p; s=p["summary"]; assert s["module_count"] >= 16, s; assert s["live_ok_count"]==16, s; assert s["live_skipped_count"]==0, s; names={m["name"]:m for m in p["modules"]}; assert all(names[name]["repo_side_status"]=="ok" for name in names), names; assert all(names[name]["live_status"]=="ok" for name in names), names' "$REPO_ROOT/tmp/production_security_closure_gate/production_security_closure_gate.json"
 
 echo "[ok] JSON contract checks passed"

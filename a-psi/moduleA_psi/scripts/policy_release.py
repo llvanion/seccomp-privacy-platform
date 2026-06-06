@@ -142,6 +142,13 @@ def try_get(d: Dict[str, Any], *keys: str, default=None):
     return default
 
 
+def first_nonempty(*values):
+    for value in values:
+        if value not in (None, "", {}, []):
+            return value
+    return None
+
+
 def append_jsonl(path: str, record: Dict[str, Any]) -> None:
     ensure_dir(os.path.dirname(path) or ".")
     with open(path, "a", encoding="utf-8") as f:
@@ -1251,6 +1258,62 @@ def _window_relation(a: Dict[str, Optional[str]], b: Dict[str, Optional[str]]) -
     return "overlaps"
 
 
+def _window_gap_seconds(a: Dict[str, Optional[str]], b: Dict[str, Optional[str]]) -> Optional[float]:
+    a_start, a_end = _parse_window_dt(a)
+    b_start, b_end = _parse_window_dt(b)
+    if a_start is None or a_end is None or b_start is None or b_end is None:
+        return None
+    if a_end <= b_start:
+        return max(0.0, (b_start - a_end).total_seconds())
+    if b_end <= a_start:
+        return max(0.0, (a_start - b_end).total_seconds())
+    return 0.0
+
+
+def _round_window_value(value: Optional[str], *, round_seconds: int) -> Optional[str]:
+    if not value:
+        return value
+    if round_seconds <= 0:
+        return value
+    dt = parse_iso8601_utc(value)
+    rounded_epoch = int(dt.timestamp()) // round_seconds * round_seconds
+    return datetime.fromtimestamp(rounded_epoch, tz=timezone.utc).isoformat().replace("+00:00", "Z")
+
+
+def _threshold_bucket(threshold_k: int, *, round_step: int) -> int:
+    if round_step <= 1:
+        return int(threshold_k)
+    return max(0, int(threshold_k) // round_step)
+
+
+def _near_duplicate_signature(
+    *,
+    caller: str,
+    tenant_id: Optional[str],
+    dataset_id: Optional[str],
+    purpose: Optional[str],
+    window: Dict[str, Optional[str]],
+    bucket: Optional[str],
+    value_mode: Optional[str],
+    threshold_k: int,
+    round_seconds: int,
+    round_step: int,
+    ignore_bucket: bool = False,
+) -> str:
+    payload = {
+        "caller": caller,
+        "tenant_id": tenant_id,
+        "dataset_id": dataset_id,
+        "purpose": purpose,
+        "window_start": _round_window_value(window.get("start"), round_seconds=round_seconds),
+        "window_end": _round_window_value(window.get("end"), round_seconds=round_seconds),
+        "bucket": None if ignore_bucket else bucket,
+        "value_mode": value_mode,
+        "threshold_bucket": _threshold_bucket(threshold_k, round_step=round_step),
+    }
+    return canonical_query_signature(payload)
+
+
 def evaluate_privacy_budget(
     *,
     ledger_path: Optional[str],
@@ -1277,6 +1340,9 @@ def evaluate_privacy_budget(
         budget_limit = float(scope_resolution["max_queries"])
     if budget_limit is not None and budget_limit < 0:
         raise ValueError("--privacy-budget-limit must be non-negative")
+    near_duplicate_window_seconds = int(scope_resolution.get("near_duplicate_window_seconds") or 0) if scope_resolution else 0
+    near_duplicate_window_round_seconds = int(scope_resolution.get("near_duplicate_window_round_seconds") or 3600) if scope_resolution else 3600
+    near_duplicate_threshold_round_step = int(scope_resolution.get("near_duplicate_threshold_round_step") or 1) if scope_resolution else 1
 
     payload = canonical_privacy_budget_payload(
         caller=caller,
@@ -1290,6 +1356,32 @@ def evaluate_privacy_budget(
         bridge_meta=bridge_meta,
     )
     query_fingerprint = canonical_query_signature(payload)
+    near_duplicate_fingerprint = _near_duplicate_signature(
+        caller=caller,
+        tenant_id=tenant_id,
+        dataset_id=dataset_id,
+        purpose=purpose,
+        window=window,
+        bucket=bucket,
+        value_mode=value_mode,
+        threshold_k=threshold_k,
+        round_seconds=near_duplicate_window_round_seconds,
+        round_step=near_duplicate_threshold_round_step,
+        ignore_bucket=False,
+    )
+    bucketless_near_duplicate_fingerprint = _near_duplicate_signature(
+        caller=caller,
+        tenant_id=tenant_id,
+        dataset_id=dataset_id,
+        purpose=purpose,
+        window=window,
+        bucket=bucket,
+        value_mode=value_mode,
+        threshold_k=threshold_k,
+        round_seconds=near_duplicate_window_round_seconds,
+        round_step=near_duplicate_threshold_round_step,
+        ignore_bucket=True,
+    )
     if prior_records_override is None:
         prior_records = _load_privacy_budget_records(
             ledger_path,
@@ -1340,7 +1432,45 @@ def evaluate_privacy_budget(
         prior_fingerprint = prior.get("query_fingerprint")
         prior_window = prior.get("window") if isinstance(prior.get("window"), dict) else {}
         relation = _window_relation(window, prior_window)
+        relation_for_report = relation
+        gap_seconds = _window_gap_seconds(window, prior_window)
         same_bucket = prior.get("bucket") == bucket
+        prior_near_duplicate_fingerprint = _near_duplicate_signature(
+            caller=str(prior.get("caller") or caller),
+            tenant_id=prior.get("tenant_id"),
+            dataset_id=prior.get("dataset_id"),
+            purpose=prior.get("purpose"),
+            window=prior_window,
+            bucket=prior.get("bucket"),
+            value_mode=prior.get("value_mode"),
+            threshold_k=int(prior.get("threshold_k") or 0),
+            round_seconds=near_duplicate_window_round_seconds,
+            round_step=near_duplicate_threshold_round_step,
+            ignore_bucket=False,
+        )
+        prior_bucketless_near_duplicate_fingerprint = _near_duplicate_signature(
+            caller=str(prior.get("caller") or caller),
+            tenant_id=prior.get("tenant_id"),
+            dataset_id=prior.get("dataset_id"),
+            purpose=prior.get("purpose"),
+            window=prior_window,
+            bucket=prior.get("bucket"),
+            value_mode=prior.get("value_mode"),
+            threshold_k=int(prior.get("threshold_k") or 0),
+            round_seconds=near_duplicate_window_round_seconds,
+            round_step=near_duplicate_threshold_round_step,
+            ignore_bucket=True,
+        )
+        rounded_window_or_threshold_match = near_duplicate_fingerprint == prior_near_duplicate_fingerprint
+        rounded_bucketless_match = bucketless_near_duplicate_fingerprint == prior_bucketless_near_duplicate_fingerprint
+        close_disjoint_window = (
+            relation == "disjoint"
+            and near_duplicate_window_seconds > 0
+            and gap_seconds is not None
+            and gap_seconds <= near_duplicate_window_seconds
+        )
+        if close_disjoint_window:
+            relation_for_report = "unknown"
         if prior_fingerprint == query_fingerprint:
             return {
                 **base,
@@ -1350,18 +1480,45 @@ def evaluate_privacy_budget(
                 "abuse_signal": "exact_duplicate",
                 "matched_prior_fingerprint": prior_fingerprint,
                 "matched_prior_job_id": prior.get("job_id"),
-                "matched_prior_relation": relation,
+                "matched_prior_relation": relation_for_report,
             }
-        if same_bucket and relation in {"same", "contains", "contained_by", "overlaps", "unknown"}:
+        if same_bucket and (
+            relation in {"same", "contains", "contained_by", "overlaps", "unknown"}
+            or rounded_window_or_threshold_match
+            or close_disjoint_window
+        ):
+            detail = relation
+            if rounded_window_or_threshold_match and relation == "disjoint":
+                detail = "rounded_window_or_threshold_match"
+            elif close_disjoint_window:
+                detail = f"close_window_gap<={near_duplicate_window_seconds}s"
             return {
                 **base,
                 "decision": "deny",
                 "reason_code": "privacy_budget_near_duplicate",
-                "reason": f"privacy budget denied {relation} query window for caller/bucket",
+                "reason": f"privacy budget denied suspicious same-bucket query pattern ({detail})",
                 "abuse_signal": "near_duplicate_or_differencing",
                 "matched_prior_fingerprint": prior_fingerprint,
                 "matched_prior_job_id": prior.get("job_id"),
-                "matched_prior_relation": relation,
+                "matched_prior_relation": relation_for_report,
+            }
+        if (
+            not same_bucket
+            and rounded_bucketless_match
+            and (
+                relation in {"same", "contains", "contained_by", "overlaps", "unknown"}
+                or close_disjoint_window
+            )
+        ):
+            return {
+                **base,
+                "decision": "deny",
+                "reason_code": "privacy_budget_bucket_probe",
+                "reason": "privacy budget denied suspicious cross-bucket differencing pattern",
+                "abuse_signal": "near_duplicate_or_differencing",
+                "matched_prior_fingerprint": prior_fingerprint,
+                "matched_prior_job_id": prior.get("job_id"),
+                "matched_prior_relation": relation_for_report,
             }
 
     used_after = used_before + budget_cost
@@ -1443,7 +1600,7 @@ def build_privacy_budget_approval_request(
 ) -> Optional[Dict[str, Any]]:
     if not queue_path or not privacy_budget.get("enabled"):
         return None
-    if privacy_budget.get("reason_code") != "privacy_budget_near_duplicate":
+    if privacy_budget.get("reason_code") not in {"privacy_budget_near_duplicate", "privacy_budget_bucket_probe"}:
         return None
     request_basis = {
         "policy_version": policy_version,
@@ -1810,6 +1967,63 @@ PUBLIC_REPORT_OPERATOR_ONLY_FIELDS = (
 )
 
 
+def compact_object(payload: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    compact = {key: value for key, value in payload.items() if value not in (None, "", {}, [])}
+    return compact or None
+
+
+def load_source_governance(
+    *,
+    source_attestation_path: Optional[str],
+    source_truthfulness_report_path: Optional[str],
+    job_meta: Dict[str, Any],
+) -> Tuple[Optional[Dict[str, Any]], Optional[Dict[str, Any]], Optional[Dict[str, Any]]]:
+    source_attestation = load_json_if_exists(source_attestation_path)
+    source_truthfulness_report = load_json_if_exists(source_truthfulness_report_path)
+    if not source_attestation and not source_truthfulness_report:
+        return None, None, None
+    inputs = try_get(job_meta, "inputs", default={})
+    if not isinstance(inputs, dict):
+        inputs = {}
+    source_attestation_sha256 = sha256_file(source_attestation_path) if source_attestation_path and os.path.exists(source_attestation_path) else None
+    source_truthfulness_report_sha256 = (
+        sha256_file(source_truthfulness_report_path)
+        if source_truthfulness_report_path and os.path.exists(source_truthfulness_report_path)
+        else None
+    )
+    input_commitment_sha256 = first_nonempty(
+        source_attestation.get("input_commitment_sha256") if source_attestation else None,
+        inputs.get("input_commitment_sha256"),
+    )
+    governance_public = compact_object(
+        {
+            "source_attestation_sha256": source_attestation_sha256,
+            "source_attestation_mode": source_attestation.get("attestation_mode") if source_attestation else None,
+            "source_attestation_signoff_status": source_attestation.get("signoff_status") if source_attestation else None,
+            "source_truthfulness_report_sha256": source_truthfulness_report_sha256,
+            "input_commitment_sha256": input_commitment_sha256,
+        }
+    )
+    governance_operator = compact_object(
+        {
+            "approval_id": source_attestation.get("approval_id") if source_attestation else None,
+            "operator_identity": source_attestation.get("operator_identity") if source_attestation else None,
+            "reviewer_identity": source_attestation.get("reviewer_identity") if source_attestation else None,
+            "source_truthfulness_decision": source_truthfulness_report.get("decision") if source_truthfulness_report else None,
+            "source_truthfulness_reason_code": source_truthfulness_report.get("reason_code") if source_truthfulness_report else None,
+        }
+    )
+    governance_audit = compact_object(
+        {
+            **(governance_public or {}),
+            **(governance_operator or {}),
+            "source_attestation_path": os.path.abspath(source_attestation_path) if source_attestation_path else None,
+            "source_truthfulness_report_path": os.path.abspath(source_truthfulness_report_path) if source_truthfulness_report_path else None,
+        }
+    )
+    return governance_public, governance_operator, governance_audit
+
+
 def build_public_report(
     *,
     policy_version: str,
@@ -1823,6 +2037,7 @@ def build_public_report(
     threshold_k: int,
     rate_limit_out: Dict[str, Any],
     policy_out: Dict[str, Any],
+    governance_public: Optional[Dict[str, Any]] = None,
     bucket_size: bool = False,
     redact_operator_fields: bool = False,
 ) -> Dict[str, Any]:
@@ -1873,6 +2088,7 @@ def build_public_report(
         "value_sum": value_sum,
         "aov": aov,
         "details": released,
+        "governance": governance_public,
     }
 
     # allow: return full report (with optional operator-only redaction).
@@ -1896,6 +2112,7 @@ def build_public_report(
         "reason_code": full_report["reason_code"],
         "window": full_report["window"],   # 可选；如果你想更保守，可以删掉这一行
         "k_threshold": full_report["k_threshold"],
+        "governance": full_report["governance"],
     }
 
 
@@ -1914,6 +2131,8 @@ def _maybe_write_operator_report(
     threshold_k: int,
     rate_limit_out: Dict[str, Any],
     policy_out: Dict[str, Any],
+    governance_public: Optional[Dict[str, Any]] = None,
+    governance_operator: Optional[Dict[str, Any]] = None,
     bucket_size: bool = False,
 ) -> None:
     """Write the operator-grade copy of the release report (S5).
@@ -1944,11 +2163,14 @@ def _maybe_write_operator_report(
         threshold_k=threshold_k,
         rate_limit_out=rate_limit_out,
         policy_out=policy_out,
+        governance_public=governance_public,
         bucket_size=bucket_size,
         redact_operator_fields=False,  # operator copy always carries the full set
     )
     full_report["schema"] = "operator_release_report/v1"
     full_report["public_report_was_redacted"] = redacted
+    if governance_operator:
+        full_report["governance_operator"] = governance_operator
     ensure_dir(os.path.dirname(op_path) or ".")
     with open(op_path, "w", encoding="utf-8") as f:
         json.dump(full_report, f, ensure_ascii=False, indent=2)
@@ -1969,6 +2191,8 @@ def build_operator_report_if_needed(
     threshold_k: int,
     rate_limit_out: Dict[str, Any],
     policy_out: Dict[str, Any],
+    governance_public: Optional[Dict[str, Any]] = None,
+    governance_operator: Optional[Dict[str, Any]] = None,
     bucket_size: bool = False,
 ) -> Tuple[Optional[str], Optional[Dict[str, Any]]]:
     redacted = bool(args.public_report_redact_operator_fields)
@@ -1992,11 +2216,14 @@ def build_operator_report_if_needed(
         threshold_k=threshold_k,
         rate_limit_out=rate_limit_out,
         policy_out=policy_out,
+        governance_public=governance_public,
         bucket_size=bucket_size,
         redact_operator_fields=False,
     )
     full_report["schema"] = "operator_release_report/v1"
     full_report["public_report_was_redacted"] = redacted
+    if governance_operator:
+        full_report["governance_operator"] = governance_operator
     return op_path, full_report
 
 
@@ -2023,6 +2250,7 @@ def build_audit_record(
     policy_out: Dict[str, Any],
     auth_result: AuthResult,
     duration_ms: Optional[int],
+    governance: Optional[Dict[str, Any]] = None,
     privacy_budget: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
     input_sha256 = sha256_file(input_path)
@@ -2066,6 +2294,8 @@ def build_audit_record(
             "auth_reason_code": auth_result.reason_code,
         },
     }
+    if governance is not None:
+        record["governance"] = governance
     if privacy_budget is not None:
         record["privacy_budget"] = privacy_budget
     return record
@@ -2127,7 +2357,7 @@ def evaluate_policy_and_budget(
     if privacy_budget_out.get("decision") == "deny":
         if (
             args.privacy_budget_approval_queue
-            and privacy_budget_out.get("reason_code") == "privacy_budget_near_duplicate"
+            and privacy_budget_out.get("reason_code") in {"privacy_budget_near_duplicate", "privacy_budget_bucket_probe"}
         ):
             privacy_budget_out = {
                 **privacy_budget_out,
@@ -2240,6 +2470,10 @@ def main() -> None:
                         "--public-report-redact-operator-fields is set, this is where the "
                         "redacted fields land. Defaults to <out>.operator.json sibling."
                     ))
+    ap.add_argument("--source-attestation", default=None,
+                    help="Optional source_attestation/v1 artifact bound to this release.")
+    ap.add_argument("--source-truthfulness-report", default=None,
+                    help="Optional source_truthfulness_report/v1 verifier output bound to this release.")
 
     # optional HMAC authn/authz
     ap.add_argument("--auth-config", default=None, help="JSON file: {key_id: {caller, secret, enabled}}")
@@ -2300,6 +2534,11 @@ def main() -> None:
     value_mode = extract_value_mode(job_meta)
     bridge_meta = extract_bridge_meta(job_meta)
     job_id = args.job_id or try_get(job_meta, "job_id", default=os.path.basename(paths["job_dir"]))
+    governance_public, governance_operator, governance_audit = load_source_governance(
+        source_attestation_path=args.source_attestation,
+        source_truthfulness_report_path=args.source_truthfulness_report,
+        job_meta=job_meta,
+    )
 
     query_payload = canonical_query_payload(
         caller=args.caller or "",
@@ -2362,6 +2601,7 @@ def main() -> None:
             threshold_k=args.threshold_k,
             rate_limit_out={"used": 0, "max": args.max_queries},
             policy_out=deny_out,
+            governance_public=governance_public,
             redact_operator_fields=bool(args.public_report_redact_operator_fields),
         )
         ensure_dir(os.path.dirname(out_path) or ".")
@@ -2381,6 +2621,8 @@ def main() -> None:
             threshold_k=args.threshold_k,
             rate_limit_out={"used": 0, "max": args.max_queries},
             policy_out=deny_out,
+            governance_public=governance_public,
+            governance_operator=governance_operator,
         )
 
         audit_record = build_audit_record(
@@ -2405,6 +2647,7 @@ def main() -> None:
             policy_out=deny_out,
             auth_result=auth_result,
             duration_ms=elapsed_ms(started_at),
+            governance=governance_audit,
             privacy_budget=privacy_budget_default(),
         )
         append_jsonl(audit_log_path, audit_record)
@@ -2488,6 +2731,7 @@ def main() -> None:
             threshold_k=args.threshold_k,
             rate_limit_out=rate_limit_out,
             policy_out=policy_out,
+            governance_public=governance_public,
             bucket_size=args.bucket_intersection_size,
             redact_operator_fields=bool(args.public_report_redact_operator_fields),
         )
@@ -2563,6 +2807,7 @@ def main() -> None:
                 threshold_k=args.threshold_k,
                 rate_limit_out=rate_limit_out,
                 policy_out=policy_out,
+                governance_public=governance_public,
                 bucket_size=args.bucket_intersection_size,
                 redact_operator_fields=bool(args.public_report_redact_operator_fields),
             )
@@ -2590,7 +2835,7 @@ def main() -> None:
             }
             approval_consume_request_id = approval["request_id"]
         elif args.privacy_budget_approval_id:
-            raise RuntimeError("privacy budget approval id can only be consumed for a near-duplicate privacy-budget denial")
+            raise RuntimeError("privacy budget approval id can only be consumed for an approval-eligible privacy-budget denial")
 
         approval_request_record = build_privacy_budget_approval_request(
             queue_path=args.privacy_budget_approval_queue,
@@ -2668,6 +2913,8 @@ def main() -> None:
             threshold_k=args.threshold_k,
             rate_limit_out=rate_limit_out,
             policy_out=policy_out,
+            governance_public=governance_public,
+            governance_operator=governance_operator,
             bucket_size=args.bucket_intersection_size,
         )
 
@@ -2693,6 +2940,7 @@ def main() -> None:
             policy_out=policy_out,
             auth_result=auth_result,
             duration_ms=elapsed_ms(started_at),
+            governance=governance_audit,
             privacy_budget=privacy_budget_out,
         )
 

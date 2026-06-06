@@ -15,6 +15,7 @@ PJC_DIR="${PJC_DIR:-$REPO_ROOT/private-join-and-compute}"
 GRPC_MAX_MESSAGE_MB="${GRPC_MAX_MESSAGE_MB:-512}"
 PJC_GRPC_STREAM_CHUNK_ELEMENTS="${PJC_GRPC_STREAM_CHUNK_ELEMENTS:-4096}"
 PJC_BUILD="${PJC_BUILD:-0}"
+PJC_REQUIRE_BUCKET_POLICY="${PJC_REQUIRE_BUCKET_POLICY:-0}"
 SERVER_CONNECT_RETRIES="${SERVER_CONNECT_RETRIES:-20}"
 SERVER_CONNECT_DELAY_SEC="${SERVER_CONNECT_DELAY_SEC:-2}"
 RESULT_CALLBACK_URL="${RESULT_CALLBACK_URL:-}"
@@ -26,6 +27,13 @@ JOB_DIR="$(cd "$JOB_DIR" && pwd)"
 [[ -f "$JOB_DIR/job_meta.json" ]] || die "missing $JOB_DIR/job_meta.json"
 [[ -f "$RUN_PJC_CLIENT_SH" ]] || die "missing run_pjc_client.sh: $RUN_PJC_CLIENT_SH"
 [[ -f "$MERGE_PY" ]] || die "missing merge_bucket_results.py: $MERGE_PY"
+VALIDATE_BUCKET_POLICY_PY="$SCRIPT_DIR/bucket_policy.py"
+[[ -f "$VALIDATE_BUCKET_POLICY_PY" ]] || die "missing bucket policy helper: $VALIDATE_BUCKET_POLICY_PY"
+POLICY_CMD=(python3 "$VALIDATE_BUCKET_POLICY_PY" --job-meta "$JOB_DIR/job_meta.json")
+if [[ "$PJC_REQUIRE_BUCKET_POLICY" == "1" ]]; then
+  POLICY_CMD+=(--require-policy)
+fi
+"${POLICY_CMD[@]}" >/dev/null
 
 PY='import json,sys; m=json.load(open(sys.argv[1])); b=m.get("bucket",{}); print(b.get("field") or ""); [print(o.get("bucket")) for o in (b.get("outputs") or [])]'
 mapfile -t INFO < <(python3 -c "$PY" "$JOB_DIR/job_meta.json")
@@ -33,8 +41,12 @@ BUCKET_FIELD="${INFO[0]}"
 [[ -n "$BUCKET_FIELD" ]] || die "job_meta.json has no bucket_field; use run_pjc_client.sh for non-bucketed jobs"
 JOB_META_ID="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1])).get("job_id") or "")' "$JOB_DIR/job_meta.json")"
 [[ -n "$JOB_META_ID" ]] || JOB_META_ID="$(basename "$JOB_DIR")"
+BUCKET_ONLY="${BUCKET_ONLY:-}"
 
 for bucket in "${INFO[@]:1}"; do
+  if [[ -n "$BUCKET_ONLY" && "$bucket" != "$BUCKET_ONLY" ]]; then
+    continue
+  fi
   sub="$JOB_DIR/bucket_${BUCKET_FIELD}=${bucket}"
   [[ -f "$sub/client.csv" ]] || die "missing $sub/client.csv"
   log "running bucket=$bucket against $SERVER_ADDR"
@@ -43,8 +55,21 @@ for bucket in "${INFO[@]:1}"; do
   export PJC_GRPC_STREAM_CHUNK_ELEMENTS
   export SERVER_CONNECT_RETRIES SERVER_CONNECT_DELAY_SEC
   export RESULT_CALLBACK_URL RESULT_CALLBACK_TOKEN SHARED_RESULT_DIR
+  [[ -f "$sub/job_meta.json" ]] && export PJC_JOB_META="$sub/job_meta.json" || unset PJC_JOB_META || true
+  [[ -f "$sub/input_commitments.json" ]] && export PJC_INPUT_COMMITMENT="$sub/input_commitments.json" || unset PJC_INPUT_COMMITMENT || true
+  if [[ -f "$sub/job_meta.json" ]]; then
+    PJC_PREFLIGHT_SERVER_ROWS="$(python3 -c 'import json,sys; print((json.load(open(sys.argv[1])).get("input_sizes") or {}).get("exposure_n") or 0)' "$sub/job_meta.json")"
+    export PJC_PREFLIGHT_SERVER_ROWS
+  else
+    unset PJC_PREFLIGHT_SERVER_ROWS || true
+  fi
   bash "$RUN_PJC_CLIENT_SH"
 done
+
+if [[ -n "$BUCKET_ONLY" ]]; then
+  log "single-bucket mode completed for bucket=$BUCKET_ONLY"
+  exit 0
+fi
 
 log "merging bucket results under $JOB_DIR"
 python3 "$MERGE_PY" --job-dir "$JOB_DIR" --strict

@@ -28,6 +28,9 @@ bash scripts/run_sse_bridge_pipeline.sh \
   --client-normalizer email \
   --client-value-mode raw-int \
   --client-value-max 1000000 \
+  --client-allowed-value-field amount \
+  --client-value-unit minor_currency_unit \
+  --client-value-currency USD \
   --server-filter campaign=demo \
   --client-filter campaign=demo \
   --token-scope auto-demo-scope \
@@ -220,6 +223,9 @@ cargo run -- prepare-job \
   --client-value-column amount \
   --client-value-mode raw-int \
   --client-value-max 1000000 \
+  --client-allowed-value-column amount \
+  --client-value-unit minor_currency_unit \
+  --client-value-currency USD \
   --client-normalizer email \
   --out-dir ./out/sse_demo_job \
   --job-id sse_demo_job \

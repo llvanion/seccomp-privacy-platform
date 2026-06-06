@@ -5,6 +5,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 MODULE_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
+source "$SCRIPT_DIR/pjc_binary_helpers.sh"
 
 PJC_DIR="${PJC_DIR:-$MODULE_ROOT/private-join-and-compute}"
 PJC_BIN_DIR="${PJC_BIN_DIR:-}"
@@ -52,12 +53,6 @@ echo "[info] SERVER_ADDR=$SERVER_ADDR"
 echo "[info] GRPC_MAX_MESSAGE_MB=$GRPC_MAX_MESSAGE_MB"
 echo "[info] PJC_GRPC_STREAM_CHUNK_ELEMENTS=$PJC_GRPC_STREAM_CHUNK_ELEMENTS"
 
-if [[ -n "$PJC_BIN_DIR" ]]; then
-  cd "$(dirname "$(resolve_path "$PJC_BIN_DIR")")"
-else
-  cd "$PJC_DIR"
-fi
-
 SERVER_LOG="$OUT_DIR/server.log"
 
 if [[ "$PJC_BUILD" == "1" ]]; then
@@ -65,11 +60,7 @@ if [[ "$PJC_BUILD" == "1" ]]; then
   bazel build -c opt //private_join_and_compute:server >/dev/null
 fi
 
-if [[ -n "$PJC_BIN_DIR" ]]; then
-  BIN_DIR="$(resolve_path "$PJC_BIN_DIR")"
-else
-  BIN_DIR="$(bazel info bazel-bin)"
-fi
+BIN_DIR="$(resolve_pjc_bin_dir_with_gate "$MODULE_ROOT" "$PJC_DIR" "$PJC_BIN_DIR" "$OUT_DIR" "$PJC_GRPC_STREAM_CHUNK_ELEMENTS")"
 SERVER_BIN="$BIN_DIR/private_join_and_compute/server"
 
 [[ -x "$SERVER_BIN" ]] || { echo "[error] server binary not found/executable: $SERVER_BIN" >&2; exit 1; }

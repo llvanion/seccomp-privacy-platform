@@ -3,6 +3,7 @@ import argparse
 import json
 import statistics
 import subprocess
+import sys
 import tempfile
 import time
 from contextlib import nullcontext
@@ -10,7 +11,12 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+SCRIPT_DIR = Path(__file__).resolve().parent
+if str(SCRIPT_DIR) not in sys.path:
+    sys.path.insert(0, str(SCRIPT_DIR))
+
 from generate_benchmark_dataset import generate_pjc_csvs
+from pjc_binary_gate_lib import resolve_pjc_bin_dir
 from runtime_service_helpers import available_port
 
 
@@ -287,9 +293,16 @@ def main() -> int:
     if args.expected_intersection_size < 0 or args.expected_intersection_sum < 0:
         raise SystemExit("[ERROR] expected intersection metrics must be non-negative")
 
-    pjc_bin_dir = Path(subprocess.os.environ.get("PJC_BIN_DIR", str(DEFAULT_PJC_BIN_DIR)))
-    if not args.fixture_only and not pjc_bin_dir.is_dir():
-        raise SystemExit(f"[ERROR] PJC_BIN_DIR does not exist: {pjc_bin_dir}")
+    requested_pjc_bin_dir = Path(subprocess.os.environ.get("PJC_BIN_DIR", str(DEFAULT_PJC_BIN_DIR)))
+    if not args.fixture_only:
+        report = resolve_pjc_bin_dir(
+            workspace=REPO_ROOT / "a-psi" / "private-join-and-compute",
+            requested_bin_dir=requested_pjc_bin_dir,
+            require_streaming=True,
+        )
+        pjc_bin_dir = Path(str(report["resolved_bin_dir"]))
+    else:
+        pjc_bin_dir = requested_pjc_bin_dir
     if not RUN_PJC_SH.is_file():
         raise SystemExit(f"[ERROR] missing PJC runner script: {RUN_PJC_SH}")
 

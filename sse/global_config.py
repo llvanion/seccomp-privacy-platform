@@ -13,6 +13,7 @@ class ClientConfig:
 # FOR SERVER
 class ServerConfig:
     LEGACY_PICKLE_WS_ALLOW_ENV = "SSE_ALLOW_LEGACY_PICKLE_WS"
+    PRODUCTION_MODE_ENV = "SSE_PRODUCTION_MODE"
     # The legacy websocket server is a demo-style interface, so keep it
     # local-only unless an operator explicitly opts into a wider bind address.
     HOST = os.getenv("SSE_SERVER_HOST", "127.0.0.1")
@@ -33,7 +34,17 @@ class ServerConfig:
         return os.getenv(cls.LEGACY_PICKLE_WS_ALLOW_ENV, "") == "1"
 
     @classmethod
+    def production_mode_enabled(cls) -> bool:
+        return os.getenv(cls.PRODUCTION_MODE_ENV, "") == "1"
+
+    @classmethod
     def assert_legacy_pickle_bind_allowed(cls, host) -> None:
+        if cls.production_mode_enabled():
+            raise RuntimeError(
+                "legacy SSE WebSocket is retired for production deployments; "
+                f"unset {cls.PRODUCTION_MODE_ENV} only for local demo use and "
+                "use the query workflow / bridge pipeline APIs for production jobs."
+            )
         if cls.is_loopback_host(host):
             return
         if cls.legacy_pickle_wide_bind_allowed():

@@ -1,0 +1,165 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "ecommerce_production_exposure_gate/v1",
+  "title": "E-commerce production exposure gate",
+  "type": "object",
+  "required": [
+    "schema",
+    "generated_at_utc",
+    "status",
+    "repo_side_evidence",
+    "exposure_matrix",
+    "real_production_remaining",
+    "checks",
+    "findings"
+  ],
+  "properties": {
+    "schema": { "const": "ecommerce_production_exposure_gate/v1" },
+    "generated_at_utc": { "type": "string", "minLength": 1 },
+    "status": { "enum": ["ok", "fail"] },
+    "repo_side_evidence": {
+      "type": "object",
+      "required": [
+        "fact_layer_schema",
+        "business_access_policy",
+        "business_access_api",
+        "direct_query_workflow_identity_scope",
+        "operator_request_workflow",
+        "console_manifest",
+        "console_business_access_workbench",
+        "ecommerce_fact_import_job"
+      ],
+      "properties": {
+        "fact_layer_schema": { "type": "object" },
+        "business_access_policy": { "type": "object" },
+        "business_access_api": { "type": "object" },
+        "direct_query_workflow_identity_scope": { "type": "object" },
+        "operator_request_workflow": { "type": "object" },
+        "console_manifest": { "type": "object" },
+        "console_business_access_workbench": { "type": "object" },
+        "ecommerce_fact_import_job": { "type": "object" }
+      },
+      "additionalProperties": false
+    },
+    "exposure_matrix": {
+      "type": "object",
+      "required": ["attacker_view", "internal_adversary_view", "verifier_view"],
+      "properties": {
+        "attacker_view": {
+          "type": "array",
+          "minItems": 0,
+          "items": {
+            "$ref": "#/$defs/exposure_case"
+          }
+        },
+        "internal_adversary_view": {
+          "type": "array",
+          "minItems": 0,
+          "items": {
+            "$ref": "#/$defs/exposure_case"
+          }
+        },
+        "verifier_view": {
+          "type": "object",
+          "required": ["claim", "frozen_roles", "protected_fields", "artifacts", "repo_side_boundary"],
+          "properties": {
+            "claim": { "type": "string", "minLength": 1 },
+            "frozen_roles": {
+              "type": "array",
+              "minItems": 1,
+              "items": { "type": "string", "minLength": 1 }
+            },
+            "protected_fields": {
+              "type": "array",
+              "minItems": 1,
+              "items": { "type": "string", "minLength": 1 }
+            },
+            "artifacts": {
+              "type": "array",
+              "minItems": 1,
+              "items": {
+                "$ref": "#/$defs/artifact"
+              }
+            },
+            "repo_side_boundary": {
+              "type": "array",
+              "minItems": 1,
+              "items": { "type": "string", "minLength": 1 }
+            }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    },
+    "real_production_remaining": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 }
+    },
+    "checks": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["name", "status", "message"],
+        "properties": {
+          "name": { "type": "string", "minLength": 1 },
+          "status": { "enum": ["ok", "fail", "skipped"] },
+          "message": { "type": ["string", "null"] },
+          "expected": {},
+          "actual": {},
+          "missing_prerequisites": {
+            "type": "array",
+            "items": { "type": "string", "minLength": 1 }
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    "findings": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["kind", "message"],
+        "properties": {
+          "kind": { "type": "string", "minLength": 1 },
+          "message": { "type": "string", "minLength": 1 },
+          "expected": {},
+          "actual": {}
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  "$defs": {
+    "artifact": {
+      "type": "object",
+      "required": ["path"],
+      "properties": {
+        "path": { "type": "string", "minLength": 1 },
+        "schema": { "type": "string", "minLength": 1 },
+        "note": { "type": "string", "minLength": 1 }
+      },
+      "additionalProperties": false
+    },
+    "exposure_case": {
+      "type": "object",
+      "required": ["surface", "actor", "risk", "expected_control", "status", "evidence"],
+      "properties": {
+        "surface": { "type": "string", "minLength": 1 },
+        "actor": { "type": "string", "minLength": 1 },
+        "risk": { "type": "string", "minLength": 1 },
+        "expected_control": { "type": "string", "minLength": 1 },
+        "status": { "enum": ["ok", "fail"] },
+        "evidence": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/$defs/artifact"
+          }
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false
+}

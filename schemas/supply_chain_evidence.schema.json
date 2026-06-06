@@ -1,0 +1,139 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "supply_chain_evidence/v1",
+  "title": "Supply-chain, release, and full-test gate evidence",
+  "type": "object",
+  "required": [
+    "schema",
+    "generated_at_utc",
+    "status",
+    "summary",
+    "artifacts",
+    "sbom",
+    "provenance",
+    "advisory_policy",
+    "findings"
+  ],
+  "properties": {
+    "schema": { "const": "supply_chain_evidence/v1" },
+    "generated_at_utc": { "type": "string" },
+    "status": { "enum": ["ok", "fail"] },
+    "summary": {
+      "type": "object",
+      "required": [
+        "artifact_count",
+        "component_count",
+        "component_count_by_ecosystem",
+        "error_count",
+        "warn_count",
+        "pytest_dependency_declared",
+        "ci_runs_pytest",
+        "ci_runs_console_strict_build",
+        "release_console_typecheck_blocking",
+        "advisory_policy_status",
+        "external_provenance_status"
+      ],
+      "properties": {
+        "artifact_count": { "type": "integer", "minimum": 0 },
+        "component_count": { "type": "integer", "minimum": 0 },
+        "component_count_by_ecosystem": {
+          "type": "object",
+          "additionalProperties": { "type": "integer", "minimum": 0 }
+        },
+        "error_count": { "type": "integer", "minimum": 0 },
+        "warn_count": { "type": "integer", "minimum": 0 },
+        "pytest_dependency_declared": { "type": "boolean" },
+        "ci_runs_pytest": { "type": "boolean" },
+        "ci_runs_console_strict_build": { "type": "boolean" },
+        "release_console_typecheck_blocking": { "type": "boolean" },
+        "advisory_policy_status": { "type": "string" },
+        "external_provenance_status": { "type": "string" }
+      },
+      "additionalProperties": false
+    },
+    "artifacts": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["path", "sha256"],
+        "properties": {
+          "path": { "type": "string" },
+          "sha256": { "type": "string", "minLength": 64 }
+        },
+        "additionalProperties": false
+      }
+    },
+    "sbom": {
+      "type": "object",
+      "required": ["format", "components"],
+      "properties": {
+        "format": { "const": "local_component_inventory/v1" },
+        "components": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["ecosystem", "name", "version", "source", "scope"],
+            "properties": {
+              "ecosystem": { "enum": ["python", "npm", "cargo"] },
+              "name": { "type": ["string", "null"] },
+              "version": { "type": ["string", "null"] },
+              "source": { "type": "string" },
+              "scope": { "type": "string" }
+            },
+            "additionalProperties": false
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "provenance": {
+      "type": "object",
+      "required": [
+        "mode",
+        "git_commit",
+        "git_tree",
+        "release_workflow",
+        "ci_workflow",
+        "external_attestation_status"
+      ],
+      "properties": {
+        "mode": { "type": "string" },
+        "git_commit": { "type": ["string", "null"] },
+        "git_tree": { "type": ["string", "null"] },
+        "release_workflow": { "type": "string" },
+        "ci_workflow": { "type": "string" },
+        "external_attestation_status": { "type": "string" }
+      },
+      "additionalProperties": false
+    },
+    "advisory_policy": {
+      "type": "object",
+      "required": ["mode", "npm", "python", "rust", "status"],
+      "properties": {
+        "mode": { "type": "string" },
+        "npm": { "type": "string" },
+        "python": { "type": "string" },
+        "rust": { "type": "string" },
+        "status": { "type": "string" }
+      },
+      "additionalProperties": false
+    },
+    "findings": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["severity", "check", "path", "message", "expected", "actual"],
+        "properties": {
+          "severity": { "enum": ["error", "warn"] },
+          "check": { "type": "string" },
+          "path": { "type": ["string", "null"] },
+          "message": { "type": "string" },
+          "expected": {},
+          "actual": {}
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  "additionalProperties": false
+}

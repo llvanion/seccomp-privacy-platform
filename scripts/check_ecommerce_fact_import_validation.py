@@ -52,6 +52,8 @@ def main() -> int:
         "dataset_id": "orders_analytics",
         "service_id": "svc-commerce",
         "buyer_email": "buyer@example.com",
+        "merchant_business_identity_id": "merchant-1",
+        "buyer_business_identity_id": "buyer-1",
         "platform_id": "shopify",
         "campaign_id": "campaign-demo",
         "currency": "USD",
@@ -97,6 +99,7 @@ def main() -> int:
                 "order_id": "o-1",
                 "tenant_id": "commerce_tenant",
                 "dataset_id": "orders_analytics",
+                "case_id": "case-1",
                 "interaction_type": "complaint",
                 "channel": "chat",
                 "agent_id": "agent-1",
@@ -116,6 +119,68 @@ def main() -> int:
     require(support.get("decision") == "deny", f"expected transcript import deny: {support}")
     require((support.get("summary") or {}).get("sensitive_column", 0) >= 1, f"expected sensitive transcript finding: {support}")
 
+    leg_good_path = out_dir / "delivery_legs_good.jsonl"
+    write_jsonl(
+        leg_good_path,
+        [
+            {
+                "leg_id": "leg-1",
+                "route_id": "route-1",
+                "order_id": "o-1",
+                "tenant_id": "commerce_tenant",
+                "dataset_id": "orders_analytics",
+                "service_id": "svc-commerce",
+                "leg_sequence": 1,
+                "leg_kind": "pickup_to_hub",
+                "assigned_courier_id": "courier-1",
+                "origin_node_label": "Pickup Station",
+                "destination_node_label": "Tianjin South Hub",
+                "destination_city": "Tianjin",
+                "next_stop_label": "Tianjin South Hub",
+                "next_stop_window": "2026-06-01T09:00:00Z/2026-06-01T11:00:00Z",
+                "next_stop_geohash_prefix": "wx4g",
+                "status": "in_transit",
+                "created_at_utc": "2026-06-01T08:00:00Z",
+                "ingested_at_utc": "2026-06-01T08:05:00Z"
+            }
+        ],
+    )
+    leg_good = run_validator(table="delivery_route_legs", input_path=leg_good_path, output_path=out_dir / "delivery_legs_good_report.json")
+    require(leg_good.get("decision") == "allow", f"expected delivery leg allow: {leg_good}")
+
+    leg_sensitive_path = out_dir / "delivery_legs_address.jsonl"
+    write_jsonl(
+        leg_sensitive_path,
+        [
+            {
+                "leg_id": "leg-2",
+                "route_id": "route-1",
+                "order_id": "o-1",
+                "tenant_id": "commerce_tenant",
+                "dataset_id": "orders_analytics",
+                "leg_sequence": 3,
+                "leg_kind": "last_mile",
+                "origin_node_label": "Beijing Hub",
+                "destination_node_label": "Building 7",
+                "destination_city": "Beijing",
+                "next_stop_label": "Building 7",
+                "final_address_line1": "Beijing Chaoyang Block 7",
+                "recipient_phone": "13800001234",
+                "status": "assigned",
+                "created_at_utc": "2026-06-01T08:00:00Z",
+                "ingested_at_utc": "2026-06-01T08:05:00Z"
+            }
+        ],
+    )
+    leg_sensitive = run_validator(
+        table="delivery_route_legs",
+        input_path=leg_sensitive_path,
+        output_path=out_dir / "delivery_legs_address_report.json",
+        allow_reject=True,
+    )
+    require(leg_sensitive.get("decision") == "deny", f"expected delivery leg address deny: {leg_sensitive}")
+    require((leg_sensitive.get("summary") or {}).get("protected_field_not_importable", 0) >= 1 or (leg_sensitive.get("summary") or {}).get("sensitive_column", 0) >= 1, f"expected protected delivery field finding: {leg_sensitive}")
+
     report = {
         "schema": "ecommerce_fact_import_validation_smoke/v1",
         "status": "ok",
@@ -123,6 +188,8 @@ def main() -> int:
         "address_decision": address.get("decision"),
         "negative_value_decision": negative.get("decision"),
         "support_transcript_decision": support.get("decision"),
+        "delivery_leg_allow_decision": leg_good.get("decision"),
+        "delivery_leg_sensitive_decision": leg_sensitive.get("decision"),
     }
     text = json.dumps(report, ensure_ascii=False, indent=2)
     (out_dir / "ecommerce_fact_import_validation_smoke.json").write_text(text + "\n", encoding="utf-8")

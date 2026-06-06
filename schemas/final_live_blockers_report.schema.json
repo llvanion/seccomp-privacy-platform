@@ -1,0 +1,44 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "final_live_blockers_report/v1",
+  "title": "Final remaining live blocker report",
+  "type": "object",
+  "required": [
+    "schema",
+    "generated_at_utc",
+    "remaining_live_module_count",
+    "remaining_modules",
+    "spiffe_envoy",
+    "authority"
+  ],
+  "properties": {
+    "schema": { "const": "final_live_blockers_report/v1" },
+    "generated_at_utc": { "type": "string", "minLength": 1 },
+    "remaining_live_module_count": { "type": "integer", "minimum": 0 },
+    "remaining_modules": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 }
+    },
+    "spiffe_envoy": {
+      "type": "object",
+      "required": ["status", "required_artifacts", "collection_report"],
+      "properties": {
+        "status": { "type": "string", "minLength": 1 },
+        "required_artifacts": { "type": "array", "items": { "type": "string", "minLength": 1 } },
+        "collection_report": {}
+      },
+      "additionalProperties": true
+    },
+    "authority": {
+      "type": "object",
+      "required": ["status", "required_artifacts", "collection_report"],
+      "properties": {
+        "status": { "type": "string", "minLength": 1 },
+        "required_artifacts": { "type": "array", "items": { "type": "string", "minLength": 1 } },
+        "collection_report": {}
+      },
+      "additionalProperties": true
+    }
+  },
+  "additionalProperties": false
+}

@@ -1,0 +1,30 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "privacy_budget_approval_api_smoke/v1",
+  "title": "Privacy budget approval API smoke",
+  "type": "object",
+  "required": [
+    "schema",
+    "status",
+    "pending_count_before",
+    "approved_request_id",
+    "rejected_request_id",
+    "expired_request_id",
+    "decision_statuses",
+    "self_approval_status"
+  ],
+  "properties": {
+    "schema": { "const": "privacy_budget_approval_api_smoke/v1" },
+    "status": { "const": "ok" },
+    "pending_count_before": { "type": "integer", "minimum": 0 },
+    "approved_request_id": { "type": "string", "pattern": "^pba_[0-9a-f]{24}$" },
+    "rejected_request_id": { "type": "string", "pattern": "^pba_[0-9a-f]{24}$" },
+    "expired_request_id": { "type": "string", "pattern": "^pba_[0-9a-f]{24}$" },
+    "decision_statuses": {
+      "type": "array",
+      "items": { "enum": ["approved", "rejected", "expired", "consumed"] }
+    },
+    "self_approval_status": { "type": "integer", "minimum": 100, "maximum": 599 }
+  },
+  "additionalProperties": false
+}

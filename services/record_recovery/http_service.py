@@ -23,6 +23,10 @@ from services.record_recovery.runtime import (
     build_service_state,
     write_text_file,
 )
+from services.record_recovery.production import (
+    enforce_record_recovery_production_gate,
+    production_mode_enabled,
+)
 from services.record_recovery.service import (
     append_record_recovery_service_audit,
     handle_record_recovery_service_payload,
@@ -493,6 +497,9 @@ def main() -> int:
                     help="Max requests/second per caller (0 = disabled)")
     ap.add_argument("--rate-limit-burst", type=int, default=0,
                     help="Burst capacity for the per-caller token bucket (0 = same as rate)")
+    ap.add_argument("--production-mode", action="store_true",
+                    default=production_mode_enabled(),
+                    help="Fail closed unless production HTTP auth/authz and mTLS/signed-request controls are configured.")
     args = ap.parse_args()
     if args.identity_token_config and not args.metadata_db_path:
         raise SystemExit("[ERROR] --identity-token-config requires --metadata-db-path")
@@ -506,6 +513,23 @@ def main() -> int:
         raise SystemExit("[ERROR] --tls-require-client-cert requires --tls-ca-cert")
     scheme = "https" if tls_enabled else "http"
     endpoint_url = args.endpoint_url or f"{scheme}://{args.bind_host}:{args.port}"
+    if args.production_mode:
+        enforce_record_recovery_production_gate({
+            "transport": "http",
+            "bind_host": args.bind_host,
+            "endpoint_url": endpoint_url,
+            "auth_token_env": args.auth_token_env,
+            "metadata_db_path": args.metadata_db_path,
+            "identity_token_config": args.identity_token_config,
+            "authz_config": args.authz_config,
+            "tls": {
+                "enabled": tls_enabled,
+                "server_cert": args.tls_cert_file,
+                "server_key": args.tls_key_file,
+                "ca_cert": args.tls_ca_cert,
+                "require_client_cert": bool(args.tls_require_client_cert),
+            },
+        })
     service_state = build_service_state(
         service_id=str(args.service_id or ""),
         tenant_id=str(args.tenant_id or ""),

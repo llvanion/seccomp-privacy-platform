@@ -61,3 +61,33 @@ is wired into `scripts/check_json_contracts.sh`.
    API discovery. The dashboard wizard still drives the higher-level steps
    (preflight, evidence merge, negative cases) — the only thing that changes
    is the identity provider.
+
+## Live Evidence Archiving
+
+When a real SPIFFE/SPIRE + Envoy deployment exists, freeze the operator-side
+evidence into one verifier-facing package instead of passing loose JSON/log
+paths around:
+
+```bash
+python3 scripts/archive_spiffe_envoy_live_evidence.py \
+  --job-id spiffe-envoy-live-001 \
+  --templates-dir deploy/spiffe_envoy \
+  --live-positive-report /path/to/positive_run.json \
+  --live-wrong-peer-report /path/to/wrong_peer_reject.json \
+  --live-expired-svid-report /path/to/expired_svid_reject.json \
+  --live-trust-bundle-reject-report /path/to/trust_bundle_reject.json \
+  --live-envoy-access-log /path/to/envoy_access.log \
+  --output-dir tmp/spiffe_envoy_live_archive_live_001
+```
+
+That archive can then be consumed by:
+
+```bash
+python3 scripts/check_spiffe_envoy_identity_gate.py \
+  --out-dir tmp/spiffe_envoy_identity_gate_live_001 \
+  --live-evidence-archive tmp/spiffe_envoy_live_archive_live_001/spiffe_envoy_live_evidence_archive.json
+```
+
+The gate intentionally keeps `live_status=skipped` when the archive exists but
+contains no real deployment artifacts, so a structurally valid empty bundle
+cannot be mistaken for production completion.

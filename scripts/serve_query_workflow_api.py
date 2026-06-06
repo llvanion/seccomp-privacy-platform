@@ -65,6 +65,10 @@ class QueryWorkflowApiServer(ThreadingHTTPServer):
         metadata_db_read_dsn: str,
         identity_token_config: str,
         allow_execute: bool,
+        workflow_execution_db_path: str,
+        workflow_execution_db_dsn: str,
+        workflow_lease_seconds: int,
+        workflow_steal_expired: bool,
         pid_file: str,
         ready_file: str,
     ) -> None:
@@ -74,6 +78,12 @@ class QueryWorkflowApiServer(ThreadingHTTPServer):
         self.metadata_db_read_dsn = metadata_db_read_dsn
         self.identity_token_config = str(Path(identity_token_config).resolve()) if identity_token_config else ""
         self.allow_execute = allow_execute
+        self.workflow_execution_db_path = (
+            str(Path(workflow_execution_db_path).resolve()) if workflow_execution_db_path else self.metadata_db_path
+        )
+        self.workflow_execution_db_dsn = workflow_execution_db_dsn or self.metadata_db_dsn
+        self.workflow_lease_seconds = max(1, int(workflow_lease_seconds))
+        self.workflow_steal_expired = bool(workflow_steal_expired)
         self.pid_file = pid_file
         self.ready_file = ready_file
         super().__init__(server_address, handler_cls)
@@ -143,6 +153,8 @@ class QueryWorkflowApiHandler(BaseHTTPRequestHandler):
                         "allow_execute": self.server.allow_execute,
                         "metadata_db_path": self.server.metadata_db_path or None,
                         "metadata_db_dsn": self.server.metadata_db_dsn or None,
+                        "workflow_execution_db_path": self.server.workflow_execution_db_path or None,
+                        "workflow_execution_db_dsn": self.server.workflow_execution_db_dsn or None,
                         "request_base_dir_default": str(REPO_ROOT),
                     },
                 )
@@ -182,6 +194,14 @@ class QueryWorkflowApiHandler(BaseHTTPRequestHandler):
                 status = HTTPStatus.OK if payload.get("manifest", {}).get("exit_code") in (None, 0) else HTTPStatus.BAD_GATEWAY
                 self._send_json(status, self._success_payload(parsed.path, payload))
                 return
+            if parsed.path == "/v1/query-workflows/enqueue":
+                if not self.server.allow_execute:
+                    raise EndpointDisabledError("query workflow enqueue endpoint is disabled")
+                if not self.server.workflow_execution_db_path and not self.server.workflow_execution_db_dsn:
+                    raise ValueError("query workflow enqueue requires --workflow-execution-db-path or --workflow-execution-db-dsn")
+                payload = self._handle_submit(execute=False, enqueue=True, identity=identity)
+                self._send_json(HTTPStatus.ACCEPTED, self._success_payload(parsed.path, payload))
+                return
             self._error(HTTPStatus.NOT_FOUND, "not found", error_class="not_found")
         except EndpointDisabledError as exc:
             self._error(HTTPStatus.FORBIDDEN, str(exc), error_class="endpoint_disabled")
@@ -194,10 +214,10 @@ class QueryWorkflowApiHandler(BaseHTTPRequestHandler):
         except Exception as exc:
             self._error(HTTPStatus.INTERNAL_SERVER_ERROR, str(exc), error_class="internal_error")
 
-    def _handle_submit(self, *, execute: bool, identity: dict[str, Any] | None) -> dict[str, Any]:
+    def _handle_submit(self, *, execute: bool, identity: dict[str, Any] | None, enqueue: bool = False) -> dict[str, Any]:
         payload = self._read_json_body()
         if identity is not None:
-            payload = bind_query_request_to_identity(identity, payload, execute=execute)
+            payload = bind_query_request_to_identity(identity, payload, execute=execute or enqueue)
         request_base_dir = self.headers.get("X-Request-Base-Dir", "").strip()
         if request_base_dir:
             request_dir = Path(request_base_dir).expanduser()
@@ -211,6 +231,11 @@ class QueryWorkflowApiHandler(BaseHTTPRequestHandler):
             request_source="http_request_body",
             request_dir=request_dir,
             execute=execute,
+            enqueue=enqueue,
+            metadata_db_path=self.server.workflow_execution_db_path if (execute or enqueue) else "",
+            metadata_db_dsn=self.server.workflow_execution_db_dsn if (execute or enqueue) else "",
+            workflow_lease_seconds=self.server.workflow_lease_seconds,
+            workflow_steal_expired=self.server.workflow_steal_expired,
         )
         request_summary = manifest.get("request_summary") or {}
         out_base = str(request_summary.get("out_base") or "")
@@ -279,6 +304,10 @@ def build_parser() -> argparse.ArgumentParser:
     )
     ap.add_argument("--identity-token-config", default="", help="Optional bearer-token to caller-identity mapping config")
     ap.add_argument("--allow-execute", action="store_true", help="Enable the /v1/query-workflows/execute endpoint")
+    ap.add_argument("--workflow-execution-db-path", default="", help="Optional metadata DB path for execution lifecycle rows")
+    ap.add_argument("--workflow-execution-db-dsn", default="", help="Optional PostgreSQL DSN for execution lifecycle rows")
+    ap.add_argument("--workflow-lease-seconds", type=int, default=300)
+    ap.add_argument("--workflow-steal-expired", action="store_true", default=False)
     ap.add_argument("--pid-file", default="")
     ap.add_argument("--ready-file", default="")
     return ap
@@ -298,6 +327,10 @@ def main() -> int:
         metadata_db_read_dsn=args.metadata_db_dsn_read_replica,
         identity_token_config=args.identity_token_config,
         allow_execute=args.allow_execute,
+        workflow_execution_db_path=args.workflow_execution_db_path,
+        workflow_execution_db_dsn=args.workflow_execution_db_dsn,
+        workflow_lease_seconds=args.workflow_lease_seconds,
+        workflow_steal_expired=args.workflow_steal_expired,
         pid_file=args.pid_file,
         ready_file=args.ready_file,
     )

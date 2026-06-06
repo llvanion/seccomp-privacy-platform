@@ -21,6 +21,8 @@ TABLE_SPECS: dict[str, dict[str, Any]] = {
             "tenant_id",
             "dataset_id",
             "buyer_email",
+            "merchant_business_identity_id",
+            "buyer_business_identity_id",
             "currency",
             "total_amount_cents",
             "placed_at_utc",
@@ -66,6 +68,7 @@ TABLE_SPECS: dict[str, dict[str, Any]] = {
             "order_id",
             "tenant_id",
             "dataset_id",
+            "assigned_marketer_business_identity_id",
             "attribution_type",
             "channel",
             "attribution_weight",
@@ -86,6 +89,8 @@ TABLE_SPECS: dict[str, dict[str, Any]] = {
             "order_id",
             "tenant_id",
             "dataset_id",
+            "assigned_fraud_analyst_business_identity_id",
+            "fraud_case_id",
             "payment_method",
             "paid_amount_cents",
             "is_disputed",
@@ -121,18 +126,83 @@ TABLE_SPECS: dict[str, dict[str, Any]] = {
             "delivery_latency_minutes": "order_fulfillment.delivery_latency_minutes",
         },
     },
+    "delivery_route_legs": {
+        "required": {
+            "leg_id",
+            "route_id",
+            "order_id",
+            "tenant_id",
+            "dataset_id",
+            "leg_sequence",
+            "leg_kind",
+            "origin_node_label",
+            "destination_node_label",
+            "destination_city",
+            "next_stop_label",
+            "status",
+            "created_at_utc",
+            "ingested_at_utc",
+        },
+        "optional": {
+            "id",
+            "service_id",
+            "assigned_courier_id",
+            "assigned_station_id",
+            "assigned_region_id",
+            "destination_district",
+            "next_stop_window",
+            "next_stop_geohash_prefix",
+            "pickup_station_label",
+            "pickup_station_geohash_prefix",
+            "final_recipient_zone",
+            "final_address_token",
+            "final_address_line1",
+            "final_address_line2",
+            "recipient_phone",
+            "started_at_utc",
+            "completed_at_utc",
+        },
+        "field_map": {
+            "leg_id": "delivery_route.leg_id",
+            "route_id": "delivery_route.route_id",
+            "leg_sequence": "delivery_route.leg_sequence",
+            "leg_kind": "delivery_route.leg_kind",
+            "assigned_courier_id": "delivery_route.assigned_courier_id",
+            "assigned_station_id": "delivery_route.assigned_station_id",
+            "assigned_region_id": "delivery_route.assigned_region_id",
+            "origin_node_label": "delivery_route.origin_node_label",
+            "destination_node_label": "delivery_route.destination_node_label",
+            "destination_city": "delivery_route.destination_city",
+            "destination_district": "delivery_route.destination_district",
+            "next_stop_label": "delivery_route.next_stop_label",
+            "next_stop_window": "delivery_route.next_stop_window",
+            "next_stop_geohash_prefix": "delivery_route.next_stop_geohash_prefix",
+            "pickup_station_label": "delivery_route.pickup_station_label",
+            "pickup_station_geohash_prefix": "delivery_route.pickup_station_geohash_prefix",
+            "final_recipient_zone": "delivery_route.final_recipient_zone",
+            "final_address_token": "delivery_route.final_address_token",
+            "final_address_line1": "delivery_route.final_address_line1",
+            "final_address_line2": "delivery_route.final_address_line2",
+            "recipient_phone": "delivery_route.recipient_phone",
+            "status": "delivery_route.status",
+            "started_at_utc": "delivery_route.started_at_utc",
+            "completed_at_utc": "delivery_route.completed_at_utc",
+        },
+    },
     "customer_service_interactions": {
         "required": {
             "order_id",
             "tenant_id",
             "dataset_id",
+            "case_id",
             "interaction_type",
             "channel",
+            "agent_id",
             "resolution_status",
             "created_at_utc",
             "ingested_at_utc",
         },
-        "optional": {"id", "agent_id", "opened_at_utc", "closed_at_utc"},
+        "optional": {"id", "opened_at_utc", "closed_at_utc"},
         "field_map": {
             "interaction_type": "customer_service_interactions.interaction_type",
             "channel": "customer_service_interactions.channel",
@@ -153,6 +223,7 @@ INTEGER_COLUMNS = {
     "paid_amount_cents",
     "is_disputed",
     "delivery_latency_minutes",
+    "leg_sequence",
 }
 NUMBER_COLUMNS = {"attribution_weight", "risk_score"}
 NON_NEGATIVE_COLUMNS = {
@@ -163,7 +234,22 @@ NON_NEGATIVE_COLUMNS = {
     "paid_amount_cents",
     "delivery_latency_minutes",
 }
-INTERNAL_COLUMNS = {"id", "tenant_id", "dataset_id", "service_id", "created_at_utc", "ingested_at_utc", "order_id"}
+INTERNAL_COLUMNS = {
+    "id",
+    "tenant_id",
+    "dataset_id",
+    "service_id",
+    "created_at_utc",
+    "ingested_at_utc",
+    "order_id",
+    "merchant_business_identity_id",
+    "buyer_business_identity_id",
+    "assigned_marketer_business_identity_id",
+    "assigned_fraud_analyst_business_identity_id",
+    "fraud_case_id",
+    "case_id",
+    "agent_id",
+}
 SENSITIVE_COLUMN_MARKERS = (
     "address",
     "phone",
@@ -180,6 +266,12 @@ SENSITIVE_COLUMN_MARKERS = (
     "id_card",
     "ssn",
 )
+NON_IMPORTABLE_PROTECTED_FIELDS = {
+    "delivery_route.final_address_line1",
+    "delivery_route.final_address_line2",
+    "delivery_route.recipient_phone",
+    "delivery_route.final_address_token",
+}
 
 
 def utc_now_iso() -> str:
@@ -282,6 +374,15 @@ def validate_rows(*, table: str, rows: list[dict[str, Any]], policy: dict[str, A
                         message=f"business policy does not classify {policy_field}",
                     )
                 )
+            elif policy_field in NON_IMPORTABLE_PROTECTED_FIELDS:
+                findings.append(
+                    finding(
+                        row_no=row_no,
+                        column=column,
+                        kind="protected_field_not_importable",
+                        message=f"{policy_field} must not be imported into the fact-layer baseline",
+                    )
+                )
             elif column not in INTERNAL_COLUMNS and not policy_field:
                 findings.append(
                     finding(
@@ -303,6 +404,7 @@ def summarize_findings(findings: list[dict[str, Any]]) -> dict[str, int]:
         "missing_required_value",
         "unknown_column",
         "sensitive_column",
+        "protected_field_not_importable",
         "policy_unclassified_column",
         "policy_unmapped_column",
         "policy_unprotected_join_key",

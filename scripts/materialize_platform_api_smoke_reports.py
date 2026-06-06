@@ -8,6 +8,14 @@ from pathlib import Path
 from typing import Any
 
 
+HTTP_TIMEOUT_SEC = 15
+DEFAULT_METADATA_TOKEN = "contract-metadata-api-token"
+DEFAULT_PLATFORM_HEALTH_TOKEN = "contract-platform-health-api-token"
+DEFAULT_QUERY_TOKEN = "contract-query-workflow-api-token"
+DEFAULT_IDENTITY_MARKETING_TOKEN = "contract-identity-marketing-analyst-token"
+DEFAULT_IDENTITY_AUTO_DEMO_TOKEN = "contract-identity-auto-demo-token"
+
+
 def json_opener() -> urllib.request.OpenerDirector:
     return urllib.request.build_opener(urllib.request.ProxyHandler({}))
 
@@ -17,7 +25,7 @@ def fetch_json(opener: urllib.request.OpenerDirector, url: str, *, token: str | 
     if token:
         request.add_header("Authorization", f"Bearer {token}")
     try:
-        with opener.open(request, timeout=2) as response:
+        with opener.open(request, timeout=HTTP_TIMEOUT_SEC) as response:
             return json.loads(response.read().decode("utf-8"))
     except urllib.error.HTTPError as exc:
         exc.body_text = exc.read().decode("utf-8", errors="replace")
@@ -42,7 +50,7 @@ def post_json(
         request.add_header("Authorization", f"Bearer {token}")
     if request_base_dir:
         request.add_header("X-Request-Base-Dir", request_base_dir)
-    with opener.open(request, timeout=2) as response:
+    with opener.open(request, timeout=HTTP_TIMEOUT_SEC) as response:
         return json.loads(response.read().decode("utf-8"))
 
 
@@ -78,7 +86,15 @@ def materialize_query_api(tmp_dir: Path, *, port: int, request_file: Path) -> No
     base = f"http://127.0.0.1:{port}"
     request_payload = json.load(request_file.open("r", encoding="utf-8"))
     request_base_dir = str(request_file.resolve().parent)
-    out_base = str(Path(request_base_dir, str(request_payload["out_base"])).resolve())
+
+    def variant(label: str) -> dict[str, Any]:
+        payload = dict(request_payload)
+        payload["job_id"] = f"{request_payload['job_id']}_{label}"
+        payload["out_base"] = str(tmp_dir / f"query_workflow_api_{label}_out")
+        return payload
+
+    dry_run_payload = variant("dry_run")
+    dry_run_out_base = str(Path(request_base_dir, str(dry_run_payload["out_base"])).resolve())
 
     dump(tmp_dir / "query_workflow_api_health.json", fetch_json(opener, f"{base}/healthz"))
     dump(
@@ -86,8 +102,8 @@ def materialize_query_api(tmp_dir: Path, *, port: int, request_file: Path) -> No
         post_json(
             opener,
             f"{base}/v1/query-workflows/dry-run",
-            request_payload,
-            token="contract-query-workflow-api-token",
+            dry_run_payload,
+            token=DEFAULT_QUERY_TOKEN,
             request_base_dir=request_base_dir,
         ),
     )
@@ -104,21 +120,22 @@ def materialize_query_api(tmp_dir: Path, *, port: int, request_file: Path) -> No
             label="query workflow API unauthenticated dry-run",
         ),
     )
+    execute_disabled_payload = variant("execute_disabled")
     dump(
         tmp_dir / "query_workflow_api_execute_disabled_error.json",
         expect_http_error(
             lambda: post_json(
                 opener,
                 f"{base}/v1/query-workflows/execute",
-                request_payload,
-                token="contract-query-workflow-api-token",
+                execute_disabled_payload,
+                token=DEFAULT_QUERY_TOKEN,
                 request_base_dir=request_base_dir,
             ),
             code=403,
             label="query workflow API execute-disabled request",
         ),
     )
-    privacy_budget_missing_config_payload = dict(request_payload)
+    privacy_budget_missing_config_payload = variant("privacy_budget_missing_config")
     privacy_budget_missing_config_payload["privacy_budget_required"] = True
     privacy_budget_missing_config_payload.pop("privacy_budget_config", None)
     privacy_budget_missing_config_payload.pop("privacy_budget_ledger", None)
@@ -129,7 +146,7 @@ def materialize_query_api(tmp_dir: Path, *, port: int, request_file: Path) -> No
                 opener,
                 f"{base}/v1/query-workflows/dry-run",
                 privacy_budget_missing_config_payload,
-                token="contract-query-workflow-api-token",
+                token=DEFAULT_QUERY_TOKEN,
                 request_base_dir=request_base_dir,
             ),
             code=400,
@@ -140,8 +157,8 @@ def materialize_query_api(tmp_dir: Path, *, port: int, request_file: Path) -> No
         tmp_dir / "query_workflow_api_status.json",
         fetch_json(
             opener,
-            f"{base}/v1/query-workflows/status?{urllib.parse.urlencode([('out_base', out_base), ('job_id', str(request_payload['job_id']))])}",
-            token="contract-query-workflow-api-token",
+            f"{base}/v1/query-workflows/status?{urllib.parse.urlencode([('out_base', dry_run_out_base), ('job_id', str(dry_run_payload['job_id']))])}",
+            token=DEFAULT_QUERY_TOKEN,
         ),
     )
 
@@ -161,7 +178,7 @@ def materialize_query_execute_api(tmp_dir: Path, *, port: int, request_file: Pat
                 opener,
                 f"{base}/v1/query-workflows/execute",
                 invalid_payload,
-                token="contract-query-workflow-api-token",
+                token=DEFAULT_QUERY_TOKEN,
                 request_base_dir=request_base_dir,
             ),
             code=400,
@@ -171,12 +188,20 @@ def materialize_query_execute_api(tmp_dir: Path, *, port: int, request_file: Pat
 
     run_failed_payload = dict(request_payload)
     run_failed_payload["job_id"] = "contract-query-workflow-execute-run-failed"
-    run_failed_payload["out_base"] = "../query_workflow_execute_fail_out"
+    run_failed_payload["out_base"] = str(tmp_dir / "query_workflow_execute_fail_out")
     run_failed_payload["token_scope"] = "contract-query-execute-run-failed"
     run_failed_payload["server_source"] = "../missing_execute_server_records.jsonl"
     run_failed_request_file = tmp_dir / "query_requests" / "cross_party_match_execute_run_failed.json"
     dump(run_failed_request_file, run_failed_payload)
     run_failed_out_base = str(Path(request_base_dir, str(run_failed_payload["out_base"])).resolve())
+
+    client_run_failed_payload = dict(run_failed_payload)
+    client_run_failed_payload["job_id"] = "contract-query-workflow-execute-run-failed-client"
+    client_run_failed_payload["out_base"] = str(tmp_dir / "query_workflow_execute_fail_client_out")
+    client_run_failed_payload["token_scope"] = "contract-query-execute-run-failed-client"
+    client_run_failed_request_file = tmp_dir / "query_requests" / "cross_party_match_execute_run_failed_client.json"
+    dump(client_run_failed_request_file, client_run_failed_payload)
+
     dump(
         tmp_dir / "query_workflow_api_execute_run_failed.json",
         expect_http_error(
@@ -184,7 +209,7 @@ def materialize_query_execute_api(tmp_dir: Path, *, port: int, request_file: Pat
                 opener,
                 f"{base}/v1/query-workflows/execute",
                 run_failed_payload,
-                token="contract-query-workflow-api-token",
+                token=DEFAULT_QUERY_TOKEN,
                 request_base_dir=request_base_dir,
             ),
             code=502,
@@ -196,7 +221,7 @@ def materialize_query_execute_api(tmp_dir: Path, *, port: int, request_file: Pat
         fetch_json(
             opener,
             f"{base}/v1/query-workflows/status?{urllib.parse.urlencode([('out_base', run_failed_out_base), ('job_id', str(run_failed_payload['job_id']))])}",
-            token="contract-query-workflow-api-token",
+            token=DEFAULT_QUERY_TOKEN,
         ),
     )
 
@@ -205,25 +230,25 @@ def materialize_metadata_api(tmp_dir: Path, *, port: int) -> None:
     opener = json_opener()
     base = f"http://127.0.0.1:{port}"
     dump(tmp_dir / "metadata_api_health.json", fetch_json(opener, f"{base}/healthz"))
-    dump(tmp_dir / "metadata_api_job.json", fetch_json(opener, f"{base}/v1/jobs/contract-check", token="contract-metadata-api-token"))
+    dump(tmp_dir / "metadata_api_job.json", fetch_json(opener, f"{base}/v1/jobs/contract-check", token=DEFAULT_METADATA_TOKEN))
     dump(
         tmp_dir / "metadata_api_jobs.json",
-        fetch_json(opener, f"{base}/v1/jobs?caller=auto_demo&stage=bridge&limit=5", token="contract-metadata-api-token"),
+        fetch_json(opener, f"{base}/v1/jobs?caller=auto_demo&stage=bridge&limit=5", token=DEFAULT_METADATA_TOKEN),
     )
     dump(
         tmp_dir / "metadata_api_policies.json",
-        fetch_json(opener, f"{base}/v1/entities/policies?limit=5", token="contract-metadata-api-token"),
+        fetch_json(opener, f"{base}/v1/entities/policies?limit=5", token=DEFAULT_METADATA_TOKEN),
     )
     dump(
         tmp_dir / "metadata_api_permissions.json",
-        fetch_json(opener, f"{base}/v1/entities/caller-permissions?caller=auto_demo&limit=20", token="contract-metadata-api-token"),
+        fetch_json(opener, f"{base}/v1/entities/caller-permissions?caller=auto_demo&limit=20", token=DEFAULT_METADATA_TOKEN),
     )
     dump(
         tmp_dir / "metadata_api_permissions_page.json",
         fetch_json(
             opener,
             f"{base}/v1/entities/caller-permissions?caller=auto_demo&limit=2&offset=2",
-            token="contract-metadata-api-token",
+            token=DEFAULT_METADATA_TOKEN,
         ),
     )
     dump(
@@ -286,7 +311,7 @@ def materialize_platform_health_api(tmp_dir: Path, *, port: int) -> None:
     dump(tmp_dir / "platform_health_api_health.json", fetch_json(opener, f"{base}/healthz"))
     dump(
         tmp_dir / "platform_health_api_report.json",
-        fetch_json(opener, f"{base}/v1/platform-health?{query}", token="contract-platform-health-api-token"),
+        fetch_json(opener, f"{base}/v1/platform-health?{query}", token=DEFAULT_PLATFORM_HEALTH_TOKEN),
     )
     dump(
         tmp_dir / "platform_health_api_unauth_error.json",
@@ -303,28 +328,28 @@ def materialize_identity_metadata_api(tmp_dir: Path, *, port: int) -> None:
     base = f"http://127.0.0.1:{port}"
     dump(
         tmp_dir / "metadata_api_identity.json",
-        fetch_json(opener, f"{base}/v1/identity", token="contract-identity-auto-demo-token"),
+        fetch_json(opener, f"{base}/v1/identity", token=DEFAULT_IDENTITY_AUTO_DEMO_TOKEN),
     )
     dump(
         tmp_dir / "metadata_api_identity_jobs.json",
-        fetch_json(opener, f"{base}/v1/jobs?caller=auto_demo&stage=bridge&limit=5", token="contract-identity-auto-demo-token"),
+        fetch_json(opener, f"{base}/v1/jobs?caller=auto_demo&stage=bridge&limit=5", token=DEFAULT_IDENTITY_AUTO_DEMO_TOKEN),
     )
     dump(
         tmp_dir / "metadata_api_identity_job.json",
-        fetch_json(opener, f"{base}/v1/jobs/contract-check", token="contract-identity-auto-demo-token"),
+        fetch_json(opener, f"{base}/v1/jobs/contract-check", token=DEFAULT_IDENTITY_AUTO_DEMO_TOKEN),
     )
     dump(
         tmp_dir / "metadata_api_identity_permissions.json",
-        fetch_json(opener, f"{base}/v1/entities/caller-permissions?caller=auto_demo&limit=20", token="contract-identity-auto-demo-token"),
+        fetch_json(opener, f"{base}/v1/entities/caller-permissions?caller=auto_demo&limit=20", token=DEFAULT_IDENTITY_AUTO_DEMO_TOKEN),
     )
     dump(
         tmp_dir / "metadata_api_identity_policy_bindings.json",
-        fetch_json(opener, f"{base}/v1/entities/policy-bindings?caller=auto_demo&limit=20", token="contract-identity-auto-demo-token"),
+        fetch_json(opener, f"{base}/v1/entities/policy-bindings?caller=auto_demo&limit=20", token=DEFAULT_IDENTITY_AUTO_DEMO_TOKEN),
     )
     dump(
         tmp_dir / "metadata_api_identity_forbidden_policies.json",
         expect_http_error(
-            lambda: fetch_json(opener, f"{base}/v1/entities/policies?limit=5", token="contract-identity-auto-demo-token"),
+            lambda: fetch_json(opener, f"{base}/v1/entities/policies?limit=5", token=DEFAULT_IDENTITY_AUTO_DEMO_TOKEN),
             code=403,
             label="metadata API identity policies request",
         ),
@@ -343,7 +368,7 @@ def materialize_identity_query_api(tmp_dir: Path, *, port: int, request_file: Pa
             opener,
             f"{base}/v1/query-workflows/dry-run",
             request_payload,
-            token="contract-identity-marketing-analyst-token",
+            token=DEFAULT_IDENTITY_MARKETING_TOKEN,
             request_base_dir=request_base_dir,
         ),
     )
@@ -354,7 +379,7 @@ def materialize_identity_query_api(tmp_dir: Path, *, port: int, request_file: Pa
                 opener,
                 f"{base}/v1/query-workflows/execute",
                 request_payload,
-                token="contract-identity-marketing-analyst-token",
+                token=DEFAULT_IDENTITY_MARKETING_TOKEN,
                 request_base_dir=request_base_dir,
             ),
             code=403,
@@ -366,7 +391,41 @@ def materialize_identity_query_api(tmp_dir: Path, *, port: int, request_file: Pa
         fetch_json(
             opener,
             f"{base}/v1/query-workflows/status?{urllib.parse.urlencode([('out_base', out_base), ('job_id', str(request_payload['job_id']))])}",
-            token="contract-identity-marketing-analyst-token",
+            token=DEFAULT_IDENTITY_MARKETING_TOKEN,
+        ),
+    )
+    recovery_payload = dict(request_payload)
+    recovery_payload["job_id"] = "ecommerce-query-workflow-recovery"
+    recovery_payload["out_base"] = "../identity_query_workflow_recovery_out"
+    recovery_payload["record_recovery_service_mode"] = "manual"
+    recovery_payload["record_recovery_service_id"] = "orders-recovery"
+    recovery_payload["record_recovery_endpoint_url"] = "http://127.0.0.1:9999"
+    dump(
+        tmp_dir / "query_workflow_identity_recovery_dry_run.json",
+        post_json(
+            opener,
+            f"{base}/v1/query-workflows/dry-run",
+            recovery_payload,
+            token=DEFAULT_IDENTITY_MARKETING_TOKEN,
+            request_base_dir=request_base_dir,
+        ),
+    )
+    recovery_spoof_payload = dict(recovery_payload)
+    recovery_spoof_payload["job_id"] = "ecommerce-query-workflow-recovery-spoof"
+    recovery_spoof_payload["out_base"] = "../identity_query_workflow_recovery_spoof_out"
+    recovery_spoof_payload["record_recovery_service_id"] = "forbidden-recovery-service"
+    dump(
+        tmp_dir / "query_workflow_identity_recovery_spoof_forbidden.json",
+        expect_http_error(
+            lambda: post_json(
+                opener,
+                f"{base}/v1/query-workflows/dry-run",
+                recovery_spoof_payload,
+                token=DEFAULT_IDENTITY_MARKETING_TOKEN,
+                request_base_dir=request_base_dir,
+            ),
+            code=403,
+            label="query workflow API identity recovery scope spoof request",
         ),
     )
 
@@ -376,19 +435,19 @@ def materialize_identity_audit_query_api(tmp_dir: Path, *, port: int) -> None:
     base = f"http://127.0.0.1:{port}"
     dump(
         tmp_dir / "audit_query_api_identity_public_report.json",
-        fetch_json_or_die(opener, f"{base}/v1/public-report", token="contract-identity-auto-demo-token", label="identity audit public-report"),
+        fetch_json_or_die(opener, f"{base}/v1/public-report", token=DEFAULT_IDENTITY_AUTO_DEMO_TOKEN, label="identity audit public-report"),
     )
     dump(
         tmp_dir / "audit_query_api_identity_audit_chain.json",
-        fetch_json_or_die(opener, f"{base}/v1/audit-chain", token="contract-identity-auto-demo-token", label="identity audit-chain"),
+        fetch_json_or_die(opener, f"{base}/v1/audit-chain", token=DEFAULT_IDENTITY_AUTO_DEMO_TOKEN, label="identity audit-chain"),
     )
     dump(
         tmp_dir / "audit_query_api_identity_observability.json",
-        fetch_json_or_die(opener, f"{base}/v1/observability", token="contract-identity-auto-demo-token", label="identity audit observability"),
+        fetch_json_or_die(opener, f"{base}/v1/observability", token=DEFAULT_IDENTITY_AUTO_DEMO_TOKEN, label="identity audit observability"),
     )
     dump(
         tmp_dir / "audit_query_api_identity_catalog_lineage.json",
-        fetch_json_or_die(opener, f"{base}/v1/catalog-lineage", token="contract-identity-auto-demo-token", label="identity audit catalog-lineage"),
+        fetch_json_or_die(opener, f"{base}/v1/catalog-lineage", token=DEFAULT_IDENTITY_AUTO_DEMO_TOKEN, label="identity audit catalog-lineage"),
     )
     dump(
         tmp_dir / "audit_query_api_identity_include_paths_forbidden.json",
@@ -396,7 +455,7 @@ def materialize_identity_audit_query_api(tmp_dir: Path, *, port: int) -> None:
             lambda: fetch_json(
                 opener,
                 f"{base}/v1/catalog-lineage?include_paths=true",
-                token="contract-identity-auto-demo-token",
+                token=DEFAULT_IDENTITY_AUTO_DEMO_TOKEN,
             ),
             code=403,
             label="audit query API identity include-paths request",
@@ -410,7 +469,7 @@ def materialize_identity_platform_health_api(tmp_dir: Path, *, port: int) -> Non
     dump(
         tmp_dir / "platform_health_api_identity_forbidden.json",
         expect_http_error(
-            lambda: fetch_json(opener, f"{base}/v1/platform-health", token="contract-identity-marketing-analyst-token"),
+            lambda: fetch_json(opener, f"{base}/v1/platform-health", token=DEFAULT_IDENTITY_MARKETING_TOKEN),
             code=403,
             label="platform health API identity request",
         ),
@@ -420,6 +479,11 @@ def materialize_identity_platform_health_api(tmp_dir: Path, *, port: int) -> Non
 def build_parser() -> argparse.ArgumentParser:
     ap = argparse.ArgumentParser(description="Materialize platform API smoke reports for contract smoke.")
     ap.add_argument("--tmp-dir", required=True)
+    ap.add_argument("--query-token", default=DEFAULT_QUERY_TOKEN)
+    ap.add_argument("--metadata-token", default=DEFAULT_METADATA_TOKEN)
+    ap.add_argument("--platform-health-token", default=DEFAULT_PLATFORM_HEALTH_TOKEN)
+    ap.add_argument("--identity-marketing-token", default=DEFAULT_IDENTITY_MARKETING_TOKEN)
+    ap.add_argument("--identity-auto-demo-token", default=DEFAULT_IDENTITY_AUTO_DEMO_TOKEN)
     ap.add_argument("--query-port", type=int)
     ap.add_argument("--query-request-file")
     ap.add_argument("--query-execute-port", type=int)
@@ -438,6 +502,12 @@ def build_parser() -> argparse.ArgumentParser:
 def main() -> int:
     args = build_parser().parse_args()
     tmp_dir = Path(args.tmp_dir).resolve()
+    global DEFAULT_QUERY_TOKEN, DEFAULT_METADATA_TOKEN, DEFAULT_PLATFORM_HEALTH_TOKEN, DEFAULT_IDENTITY_MARKETING_TOKEN, DEFAULT_IDENTITY_AUTO_DEMO_TOKEN
+    DEFAULT_QUERY_TOKEN = args.query_token
+    DEFAULT_METADATA_TOKEN = args.metadata_token
+    DEFAULT_PLATFORM_HEALTH_TOKEN = args.platform_health_token
+    DEFAULT_IDENTITY_MARKETING_TOKEN = args.identity_marketing_token
+    DEFAULT_IDENTITY_AUTO_DEMO_TOKEN = args.identity_auto_demo_token
     if args.query_port is not None:
         if not args.query_request_file:
             raise SystemExit("--query-request-file is required with --query-port")

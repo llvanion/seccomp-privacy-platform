@@ -74,7 +74,14 @@ embedding, no framing, no-sniff, no-referrer, permissions denial, and HSTS when
 `scripts/check_console_security_headers.py`, and
 `scripts/check_identity_proxy_auth_smoke.py` block regressions. Production still
 needs HTTPS with `--session-cookie-secure`, deployed OIDC/reverse-proxy
-evidence, reproducible CI/release, and dependency audit gates.
+evidence, external dependency advisory/provenance gates, and live release
+evidence.
+Repo-side reproducible CI/release is now covered by
+`console/package-lock.json`, blocking release typecheck/strict build, normal CI
+console `npm ci`/typecheck/strict build, and
+`console_release_gate_check/v1`. Repo-side supply-chain inventory is covered by
+`supply_chain_evidence/v1`; external attestation and advisory enforcement remain
+operator-side.
 
 ## 5. Workflow Story
 
@@ -145,16 +152,29 @@ The split rule: **Track-E3 freezes the surface; I3 fills the surface in.** A cha
 
 ## 10. Approval / Workflow Lifecycle (I3 repo-side implementation)
 
-This section is now repo-side implemented as of 2026-05-08. I3-a (`POST /v1/request/submit`) persists pending requests; I3-b adds list/detail/approve/reject and starts the existing dashboard job path after approval. The lifecycle uses `operator_request_submission/v1` for each request record, `operator_request_submission_list/v1` for the review queue, and reuses the existing dashboard/query workflow sidecars once an approved request launches.
+This section is now repo-side implemented as of 2026-05-08 and hardened on
+2026-06-03. I3-a (`POST /v1/request/submit`) persists pending requests; I3-b
+adds list/detail/approve/reject and starts the existing dashboard job path after
+approval. The lifecycle uses `operator_request_submission/v1` for each request
+record, `operator_request_submission_list/v1` for the review queue, and reuses
+the existing dashboard/query workflow sidecars once an approved request
+launches. When a metadata DB is configured, approved launches also write
+`query_workflow_executions` rows with queue/claim owner, lease expiry,
+heartbeat, cancellation/timeout/terminal state, exit code, and sidecar artifact
+paths. `serve_operator_dashboard.py --enqueue-approved-requests` keeps approved
+work out of the HTTP server subprocess path and queues it for
+`scripts/run_query_workflow_worker.py`.
 
 ### 10.1 States
 
 ```
 draft (client-only)
   └─[POST /v1/request/submit]─► pending_approval
-                                  ├─[approve]─► approved ──► running ──► completed | failed
+                                  ├─[approve]─► approved ──► queued ──► running ──► completed | failed | cancelled | timed_out
                                   └─[reject]──► rejected
 running ──[stage gate failure]──► failed
+running ──[operator cancel]─────► cancelled
+running ──[worker timeout]──────► timed_out
 completed | failed | rejected ──[immutable: write-once]──► ARCHIVED
 ```
 
@@ -162,7 +182,7 @@ completed | failed | rejected ──[immutable: write-once]──► ARCHIVED
 |-------|-----------------|-----------|
 | `pending_approval` | `metadata_db.workflow_submissions` row + `control_plane_mutations` audit | submitter (own row), approvers in same tenant, `compliance_auditor` |
 | `approved` | `workflow_submissions.approved_by/approved_at_utc` + `control_plane_mutations.operation='approve_request'` + dashboard job launch | submitter, approvers, auditor |
-| `running` / `completed` / `failed` | existing `jobs/{job_id}` lifecycle in the operator dashboard | same as `jobs` section role gates |
+| `queued` / `running` / `completed` / `failed` / `cancelled` / `timed_out` | `query_workflow_executions` lifecycle row when metadata DB is configured, plus existing dashboard job snapshot and sidecar status | same as `jobs` section role gates |
 | `rejected` | `workflow_submissions.rejection_reason` + `control_plane_mutations.operation='reject_request'` with `reason` text | submitter, approvers, auditor |
 
 ### 10.2 Endpoints

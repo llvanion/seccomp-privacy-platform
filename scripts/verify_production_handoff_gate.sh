@@ -216,6 +216,9 @@ bash "$PIPELINE_SH" \
   --client-normalizer email \
   --client-value-mode raw-int \
   --client-value-max 1000000 \
+  --client-allowed-value-field amount \
+  --client-value-unit minor_currency_unit \
+  --client-value-currency USD \
   --token-scope prod-gate-scope \
   --token-secret-env PROD_GATE_TOKEN_SECRET \
   --job-id prod_gate_arg_job \

@@ -3,6 +3,7 @@ import { NavLink, Outlet, useNavigation } from "react-router-dom";
 import {
   Activity,
   BadgeCheck,
+  BriefcaseBusiness,
   BookOpen,
   Boxes,
   Calculator,
@@ -48,6 +49,7 @@ const NAV_GROUPS: Array<{ label: string; items: NavEntry[] }> = [
     label: "数据治理",
     items: [
       { to: "/catalog", label: "目录 / 血缘", description: "Tenants, datasets, services", icon: Boxes },
+      { to: "/business-access", label: "业务访问", description: "Field-level role access workbench", icon: BriefcaseBusiness },
       { to: "/permissions", label: "权限 / IAM / KMS", description: "Policies, keys, OpenFGA", icon: KeyRound },
       { to: "/recovery", label: "记录恢复 / mTLS", description: "Service status + PJC mTLS", icon: Network },
     ],

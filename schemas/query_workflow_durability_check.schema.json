@@ -1,0 +1,242 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "query_workflow_durability_check/v1",
+  "title": "Query workflow repo-side durability invariant check",
+  "type": "object",
+  "required": [
+    "schema",
+    "generated_at_utc",
+    "status",
+    "summary",
+    "checks",
+    "findings",
+    "implementation"
+  ],
+  "properties": {
+    "schema": {
+      "const": "query_workflow_durability_check/v1"
+    },
+    "generated_at_utc": {
+      "type": "string",
+      "minLength": 1
+    },
+    "status": {
+      "enum": ["ok", "fail"]
+    },
+    "summary": {
+      "type": "object",
+      "required": ["finding_count", "repo_side_claim", "production_boundary"],
+      "properties": {
+        "finding_count": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "repo_side_claim": {
+          "type": "string",
+          "minLength": 1
+        },
+        "production_boundary": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "additionalProperties": false
+    },
+    "checks": {
+      "type": "object",
+      "required": [
+        "dry_run_accepts",
+        "duplicate_dry_run_denied",
+        "execute_claims_accepted",
+        "duplicate_execute_denied",
+        "stale_running_visible",
+        "db_execution_lifecycle",
+        "worker_enqueue_and_complete",
+        "queued_cancel_cli",
+        "worker_cancel",
+        "worker_timeout",
+        "worker_restart_steals_expired",
+        "worker_cancel_requested_takeover",
+        "schema_checks"
+      ],
+      "properties": {
+        "dry_run_accepts": {
+          "type": "object",
+          "additionalProperties": true
+        },
+        "duplicate_dry_run_denied": {
+          "$ref": "#/$defs/negative_case"
+        },
+        "execute_claims_accepted": {
+          "type": "object",
+          "additionalProperties": true
+        },
+        "duplicate_execute_denied": {
+          "$ref": "#/$defs/negative_case"
+        },
+        "stale_running_visible": {
+          "type": "object",
+          "required": [
+            "retry_recommended_action",
+            "retryable",
+            "resubmit_required",
+            "duplicate_start"
+          ],
+          "properties": {
+            "retry_recommended_action": {
+              "type": ["string", "null"]
+            },
+            "retryable": {
+              "type": ["boolean", "null"]
+            },
+            "resubmit_required": {
+              "type": ["boolean", "null"]
+            },
+            "duplicate_start": {
+              "$ref": "#/$defs/negative_case"
+            }
+          },
+          "additionalProperties": false
+        },
+        "db_execution_lifecycle": {
+          "type": "object",
+          "required": [
+            "initial_state",
+            "duplicate_active",
+            "terminal_replay",
+            "stolen_owner_changed",
+            "row_count"
+          ],
+          "properties": {
+            "initial_state": { "type": ["string", "null"] },
+            "duplicate_active": { "$ref": "#/$defs/negative_case" },
+            "terminal_replay": { "$ref": "#/$defs/negative_case" },
+            "stolen_owner_changed": { "type": "boolean" },
+            "row_count": { "type": "integer", "minimum": 0 }
+          },
+          "additionalProperties": false
+        },
+        "worker_enqueue_and_complete": {
+          "type": "object",
+          "additionalProperties": true
+        },
+        "queued_cancel_cli": {
+          "type": "object",
+          "additionalProperties": true
+        },
+        "worker_cancel": {
+          "type": "object",
+          "additionalProperties": true
+        },
+        "worker_timeout": {
+          "type": "object",
+          "additionalProperties": true
+        },
+        "worker_restart_steals_expired": {
+          "type": "object",
+          "additionalProperties": true
+        },
+        "worker_cancel_requested_takeover": {
+          "type": "object",
+          "additionalProperties": true
+        },
+        "schema_checks": {
+          "type": "object",
+          "required": [
+            "status_schema_valid",
+            "worker_status_schema_valid",
+            "cancel_status_schema_valid",
+            "timeout_status_schema_valid",
+            "retry_schema_valid"
+          ],
+          "properties": {
+            "status_schema_valid": {
+              "type": "boolean"
+            },
+            "worker_status_schema_valid": {
+              "type": "boolean"
+            },
+            "cancel_status_schema_valid": {
+              "type": "boolean"
+            },
+            "timeout_status_schema_valid": {
+              "type": "boolean"
+            },
+            "retry_schema_valid": {
+              "type": "boolean"
+            }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    },
+    "findings": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["kind", "message", "expected", "actual"],
+        "properties": {
+          "kind": {
+            "type": "string",
+            "minLength": 1
+          },
+          "message": {
+            "type": "string",
+            "minLength": 1
+          },
+          "expected": {},
+          "actual": {}
+        },
+        "additionalProperties": false
+      }
+    },
+    "implementation": {
+      "type": "object",
+      "required": ["submitter", "dashboard", "execution_store", "worker", "status_schema", "receipt_schema"],
+      "properties": {
+        "submitter": {
+          "type": "string",
+          "minLength": 1
+        },
+        "dashboard": {
+          "type": "string",
+          "minLength": 1
+        },
+        "execution_store": {
+          "type": "string",
+          "minLength": 1
+        },
+        "worker": {
+          "type": "string",
+          "minLength": 1
+        },
+        "status_schema": {
+          "type": "string",
+          "minLength": 1
+        },
+        "receipt_schema": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  "$defs": {
+    "negative_case": {
+      "type": "object",
+      "required": ["ok", "exit"],
+      "properties": {
+        "ok": {
+          "type": "boolean"
+        },
+        "exit": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false
+}

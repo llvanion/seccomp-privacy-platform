@@ -1,0 +1,55 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "supply_chain_evidence_gate/v1",
+  "title": "Supply-chain evidence gate",
+  "type": "object",
+  "required": [
+    "schema",
+    "generated_at_utc",
+    "status",
+    "repo_side_status",
+    "live_status",
+    "repo_side_checks",
+    "live_checks",
+    "repo_side_boundary",
+    "live_boundary",
+    "artifacts"
+  ],
+  "properties": {
+    "schema": { "const": "supply_chain_evidence_gate/v1" },
+    "generated_at_utc": { "type": "string", "minLength": 1 },
+    "status": { "enum": ["ok", "fail"] },
+    "repo_side_status": { "enum": ["ok", "fail"] },
+    "live_status": { "enum": ["ok", "fail", "skipped"] },
+    "repo_side_checks": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/check" } },
+    "live_checks": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/check" } },
+    "repo_side_boundary": { "type": "array", "minItems": 1, "items": { "type": "string", "minLength": 1 } },
+    "live_boundary": { "type": "array", "minItems": 1, "items": { "type": "string", "minLength": 1 } },
+    "artifacts": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/artifact" } }
+  },
+  "$defs": {
+    "check": {
+      "type": "object",
+      "required": ["name", "status", "expected", "actual"],
+      "properties": {
+        "name": { "type": "string", "minLength": 1 },
+        "status": { "enum": ["ok", "fail", "skipped"] },
+        "expected": {},
+        "actual": {},
+        "missing_prerequisites": { "type": "array", "items": { "type": "string", "minLength": 1 } }
+      },
+      "additionalProperties": false
+    },
+    "artifact": {
+      "type": "object",
+      "required": ["path"],
+      "properties": {
+        "path": { "type": "string", "minLength": 1 },
+        "schema": { "type": "string", "minLength": 1 },
+        "note": { "type": "string", "minLength": 1 }
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false
+}

@@ -39,6 +39,9 @@ VALIDATE_TABULAR_CONTRACT_PY="${VALIDATE_TABULAR_CONTRACT_PY:-$REPO_ROOT/scripts
 BUILD_AUDIT_CHAIN_PY="${BUILD_AUDIT_CHAIN_PY:-$REPO_ROOT/scripts/build_audit_chain.py}"
 CHECK_MAINLINE_CONTRACT_PY="${CHECK_MAINLINE_CONTRACT_PY:-$REPO_ROOT/scripts/check_mainline_contract.py}"
 CHECK_RELEASE_POLICY_GATE_PY="${CHECK_RELEASE_POLICY_GATE_PY:-$REPO_ROOT/scripts/check_release_policy_gate.py}"
+BUILD_SOURCE_ATTESTATION_PY="${BUILD_SOURCE_ATTESTATION_PY:-$REPO_ROOT/scripts/build_source_attestation.py}"
+CHECK_SOURCE_ATTESTATION_PY="${CHECK_SOURCE_ATTESTATION_PY:-$REPO_ROOT/scripts/check_source_attestation.py}"
+BUILD_RELEASE_GOVERNANCE_REPORT_PY="${BUILD_RELEASE_GOVERNANCE_REPORT_PY:-$REPO_ROOT/scripts/build_release_governance_report.py}"
 WRITE_PJC_AUDIT_PY="${WRITE_PJC_AUDIT_PY:-$REPO_ROOT/scripts/write_pjc_audit.py}"
 ARCHIVE_AUDIT_BUNDLE_PY="${ARCHIVE_AUDIT_BUNDLE_PY:-$REPO_ROOT/scripts/archive_audit_bundle.py}"
 RESOLVE_KEY_ACCESS_PY="${RESOLVE_KEY_ACCESS_PY:-$REPO_ROOT/scripts/resolve_key_access.py}"
@@ -62,6 +65,9 @@ CLIENT_VALUE_FIELD=""
 CLIENT_VALUE_MIN=""
 CLIENT_VALUE_MAX=""
 CLIENT_VALUE_ALLOW_NEGATIVE="0"
+CLIENT_ALLOWED_VALUE_FIELDS=()
+CLIENT_VALUE_UNIT=""
+CLIENT_VALUE_CURRENCY=""
 SERVER_NORMALIZER="identity"
 CLIENT_NORMALIZER="identity"
 SERVER_SOURCE_FORMAT="jsonl"
@@ -123,6 +129,13 @@ OUT_BASE=""
 CALLER="bridge_demo"
 TENANT_ID=""
 DATASET_ID=""
+SOURCE_SYSTEM=""
+SOURCE_ATTESTATION_MODE=""
+SOURCE_ATTESTATION_APPROVAL_ID=""
+SOURCE_ATTESTATION_OPERATOR_IDENTITY=""
+SOURCE_ATTESTATION_REVIEWER_IDENTITY=""
+SOURCE_ATTESTATION_SIGNOFF_STATUS=""
+SOURCE_ATTESTATION_SIGNING_KEY_PATH=""
 PRIVACY_BUDGET_REQUIRED="0"
 PRIVACY_BUDGET_CONFIG=""
 PRIVACY_BUDGET_LEDGER=""
@@ -133,11 +146,16 @@ PRIVACY_BUDGET_COST=""
 RELEASE_POLICY_GATE_CONFIG=""
 RELEASE_POLICY_GATE_REPORT=""
 PJC_EVIDENCE_MERGE_REPORT=""
+EXTERNAL_ANCHOR_REPORT=""
 POLICY_REQUIRE_DP="0"
 POLICY_DP_EPSILON=""
 POLICY_DP_SENSITIVITY=""
 PUBLIC_REPORT_REDACT_OPERATOR_FIELDS="0"
 OPERATOR_REPORT_PATH=""
+SOURCE_EXPORT_MANIFEST_PATH=""
+SOURCE_ATTESTATION_PATH=""
+SOURCE_TRUTHFULNESS_REPORT_PATH=""
+RELEASE_GOVERNANCE_REPORT_PATH=""
 K_THRESHOLD="20"
 RATE_N="5"
 DENY_DUPLICATE_QUERY="0"
@@ -173,6 +191,10 @@ Options:
   --client-value-min <int>           optional lower bound for raw-int client values (default: 0)
   --client-value-max <int>           required for production raw-int; rejects values above this bound
   --client-value-allow-negative      allow negative raw-int client values
+  --client-allowed-value-field <field>
+                                      repeatable allowlist for production raw-int value fields
+  --client-value-unit <unit>         required for production raw-int, e.g. minor_currency_unit
+  --client-value-currency <ISO4217>  required when --client-value-unit minor_currency_unit
   --server-sse-keyword <keyword>     optional SSE-backed server candidate keyword
   --client-sse-keyword <keyword>     optional SSE-backed client candidate keyword
   --server-record-id-field <field>   required with --server-sse-keyword
@@ -231,6 +253,15 @@ Options:
   --caller <id>                      policy caller, default: bridge_demo
   --tenant-id <id>                   optional tenant scope aligned with policy and service config
   --dataset-id <id>                  optional dataset scope aligned with policy and service config
+  --source-system <id>               optional source system label for source attestation
+  --source-attestation-mode <mode>   planned|local|manual|operator|external
+  --source-attestation-approval-id <id>
+  --source-attestation-operator-identity <id>
+  --source-attestation-reviewer-identity <id>
+  --source-attestation-signoff-status <status>
+                                      planned|pending|approved|approved_dual|rejected
+  --source-attestation-signing-key-path <path>
+                                      optional Ed25519 PEM private key used to sign source_attestation.json
   --privacy-budget-required          fail closed unless privacy-budget config and ledger are provided
   --privacy-budget-config <path>     privacy_budget_config/v1 scope rules for policy release
   --privacy-budget-ledger <path>     privacy_budget_ledger/v1 JSONL path for policy release
@@ -241,6 +272,7 @@ Options:
   --release-policy-gate-config <path> release_policy_gate_config/v1; required with --production-mode
   --release-policy-gate-report <path> default: <out-base>/a_psi_run/release_policy_gate.json
   --pjc-evidence-merge <path>     optional pjc_two_party_evidence_merge/v1 report bound by release gate
+  --external-anchor-report <path> optional external_audit_anchor_report/v1 bound by release gate
   --require-dp                       require DP knobs in Stage4 policy release
   --dp-epsilon <number>              DP epsilon passed to policy_release.py
   --dp-sensitivity <int>             DP sensitivity passed to policy_release.py
@@ -264,6 +296,9 @@ while [[ $# -gt 0 ]]; do
     --client-value-min) CLIENT_VALUE_MIN="$2"; shift 2 ;;
     --client-value-max) CLIENT_VALUE_MAX="$2"; shift 2 ;;
     --client-value-allow-negative) CLIENT_VALUE_ALLOW_NEGATIVE="1"; shift ;;
+    --client-allowed-value-field) CLIENT_ALLOWED_VALUE_FIELDS+=("$2"); shift 2 ;;
+    --client-value-unit) CLIENT_VALUE_UNIT="$2"; shift 2 ;;
+    --client-value-currency) CLIENT_VALUE_CURRENCY="$2"; shift 2 ;;
     --server-normalizer) SERVER_NORMALIZER="$2"; shift 2 ;;
     --client-normalizer) CLIENT_NORMALIZER="$2"; shift 2 ;;
     --client-value-mode) CLIENT_VALUE_MODE="$2"; shift 2 ;;
@@ -327,6 +362,13 @@ while [[ $# -gt 0 ]]; do
     --caller) CALLER="$2"; shift 2 ;;
     --tenant-id) TENANT_ID="$2"; shift 2 ;;
     --dataset-id) DATASET_ID="$2"; shift 2 ;;
+    --source-system) SOURCE_SYSTEM="$2"; shift 2 ;;
+    --source-attestation-mode) SOURCE_ATTESTATION_MODE="$2"; shift 2 ;;
+    --source-attestation-approval-id) SOURCE_ATTESTATION_APPROVAL_ID="$2"; shift 2 ;;
+    --source-attestation-operator-identity) SOURCE_ATTESTATION_OPERATOR_IDENTITY="$2"; shift 2 ;;
+    --source-attestation-reviewer-identity) SOURCE_ATTESTATION_REVIEWER_IDENTITY="$2"; shift 2 ;;
+    --source-attestation-signoff-status) SOURCE_ATTESTATION_SIGNOFF_STATUS="$2"; shift 2 ;;
+    --source-attestation-signing-key-path) SOURCE_ATTESTATION_SIGNING_KEY_PATH="$2"; shift 2 ;;
     --privacy-budget-required) PRIVACY_BUDGET_REQUIRED="1"; shift ;;
     --privacy-budget-config) PRIVACY_BUDGET_CONFIG="$2"; shift 2 ;;
     --privacy-budget-ledger) PRIVACY_BUDGET_LEDGER="$2"; shift 2 ;;
@@ -337,6 +379,7 @@ while [[ $# -gt 0 ]]; do
     --release-policy-gate-config) RELEASE_POLICY_GATE_CONFIG="$2"; shift 2 ;;
     --release-policy-gate-report) RELEASE_POLICY_GATE_REPORT="$2"; shift 2 ;;
     --pjc-evidence-merge) PJC_EVIDENCE_MERGE_REPORT="$2"; shift 2 ;;
+    --external-anchor-report) EXTERNAL_ANCHOR_REPORT="$2"; shift 2 ;;
     --require-dp) POLICY_REQUIRE_DP="1"; shift ;;
     --dp-epsilon) POLICY_DP_EPSILON="$2"; shift 2 ;;
     --dp-sensitivity) POLICY_DP_SENSITIVITY="$2"; shift 2 ;;
@@ -378,7 +421,9 @@ PRIVACY_BUDGET_CONFIG="$(normalize_repo_path "$PRIVACY_BUDGET_CONFIG")"
 PRIVACY_BUDGET_LEDGER="$(normalize_repo_path "$PRIVACY_BUDGET_LEDGER")"
 RELEASE_POLICY_GATE_CONFIG="$(normalize_repo_path "$RELEASE_POLICY_GATE_CONFIG")"
 RELEASE_POLICY_GATE_REPORT="$(normalize_repo_path "$RELEASE_POLICY_GATE_REPORT")"
+EXTERNAL_ANCHOR_REPORT="$(normalize_repo_path "$EXTERNAL_ANCHOR_REPORT")"
 OPERATOR_REPORT_PATH="$(normalize_repo_path "$OPERATOR_REPORT_PATH")"
+SOURCE_ATTESTATION_SIGNING_KEY_PATH="$(normalize_repo_path "$SOURCE_ATTESTATION_SIGNING_KEY_PATH")"
 
 [[ -n "$SERVER_SOURCE" || -n "$SERVER_RECORD_STORE_PATH" ]] || die "--server-source or --server-record-store-path required"
 [[ -n "$CLIENT_SOURCE" || -n "$CLIENT_RECORD_STORE_PATH" ]] || die "--client-source or --client-record-store-path required"
@@ -387,6 +432,20 @@ OPERATOR_REPORT_PATH="$(normalize_repo_path "$OPERATOR_REPORT_PATH")"
 [[ -n "$CLIENT_VALUE_FIELD" ]] || [[ "$CLIENT_VALUE_MODE" == "count" ]] || die "--client-value-field required for raw-int"
 if [[ "$PRODUCTION_MODE" == "1" && "$CLIENT_VALUE_MODE" == "raw-int" && -z "$CLIENT_VALUE_MAX" ]]; then
   die "--client-value-max is required for raw-int in --production-mode"
+fi
+if [[ "$PRODUCTION_MODE" == "1" && "$CLIENT_VALUE_MODE" == "raw-int" ]]; then
+  [[ ${#CLIENT_ALLOWED_VALUE_FIELDS[@]} -gt 0 ]] || die "--client-allowed-value-field is required for raw-int in --production-mode"
+  CLIENT_VALUE_FIELD_ALLOWED="0"
+  for allowed_field in "${CLIENT_ALLOWED_VALUE_FIELDS[@]}"; do
+    if [[ "$allowed_field" == "$CLIENT_VALUE_FIELD" ]]; then
+      CLIENT_VALUE_FIELD_ALLOWED="1"
+    fi
+  done
+  [[ "$CLIENT_VALUE_FIELD_ALLOWED" == "1" ]] || die "--client-value-field must be listed by --client-allowed-value-field in --production-mode"
+  [[ -n "$CLIENT_VALUE_UNIT" ]] || die "--client-value-unit is required for raw-int in --production-mode"
+  if [[ "$CLIENT_VALUE_UNIT" == "minor_currency_unit" ]]; then
+    [[ "$CLIENT_VALUE_CURRENCY" =~ ^[A-Za-z]{3}$ ]] || die "--client-value-currency is required as a 3-letter ISO 4217 code when --client-value-unit=minor_currency_unit"
+  fi
 fi
 [[ -n "$TOKEN_SCOPE" ]] || die "--token-scope required"
 [[ -n "$JOB_ID" ]] || die "--job-id required"
@@ -423,6 +482,9 @@ command -v "$SSE_PY" >/dev/null 2>&1 || [[ -x "$SSE_PY" ]] || die "missing SSE p
 [[ -f "$VALIDATE_TABULAR_CONTRACT_PY" ]] || die "missing tabular contract validator: $VALIDATE_TABULAR_CONTRACT_PY"
 [[ -f "$BUILD_AUDIT_CHAIN_PY" ]] || die "missing audit chain builder: $BUILD_AUDIT_CHAIN_PY"
 [[ -f "$CHECK_RELEASE_POLICY_GATE_PY" ]] || die "missing release policy gate: $CHECK_RELEASE_POLICY_GATE_PY"
+[[ -f "$BUILD_SOURCE_ATTESTATION_PY" ]] || die "missing source attestation builder: $BUILD_SOURCE_ATTESTATION_PY"
+[[ -f "$CHECK_SOURCE_ATTESTATION_PY" ]] || die "missing source attestation verifier: $CHECK_SOURCE_ATTESTATION_PY"
+[[ -f "$BUILD_RELEASE_GOVERNANCE_REPORT_PY" ]] || die "missing release governance report builder: $BUILD_RELEASE_GOVERNANCE_REPORT_PY"
 [[ -f "$WRITE_PJC_AUDIT_PY" ]] || die "missing PJC audit writer: $WRITE_PJC_AUDIT_PY"
 [[ -f "$ARCHIVE_AUDIT_BUNDLE_PY" ]] || die "missing audit archive script: $ARCHIVE_AUDIT_BUNDLE_PY"
 [[ -f "$RESOLVE_KEY_ACCESS_PY" ]] || die "missing key access resolver: $RESOLVE_KEY_ACCESS_PY"
@@ -477,6 +539,9 @@ if [[ -n "$PJC_RESOURCE_LIMITS" && ! -f "$PJC_RESOURCE_LIMITS" ]]; then
 fi
 if [[ -n "$RELEASE_POLICY_GATE_CONFIG" && ! -f "$RELEASE_POLICY_GATE_CONFIG" ]]; then
   die "--release-policy-gate-config not found: $RELEASE_POLICY_GATE_CONFIG"
+fi
+if [[ -n "${EXTERNAL_ANCHOR_REPORT:-}" && ! -f "$EXTERNAL_ANCHOR_REPORT" ]]; then
+  die "--external-anchor-report not found: $EXTERNAL_ANCHOR_REPORT"
 fi
 
 if [[ -n "$SSE_EXPORT_POLICY_CONFIG" ]]; then
@@ -536,6 +601,62 @@ if [[ -n "$RELEASE_POLICY_GATE_CONFIG" ]]; then
   python3 "$VALIDATE_JSON_CONTRACT_PY" \
     --schema "$REPO_ROOT/schemas/release_policy_gate_config.schema.json" \
     --json "$RELEASE_POLICY_GATE_CONFIG"
+  read -r RELEASE_POLICY_GATE_REQUIRES_EXTERNAL_ANCHOR RELEASE_POLICY_GATE_REQUIRES_SOURCE_ATTESTATION RELEASE_POLICY_GATE_REQUIRES_SIGNED_SIGNOFF RELEASE_POLICY_GATE_REQUIRES_DUAL_SIGNOFF RELEASE_POLICY_GATE_REQUIRES_BOUND_INPUT_COMMITMENT RELEASE_POLICY_GATE_STRICT_SOURCE_ATTESTATION RELEASE_POLICY_GATE_SOURCE_ATTESTATION_MAX_AGE_HOURS <<< "$(
+    python3 - "$RELEASE_POLICY_GATE_CONFIG" <<'PY'
+import json
+import sys
+
+with open(sys.argv[1], "r", encoding="utf-8") as handle:
+    data = json.load(handle)
+values = [
+    "1" if data.get("require_external_anchor") is True else "0",
+    "1" if data.get("require_source_attestation") is True else "0",
+    "1" if data.get("require_signed_signoff") is True else "0",
+    "1" if data.get("require_dual_signoff") is True else "0",
+    "1" if data.get("require_bound_input_commitment") is True else "0",
+    "1" if data.get("strict_source_attestation") is True else "0",
+    str(data.get("max_source_attestation_age_hours") or 0),
+]
+print(" ".join(values))
+PY
+  )"
+  if [[ "$PRODUCTION_MODE" == "1" && "$RELEASE_POLICY_GATE_REQUIRES_EXTERNAL_ANCHOR" == "1" && -z "$EXTERNAL_ANCHOR_REPORT" ]]; then
+    die "--external-anchor-report is required in --production-mode when release gate config has require_external_anchor=true"
+  fi
+else
+  RELEASE_POLICY_GATE_REQUIRES_EXTERNAL_ANCHOR="0"
+  RELEASE_POLICY_GATE_REQUIRES_SOURCE_ATTESTATION="0"
+  RELEASE_POLICY_GATE_REQUIRES_SIGNED_SIGNOFF="0"
+  RELEASE_POLICY_GATE_REQUIRES_DUAL_SIGNOFF="0"
+  RELEASE_POLICY_GATE_REQUIRES_BOUND_INPUT_COMMITMENT="0"
+  RELEASE_POLICY_GATE_STRICT_SOURCE_ATTESTATION="0"
+  RELEASE_POLICY_GATE_SOURCE_ATTESTATION_MAX_AGE_HOURS="0"
+fi
+
+SOURCE_ATTESTATION_ENABLED="0"
+if [[ -n "$SOURCE_SYSTEM" || -n "$SOURCE_ATTESTATION_MODE" || -n "$SOURCE_ATTESTATION_APPROVAL_ID" || -n "$SOURCE_ATTESTATION_OPERATOR_IDENTITY" || -n "$SOURCE_ATTESTATION_SIGNOFF_STATUS" || "$RELEASE_POLICY_GATE_REQUIRES_SOURCE_ATTESTATION" == "1" || "$RELEASE_POLICY_GATE_REQUIRES_SIGNED_SIGNOFF" == "1" || "$RELEASE_POLICY_GATE_REQUIRES_BOUND_INPUT_COMMITMENT" == "1" ]]; then
+  SOURCE_ATTESTATION_ENABLED="1"
+fi
+if [[ "$SOURCE_ATTESTATION_ENABLED" == "1" ]]; then
+  [[ -n "$SOURCE_SYSTEM" ]] || die "--source-system is required when source attestation is enabled"
+  [[ -n "$SOURCE_ATTESTATION_MODE" ]] || die "--source-attestation-mode is required when source attestation is enabled"
+  [[ -n "$SOURCE_ATTESTATION_APPROVAL_ID" ]] || die "--source-attestation-approval-id is required when source attestation is enabled"
+  [[ -n "$SOURCE_ATTESTATION_OPERATOR_IDENTITY" ]] || die "--source-attestation-operator-identity is required when source attestation is enabled"
+  [[ -n "$SOURCE_ATTESTATION_SIGNOFF_STATUS" ]] || die "--source-attestation-signoff-status is required when source attestation is enabled"
+  [[ -n "$TENANT_ID" ]] || die "--tenant-id is required when source attestation is enabled"
+  [[ -n "$DATASET_ID" ]] || die "--dataset-id is required when source attestation is enabled"
+  if [[ "$SOURCE_ATTESTATION_SIGNOFF_STATUS" == "approved_dual" && -z "$SOURCE_ATTESTATION_REVIEWER_IDENTITY" ]]; then
+    die "--source-attestation-reviewer-identity is required when --source-attestation-signoff-status=approved_dual"
+  fi
+  if [[ "$RELEASE_POLICY_GATE_REQUIRES_DUAL_SIGNOFF" == "1" && "$SOURCE_ATTESTATION_SIGNOFF_STATUS" != "approved_dual" ]]; then
+    die "--source-attestation-signoff-status=approved_dual is required when release gate config has require_dual_signoff=true"
+  fi
+  if [[ "$RELEASE_POLICY_GATE_REQUIRES_DUAL_SIGNOFF" == "1" && -z "$SOURCE_ATTESTATION_REVIEWER_IDENTITY" ]]; then
+    die "--source-attestation-reviewer-identity is required when release gate config has require_dual_signoff=true"
+  fi
+  if [[ "$RELEASE_POLICY_GATE_REQUIRES_SIGNED_SIGNOFF" == "1" && -z "$SOURCE_ATTESTATION_SIGNING_KEY_PATH" ]]; then
+    die "--source-attestation-signing-key-path is required when release gate config has require_signed_signoff=true"
+  fi
 fi
 
 OUT_BASE="$(mkdir -p "$OUT_BASE" && cd "$OUT_BASE" && pwd)"
@@ -583,6 +704,18 @@ if [[ -z "$RECORD_RECOVERY_SERVICE_HEALTH_JSON" ]]; then
 fi
 if [[ -z "$RECORD_RECOVERY_SERVICE_RUNTIME_CONFIG_JSON" ]]; then
   RECORD_RECOVERY_SERVICE_RUNTIME_CONFIG_JSON="$SSE_EXPORT_DIR/record_recovery_service_config.json"
+fi
+if [[ -z "$SOURCE_EXPORT_MANIFEST_PATH" ]]; then
+  SOURCE_EXPORT_MANIFEST_PATH="$APSI_JOB_DIR/source_export_manifest.json"
+fi
+if [[ -z "$SOURCE_ATTESTATION_PATH" ]]; then
+  SOURCE_ATTESTATION_PATH="$APSI_JOB_DIR/source_attestation.json"
+fi
+if [[ -z "$SOURCE_TRUTHFULNESS_REPORT_PATH" ]]; then
+  SOURCE_TRUTHFULNESS_REPORT_PATH="$APSI_JOB_DIR/source_truthfulness_report.json"
+fi
+if [[ -z "$RELEASE_GOVERNANCE_REPORT_PATH" ]]; then
+  RELEASE_GOVERNANCE_REPORT_PATH="$APSI_JOB_DIR/release_governance_report.json"
 fi
 
 if [[ -n "$TOKEN_SECRET_KEY_ID" ]]; then
@@ -774,6 +907,7 @@ RECORD_RECOVERY_SERVICE_AUDIT_LOG="$(normalize_optional_path "$RECORD_RECOVERY_S
 RECORD_RECOVERY_SERVICE_LOG="$(normalize_optional_path "$RECORD_RECOVERY_SERVICE_LOG")"
 RECORD_RECOVERY_SERVICE_HEALTH_JSON="$(normalize_optional_path "$RECORD_RECOVERY_SERVICE_HEALTH_JSON")"
 KEY_MANIFEST="$(normalize_optional_path "$KEY_MANIFEST")"
+SOURCE_ATTESTATION_SIGNING_KEY_PATH="$(normalize_optional_path "$SOURCE_ATTESTATION_SIGNING_KEY_PATH")"
 KEYRING="$(normalize_optional_path "$KEYRING")"
 KEY_ACCESS_AUDIT_LOG="$(normalize_optional_path "$KEY_ACCESS_AUDIT_LOG")"
 KEY_AGENT_SOCKET="$(normalize_optional_path "$KEY_AGENT_SOCKET")"
@@ -1479,6 +1613,15 @@ fi
 if [[ "$CLIENT_VALUE_ALLOW_NEGATIVE" == "1" ]]; then
   BRIDGE_CMD+=(--client-value-allow-negative)
 fi
+for allowed_field in "${CLIENT_ALLOWED_VALUE_FIELDS[@]}"; do
+  BRIDGE_CMD+=(--client-allowed-value-column "$allowed_field")
+done
+if [[ -n "$CLIENT_VALUE_UNIT" ]]; then
+  BRIDGE_CMD+=(--client-value-unit "$CLIENT_VALUE_UNIT")
+fi
+if [[ -n "$CLIENT_VALUE_CURRENCY" ]]; then
+  BRIDGE_CMD+=(--client-value-currency "$CLIENT_VALUE_CURRENCY")
+fi
 if [[ -n "$TOKEN_SECRET" ]]; then
   BRIDGE_CMD+=(--token-secret "$TOKEN_SECRET")
 else
@@ -1575,15 +1718,109 @@ python3 "$VALIDATE_TABULAR_CONTRACT_PY" \
   --contract pjc-client-csv \
   --path "$BRIDGE_JOB_DIR/client.csv"
 
+if [[ "$SOURCE_ATTESTATION_ENABLED" == "1" ]]; then
+  SOURCE_SNAPSHOT_SERVER_PATH="${SERVER_SOURCE:-$BRIDGE_JOB_DIR/server.csv}"
+  SOURCE_SNAPSHOT_CLIENT_PATH="${CLIENT_SOURCE:-$BRIDGE_JOB_DIR/client.csv}"
+  BUILD_SOURCE_ATTESTATION_CMD=(
+    python3 "$BUILD_SOURCE_ATTESTATION_PY"
+    --output-attestation "$SOURCE_ATTESTATION_PATH"
+    --output-export-manifest "$SOURCE_EXPORT_MANIFEST_PATH"
+    --job-id "$JOB_ID"
+    --caller "$CALLER"
+    --tenant "$TENANT_ID"
+    --dataset "$DATASET_ID"
+    --purpose "${PRIVACY_BUDGET_PURPOSE:-bridge_token}"
+    --source-system "$SOURCE_SYSTEM"
+    --approval-id "$SOURCE_ATTESTATION_APPROVAL_ID"
+    --operator-identity "$SOURCE_ATTESTATION_OPERATOR_IDENTITY"
+    --signoff-status "$SOURCE_ATTESTATION_SIGNOFF_STATUS"
+    --attestation-mode "$SOURCE_ATTESTATION_MODE"
+    --server-source "$SOURCE_SNAPSHOT_SERVER_PATH"
+    --client-source "$SOURCE_SNAPSHOT_CLIENT_PATH"
+    --server-bridge-input "$BRIDGE_JOB_DIR/server.csv"
+    --client-bridge-input "$BRIDGE_JOB_DIR/client.csv"
+    --input-commitment "$BRIDGE_JOB_DIR/input_commitments.json"
+  )
+  if [[ -n "$SOURCE_ATTESTATION_REVIEWER_IDENTITY" ]]; then
+    BUILD_SOURCE_ATTESTATION_CMD+=(--reviewer-identity "$SOURCE_ATTESTATION_REVIEWER_IDENTITY")
+  fi
+  if [[ -n "$SOURCE_ATTESTATION_SIGNING_KEY_PATH" ]]; then
+    BUILD_SOURCE_ATTESTATION_CMD+=(--signing-key-path "$SOURCE_ATTESTATION_SIGNING_KEY_PATH")
+  fi
+  "${BUILD_SOURCE_ATTESTATION_CMD[@]}" >/dev/null
+  python3 "$VALIDATE_JSON_CONTRACT_PY" \
+    --schema "$REPO_ROOT/schemas/source_export_manifest.schema.json" \
+    --json "$SOURCE_EXPORT_MANIFEST_PATH"
+  python3 "$VALIDATE_JSON_CONTRACT_PY" \
+    --schema "$REPO_ROOT/schemas/source_attestation.schema.json" \
+    --json "$SOURCE_ATTESTATION_PATH"
+  SOURCE_ATTESTATION_CHECK_CMD=(
+    python3 "$CHECK_SOURCE_ATTESTATION_PY"
+    --attestation "$SOURCE_ATTESTATION_PATH"
+    --source-export-manifest "$SOURCE_EXPORT_MANIFEST_PATH"
+    --server-source "$SOURCE_SNAPSHOT_SERVER_PATH"
+    --client-source "$SOURCE_SNAPSHOT_CLIENT_PATH"
+    --server-bridge-input "$BRIDGE_JOB_DIR/server.csv"
+    --client-bridge-input "$BRIDGE_JOB_DIR/client.csv"
+    --input-commitment "$BRIDGE_JOB_DIR/input_commitments.json"
+    --job-id "$JOB_ID"
+    --caller "$CALLER"
+    --tenant "$TENANT_ID"
+    --dataset "$DATASET_ID"
+    --purpose "${PRIVACY_BUDGET_PURPOSE:-bridge_token}"
+    --output "$SOURCE_TRUTHFULNESS_REPORT_PATH"
+    --assert-allow
+  )
+  if [[ "$RELEASE_POLICY_GATE_STRICT_SOURCE_ATTESTATION" == "1" || "$PRODUCTION_MODE" == "1" ]]; then
+    SOURCE_ATTESTATION_CHECK_CMD+=(--strict)
+  fi
+  if [[ "$RELEASE_POLICY_GATE_REQUIRES_SIGNED_SIGNOFF" == "1" ]]; then
+    SOURCE_ATTESTATION_CHECK_CMD+=(--require-signed-signoff)
+  fi
+  if [[ "$RELEASE_POLICY_GATE_REQUIRES_DUAL_SIGNOFF" == "1" ]]; then
+    SOURCE_ATTESTATION_CHECK_CMD+=(--require-dual-signoff)
+  fi
+  if [[ "${RELEASE_POLICY_GATE_SOURCE_ATTESTATION_MAX_AGE_HOURS:-0}" != "0" ]]; then
+    SOURCE_ATTESTATION_CHECK_CMD+=(--max-age-hours "$RELEASE_POLICY_GATE_SOURCE_ATTESTATION_MAX_AGE_HOURS")
+  fi
+  "${SOURCE_ATTESTATION_CHECK_CMD[@]}"
+  python3 "$VALIDATE_JSON_CONTRACT_PY" \
+    --schema "$REPO_ROOT/schemas/source_truthfulness_report.schema.json" \
+    --json "$SOURCE_TRUTHFULNESS_REPORT_PATH"
+fi
+
 log "Stage3 a-psi run"
 cp "$BRIDGE_JOB_DIR/job_meta.json" "$APSI_JOB_DIR/job_meta.json"
+PJC_RESOLVED_BIN_DIR="$PJC_BIN_DIR"
+PJC_BIN_GATE_CMD=(
+  python3 "$REPO_ROOT/scripts/check_pjc_binary_capability_gate.py"
+  --workspace "$APSI_DIR/private-join-and-compute"
+  --requested-bin-dir "$PJC_BIN_DIR"
+  --out "$APSI_JOB_DIR/pjc_binary_capability_gate.json"
+  --print-resolved-bin-dir
+)
+if [[ "$PJC_GRPC_STREAM_CHUNK_ELEMENTS" != "0" ]]; then
+  PJC_BIN_GATE_CMD+=(--require-streaming)
+fi
+if PJC_RESOLVED_BIN_DIR_OUTPUT="$("${PJC_BIN_GATE_CMD[@]}" 2>/dev/null)"; then
+  PJC_RESOLVED_BIN_DIR="$PJC_RESOLVED_BIN_DIR_OUTPUT"
+fi
 PJC_EFFECTIVE_GRPC_STREAM_CHUNK_ELEMENTS="$PJC_GRPC_STREAM_CHUNK_ELEMENTS"
 if [[ "$PJC_GRPC_STREAM_CHUNK_ELEMENTS" != "0" ]]; then
-  PJC_SERVER_BIN="$PJC_BIN_DIR/private_join_and_compute/server"
-  PJC_CLIENT_BIN="$PJC_BIN_DIR/private_join_and_compute/client"
+  PJC_SERVER_BIN="$PJC_RESOLVED_BIN_DIR/private_join_and_compute/server"
+  PJC_CLIENT_BIN="$PJC_RESOLVED_BIN_DIR/private_join_and_compute/client"
   if [[ -x "$PJC_SERVER_BIN" && -x "$PJC_CLIENT_BIN" ]]; then
-    if ! "$PJC_SERVER_BIN" --help 2>&1 | grep -q -- "--grpc_stream_chunk_elements" || \
-       ! "$PJC_CLIENT_BIN" --help 2>&1 | grep -q -- "--grpc_stream_chunk_elements"; then
+    PJC_SERVER_SUPPORTS_STREAMING="0"
+    PJC_CLIENT_SUPPORTS_STREAMING="0"
+    if "$PJC_SERVER_BIN" --helpfull 2>&1 | grep -q -- "--grpc_stream_chunk_elements" || \
+       "$PJC_SERVER_BIN" --help 2>&1 | grep -q -- "--grpc_stream_chunk_elements"; then
+      PJC_SERVER_SUPPORTS_STREAMING="1"
+    fi
+    if "$PJC_CLIENT_BIN" --helpfull 2>&1 | grep -q -- "--grpc_stream_chunk_elements" || \
+       "$PJC_CLIENT_BIN" --help 2>&1 | grep -q -- "--grpc_stream_chunk_elements"; then
+      PJC_CLIENT_SUPPORTS_STREAMING="1"
+    fi
+    if [[ "$PJC_SERVER_SUPPORTS_STREAMING" != "1" || "$PJC_CLIENT_SUPPORTS_STREAMING" != "1" ]]; then
       if [[ "$PRODUCTION_MODE" == "1" ]]; then
         die "PJC binaries do not support --grpc_stream_chunk_elements; production mode forbids legacy unary fallback"
       fi
@@ -1604,7 +1841,7 @@ PJC_RC=0
   OUT_DIR="$APSI_JOB_DIR" \
   SERVER_CSV="$BRIDGE_JOB_DIR/server.csv" \
   CLIENT_CSV="$BRIDGE_JOB_DIR/client.csv" \
-  PJC_BIN_DIR="$PJC_BIN_DIR" \
+  PJC_BIN_DIR="$PJC_RESOLVED_BIN_DIR" \
   PJC_GRPC_STREAM_CHUNK_ELEMENTS="$PJC_EFFECTIVE_GRPC_STREAM_CHUNK_ELEMENTS" \
   PJC_PRODUCTION_MODE="$PRODUCTION_MODE" \
   PJC_ALLOW_LEGACY_UNARY="$PJC_ALLOW_LEGACY_UNARY_FOR_STAGE3" \
@@ -1672,6 +1909,10 @@ fi
 if [[ -n "$PRIVACY_BUDGET_PURPOSE" ]]; then
   POLICY_RELEASE_CMD+=(--purpose "$PRIVACY_BUDGET_PURPOSE")
 fi
+if [[ "$SOURCE_ATTESTATION_ENABLED" == "1" ]]; then
+  POLICY_RELEASE_CMD+=(--source-attestation "$SOURCE_ATTESTATION_PATH")
+  POLICY_RELEASE_CMD+=(--source-truthfulness-report "$SOURCE_TRUTHFULNESS_REPORT_PATH")
+fi
 if [[ "$DENY_DUPLICATE_QUERY" == "1" ]]; then
   POLICY_RELEASE_CMD+=(--deny-duplicate-query)
 fi
@@ -1737,6 +1978,13 @@ if [[ -n "$RELEASE_POLICY_GATE_CONFIG" ]]; then
   if [[ -n "$PJC_EVIDENCE_MERGE_REPORT" ]]; then
     RELEASE_GATE_CMD+=(--pjc-evidence-merge "$PJC_EVIDENCE_MERGE_REPORT")
   fi
+  if [[ "$SOURCE_ATTESTATION_ENABLED" == "1" ]]; then
+    RELEASE_GATE_CMD+=(--source-attestation "$SOURCE_ATTESTATION_PATH")
+    RELEASE_GATE_CMD+=(--source-truthfulness-report "$SOURCE_TRUTHFULNESS_REPORT_PATH")
+  fi
+  if [[ -n "${EXTERNAL_ANCHOR_REPORT:-}" ]]; then
+    RELEASE_GATE_CMD+=(--external-anchor-report "$EXTERNAL_ANCHOR_REPORT")
+  fi
   RELEASE_GATE_CMD+=(--policy-audit-log "$APSI_JOB_DIR/audit_log.jsonl")
   if [[ "$PRODUCTION_MODE" == "1" ]]; then
     RELEASE_GATE_CMD+=(--assert-allow)
@@ -1745,6 +1993,31 @@ if [[ -n "$RELEASE_POLICY_GATE_CONFIG" ]]; then
   python3 "$VALIDATE_JSON_CONTRACT_PY" \
     --schema "$REPO_ROOT/schemas/release_policy_gate.schema.json" \
     --json "$RELEASE_POLICY_GATE_REPORT"
+fi
+
+if [[ "$SOURCE_ATTESTATION_ENABLED" == "1" ]]; then
+  RELEASE_GOVERNANCE_CMD=(
+    python3 "$BUILD_RELEASE_GOVERNANCE_REPORT_PY"
+    --source-attestation "$SOURCE_ATTESTATION_PATH"
+    --source-truthfulness-report "$SOURCE_TRUTHFULNESS_REPORT_PATH"
+    --public-report "$APSI_JOB_DIR/public_report.json"
+    --policy-audit-log "$APSI_JOB_DIR/audit_log.jsonl"
+    --job-id "$JOB_ID"
+    --output "$RELEASE_GOVERNANCE_REPORT_PATH"
+  )
+  if [[ -n "$RELEASE_POLICY_GATE_CONFIG" ]]; then
+    RELEASE_GOVERNANCE_CMD+=(--release-policy-gate "$RELEASE_POLICY_GATE_REPORT")
+  fi
+  if [[ -n "$OPERATOR_REPORT_PATH" ]]; then
+    RELEASE_GOVERNANCE_CMD+=(--operator-report "$OPERATOR_REPORT_PATH")
+  fi
+  if [[ -n "${EXTERNAL_ANCHOR_REPORT:-}" ]]; then
+    RELEASE_GOVERNANCE_CMD+=(--external-anchor-report "$EXTERNAL_ANCHOR_REPORT")
+  fi
+  "${RELEASE_GOVERNANCE_CMD[@]}"
+  python3 "$VALIDATE_JSON_CONTRACT_PY" \
+    --schema "$REPO_ROOT/schemas/release_governance_report.schema.json" \
+    --json "$RELEASE_GOVERNANCE_REPORT_PATH"
 fi
 
 BUILD_AUDIT_CHAIN_CMD=(
@@ -1758,6 +2031,12 @@ fi
 BUILD_AUDIT_CHAIN_CMD+=(--pjc-audit "$PJC_AUDIT_LOG")
 if [[ -n "$RELEASE_POLICY_GATE_CONFIG" ]]; then
   BUILD_AUDIT_CHAIN_CMD+=(--release-policy-gate "$RELEASE_POLICY_GATE_REPORT")
+fi
+if [[ "$SOURCE_ATTESTATION_ENABLED" == "1" ]]; then
+  BUILD_AUDIT_CHAIN_CMD+=(--source-export-manifest "$SOURCE_EXPORT_MANIFEST_PATH")
+  BUILD_AUDIT_CHAIN_CMD+=(--source-attestation "$SOURCE_ATTESTATION_PATH")
+  BUILD_AUDIT_CHAIN_CMD+=(--source-truthfulness-report "$SOURCE_TRUTHFULNESS_REPORT_PATH")
+  BUILD_AUDIT_CHAIN_CMD+=(--release-governance-report "$RELEASE_GOVERNANCE_REPORT_PATH")
 fi
 MAINLINE_CONTRACT_CMD=(
   python3 "$CHECK_MAINLINE_CONTRACT_PY"

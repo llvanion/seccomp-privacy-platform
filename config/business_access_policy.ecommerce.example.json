@@ -41,15 +41,39 @@
       }
     },
     "courier": {
-      "description": "Courier receives only next-stop delivery information for assigned delivery work.",
-      "allowed_entities": ["order_fulfillment"],
-      "allowed_field_classes": ["courier_next_stop", "fulfillment_status"],
+      "description": "Courier receives only the fields for the currently assigned delivery leg, never the whole route or future-leg address details.",
+      "allowed_entities": ["order_fulfillment", "delivery_route_legs"],
+      "allowed_field_classes": ["courier_next_stop", "fulfillment_status", "courier_leg_meta"],
       "masked_field_classes": [],
-      "denied_field_classes": ["order_public", "buyer_contact", "buyer_address", "buyer_self_contact", "merchant_internal", "courier_route_full", "support_internal", "operator_only"],
+      "denied_field_classes": ["order_public", "buyer_contact", "buyer_address", "buyer_self_contact", "merchant_internal", "courier_route_full", "courier_future_leg", "support_internal", "operator_only"],
       "conditions": {
         "scope_required": true,
         "relationship_required": "assigned_delivery_leg",
         "purpose_required": ["delivery_next_stop"]
+      }
+    },
+    "station_operator": {
+      "description": "Station operator can inspect the current station handoff leg and pickup-station logistics, but not final recipient address or unrelated legs.",
+      "allowed_entities": ["order_fulfillment", "delivery_route_legs"],
+      "allowed_field_classes": ["courier_next_stop", "fulfillment_status", "courier_leg_meta", "station_leg_handoff"],
+      "masked_field_classes": [],
+      "denied_field_classes": ["order_public", "buyer_contact", "buyer_address", "buyer_self_contact", "merchant_internal", "courier_route_full", "courier_future_leg", "support_internal", "operator_only"],
+      "conditions": {
+        "scope_required": true,
+        "relationship_required": "assigned_station_leg",
+        "purpose_required": ["station_handoff"]
+      }
+    },
+    "last_mile_courier": {
+      "description": "Last-mile courier can inspect the final delivery leg and the exact dropoff address required to complete delivery. Recipient phone is masked by default unless a call-proxy is used.",
+      "allowed_entities": ["order_fulfillment", "delivery_route_legs"],
+      "allowed_field_classes": ["courier_next_stop", "fulfillment_status", "courier_leg_meta", "last_mile_dropoff"],
+      "masked_field_classes": ["last_mile_contact_masked"],
+      "denied_field_classes": ["order_public", "buyer_contact", "buyer_address", "buyer_self_contact", "merchant_internal", "courier_route_full", "courier_future_leg", "support_internal", "operator_only"],
+      "conditions": {
+        "scope_required": true,
+        "relationship_required": "assigned_last_mile_leg",
+        "purpose_required": ["last_mile_delivery"]
       }
     },
     "field_marketer": {
@@ -62,6 +86,18 @@
         "scope_required": true,
         "relationship_required": "campaign_assignee",
         "purpose_required": ["campaign_analysis"]
+      }
+    },
+    "fraud_analyst": {
+      "description": "Fraud analysts can inspect payment risk/status signals without buyer contact, address, raw support, full route, or operator-only evidence.",
+      "allowed_entities": ["orders", "order_payment"],
+      "allowed_field_classes": ["order_public", "payment_status"],
+      "masked_field_classes": [],
+      "denied_field_classes": ["buyer_contact", "buyer_address", "buyer_self_contact", "merchant_internal", "courier_next_stop", "courier_route_full", "support_internal", "operator_only"],
+      "conditions": {
+        "scope_required": true,
+        "relationship_required": "fraud_review_queue",
+        "purpose_required": ["fraud_review"]
       }
     },
     "compliance_auditor": {
@@ -110,13 +146,33 @@
       "description": "Fulfillment state without route disclosure.",
       "fields": ["order_fulfillment.carrier_id", "order_fulfillment.warehouse_id", "order_fulfillment.shipped_at_utc", "order_fulfillment.delivered_at_utc", "order_fulfillment.status", "order_fulfillment.delivery_latency_minutes"]
     },
+    "courier_leg_meta": {
+      "description": "Metadata for the currently assigned leg, without exposing downstream recipient address.",
+      "fields": ["delivery_route.leg_id", "delivery_route.route_id", "delivery_route.leg_sequence", "delivery_route.leg_kind", "delivery_route.assigned_courier_id", "delivery_route.assigned_station_id", "delivery_route.assigned_region_id", "delivery_route.origin_node_label", "delivery_route.destination_node_label", "delivery_route.destination_city", "delivery_route.status", "delivery_route.started_at_utc", "delivery_route.completed_at_utc"]
+    },
     "courier_next_stop": {
-      "description": "Only the next stop assigned to the courier.",
-      "fields": ["delivery_route.next_stop_label", "delivery_route.next_stop_window", "delivery_route.next_stop_geohash_prefix"]
+      "description": "Only the next stop assigned to the courier, with the precise address exposed only on the terminal last-mile leg.",
+      "fields": ["delivery_route.next_stop_label", "delivery_route.next_stop_window", "delivery_route.next_stop_geohash_prefix", "delivery_route.pickup_station_label", "delivery_route.pickup_station_geohash_prefix", "delivery_route.final_recipient_zone"]
+    },
+    "station_leg_handoff": {
+      "description": "Station-specific handoff metadata for local pickup or handoff operators.",
+      "fields": ["delivery_route.assigned_station_id", "delivery_route.destination_district", "delivery_route.pickup_station_label", "delivery_route.pickup_station_geohash_prefix"]
+    },
+    "last_mile_dropoff": {
+      "description": "Exact destination fields needed only on the final delivery leg.",
+      "fields": ["delivery_route.destination_district", "delivery_route.final_recipient_zone", "delivery_route.final_address_line1", "delivery_route.final_address_line2"]
+    },
+    "last_mile_contact_masked": {
+      "description": "Recipient contact for final delivery is masked by default; a later live rollout can replace this with call-proxy evidence.",
+      "fields": ["delivery_route.recipient_phone"]
+    },
+    "courier_future_leg": {
+      "description": "Data from later or non-assigned legs that should not be visible to the current courier or station operator.",
+      "fields": ["delivery_route.assigned_region_id", "delivery_route.destination_city", "delivery_route.final_address_token"]
     },
     "courier_route_full": {
       "description": "Full route and exact destination are not exposed to courier role by this policy.",
-      "fields": ["delivery_route.full_route", "delivery_route.previous_stops", "delivery_route.final_address", "delivery_route.recipient_phone"]
+      "fields": ["delivery_route.full_route", "delivery_route.previous_stops", "delivery_route.final_address"]
     },
     "support_status": {
       "description": "Support ticket metadata without raw transcript.",
@@ -176,9 +232,29 @@
       "classification": "address",
       "masking": "redact"
     },
+    "delivery_route.final_address_line1": {
+      "classification": "address",
+      "masking": "redact"
+    },
+    "delivery_route.final_address_line2": {
+      "classification": "address",
+      "masking": "redact"
+    },
     "delivery_route.recipient_phone": {
       "classification": "contact",
       "masking": "phone_last4"
+    },
+    "delivery_route.final_address_token": {
+      "classification": "address_token",
+      "masking": "redact"
+    },
+    "delivery_route.final_recipient_zone": {
+      "classification": "delivery_zone",
+      "masking": "district_only"
+    },
+    "delivery_route.destination_district": {
+      "classification": "district",
+      "masking": "district_only"
     },
     "support_case.raw_transcript": {
       "classification": "support_transcript",

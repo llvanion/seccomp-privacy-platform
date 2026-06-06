@@ -1,0 +1,61 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "live_rollout_collection_report/v1",
+  "title": "Operator-side live rollout collection report",
+  "type": "object",
+  "required": [
+    "schema",
+    "generated_at_utc",
+    "module_name",
+    "status",
+    "checks",
+    "required_artifacts",
+    "provided_artifacts",
+    "outputs",
+    "findings"
+  ],
+  "properties": {
+    "schema": { "const": "live_rollout_collection_report/v1" },
+    "generated_at_utc": { "type": "string", "minLength": 1 },
+    "module_name": { "type": "string", "minLength": 1 },
+    "status": { "enum": ["ok", "blocked", "error"] },
+    "checks": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["name", "status", "detail"],
+        "properties": {
+          "name": { "type": "string", "minLength": 1 },
+          "status": { "enum": ["ok", "blocked", "error"] },
+          "detail": {}
+        },
+        "additionalProperties": false
+      }
+    },
+    "required_artifacts": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 }
+    },
+    "provided_artifacts": {
+      "type": "object",
+      "additionalProperties": {
+        "type": ["string", "null"]
+      }
+    },
+    "outputs": {
+      "type": "object",
+      "required": ["archive_path", "gate_path"],
+      "properties": {
+        "archive_path": { "type": ["string", "null"] },
+        "gate_path": { "type": ["string", "null"] },
+        "gate_live_status": { "type": ["string", "null"] }
+      },
+      "additionalProperties": false
+    },
+    "findings": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 }
+    }
+  },
+  "additionalProperties": false
+}

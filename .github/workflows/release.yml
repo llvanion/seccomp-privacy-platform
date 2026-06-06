@@ -200,23 +200,15 @@ jobs:
 
       - name: Install console deps
         working-directory: console
-        run: |
-          # No checked-in package-lock.json yet; npm install generates one for
-          # this build. CI deliberately does not commit it back.
-          if [ -f package-lock.json ]; then
-            npm ci --no-audit --no-fund
-          else
-            npm install --no-audit --no-fund
-          fi
+        run: npm ci --no-audit --no-fund
 
-      - name: Typecheck (advisory)
+      - name: Typecheck
         working-directory: console
-        continue-on-error: true
         run: npm run typecheck
 
       - name: Build SPA
         working-directory: console
-        run: npm run build
+        run: npm run build:strict
 
       - name: Package console-static artifact
         shell: bash

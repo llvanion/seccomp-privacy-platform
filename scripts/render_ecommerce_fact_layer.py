@@ -1,15 +1,15 @@
 #!/usr/bin/env python3
-"""Validate the e-commerce fact-layer baseline migration (Track-E1).
+"""Validate the e-commerce fact-layer baseline migration.
 
-Parses ``migrations/metadata/010_add_ecommerce_fact_tables.sql`` (or any other
-migration provided through ``--migration``), extracts ``CREATE TABLE`` and
-``CREATE INDEX`` statements, asserts the six expected fact tables are present
+Parses the checked-in metadata migrations, extracts ``CREATE TABLE`` / ``ALTER
+TABLE ADD COLUMN`` / ``CREATE INDEX`` statements, asserts the expected fact
+tables are present
 with their column lists and at least one supporting index each, and emits a
 contract-shaped ``ecommerce_fact_layer_report/v1`` JSON document.
 
 This is a static contract surface — it does not open any database. It exists so
 the docs/ECOMMERCE_FACT_LAYER_PLAN.md baseline cannot drift silently from the
-checked-in migration.
+checked-in migrations.
 """
 from __future__ import annotations
 
@@ -21,13 +21,14 @@ from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 SCHEMA_ID = "ecommerce_fact_layer_report/v1"
-DEFAULT_MIGRATION = REPO_ROOT / "migrations" / "metadata" / "010_add_ecommerce_fact_tables.sql"
+DEFAULT_MIGRATION_GLOB = "0*_*.sql"
 EXPECTED_TABLES = [
     "orders",
     "order_items",
     "order_attribution",
     "order_payment",
     "order_fulfillment",
+    "delivery_route_legs",
     "customer_service_interactions",
 ]
 
@@ -94,6 +95,19 @@ def parse_tables(sql: str) -> dict[str, list[str]]:
     return tables
 
 
+def parse_alter_add_columns(sql: str) -> dict[str, list[str]]:
+    pattern = re.compile(
+        r"ALTER\s+TABLE\s+([A-Za-z_][\w]*)\s+ADD\s+COLUMN\s+([A-Za-z_][\w]*)\b",
+        re.IGNORECASE,
+    )
+    extra: dict[str, list[str]] = {}
+    for match in pattern.finditer(sql):
+        table_name = match.group(1).strip()
+        column_name = match.group(2).strip()
+        extra.setdefault(table_name, []).append(column_name)
+    return extra
+
+
 def parse_indexes(sql: str) -> dict[str, list[str]]:
     pattern = re.compile(
         r"CREATE\s+(?:UNIQUE\s+)?INDEX\s+(?:IF\s+NOT\s+EXISTS\s+)?([A-Za-z_][\w]*)\s+ON\s+([A-Za-z_][\w]*)",
@@ -111,17 +125,33 @@ def build_parser() -> argparse.ArgumentParser:
     ap = argparse.ArgumentParser(
         description="Validate the e-commerce fact-layer baseline migration and emit ecommerce_fact_layer_report/v1.",
     )
-    ap.add_argument("--migration", default=str(DEFAULT_MIGRATION))
+    ap.add_argument(
+        "--migration",
+        action="append",
+        default=[],
+        help="Optional migration path. May be repeated. When omitted, all metadata migrations are scanned in order.",
+    )
     ap.add_argument("--output", default="")
     return ap
 
 
 def main() -> int:
     args = build_parser().parse_args()
-    migration_path = Path(args.migration).resolve()
-    raw_sql = read_text(migration_path)
-    sql = strip_comments(raw_sql)
+    if args.migration:
+        migration_paths = [Path(item).resolve() for item in args.migration]
+    else:
+        migration_paths = sorted((REPO_ROOT / "migrations" / "metadata").glob(DEFAULT_MIGRATION_GLOB))
+    if not migration_paths:
+        raise SystemExit("[ERROR] no metadata migrations found")
+    sql_parts = [strip_comments(read_text(path)) for path in migration_paths]
+    sql = "\n\n".join(sql_parts)
     tables = parse_tables(sql)
+    added_columns = parse_alter_add_columns(sql)
+    for table_name, columns in added_columns.items():
+        if table_name in tables:
+            for column in columns:
+                if column not in tables[table_name]:
+                    tables[table_name].append(column)
     indexes = parse_indexes(sql)
 
     table_entries = []
@@ -160,7 +190,7 @@ def main() -> int:
     report = {
         "schema": SCHEMA_ID,
         "generated_at_utc": utc_now_iso(),
-        "migration_path": str(migration_path),
+        "migration_path": str(migration_paths[0]),
         "tables": table_entries,
         "summary": {
             "status": status,
@@ -169,6 +199,7 @@ def main() -> int:
             "tables_missing": tables_missing,
             "table_count": len(tables_present),
             "total_index_count": total_index_count,
+            "migration_count": len(migration_paths),
         },
     }
     text = json.dumps(report, ensure_ascii=False, indent=2)

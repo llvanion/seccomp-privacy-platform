@@ -16,6 +16,7 @@ import { SseQueryRoute } from "./routes/sse-query";
 import { PjcOnlyRoute } from "./routes/pjc-only";
 import { AuditRoute } from "./routes/audit";
 import { CatalogRoute } from "./routes/catalog";
+import { BusinessAccessRoute } from "./routes/business-access";
 import { PermissionsRoute } from "./routes/permissions";
 import { RecoveryRoute } from "./routes/recovery";
 import { ObservabilityRoute } from "./routes/observability";
@@ -42,6 +43,7 @@ export const router: RouteObject[] = [
       { path: "pjc-only", element: <PjcOnlyRoute /> },
       { path: "audit/*", element: <AuditRoute /> },
       { path: "catalog/*", element: <CatalogRoute /> },
+      { path: "business-access", element: <BusinessAccessRoute /> },
       { path: "permissions/*", element: <PermissionsRoute /> },
       { path: "recovery/*", element: <RecoveryRoute /> },
       { path: "observability/*", element: <ObservabilityRoute /> },

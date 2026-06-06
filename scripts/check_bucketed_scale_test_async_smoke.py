@@ -12,6 +12,8 @@ Spins up ``serve_operator_dashboard.py`` on a loopback port with
 3. ``GET /v1/bucketed-scale-test`` returns the same job in the list.
 4. ``POST /v1/bucketed-scale-test/run`` with ``{"sync": true}`` runs through
    the legacy blocking path and returns ``HTTP 200`` with a non-empty result.
+5. Invalid bucket field policy is rejected before the helper is invoked.
+6. Bucket field / allowed-field mismatch is rejected before helper execution.
 
 The fake helper finishes in ~300 ms so the whole smoke takes < 5 s.
 Default ``scripts/check_json_contracts.sh`` invokes this script.
@@ -199,7 +201,35 @@ def main() -> int:
             sys.stderr.write(f"[ERROR] list did not include {job_id}: {listing}\n")
             return 1
 
-        # Invariant 4: ?sync=1 returns 200 directly.
+        # Invariant 4: invalid bucket field policy fails before helper execution.
+        status, body = _request(
+            "POST",
+            f"{base}/v1/bucketed-scale-test/run",
+            body={
+                "job_id": "bad-bucket-field",
+                "out_dir": str(scratch / "bad_bucket_field"),
+                "bucket_field": "../campaign_id",
+            },
+        )
+        if status != 400 or "bucket_field contains unsupported characters" not in body:
+            sys.stderr.write(f"[ERROR] invalid bucket field expected 400, got {status}: {body}\n")
+            return 1
+
+        status, body = _request(
+            "POST",
+            f"{base}/v1/bucketed-scale-test/run",
+            body={
+                "job_id": "bad-bucket-allowlist",
+                "out_dir": str(scratch / "bad_bucket_allowlist"),
+                "bucket_field": "campaign_id",
+                "allowed_bucket_fields": ["audience_segment"],
+            },
+        )
+        if status != 400 or "bucket_field must be listed in allowed_bucket_fields" not in body:
+            sys.stderr.write(f"[ERROR] bucket field allowlist mismatch expected 400, got {status}: {body}\n")
+            return 1
+
+        # Invariant 5: ?sync=1 returns 200 directly.
         status, body = _request(
             "POST",
             f"{base}/v1/bucketed-scale-test/run?sync=1",
@@ -228,6 +258,8 @@ def main() -> int:
             "async_duration_sec": terminal.get("duration_sec"),
             "list_contains_async_job": True,
             "sync_path_ok": True,
+            "invalid_bucket_policy_denied": True,
+            "bucket_field_allowlist_mismatch_denied": True,
         }
         print(json.dumps(report, ensure_ascii=False, indent=2))
         return 0

@@ -20,11 +20,15 @@ die() { echo "[ERROR] $*" >&2; exit 1; }
 log() { echo "[INFO] $*"; }
 
 JOB_DIR="${JOB_DIR:-}"
-PJC_DIR="${PJC_DIR:-$PWD/private-join-and-compute}"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+MODULE_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
+REPO_ROOT="$(cd "$MODULE_ROOT/.." && pwd)"
+PJC_DIR="${PJC_DIR:-$REPO_ROOT/a-psi/private-join-and-compute}"
 RUN_PJC_SH="${RUN_PJC_SH:-./run_pjc_patched.sh}"          # path to patched run_pjc
 MERGE_PY="${MERGE_PY:-./merge_bucket_results.py}"         # path to merge script
 GRPC_MAX_MESSAGE_MB="${GRPC_MAX_MESSAGE_MB:-512}"
 PJC_GRPC_STREAM_CHUNK_ELEMENTS="${PJC_GRPC_STREAM_CHUNK_ELEMENTS:-4096}"
+PJC_REQUIRE_BUCKET_POLICY="${PJC_REQUIRE_BUCKET_POLICY:-0}"
 
 # Parallel controls
 PARALLEL="${PARALLEL:-0}"          # 0/1
@@ -63,6 +67,14 @@ done
 [[ -n "$JOB_DIR" ]] || die "JOB_DIR is required"
 JOB_DIR="$(cd "$JOB_DIR" && pwd)"
 [[ -f "$JOB_DIR/job_meta.json" ]] || die "missing $JOB_DIR/job_meta.json"
+
+VALIDATE_BUCKET_POLICY_PY="$SCRIPT_DIR/bucket_policy.py"
+[[ -f "$VALIDATE_BUCKET_POLICY_PY" ]] || die "missing bucket policy helper: $VALIDATE_BUCKET_POLICY_PY"
+POLICY_CMD=(python3 "$VALIDATE_BUCKET_POLICY_PY" --job-meta "$JOB_DIR/job_meta.json")
+if [[ "$PJC_REQUIRE_BUCKET_POLICY" == "1" ]]; then
+  POLICY_CMD+=(--require-policy)
+fi
+"${POLICY_CMD[@]}" >/dev/null
 
 # Extract buckets with python (avoid jq dependency)
 PY='import json,sys; m=json.load(open(sys.argv[1])); b=m.get("bucket",{}); field=b.get("field"); outs=b.get("outputs") or []; print(field or ""); print(len(outs)); [print(o.get("bucket")) for o in outs]'
@@ -107,6 +119,8 @@ JSON
   export OUT_DIR="$sub"
   export SERVER_CSV="$sub/server.csv"
   export CLIENT_CSV="$sub/client.csv"
+  [[ -f "$sub/job_meta.json" ]] && export PJC_JOB_META="$sub/job_meta.json" || unset PJC_JOB_META || true
+  [[ -f "$sub/input_commitments.json" ]] && export PJC_INPUT_COMMITMENT="$sub/input_commitments.json" || unset PJC_INPUT_COMMITMENT || true
   export SERVER_ADDR="127.0.0.1:$port"
   export GRPC_MAX_MESSAGE_MB="$GRPC_MAX_MESSAGE_MB"
   export PJC_GRPC_STREAM_CHUNK_ELEMENTS="$PJC_GRPC_STREAM_CHUNK_ELEMENTS"

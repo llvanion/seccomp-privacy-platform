@@ -1,0 +1,40 @@
+{
+  "schema": "source_export_manifest/v1",
+  "generated_at_utc": "2026-06-05T00:00:00Z",
+  "job_id": "source-attestation-example",
+  "caller": "marketing_analyst_demo",
+  "tenant": "commerce_tenant",
+  "dataset": "orders_analytics",
+  "purpose": "campaign_measurement",
+  "source_system": "ecommerce_fact_import",
+  "source_snapshot_sha256": "1111111111111111111111111111111111111111111111111111111111111111",
+  "bridge_input_sha256": "2222222222222222222222222222222222222222222222222222222222222222",
+  "source_files": [
+    {
+      "label": "server_source",
+      "path": "/tmp/example/server_source.jsonl",
+      "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "size_bytes": 512
+    },
+    {
+      "label": "client_source",
+      "path": "/tmp/example/client_source.jsonl",
+      "sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "size_bytes": 640
+    }
+  ],
+  "bridge_input_files": [
+    {
+      "label": "server_bridge_input",
+      "path": "/tmp/example/server.csv",
+      "sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+      "size_bytes": 128
+    },
+    {
+      "label": "client_bridge_input",
+      "path": "/tmp/example/client.csv",
+      "sha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+      "size_bytes": 192
+    }
+  ]
+}

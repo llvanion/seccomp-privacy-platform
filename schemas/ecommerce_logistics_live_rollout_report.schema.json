@@ -1,0 +1,31 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "ecommerce_logistics_live_rollout_report/v1",
+  "title": "E-commerce logistics live rollout report",
+  "type": "object",
+  "required": ["schema", "status", "tenant_id", "route_id", "legs"],
+  "properties": {
+    "schema": { "const": "ecommerce_logistics_live_rollout_report/v1" },
+    "status": { "enum": ["ok", "fail"] },
+    "tenant_id": { "type": "string", "minLength": 1 },
+    "route_id": { "type": "string", "minLength": 1 },
+    "legs": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["leg_id", "leg_kind", "viewer_role"],
+        "properties": {
+          "leg_id": { "type": "string", "minLength": 1 },
+          "leg_kind": { "type": "string", "minLength": 1 },
+          "viewer_role": { "type": "string", "minLength": 1 },
+          "visible_fields": { "type": "array", "items": { "type": "string", "minLength": 1 } },
+          "hidden_fields": { "type": "array", "items": { "type": "string", "minLength": 1 } },
+          "masked_fields": { "type": "array", "items": { "type": "string", "minLength": 1 } }
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  "additionalProperties": false
+}

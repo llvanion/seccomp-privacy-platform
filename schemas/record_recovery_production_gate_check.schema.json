@@ -1,0 +1,73 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "record_recovery_production_gate_check/v1",
+  "type": "object",
+  "required": ["schema", "generated_at_utc", "summary", "static_cases", "cases", "claim_boundary"],
+  "properties": {
+    "schema": { "const": "record_recovery_production_gate_check/v1" },
+    "generated_at_utc": { "type": "string" },
+    "summary": {
+      "type": "object",
+      "required": ["status", "checked_count", "passed_count", "failed_count", "static_case_count"],
+      "properties": {
+        "status": { "enum": ["ok", "fail"] },
+        "checked_count": { "type": "integer", "minimum": 0 },
+        "passed_count": { "type": "integer", "minimum": 0 },
+        "failed_count": { "type": "integer", "minimum": 0 },
+        "static_case_count": { "type": "integer", "minimum": 0 }
+      },
+      "additionalProperties": false
+    },
+    "static_cases": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["name", "expected_finding_kinds", "finding_kinds", "finding_count", "passed"],
+        "properties": {
+          "name": { "type": "string" },
+          "expected_finding_kinds": {
+            "type": "array",
+            "items": { "type": "string" }
+          },
+          "finding_kinds": {
+            "type": "array",
+            "items": { "type": "string" }
+          },
+          "finding_count": { "type": "integer", "minimum": 0 },
+          "passed": { "type": "boolean" }
+        },
+        "additionalProperties": false
+      }
+    },
+    "cases": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["name", "command", "expect_success", "exit_code", "passed"],
+        "properties": {
+          "name": { "type": "string" },
+          "command": {
+            "type": "array",
+            "items": { "type": "string" }
+          },
+          "expect_success": { "type": "boolean" },
+          "exit_code": { "type": "integer" },
+          "passed": { "type": "boolean" },
+          "expected_text": { "type": ["string", "null"] },
+          "stderr_tail": { "type": ["string", "null"] }
+        },
+        "additionalProperties": false
+      }
+    },
+    "claim_boundary": {
+      "type": "object",
+      "required": ["repo_side_evidence", "production_remaining"],
+      "properties": {
+        "repo_side_evidence": { "type": "string" },
+        "production_remaining": { "type": "string" }
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false
+}

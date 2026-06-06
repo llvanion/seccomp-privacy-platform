@@ -1,0 +1,55 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "ecommerce_live_tls_network_policy_report/v1",
+  "title": "E-commerce live TLS and network-policy report",
+  "type": "object",
+  "required": [
+    "schema",
+    "generated_at_utc",
+    "status",
+    "metadata_api",
+    "operator_dashboard",
+    "network_policy"
+  ],
+  "properties": {
+    "schema": { "const": "ecommerce_live_tls_network_policy_report/v1" },
+    "generated_at_utc": { "type": "string", "minLength": 1 },
+    "status": { "enum": ["ok", "fail"] },
+    "metadata_api": {
+      "type": "object",
+      "required": ["base_url", "transport", "auth_mode", "status"],
+      "properties": {
+        "base_url": { "type": "string", "minLength": 1 },
+        "transport": { "type": "string", "minLength": 1 },
+        "auth_mode": { "type": "string", "minLength": 1 },
+        "status": { "enum": ["ok", "fail"] }
+      },
+      "additionalProperties": false
+    },
+    "operator_dashboard": {
+      "type": "object",
+      "required": ["base_url", "transport", "status"],
+      "properties": {
+        "base_url": { "type": "string", "minLength": 1 },
+        "transport": { "type": "string", "minLength": 1 },
+        "status": { "enum": ["ok", "fail"] }
+      },
+      "additionalProperties": false
+    },
+    "network_policy": {
+      "type": "object",
+      "required": ["schema", "status"],
+      "properties": {
+        "schema": { "const": "k8s_network_policy_report/v1" },
+        "status": { "enum": ["ok", "fail"] },
+        "report_path": { "type": ["string", "null"] }
+      },
+      "additionalProperties": false
+    },
+    "findings": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 }
+    }
+  },
+  "additionalProperties": false
+}

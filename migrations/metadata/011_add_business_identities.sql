@@ -2,7 +2,8 @@
 --
 -- Adds a `business_identities` table that records the e-commerce business
 -- personas (buyer / merchant_staff / customer_service_agent / courier /
--- field_marketer) without breaking the frozen `caller_permissions` shape.
+-- field_marketer / fraud_analyst) without breaking the frozen
+-- `caller_permissions` shape.
 --
 -- Business identities are NOT callers. They cannot run privacy stages on
 -- their own; they only annotate which platform `caller` (if any) is acting

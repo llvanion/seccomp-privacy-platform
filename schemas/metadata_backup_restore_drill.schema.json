@@ -1,0 +1,48 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "metadata_backup_restore_drill/v1",
+  "title": "Repo-side metadata DB backup/restore integrity drill",
+  "type": "object",
+  "required": ["schema", "generated_at_utc", "status", "summary", "checks", "findings"],
+  "properties": {
+    "schema": { "const": "metadata_backup_restore_drill/v1" },
+    "generated_at_utc": { "type": "string", "minLength": 1 },
+    "status": { "type": "string", "enum": ["ok", "fail"] },
+    "summary": {
+      "type": "object",
+      "required": ["finding_count", "repo_side_claim", "production_boundary"],
+      "properties": {
+        "finding_count": { "type": "integer", "minimum": 0 },
+        "repo_side_claim": { "type": "string", "minLength": 1 },
+        "production_boundary": { "type": "string", "minLength": 1 }
+      },
+      "additionalProperties": false
+    },
+    "checks": {
+      "type": "object",
+      "required": ["source", "backup", "restore", "tampered_restore_denied"],
+      "properties": {
+        "source": { "type": "object", "additionalProperties": true },
+        "backup": { "type": "object", "additionalProperties": true },
+        "restore": { "type": "object", "additionalProperties": true },
+        "tampered_restore_denied": { "type": "object", "additionalProperties": true }
+      },
+      "additionalProperties": false
+    },
+    "findings": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["kind", "message", "expected", "actual"],
+        "properties": {
+          "kind": { "type": "string", "minLength": 1 },
+          "message": { "type": "string", "minLength": 1 },
+          "expected": {},
+          "actual": {}
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  "additionalProperties": false
+}

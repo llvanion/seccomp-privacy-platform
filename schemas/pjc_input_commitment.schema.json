@@ -25,6 +25,35 @@
     "normalize_version": { "type": "string", "minLength": 1 },
     "normalizer_schema_version": { "type": "string", "minLength": 1 },
     "dedup_policy": { "type": "string", "minLength": 1 },
+    "bucket_scope": {
+      "type": ["object", "null"],
+      "properties": {
+        "schema": { "const": "bucket_scope/v1" },
+        "bucket_field": { "type": "string", "minLength": 1 },
+        "bucket_count": { "type": "integer", "minimum": 0 },
+        "bucket_policy_sha256": { "type": ["string", "null"], "pattern": "^[0-9a-f]{64}$" },
+        "allowed_bucket_count": { "type": "integer", "minimum": 0 },
+        "bucket_labels_redacted": { "type": "boolean" },
+        "require_exact_allowed_buckets": { "type": "boolean" },
+        "enforcement": { "type": "string", "minLength": 1 }
+      },
+      "additionalProperties": false
+    },
+    "shard_scope": {
+      "type": ["object", "null"],
+      "properties": {
+        "schema": { "const": "shard_scope/v1" },
+        "num_shards": { "type": "integer", "minimum": 1 },
+        "target_count": { "type": "integer", "minimum": 0 },
+        "bucket_target_count": { "type": "integer", "minimum": 0 },
+        "total_shards": { "type": "integer", "minimum": 0 },
+        "max_shards_per_target": { "type": "integer", "minimum": 0 },
+        "bucket_policy_sha256": { "type": ["string", "null"], "pattern": "^[0-9a-f]{64}$" },
+        "shard_manifest_sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+        "bucket_labels_redacted": { "type": "boolean" }
+      },
+      "additionalProperties": false
+    },
     "parties": {
       "type": "object",
       "required": ["server", "client"],
@@ -63,7 +92,14 @@
           "properties": {
             "min_value": { "type": ["integer", "null"] },
             "max_value": { "type": ["integer", "null"] },
-            "allow_negative": { "type": "boolean" }
+            "allow_negative": { "type": "boolean" },
+            "allowed_value_columns": {
+              "type": "array",
+              "items": { "type": "string", "minLength": 1 },
+              "uniqueItems": true
+            },
+            "value_unit": { "type": ["string", "null"], "minLength": 1 },
+            "currency": { "type": ["string", "null"], "minLength": 3, "maxLength": 3 }
           },
           "additionalProperties": false
         },

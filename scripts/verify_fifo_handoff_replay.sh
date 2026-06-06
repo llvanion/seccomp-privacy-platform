@@ -39,6 +39,14 @@ else
   CARGO_HOME_REPLAY="${CARGO_HOME:-}"
 fi
 mkdir -p "$REPLAY_HOME"
+if [[ -n "$ORIGINAL_HOME" ]]; then
+  mkdir -p "$REPLAY_HOME/.cache"
+  for cache_name in bazel bazelisk; do
+    if [[ -e "$ORIGINAL_HOME/.cache/$cache_name" && ! -e "$REPLAY_HOME/.cache/$cache_name" ]]; then
+      ln -s "$ORIGINAL_HOME/.cache/$cache_name" "$REPLAY_HOME/.cache/$cache_name"
+    fi
+  done
+fi
 cleanup() {
   if [[ "$KEEP_OUT_DIR" -eq 0 ]]; then
     rm -rf "$OUT_BASE"
@@ -66,6 +74,9 @@ bash "$SCRIPT_DIR/run_sse_bridge_pipeline.sh" \
   --client-normalizer email \
   --client-value-mode raw-int \
   --client-value-max 1000000 \
+  --client-allowed-value-field amount \
+  --client-value-unit minor_currency_unit \
+  --client-value-currency USD \
   --server-filter campaign=demo \
   --client-filter campaign=demo \
   --token-scope fifo-replay-scope \

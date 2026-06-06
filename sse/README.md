@@ -64,6 +64,11 @@ set log level to `DEBUG` (client and/or server).
 
 ### 3) Start server
 
+This server is a local/demo compatibility interface. It is retired in
+production mode: when `SSE_PRODUCTION_MODE=1`, `run_server.py start` refuses to
+launch even on loopback. Use the platform query workflow / bridge pipeline APIs
+for production jobs.
+
 ```bash
 python3 run_server.py start
 ```

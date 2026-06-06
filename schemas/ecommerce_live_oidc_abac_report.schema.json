@@ -1,0 +1,64 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "ecommerce_live_oidc_abac_report/v1",
+  "title": "E-commerce live OIDC/ABAC report",
+  "type": "object",
+  "required": [
+    "schema",
+    "generated_at_utc",
+    "status",
+    "tenant_id",
+    "identity_provider",
+    "authorization_backend",
+    "persona_checks"
+  ],
+  "properties": {
+    "schema": { "const": "ecommerce_live_oidc_abac_report/v1" },
+    "generated_at_utc": { "type": "string", "minLength": 1 },
+    "status": { "enum": ["ok", "fail"] },
+    "tenant_id": { "type": "string", "minLength": 1 },
+    "identity_provider": {
+      "type": "object",
+      "required": ["kind", "issuer", "jwks_uri", "status"],
+      "properties": {
+        "kind": { "type": "string", "minLength": 1 },
+        "issuer": { "type": "string", "minLength": 1 },
+        "jwks_uri": { "type": "string", "minLength": 1 },
+        "status": { "enum": ["ok", "fail"] }
+      },
+      "additionalProperties": false
+    },
+    "authorization_backend": {
+      "type": "object",
+      "required": ["kind", "status"],
+      "properties": {
+        "kind": { "type": "string", "minLength": 1 },
+        "endpoint": { "type": ["string", "null"] },
+        "store_id": { "type": ["string", "null"] },
+        "status": { "enum": ["ok", "fail"] }
+      },
+      "additionalProperties": false
+    },
+    "persona_checks": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["persona", "expected_scope", "resolved_identity", "decision", "status"],
+        "properties": {
+          "persona": { "type": "string", "minLength": 1 },
+          "expected_scope": { "type": "object" },
+          "resolved_identity": { "type": "object" },
+          "decision": { "enum": ["allow", "mask", "deny"] },
+          "status": { "enum": ["ok", "fail"] }
+        },
+        "additionalProperties": false
+      }
+    },
+    "findings": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 }
+    }
+  },
+  "additionalProperties": false
+}

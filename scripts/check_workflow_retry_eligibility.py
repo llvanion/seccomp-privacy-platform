@@ -66,6 +66,28 @@ def evaluate(
     error_class = last_error_class(receipts)
 
     if not terminal:
+        if state == "queued":
+            return {
+                "retryable": False,
+                "resubmit_required": False,
+                "recommended_action": "wait",
+                "reason": "Job is queued for a DB-backed worker — wait for a worker claim or cancel the queued execution",
+                "triage_steps": [
+                    "Run scripts/run_query_workflow_worker.py against the metadata DB",
+                    "Inspect query_workflow_executions for lease owner and state",
+                ],
+            }
+        if state == "cancel_requested":
+            return {
+                "retryable": False,
+                "resubmit_required": False,
+                "recommended_action": "wait",
+                "reason": "Cancellation has been requested and the worker must terminate the execution",
+                "triage_steps": [
+                    "Poll query_workflow/status.json until terminal=true",
+                    "Inspect worker receipts and query_workflow_executions metadata_json for cancel details",
+                ],
+            }
         return {
             "retryable": False,
             "resubmit_required": False,
@@ -161,6 +183,32 @@ def evaluate(
             "triage_steps": [
                 "Review execution_receipts.jsonl for the failure event",
                 "Check observability dashboard and platform health before re-submitting",
+            ],
+        }
+
+    if state == "cancelled":
+        return {
+            "retryable": False,
+            "resubmit_required": True,
+            "recommended_action": "resubmit",
+            "reason": "Job was cancelled by operator request — submit a new approved request if work should run again",
+            "triage_steps": [
+                "Review execution_receipts.jsonl for cancel_requested/cancelled events",
+                "Confirm the cancellation actor and reason in query_workflow_executions metadata_json",
+                "Re-submit with a new job_id/out_base if the query is still needed",
+            ],
+        }
+
+    if state == "timed_out":
+        return {
+            "retryable": False,
+            "resubmit_required": True,
+            "recommended_action": "resubmit",
+            "reason": "Worker timeout terminated the run — investigate capacity or input size before re-submitting",
+            "triage_steps": [
+                "Check worker timeout_seconds and platform SLO tier for this dataset size",
+                "Inspect pipeline observability and stage logs if partial artifacts exist",
+                "Re-submit with a new job_id/out_base after tuning timeout/capacity",
             ],
         }
 

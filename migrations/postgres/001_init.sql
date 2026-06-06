@@ -532,6 +532,8 @@ CREATE TABLE IF NOT EXISTS orders (
     dataset_id TEXT NOT NULL,
     service_id TEXT,
     buyer_email TEXT NOT NULL,
+    merchant_business_identity_id TEXT,
+    buyer_business_identity_id TEXT,
     platform_id TEXT,
     campaign_id TEXT,
     currency TEXT NOT NULL,
@@ -546,6 +548,8 @@ CREATE TABLE IF NOT EXISTS orders (
 CREATE INDEX IF NOT EXISTS idx_orders_tenant_dataset_email ON orders (tenant_id, dataset_id, buyer_email);
 CREATE INDEX IF NOT EXISTS idx_orders_tenant_placed_at ON orders (tenant_id, placed_at_utc);
 CREATE INDEX IF NOT EXISTS idx_orders_tenant_campaign ON orders (tenant_id, campaign_id);
+CREATE INDEX IF NOT EXISTS idx_orders_tenant_merchant_identity ON orders (tenant_id, merchant_business_identity_id);
+CREATE INDEX IF NOT EXISTS idx_orders_tenant_buyer_identity ON orders (tenant_id, buyer_business_identity_id);
 
 CREATE TABLE IF NOT EXISTS order_items (
     id SERIAL PRIMARY KEY,
@@ -570,6 +574,7 @@ CREATE TABLE IF NOT EXISTS order_attribution (
     order_id TEXT NOT NULL,
     tenant_id TEXT NOT NULL,
     dataset_id TEXT NOT NULL,
+    assigned_marketer_business_identity_id TEXT,
     attribution_type TEXT NOT NULL,
     channel TEXT NOT NULL,
     campaign_id TEXT,
@@ -581,12 +586,15 @@ CREATE TABLE IF NOT EXISTS order_attribution (
 
 CREATE INDEX IF NOT EXISTS idx_order_attribution_order_id ON order_attribution (order_id);
 CREATE INDEX IF NOT EXISTS idx_order_attribution_tenant_channel ON order_attribution (tenant_id, channel);
+CREATE INDEX IF NOT EXISTS idx_order_attribution_tenant_marketer ON order_attribution (tenant_id, assigned_marketer_business_identity_id, campaign_id);
 
 CREATE TABLE IF NOT EXISTS order_payment (
     id SERIAL PRIMARY KEY,
     order_id TEXT NOT NULL,
     tenant_id TEXT NOT NULL,
     dataset_id TEXT NOT NULL,
+    assigned_fraud_analyst_business_identity_id TEXT,
+    fraud_case_id TEXT,
     payment_method TEXT NOT NULL,
     provider_id TEXT,
     paid_amount_cents BIGINT NOT NULL,
@@ -600,6 +608,8 @@ CREATE TABLE IF NOT EXISTS order_payment (
 CREATE INDEX IF NOT EXISTS idx_order_payment_order_id ON order_payment (order_id);
 CREATE INDEX IF NOT EXISTS idx_order_payment_tenant_method ON order_payment (tenant_id, payment_method);
 CREATE INDEX IF NOT EXISTS idx_order_payment_tenant_disputed ON order_payment (tenant_id, is_disputed);
+CREATE INDEX IF NOT EXISTS idx_order_payment_tenant_fraud_identity ON order_payment (tenant_id, assigned_fraud_analyst_business_identity_id);
+CREATE INDEX IF NOT EXISTS idx_order_payment_tenant_fraud_case ON order_payment (tenant_id, fraud_case_id);
 
 CREATE TABLE IF NOT EXISTS order_fulfillment (
     id SERIAL PRIMARY KEY,
@@ -620,11 +630,52 @@ CREATE INDEX IF NOT EXISTS idx_order_fulfillment_order_id ON order_fulfillment (
 CREATE INDEX IF NOT EXISTS idx_order_fulfillment_tenant_status ON order_fulfillment (tenant_id, status);
 CREATE INDEX IF NOT EXISTS idx_order_fulfillment_tenant_carrier ON order_fulfillment (tenant_id, carrier_id);
 
+CREATE TABLE IF NOT EXISTS delivery_route_legs (
+    id SERIAL PRIMARY KEY,
+    leg_id TEXT NOT NULL,
+    route_id TEXT NOT NULL,
+    order_id TEXT NOT NULL,
+    tenant_id TEXT NOT NULL,
+    dataset_id TEXT NOT NULL,
+    service_id TEXT,
+    leg_sequence INTEGER NOT NULL,
+    leg_kind TEXT NOT NULL,
+    assigned_courier_id TEXT,
+    assigned_station_id TEXT,
+    assigned_region_id TEXT,
+    origin_node_label TEXT NOT NULL,
+    destination_node_label TEXT NOT NULL,
+    destination_city TEXT NOT NULL,
+    destination_district TEXT,
+    next_stop_label TEXT NOT NULL,
+    next_stop_window TEXT,
+    next_stop_geohash_prefix TEXT,
+    pickup_station_label TEXT,
+    pickup_station_geohash_prefix TEXT,
+    final_recipient_zone TEXT,
+    final_address_token TEXT,
+    final_address_line1 TEXT,
+    final_address_line2 TEXT,
+    recipient_phone TEXT,
+    status TEXT NOT NULL,
+    started_at_utc TIMESTAMPTZ,
+    completed_at_utc TIMESTAMPTZ,
+    created_at_utc TIMESTAMPTZ NOT NULL,
+    ingested_at_utc TIMESTAMPTZ NOT NULL,
+    UNIQUE(tenant_id, leg_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_delivery_route_legs_order_id ON delivery_route_legs (order_id);
+CREATE INDEX IF NOT EXISTS idx_delivery_route_legs_tenant_assignee ON delivery_route_legs (tenant_id, assigned_courier_id);
+CREATE INDEX IF NOT EXISTS idx_delivery_route_legs_tenant_route ON delivery_route_legs (tenant_id, route_id, leg_sequence);
+CREATE INDEX IF NOT EXISTS idx_delivery_route_legs_tenant_status ON delivery_route_legs (tenant_id, status);
+
 CREATE TABLE IF NOT EXISTS customer_service_interactions (
     id SERIAL PRIMARY KEY,
     order_id TEXT NOT NULL,
     tenant_id TEXT NOT NULL,
     dataset_id TEXT NOT NULL,
+    case_id TEXT,
     interaction_type TEXT NOT NULL,
     channel TEXT NOT NULL,
     agent_id TEXT,
@@ -638,8 +689,11 @@ CREATE TABLE IF NOT EXISTS customer_service_interactions (
 CREATE INDEX IF NOT EXISTS idx_csi_order_id ON customer_service_interactions (order_id);
 CREATE INDEX IF NOT EXISTS idx_csi_tenant_type ON customer_service_interactions (tenant_id, interaction_type);
 CREATE INDEX IF NOT EXISTS idx_csi_tenant_agent ON customer_service_interactions (tenant_id, agent_id);
+CREATE INDEX IF NOT EXISTS idx_csi_tenant_case ON customer_service_interactions (tenant_id, case_id);
 
 -- Business identities baseline (Track-E2; mirrors migrations/metadata/011_add_business_identities.sql).
+-- Supported persona annotations include buyer, merchant_staff, customer_service_agent,
+-- courier, field_marketer, and fraud_analyst.
 CREATE TABLE IF NOT EXISTS business_identities (
     id SERIAL PRIMARY KEY,
     business_identity_id TEXT NOT NULL,
@@ -693,3 +747,38 @@ CREATE INDEX IF NOT EXISTS idx_workflow_submissions_status ON workflow_submissio
 CREATE INDEX IF NOT EXISTS idx_workflow_submissions_tenant_status ON workflow_submissions (tenant_id, status);
 CREATE INDEX IF NOT EXISTS idx_workflow_submissions_caller ON workflow_submissions (caller);
 CREATE INDEX IF NOT EXISTS idx_workflow_submissions_job_id ON workflow_submissions (job_id);
+
+-- Query workflow execution lifecycle state.
+CREATE TABLE IF NOT EXISTS query_workflow_executions (
+    id SERIAL PRIMARY KEY,
+    execution_id TEXT NOT NULL UNIQUE,
+    workflow TEXT NOT NULL,
+    job_id TEXT NOT NULL,
+    out_base TEXT NOT NULL,
+    request_digest TEXT NOT NULL,
+    request_source TEXT NOT NULL,
+    caller TEXT,
+    tenant_id TEXT,
+    dataset_id TEXT,
+    mode TEXT NOT NULL,
+    state TEXT NOT NULL,
+    terminal INTEGER NOT NULL DEFAULT 0,
+    lease_owner TEXT NOT NULL,
+    lease_expires_at_utc TIMESTAMPTZ NOT NULL,
+    heartbeat_at_utc TIMESTAMPTZ NOT NULL,
+    started_at_utc TIMESTAMPTZ NOT NULL,
+    updated_at_utc TIMESTAMPTZ NOT NULL,
+    finished_at_utc TIMESTAMPTZ,
+    last_exit_code INTEGER,
+    status_path TEXT,
+    receipts_path TEXT,
+    submission_manifest_path TEXT,
+    metadata_json JSONB,
+    UNIQUE(job_id),
+    UNIQUE(out_base)
+);
+
+CREATE INDEX IF NOT EXISTS idx_query_workflow_executions_state ON query_workflow_executions (state, terminal);
+CREATE INDEX IF NOT EXISTS idx_query_workflow_executions_lease ON query_workflow_executions (lease_expires_at_utc);
+CREATE INDEX IF NOT EXISTS idx_query_workflow_executions_tenant ON query_workflow_executions (tenant_id, state);
+CREATE INDEX IF NOT EXISTS idx_query_workflow_executions_digest ON query_workflow_executions (request_digest);

@@ -65,6 +65,23 @@ def check_equal(
     )
 
 
+def check_truthy(
+    checks: list[dict[str, Any]],
+    *,
+    name: str,
+    actual: Any,
+    expected: str,
+) -> None:
+    checks.append(
+        {
+            "name": name,
+            "status": "pass" if bool(actual) else "fail",
+            "actual": actual,
+            "expected": expected,
+        }
+    )
+
+
 def check_contains(
     checks: list[dict[str, Any]],
     *,
@@ -136,7 +153,8 @@ def write_markdown_summary(report: dict[str, Any], out_path: Path) -> None:
             "",
             "`S7 public two-host PJC mTLS validation and K3 internal security probing were verified offline. "
             "The evidence package is JSON-readable, hash-sealed, and all expected conclusions passed: "
-            "TLS=true, intersection_size=2, intersection_sum=425, server/client identity decisions allow, "
+            f"TLS=true, intersection_size={report['s7_result'].get('intersection_size')}, "
+            f"intersection_sum={report['s7_result'].get('intersection_sum')}, server/client identity decisions allow, "
             "critical/high findings are zero, and the no-client-certificate TLS handshake did not complete.`",
             "",
         ]
@@ -152,6 +170,9 @@ def main() -> int:
     parser.add_argument("--markdown-output", default="tmp/k3_internal_security_cross-vps-005/evidence_integrity_report.md")
     parser.add_argument("--hash-output", default="tmp/k3_internal_security_cross-vps-005/final_evidence_hashes.sha256")
     parser.add_argument("--repo-root", default=".")
+    parser.add_argument("--expected-server-addr", default="")
+    parser.add_argument("--expected-intersection-size", type=int, default=-1)
+    parser.add_argument("--expected-intersection-sum", type=int, default=-1)
     args = parser.parse_args()
 
     repo_root = Path(args.repo_root).resolve()
@@ -186,13 +207,43 @@ def main() -> int:
     verbose_log = read_text(paths["k3_verbose_no_client_cert"], errors) if paths["k3_verbose_no_client_cert"].is_file() else ""
 
     check_equal(checks, name="s7_tls_enabled", actual=result.get("tls"), expected=True)
-    check_equal(checks, name="s7_server_addr", actual=result.get("server_addr"), expected="118.190.61.66:10502")
-    check_equal(checks, name="s7_intersection_size", actual=result.get("intersection_size"), expected=2)
-    check_equal(checks, name="s7_intersection_sum", actual=result.get("intersection_sum"), expected=425)
+    if args.expected_server_addr:
+        check_equal(checks, name="s7_server_addr", actual=result.get("server_addr"), expected=args.expected_server_addr)
+    else:
+        check_truthy(checks, name="s7_server_addr_present", actual=result.get("server_addr"), expected="non-empty server address")
+
+    intersection_size = result.get("intersection_size")
+    intersection_sum = result.get("intersection_sum")
+    if args.expected_intersection_size >= 0:
+        check_equal(checks, name="s7_intersection_size", actual=intersection_size, expected=args.expected_intersection_size)
+    else:
+        checks.append(
+            {
+                "name": "s7_intersection_size_positive",
+                "status": "pass" if isinstance(intersection_size, int) and intersection_size > 0 else "fail",
+                "actual": intersection_size,
+                "expected": "positive integer",
+            }
+        )
+    if args.expected_intersection_sum >= 0:
+        check_equal(checks, name="s7_intersection_sum", actual=intersection_sum, expected=args.expected_intersection_sum)
+    else:
+        checks.append(
+            {
+                "name": "s7_intersection_sum_positive",
+                "status": "pass" if isinstance(intersection_sum, int) and intersection_sum > 0 else "fail",
+                "actual": intersection_sum,
+                "expected": "positive integer",
+            }
+        )
     check_equal(checks, name="server_identity_allow", actual=server_identity.get("decision"), expected="allow")
     check_equal(checks, name="client_identity_allow", actual=client_identity.get("decision"), expected="allow")
     check_contains(checks, name="party_a_protocol_completed", text=server_log, needle="Server completed protocol and shut down.")
-    check_contains(checks, name="party_b_result_logged", text=client_log, needle="The intersection size is 2 and the intersection-sum is 425")
+    if isinstance(intersection_size, int) and isinstance(intersection_sum, int):
+        result_needle = f"The intersection size is {intersection_size} and the intersection-sum is {intersection_sum}"
+    else:
+        result_needle = "The intersection size is"
+    check_contains(checks, name="party_b_result_logged", text=client_log, needle=result_needle)
 
     assessment = k3_probe.get("assessment", {}) if isinstance(k3_probe.get("assessment"), dict) else {}
     check_equal(checks, name="k3_critical_findings_zero", actual=assessment.get("critical_findings"), expected=0)

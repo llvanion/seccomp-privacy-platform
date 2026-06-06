@@ -110,7 +110,7 @@ def read_all_tuples(
     continuation_token = ""
     url = f"{endpoint_url}/stores/{store_id}/read"
     while True:
-        body: dict[str, Any] = {"tuple_key": {}}
+        body: dict[str, Any] = {}
         if continuation_token:
             body["continuation_token"] = continuation_token
         payload = _request(
@@ -143,10 +143,13 @@ def write_tuples(
     timeout_seconds: int,
     auth_token: str = "",
 ) -> None:
-    body = {
-        "writes": {"tuple_keys": [_tuple_key(*item) for item in writes]},
-        "deletes": {"tuple_keys": [_tuple_key(*item) for item in deletes]},
-    }
+    body: dict[str, Any] = {}
+    if writes:
+        body["writes"] = {"tuple_keys": [_tuple_key(*item) for item in writes]}
+    if deletes:
+        body["deletes"] = {"tuple_keys": [_tuple_key(*item) for item in deletes]}
+    if not body:
+        return
     _request(
         "POST",
         f"{endpoint_url}/stores/{store_id}/write",

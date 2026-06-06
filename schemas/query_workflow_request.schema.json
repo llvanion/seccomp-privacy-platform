@@ -76,6 +76,20 @@
     "client_value_allow_negative": {
       "type": "boolean"
     },
+    "client_allowed_value_fields": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 },
+      "uniqueItems": true
+    },
+    "client_value_unit": {
+      "type": "string",
+      "minLength": 1
+    },
+    "client_value_currency": {
+      "type": "string",
+      "minLength": 3,
+      "maxLength": 3
+    },
     "server_sse_keyword": {
       "type": "string",
       "minLength": 1
@@ -270,6 +284,46 @@
       "type": "string",
       "minLength": 1
     },
+    "source_system": {
+      "type": "string",
+      "minLength": 1
+    },
+    "source_attestation_mode": {
+      "type": "string",
+      "enum": [
+        "planned",
+        "local",
+        "manual",
+        "operator",
+        "external"
+      ]
+    },
+    "source_attestation_approval_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "source_attestation_operator_identity": {
+      "type": "string",
+      "minLength": 1
+    },
+    "source_attestation_reviewer_identity": {
+      "type": "string",
+      "minLength": 1
+    },
+    "source_attestation_signoff_status": {
+      "type": "string",
+      "enum": [
+        "planned",
+        "pending",
+        "approved",
+        "approved_dual",
+        "rejected"
+      ]
+    },
+    "source_attestation_signing_key_path": {
+      "type": "string",
+      "minLength": 1
+    },
     "privacy_budget_required": {
       "type": "boolean"
     },
@@ -306,6 +360,10 @@
       "minLength": 1
     },
     "pjc_evidence_merge": {
+      "type": "string",
+      "minLength": 1
+    },
+    "external_anchor_report": {
       "type": "string",
       "minLength": 1
     },

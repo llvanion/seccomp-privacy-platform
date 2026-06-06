@@ -34,6 +34,8 @@ from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 SCHEMA_DIR = REPO_ROOT / "schemas"
 COMMIT_A = "a" * 64
 COMMIT_B = "b" * 64
+BUCKET_POLICY_SHA = "1" * 64
+SHARD_MANIFEST_SHA = "2" * 64
 
 
 def _validate(report: dict, schema_filename: str) -> None:
@@ -93,6 +95,10 @@ def _sign_party_manifest(
     result_path: Path,
     public_report_path: Path,
     audit_chain_path: Path,
+    bucket_policy_sha256: str | None = None,
+    peer_bucket_policy_sha256: str | None = None,
+    shard_manifest_sha256: str | None = None,
+    peer_shard_manifest_sha256: str | None = None,
 ) -> dict:
     signed = sod._sign_two_party_run_manifest({
         "job_id": job_id,
@@ -101,6 +107,10 @@ def _sign_party_manifest(
         "repo_commit": "deadbeef",
         "input_commitment_sha256": local_commitment,
         "peer_input_commitment_sha256": peer_commitment,
+        "bucket_policy_sha256": bucket_policy_sha256,
+        "peer_bucket_policy_sha256": peer_bucket_policy_sha256,
+        "shard_manifest_sha256": shard_manifest_sha256,
+        "peer_shard_manifest_sha256": peer_shard_manifest_sha256,
         "pjc_result_path": str(result_path),
         "public_report_path": str(public_report_path),
         "audit_chain_path": str(audit_chain_path),
@@ -274,6 +284,10 @@ def test_signed_run_manifest_evidence_merge() -> None:
             result_path=party_a / "a_psi_run" / "attribution_result.json",
             public_report_path=party_a / "a_psi_run" / "public_report.json",
             audit_chain_path=party_a / "audit_chain.json",
+            bucket_policy_sha256=BUCKET_POLICY_SHA,
+            peer_bucket_policy_sha256=BUCKET_POLICY_SHA,
+            shard_manifest_sha256=SHARD_MANIFEST_SHA,
+            peer_shard_manifest_sha256=SHARD_MANIFEST_SHA,
         )
         _sign_party_manifest(
             root=party_b,
@@ -286,6 +300,10 @@ def test_signed_run_manifest_evidence_merge() -> None:
             result_path=party_b / "a_psi_run" / "attribution_result.json",
             public_report_path=party_b / "a_psi_run" / "public_report.json",
             audit_chain_path=party_b / "audit_chain.json",
+            bucket_policy_sha256=BUCKET_POLICY_SHA,
+            peer_bucket_policy_sha256=BUCKET_POLICY_SHA,
+            shard_manifest_sha256=SHARD_MANIFEST_SHA,
+            peer_shard_manifest_sha256=SHARD_MANIFEST_SHA,
         )
         ok = sod._two_party_evidence_merge({
             "job_id": "signedsmoke",
@@ -297,6 +315,8 @@ def test_signed_run_manifest_evidence_merge() -> None:
         assert ok["report"]["decision"] == "allow", ok["report"]
         assert ok["report"]["checks"]["manifest_signature_valid"] == "match", ok["report"]
         assert ok["report"]["checks"]["commitment_exchange_match"] == "match", ok["report"]
+        assert ok["report"]["checks"]["bucket_policy_match"] == "match", ok["report"]
+        assert ok["report"]["checks"]["shard_manifest_match"] == "match", ok["report"]
 
         tampered = json.loads((party_b / "signed_run_manifest.json").read_text(encoding="utf-8"))
         tampered["payload"]["peer_input_commitment_sha256"] = "d" * 64
@@ -324,6 +344,10 @@ def test_signed_run_manifest_evidence_merge() -> None:
             result_path=party_b / "a_psi_run" / "attribution_result.json",
             public_report_path=party_b / "a_psi_run" / "public_report.json",
             audit_chain_path=party_b / "audit_chain.json",
+            bucket_policy_sha256=BUCKET_POLICY_SHA,
+            peer_bucket_policy_sha256=BUCKET_POLICY_SHA,
+            shard_manifest_sha256=SHARD_MANIFEST_SHA,
+            peer_shard_manifest_sha256=SHARD_MANIFEST_SHA,
         )
         bad_exchange = sod._two_party_evidence_merge({
             "job_id": "signedsmoke",
@@ -334,6 +358,34 @@ def test_signed_run_manifest_evidence_merge() -> None:
         _validate(bad_exchange["report"], "pjc_two_party_evidence_merge.schema.json")
         assert bad_exchange["report"]["decision"] == "deny", bad_exchange["report"]
         assert bad_exchange["report"]["reason_code"] == "commitment_exchange_mismatch", bad_exchange["report"]
+
+        # Valid signatures with inconsistent bucket policy scope must be rejected
+        # before the result can be treated as a production release artifact.
+        _sign_party_manifest(
+            root=party_b,
+            key_path=key_b,
+            job_id="signedsmoke",
+            party="party_b",
+            peer_party="party_a",
+            local_commitment=COMMIT_B,
+            peer_commitment=COMMIT_A,
+            result_path=party_b / "a_psi_run" / "attribution_result.json",
+            public_report_path=party_b / "a_psi_run" / "public_report.json",
+            audit_chain_path=party_b / "audit_chain.json",
+            bucket_policy_sha256="9" * 64,
+            peer_bucket_policy_sha256=BUCKET_POLICY_SHA,
+            shard_manifest_sha256=SHARD_MANIFEST_SHA,
+            peer_shard_manifest_sha256=SHARD_MANIFEST_SHA,
+        )
+        bad_bucket_scope = sod._two_party_evidence_merge({
+            "job_id": "signedsmoke",
+            "party_a_dir": str(party_a),
+            "party_b_dir": str(party_b),
+            "require_signed_manifests": True,
+        })
+        _validate(bad_bucket_scope["report"], "pjc_two_party_evidence_merge.schema.json")
+        assert bad_bucket_scope["report"]["decision"] == "deny", bad_bucket_scope["report"]
+        assert bad_bucket_scope["report"]["reason_code"] == "bucket_policy_mismatch", bad_bucket_scope["report"]
     print("       signed manifest evidence OK")
 
 

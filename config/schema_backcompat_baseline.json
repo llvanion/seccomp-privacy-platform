@@ -2,7 +2,6 @@
   "schemas": [
     {
       "path": "schemas/public_report.schema.json",
-      "schema_id": "public_report/v2",
       "required": [
         "schema",
         "generated_at_utc",
@@ -16,6 +15,7 @@
         "window",
         "k_threshold"
       ],
+      "schema_id": "public_report/v2",
       "stable_properties": [
         "aov",
         "bridge",
@@ -25,6 +25,7 @@
         "correlation_id",
         "details",
         "generated_at_utc",
+        "governance",
         "input_sizes",
         "job_id",
         "k_threshold",
@@ -42,7 +43,6 @@
     },
     {
       "path": "schemas/bucket_public_report.schema.json",
-      "schema_id": "bucket_public_report/v1",
       "required": [
         "schema",
         "job_id",
@@ -55,6 +55,7 @@
         "suppression_policy",
         "buckets"
       ],
+      "schema_id": "bucket_public_report/v1",
       "stable_properties": [
         "schema",
         "job_id",
@@ -68,12 +69,12 @@
         "round_sum_to",
         "redaction",
         "suppression_policy",
+        "bucket_policy",
         "buckets"
       ]
     },
     {
       "path": "schemas/operator_bucket_report.schema.json",
-      "schema_id": "operator_bucket_report/v1",
       "required": [
         "schema",
         "job_id",
@@ -84,6 +85,7 @@
         "public_report_path",
         "buckets"
       ],
+      "schema_id": "operator_bucket_report/v1",
       "stable_properties": [
         "schema",
         "job_id",
@@ -95,12 +97,12 @@
         "dp_sensitivity",
         "round_sum_to",
         "public_report_path",
+        "bucket_policy",
         "buckets"
       ]
     },
     {
       "path": "schemas/audit_chain.schema.json",
-      "schema_id": "audit_chain/v1",
       "required": [
         "schema",
         "generated_at_utc",
@@ -119,6 +121,7 @@
         "public_report",
         "policy_audit"
       ],
+      "schema_id": "audit_chain/v1",
       "stable_properties": [
         "artifacts",
         "bridge_audit",
@@ -135,14 +138,17 @@
         "policy_audit",
         "public_report",
         "record_recovery_service_audit",
+        "release_governance_report",
         "release_policy_gate",
         "schema",
+        "source_attestation",
+        "source_export_manifest",
+        "source_truthfulness_report",
         "sse_export_audit"
       ]
     },
     {
       "path": "schemas/audit_chain_public_summary.schema.json",
-      "schema_id": "audit_chain_public_summary/v1",
       "required": [
         "schema",
         "generated_at_utc",
@@ -158,6 +164,7 @@
         "mainline_contract",
         "privacy"
       ],
+      "schema_id": "audit_chain_public_summary/v1",
       "stable_properties": [
         "schema",
         "generated_at_utc",
@@ -177,7 +184,6 @@
     },
     {
       "path": "schemas/pipeline_observability_public_summary.schema.json",
-      "schema_id": "pipeline_observability_public_summary/v1",
       "required": [
         "schema",
         "generated_at_utc",
@@ -190,6 +196,7 @@
         "summary",
         "privacy"
       ],
+      "schema_id": "pipeline_observability_public_summary/v1",
       "stable_properties": [
         "schema",
         "generated_at_utc",
@@ -205,7 +212,6 @@
     },
     {
       "path": "schemas/catalog_lineage_public_summary.schema.json",
-      "schema_id": "catalog_lineage_public_summary/v1",
       "required": [
         "schema",
         "generated_at_utc",
@@ -220,6 +226,7 @@
         "mainline_contract",
         "privacy"
       ],
+      "schema_id": "catalog_lineage_public_summary/v1",
       "stable_properties": [
         "schema",
         "generated_at_utc",
@@ -237,7 +244,6 @@
     },
     {
       "path": "schemas/privacy_budget_ledger.schema.json",
-      "schema_id": "privacy_budget_ledger/v1",
       "required": [
         "schema",
         "ts_utc",
@@ -255,6 +261,7 @@
         "budget",
         "parsed_metrics"
       ],
+      "schema_id": "privacy_budget_ledger/v1",
       "stable_properties": [
         "schema",
         "ts_utc",
@@ -282,7 +289,6 @@
     },
     {
       "path": "schemas/privacy_budget_approval_request.schema.json",
-      "schema_id": "privacy_budget_approval_request/v1",
       "required": [
         "schema",
         "created_at_utc",
@@ -313,6 +319,7 @@
         "public_report_sha256",
         "approval_recommendation"
       ],
+      "schema_id": "privacy_budget_approval_request/v1",
       "stable_properties": [
         "schema",
         "created_at_utc",
@@ -346,7 +353,6 @@
     },
     {
       "path": "schemas/privacy_budget_approval_decision.schema.json",
-      "schema_id": "privacy_budget_approval_decision/v1",
       "required": [
         "schema",
         "created_at_utc",
@@ -364,6 +370,7 @@
         "public_report_sha256",
         "budget_consumed"
       ],
+      "schema_id": "privacy_budget_approval_decision/v1",
       "stable_properties": [
         "schema",
         "created_at_utc",
@@ -388,7 +395,6 @@
     },
     {
       "path": "schemas/privacy_budget_approval_transition.schema.json",
-      "schema_id": "privacy_budget_approval_transition/v1",
       "required": [
         "schema",
         "status",
@@ -397,6 +403,7 @@
         "approval",
         "decision"
       ],
+      "schema_id": "privacy_budget_approval_transition/v1",
       "stable_properties": [
         "schema",
         "status",
@@ -408,7 +415,6 @@
     },
     {
       "path": "schemas/privacy_budget_approval_list.schema.json",
-      "schema_id": "privacy_budget_approval_list/v1",
       "required": [
         "schema",
         "status",
@@ -416,6 +422,7 @@
         "limit",
         "requests"
       ],
+      "schema_id": "privacy_budget_approval_list/v1",
       "stable_properties": [
         "schema",
         "status",
@@ -429,7 +436,6 @@
     },
     {
       "path": "schemas/privacy_budget_check_report.schema.json",
-      "schema_id": "privacy_budget_check_report/v1",
       "required": [
         "schema",
         "generated_at_utc",
@@ -438,6 +444,7 @@
         "summary",
         "errors"
       ],
+      "schema_id": "privacy_budget_check_report/v1",
       "stable_properties": [
         "schema",
         "generated_at_utc",
@@ -449,8 +456,77 @@
       ]
     },
     {
+      "path": "schemas/privacy_budget_concurrency_check.schema.json",
+      "required": [
+        "schema",
+        "status",
+        "work_dir",
+        "reports",
+        "ledger_records",
+        "store_records",
+        "errors"
+      ],
+      "schema_id": "privacy_budget_concurrency_check/v1",
+      "stable_properties": [
+        "errors",
+        "ledger_records",
+        "reports",
+        "schema",
+        "status",
+        "store_records",
+        "work_dir"
+      ]
+    },
+    {
+      "path": "schemas/privacy_budget_approval_flow_check.schema.json",
+      "required": [
+        "schema",
+        "status",
+        "work_dir",
+        "approval_requests",
+        "approval_decisions",
+        "approval_status_counts",
+        "ledger_records",
+        "errors"
+      ],
+      "schema_id": "privacy_budget_approval_flow_check/v1",
+      "stable_properties": [
+        "approval_decisions",
+        "approval_requests",
+        "approval_status_counts",
+        "errors",
+        "ledger_records",
+        "schema",
+        "status",
+        "work_dir"
+      ]
+    },
+    {
+      "path": "schemas/privacy_budget_approval_api_smoke.schema.json",
+      "required": [
+        "schema",
+        "status",
+        "pending_count_before",
+        "approved_request_id",
+        "rejected_request_id",
+        "expired_request_id",
+        "decision_statuses",
+        "self_approval_status"
+      ],
+      "schema_id": "privacy_budget_approval_api_smoke/v1",
+      "stable_properties": [
+        "approved_request_id",
+        "decision_statuses",
+        "expired_request_id",
+        "pending_count_before",
+        "rejected_request_id",
+        "schema",
+        "self_approval_status",
+        "status"
+      ]
+    },
+    {
       "path": "schemas/pipeline_observability.schema.json",
-      "schema_id": "pipeline_observability/v1",
       "required": [
         "schema",
         "generated_at_utc",
@@ -463,6 +539,7 @@
         "summary",
         "events"
       ],
+      "schema_id": "pipeline_observability/v1",
       "stable_properties": [
         "caller",
         "correlation_id",
@@ -478,7 +555,6 @@
     },
     {
       "path": "schemas/catalog_lineage.schema.json",
-      "schema_id": "catalog_lineage/v1",
       "required": [
         "schema",
         "generated_at_utc",
@@ -496,6 +572,7 @@
         "lineage_edges",
         "summary"
       ],
+      "schema_id": "catalog_lineage/v1",
       "stable_properties": [
         "artifacts",
         "caller",
@@ -516,7 +593,6 @@
     },
     {
       "path": "schemas/query_workflow_request.schema.json",
-      "schema_id": "query_workflow_request/v1",
       "required": [
         "schema",
         "query_type",
@@ -531,10 +607,12 @@
         "caller",
         "sse_export_policy_config"
       ],
+      "schema_id": "query_workflow_request/v1",
       "stable_properties": [
         "audit_archive_dir",
         "caller",
         "cleanup_sse_export_handoff_files_after_bridge",
+        "client_allowed_value_fields",
         "client_filters",
         "client_join_key_field",
         "client_normalizer",
@@ -548,14 +626,17 @@
         "client_sse_sid",
         "client_sse_sname",
         "client_value_allow_negative",
+        "client_value_currency",
         "client_value_field",
         "client_value_max",
         "client_value_min",
         "client_value_mode",
+        "client_value_unit",
         "dataset_id",
         "deny_duplicate_query",
         "dp_epsilon",
         "dp_sensitivity",
+        "external_anchor_report",
         "external_kms_config",
         "handoff_retention_reason",
         "job_id",
@@ -608,6 +689,13 @@
         "sse_export_audit_log",
         "sse_export_handoff_mode",
         "sse_export_policy_config",
+        "source_attestation_approval_id",
+        "source_attestation_mode",
+        "source_attestation_operator_identity",
+        "source_attestation_reviewer_identity",
+        "source_attestation_signing_key_path",
+        "source_attestation_signoff_status",
+        "source_system",
         "tenant_id",
         "token_key_version",
         "token_scope",
@@ -620,7 +708,6 @@
     },
     {
       "path": "schemas/query_workflow_submission.schema.json",
-      "schema_id": "query_workflow_submission/v1",
       "required": [
         "schema",
         "submitted_at_utc",
@@ -633,6 +720,7 @@
         "command",
         "exit_code"
       ],
+      "schema_id": "query_workflow_submission/v1",
       "stable_properties": [
         "command",
         "exit_code",
@@ -648,7 +736,6 @@
     },
     {
       "path": "schemas/query_workflow_receipt.schema.json",
-      "schema_id": "query_workflow_receipt/v1",
       "required": [
         "schema",
         "receipt_id",
@@ -664,6 +751,7 @@
         "exit_code",
         "artifacts"
       ],
+      "schema_id": "query_workflow_receipt/v1",
       "stable_properties": [
         "artifacts",
         "caller",
@@ -687,7 +775,6 @@
     },
     {
       "path": "schemas/query_workflow_status.schema.json",
-      "schema_id": "query_workflow_status/v1",
       "required": [
         "schema",
         "workflow",
@@ -704,6 +791,7 @@
         "public_report_available",
         "audit_chain_available"
       ],
+      "schema_id": "query_workflow_status/v1",
       "stable_properties": [
         "artifact_summary",
         "audit_chain_available",
@@ -727,8 +815,61 @@
       ]
     },
     {
+      "path": "schemas/query_workflow_deployment_evidence_gate.schema.json",
+      "required": [
+        "schema",
+        "generated_at_utc",
+        "status",
+        "repo_side_status",
+        "live_status",
+        "repo_side_checks",
+        "live_checks",
+        "repo_side_boundary",
+        "live_boundary",
+        "artifacts"
+      ],
+      "schema_id": "query_workflow_deployment_evidence_gate/v1",
+      "stable_properties": [
+        "artifacts",
+        "generated_at_utc",
+        "live_boundary",
+        "live_checks",
+        "live_status",
+        "repo_side_boundary",
+        "repo_side_checks",
+        "repo_side_status",
+        "schema",
+        "status"
+      ]
+    },
+    {
+      "path": "schemas/query_workflow_live_evidence_archive.schema.json",
+      "required": [
+        "schema",
+        "generated_at_utc",
+        "status",
+        "job_id",
+        "live_artifact_count",
+        "live_artifacts",
+        "findings",
+        "artifacts",
+        "aggregate_sha256"
+      ],
+      "schema_id": "query_workflow_live_evidence_archive/v1",
+      "stable_properties": [
+        "aggregate_sha256",
+        "artifacts",
+        "findings",
+        "generated_at_utc",
+        "job_id",
+        "live_artifact_count",
+        "live_artifacts",
+        "schema",
+        "status"
+      ]
+    },
+    {
       "path": "schemas/query_workflow_api_health.schema.json",
-      "schema_id": "query_workflow_api_health/v1",
       "required": [
         "schema",
         "ok",
@@ -736,6 +877,7 @@
         "allow_execute",
         "request_base_dir_default"
       ],
+      "schema_id": "query_workflow_api_health/v1",
       "stable_properties": [
         "allow_execute",
         "auth_required",
@@ -743,18 +885,20 @@
         "metadata_db_path",
         "ok",
         "request_base_dir_default",
-        "schema"
+        "schema",
+        "workflow_execution_db_path",
+        "workflow_execution_db_dsn"
       ]
     },
     {
       "path": "schemas/query_workflow_api_response.schema.json",
-      "schema_id": "query_workflow_api_response/v1",
       "required": [
         "schema",
         "method",
         "path",
         "result"
       ],
+      "schema_id": "query_workflow_api_response/v1",
       "stable_properties": [
         "method",
         "path",
@@ -764,13 +908,13 @@
     },
     {
       "path": "schemas/query_workflow_status_api_response.schema.json",
-      "schema_id": "query_workflow_status_api_response/v1",
       "required": [
         "schema",
         "method",
         "path",
         "result"
       ],
+      "schema_id": "query_workflow_status_api_response/v1",
       "stable_properties": [
         "method",
         "path",
@@ -780,13 +924,13 @@
     },
     {
       "path": "schemas/query_workflow_api_error.schema.json",
-      "schema_id": "query_workflow_api_error/v1",
       "required": [
         "schema",
         "method",
         "path",
         "error"
       ],
+      "schema_id": "query_workflow_api_error/v1",
       "stable_properties": [
         "error",
         "method",
@@ -795,14 +939,79 @@
       ]
     },
     {
+      "path": "schemas/query_workflow_durability_check.schema.json",
+      "required": [
+        "schema",
+        "generated_at_utc",
+        "status",
+        "summary",
+        "checks",
+        "findings",
+        "implementation"
+      ],
+      "schema_id": "query_workflow_durability_check/v1",
+      "stable_properties": [
+        "schema",
+        "generated_at_utc",
+        "status",
+        "summary",
+        "checks",
+        "findings",
+        "implementation"
+      ]
+    },
+    {
+      "path": "schemas/query_workflow_worker_run.schema.json",
+      "required": [
+        "schema",
+        "event",
+        "owner",
+        "job_id",
+        "state"
+      ],
+      "schema_id": "query_workflow_worker_run/v1",
+      "stable_properties": [
+        "schema",
+        "event",
+        "owner",
+        "job_id",
+        "state",
+        "exit_code"
+      ]
+    },
+    {
+      "path": "schemas/query_workflow_cancel_request.schema.json",
+      "required": [
+        "schema",
+        "job_id",
+        "state",
+        "terminal",
+        "actor",
+        "reason",
+        "sidecar_written",
+        "sidecar_status_path"
+      ],
+      "schema_id": "query_workflow_cancel_request/v1",
+      "stable_properties": [
+        "schema",
+        "job_id",
+        "state",
+        "terminal",
+        "actor",
+        "reason",
+        "sidecar_written",
+        "sidecar_status_path"
+      ]
+    },
+    {
       "path": "schemas/metadata_api_health.schema.json",
-      "schema_id": "metadata_api_health/v1",
       "required": [
         "schema",
         "ok",
         "db_path",
         "auth_required"
       ],
+      "schema_id": "metadata_api_health/v1",
       "stable_properties": [
         "auth_required",
         "business_access_policy",
@@ -814,7 +1023,6 @@
     },
     {
       "path": "schemas/metadata_api_response.schema.json",
-      "schema_id": "metadata_api_response/v1",
       "required": [
         "schema",
         "method",
@@ -822,6 +1030,7 @@
         "query",
         "result"
       ],
+      "schema_id": "metadata_api_response/v1",
       "stable_properties": [
         "method",
         "path",
@@ -832,13 +1041,13 @@
     },
     {
       "path": "schemas/metadata_api_error.schema.json",
-      "schema_id": "metadata_api_error/v1",
       "required": [
         "schema",
         "method",
         "path",
         "error"
       ],
+      "schema_id": "metadata_api_error/v1",
       "stable_properties": [
         "error",
         "method",
@@ -848,7 +1057,6 @@
     },
     {
       "path": "schemas/metadata_schema_portability.schema.json",
-      "schema_id": "metadata_schema_portability/v1",
       "required": [
         "schema",
         "generated_at_utc",
@@ -858,6 +1066,7 @@
         "summary",
         "checks"
       ],
+      "schema_id": "metadata_schema_portability/v1",
       "stable_properties": [
         "applied_migrations",
         "backend",
@@ -872,7 +1081,6 @@
     },
     {
       "path": "schemas/metadata_import_report.schema.json",
-      "schema_id": "metadata_import_report/v1",
       "required": [
         "schema",
         "generated_at_utc",
@@ -883,6 +1091,7 @@
         "imports",
         "imported"
       ],
+      "schema_id": "metadata_import_report/v1",
       "stable_properties": [
         "applied_migrations",
         "db_dsn",
@@ -897,7 +1106,6 @@
     },
     {
       "path": "schemas/metadata_db_status.schema.json",
-      "schema_id": "metadata_db_status/v1",
       "required": [
         "schema",
         "generated_at_utc",
@@ -912,6 +1120,7 @@
         "summary",
         "warnings"
       ],
+      "schema_id": "metadata_db_status/v1",
       "stable_properties": [
         "applied_migrations",
         "backend",
@@ -931,7 +1140,6 @@
     },
     {
       "path": "schemas/metadata_db_backup.schema.json",
-      "schema_id": "metadata_db_backup/v1",
       "required": [
         "schema",
         "generated_at_utc",
@@ -945,6 +1153,7 @@
         "applied_migrations",
         "used_sqlite_backup_api"
       ],
+      "schema_id": "metadata_db_backup/v1",
       "stable_properties": [
         "applied_migrations",
         "backup_db_path",
@@ -961,7 +1170,6 @@
     },
     {
       "path": "schemas/metadata_db_restore.schema.json",
-      "schema_id": "metadata_db_restore/v1",
       "required": [
         "schema",
         "generated_at_utc",
@@ -976,6 +1184,7 @@
         "used_sqlite_backup_api",
         "restored_status"
       ],
+      "schema_id": "metadata_db_restore/v1",
       "stable_properties": [
         "backup_db_path",
         "backup_sha256",
@@ -993,7 +1202,6 @@
     },
     {
       "path": "schemas/metadata_db_backup_report.schema.json",
-      "schema_id": "metadata_db_backup_report/v1",
       "required": [
         "schema",
         "generated_at_utc",
@@ -1004,6 +1212,7 @@
         "verification",
         "s3_upload"
       ],
+      "schema_id": "metadata_db_backup_report/v1",
       "stable_properties": [
         "backend",
         "backup",
@@ -1017,7 +1226,6 @@
     },
     {
       "path": "schemas/metadata_db_restore_report.schema.json",
-      "schema_id": "metadata_db_restore_report/v1",
       "required": [
         "schema",
         "generated_at_utc",
@@ -1028,9 +1236,11 @@
         "portability_check",
         "s3_download"
       ],
+      "schema_id": "metadata_db_restore_report/v1",
       "stable_properties": [
         "backend",
         "backup",
+        "errors",
         "generated_at_utc",
         "portability_check",
         "restore",
@@ -1040,8 +1250,27 @@
       ]
     },
     {
+      "path": "schemas/metadata_backup_restore_drill.schema.json",
+      "required": [
+        "schema",
+        "generated_at_utc",
+        "status",
+        "summary",
+        "checks",
+        "findings"
+      ],
+      "schema_id": "metadata_backup_restore_drill/v1",
+      "stable_properties": [
+        "schema",
+        "generated_at_utc",
+        "status",
+        "summary",
+        "checks",
+        "findings"
+      ]
+    },
+    {
       "path": "schemas/metadata_db_export.schema.json",
-      "schema_id": "metadata_db_export/v1",
       "required": [
         "schema",
         "generated_at_utc",
@@ -1055,6 +1284,7 @@
         "entities",
         "sample_artifacts"
       ],
+      "schema_id": "metadata_db_export/v1",
       "stable_properties": [
         "artifact_limit",
         "db_dsn",
@@ -1072,17 +1302,16 @@
     },
     {
       "path": "schemas/metadata_registry_manifest.schema.json",
-      "schema_id": "metadata_registry_manifest/v1",
       "required": [
         "schema"
       ],
+      "schema_id": "metadata_registry_manifest/v1",
       "stable_properties": [
         "schema"
       ]
     },
     {
       "path": "schemas/metadata_registry_apply_report.schema.json",
-      "schema_id": "metadata_registry_apply_report/v1",
       "required": [
         "schema",
         "generated_at_utc",
@@ -1096,6 +1325,7 @@
         "entities",
         "policies"
       ],
+      "schema_id": "metadata_registry_apply_report/v1",
       "stable_properties": [
         "applied_migrations",
         "db_dsn",
@@ -1113,7 +1343,6 @@
     },
     {
       "path": "schemas/authz_tuple_export.schema.json",
-      "schema_id": "authz_tuple_export/v1",
       "required": [
         "schema",
         "generated_at_utc",
@@ -1124,6 +1353,7 @@
         "tuples",
         "summary"
       ],
+      "schema_id": "authz_tuple_export/v1",
       "stable_properties": [
         "filters",
         "generated_at_utc",
@@ -1137,7 +1367,6 @@
     },
     {
       "path": "schemas/audit_query_api_health.schema.json",
-      "schema_id": "audit_query_api_health/v1",
       "required": [
         "schema",
         "ok",
@@ -1145,6 +1374,7 @@
         "auth_required",
         "available_results"
       ],
+      "schema_id": "audit_query_api_health/v1",
       "stable_properties": [
         "auth_required",
         "available_results",
@@ -1157,7 +1387,6 @@
     },
     {
       "path": "schemas/audit_query_api_response.schema.json",
-      "schema_id": "audit_query_api_response/v1",
       "required": [
         "schema",
         "method",
@@ -1166,6 +1395,7 @@
         "result_schema",
         "result"
       ],
+      "schema_id": "audit_query_api_response/v1",
       "stable_properties": [
         "method",
         "path",
@@ -1177,13 +1407,13 @@
     },
     {
       "path": "schemas/audit_query_api_error.schema.json",
-      "schema_id": "audit_query_api_error/v1",
       "required": [
         "schema",
         "method",
         "path",
         "error"
       ],
+      "schema_id": "audit_query_api_error/v1",
       "stable_properties": [
         "error",
         "method",
@@ -1193,13 +1423,13 @@
     },
     {
       "path": "schemas/platform_health_api_health.schema.json",
-      "schema_id": "platform_health_api_health/v1",
       "required": [
         "schema",
         "ok",
         "auth_required",
         "available_results"
       ],
+      "schema_id": "platform_health_api_health/v1",
       "stable_properties": [
         "auth_required",
         "available_results",
@@ -1209,7 +1439,6 @@
     },
     {
       "path": "schemas/platform_health_api_response.schema.json",
-      "schema_id": "platform_health_api_response/v1",
       "required": [
         "schema",
         "method",
@@ -1218,6 +1447,7 @@
         "result_schema",
         "result"
       ],
+      "schema_id": "platform_health_api_response/v1",
       "stable_properties": [
         "method",
         "path",
@@ -1229,13 +1459,13 @@
     },
     {
       "path": "schemas/platform_health_api_error.schema.json",
-      "schema_id": "platform_health_api_error/v1",
       "required": [
         "schema",
         "method",
         "path",
         "error"
       ],
+      "schema_id": "platform_health_api_error/v1",
       "stable_properties": [
         "error",
         "method",
@@ -1245,7 +1475,6 @@
     },
     {
       "path": "schemas/platform_health.schema.json",
-      "schema_id": "platform_health/v1",
       "required": [
         "schema",
         "generated_at_utc",
@@ -1253,6 +1482,7 @@
         "summary",
         "checks"
       ],
+      "schema_id": "platform_health/v1",
       "stable_properties": [
         "checks",
         "generated_at_utc",
@@ -1263,7 +1493,6 @@
     },
     {
       "path": "schemas/query_workflow_benchmark.schema.json",
-      "schema_id": "query_workflow_benchmark/v1",
       "required": [
         "schema",
         "generated_at_utc",
@@ -1272,6 +1501,7 @@
         "iterations",
         "modes"
       ],
+      "schema_id": "query_workflow_benchmark/v1",
       "stable_properties": [
         "generated_at_utc",
         "iterations",
@@ -1283,7 +1513,6 @@
     },
     {
       "path": "schemas/read_adapter_benchmark.schema.json",
-      "schema_id": "read_adapter_benchmark/v1",
       "required": [
         "schema",
         "generated_at_utc",
@@ -1293,6 +1522,7 @@
         "iterations",
         "modes"
       ],
+      "schema_id": "read_adapter_benchmark/v1",
       "stable_properties": [
         "db_backend",
         "db_dsn",
@@ -1308,7 +1538,6 @@
     },
     {
       "path": "schemas/read_adapter_backend_comparison.schema.json",
-      "schema_id": "read_adapter_backend_comparison/v1",
       "required": [
         "schema",
         "generated_at_utc",
@@ -1318,6 +1547,7 @@
         "summary",
         "comparisons"
       ],
+      "schema_id": "read_adapter_backend_comparison/v1",
       "stable_properties": [
         "baseline",
         "candidate",
@@ -1330,7 +1560,6 @@
     },
     {
       "path": "schemas/sse_export_benchmark.schema.json",
-      "schema_id": "sse_export_benchmark/v1",
       "required": [
         "schema",
         "generated_at_utc",
@@ -1343,6 +1572,7 @@
         "summary",
         "results"
       ],
+      "schema_id": "sse_export_benchmark/v1",
       "stable_properties": [
         "fixture_profile",
         "generated_at_utc",
@@ -1358,7 +1588,6 @@
     },
     {
       "path": "schemas/record_recovery_benchmark.schema.json",
-      "schema_id": "record_recovery_benchmark/v1",
       "required": [
         "schema",
         "generated_at_utc",
@@ -1370,6 +1599,7 @@
         "candidate_count",
         "modes"
       ],
+      "schema_id": "record_recovery_benchmark/v1",
       "stable_properties": [
         "candidate_count",
         "fixture_profile",
@@ -1385,7 +1615,6 @@
     },
     {
       "path": "schemas/audit_bundle_benchmark.schema.json",
-      "schema_id": "audit_bundle_benchmark/v1",
       "required": [
         "schema",
         "generated_at_utc",
@@ -1395,6 +1624,7 @@
         "iterations",
         "modes"
       ],
+      "schema_id": "audit_bundle_benchmark/v1",
       "stable_properties": [
         "fixture_profile",
         "generated_at_utc",
@@ -1407,7 +1637,6 @@
     },
     {
       "path": "schemas/platform_health_benchmark.schema.json",
-      "schema_id": "platform_health_benchmark/v1",
       "required": [
         "schema",
         "generated_at_utc",
@@ -1416,6 +1645,7 @@
         "iterations",
         "modes"
       ],
+      "schema_id": "platform_health_benchmark/v1",
       "stable_properties": [
         "fixture_profile",
         "generated_at_utc",
@@ -1427,7 +1657,6 @@
     },
     {
       "path": "schemas/derived_views_benchmark.schema.json",
-      "schema_id": "derived_views_benchmark/v1",
       "required": [
         "schema",
         "generated_at_utc",
@@ -1436,6 +1665,7 @@
         "iterations",
         "modes"
       ],
+      "schema_id": "derived_views_benchmark/v1",
       "stable_properties": [
         "fixture_profile",
         "generated_at_utc",
@@ -1447,7 +1677,6 @@
     },
     {
       "path": "schemas/record_recovery_service_log.schema.json",
-      "schema_id": "record_recovery_service_log/v1",
       "required": [
         "schema",
         "ts_utc",
@@ -1455,6 +1684,7 @@
         "pid",
         "transport"
       ],
+      "schema_id": "record_recovery_service_log/v1",
       "stable_properties": [
         "caller",
         "candidate_count",
@@ -1482,7 +1712,6 @@
     },
     {
       "path": "schemas/record_recovery_boundary_check.schema.json",
-      "schema_id": "record_recovery_boundary_check/v1",
       "required": [
         "schema",
         "generated_at_utc",
@@ -1493,6 +1722,7 @@
         "legacy_shim_package",
         "findings"
       ],
+      "schema_id": "record_recovery_boundary_check/v1",
       "stable_properties": [
         "findings",
         "generated_at_utc",
@@ -1506,7 +1736,6 @@
     },
     {
       "path": "schemas/mainline_contract_check.schema.json",
-      "schema_id": "mainline_contract_check/v1",
       "required": [
         "schema",
         "generated_at_utc",
@@ -1519,6 +1748,7 @@
         "summary",
         "findings"
       ],
+      "schema_id": "mainline_contract_check/v1",
       "stable_properties": [
         "canonical_scope",
         "findings",
@@ -1537,7 +1767,6 @@
     },
     {
       "path": "schemas/schema_backcompat_check.schema.json",
-      "schema_id": "schema_backcompat_check/v1",
       "required": [
         "schema",
         "generated_at_utc",
@@ -1546,6 +1775,7 @@
         "failed_count",
         "checks"
       ],
+      "schema_id": "schema_backcompat_check/v1",
       "stable_properties": [
         "baseline_path",
         "checked_count",
@@ -1557,7 +1787,6 @@
     },
     {
       "path": "schemas/audit_seal.schema.json",
-      "schema_id": "audit_seal/v1",
       "required": [
         "schema",
         "ts_utc",
@@ -1570,6 +1799,7 @@
         "signature",
         "secret_source"
       ],
+      "schema_id": "audit_seal/v1",
       "stable_properties": [
         "artifact_file",
         "artifact_sha256",
@@ -1585,7 +1815,6 @@
     },
     {
       "path": "schemas/audit_archive_index.schema.json",
-      "schema_id": "audit_archive_index/v1",
       "required": [
         "schema",
         "ts_utc",
@@ -1607,6 +1836,7 @@
         "source_out_base",
         "mainline_contract_summary"
       ],
+      "schema_id": "audit_archive_index/v1",
       "stable_properties": [
         "archive_dir",
         "archived_audit_chain_file",
@@ -1632,7 +1862,6 @@
     },
     {
       "path": "schemas/audit_archive_anchor.schema.json",
-      "schema_id": "audit_archive_anchor/v1",
       "required": [
         "schema",
         "ts_utc",
@@ -1653,6 +1882,7 @@
         "signature",
         "secret_source"
       ],
+      "schema_id": "audit_archive_anchor/v1",
       "stable_properties": [
         "anchor_file",
         "archive_dir",
@@ -1677,7 +1907,6 @@
     },
     {
       "path": "schemas/external_audit_anchor_report.schema.json",
-      "schema_id": "external_audit_anchor_report/v1",
       "required": [
         "schema",
         "generated_at_utc",
@@ -1687,6 +1916,7 @@
         "summary",
         "records"
       ],
+      "schema_id": "external_audit_anchor_report/v1",
       "stable_properties": [
         "external_sink",
         "generated_at_utc",
@@ -1700,13 +1930,13 @@
     },
     {
       "path": "schemas/audit_bundle_verification.schema.json",
-      "schema_id": "audit_bundle_verification/v1",
       "required": [
         "schema",
         "ts_utc",
         "verified",
         "job_id"
       ],
+      "schema_id": "audit_bundle_verification/v1",
       "stable_properties": [
         "anchor_entry_sha256",
         "anchor_file",
@@ -1731,10 +1961,10 @@
     },
     {
       "path": "schemas/record_recovery_service_config.schema.json",
-      "schema_id": "record_recovery_service_config/v1",
       "required": [
         "schema"
       ],
+      "schema_id": "record_recovery_service_config/v1",
       "stable_properties": [
         "allowed_callers",
         "allowed_output_roots",
@@ -1753,17 +1983,18 @@
         "socket_path",
         "tenant_id",
         "tls",
-        "transport"
+        "transport",
+        "production_mode"
       ]
     },
     {
       "path": "schemas/record_recovery_authz_source.schema.json",
-      "schema_id": "record_recovery_authz_source/v1",
       "required": [
         "schema",
         "source_type",
         "db_path"
       ],
+      "schema_id": "record_recovery_authz_source/v1",
       "stable_properties": [
         "db_path",
         "policy_id",
@@ -1775,11 +2006,11 @@
     },
     {
       "path": "schemas/record_recovery_service_policy.schema.json",
-      "schema_id": "record_recovery_service_policy/v1",
       "required": [
         "schema",
         "callers"
       ],
+      "schema_id": "record_recovery_service_policy/v1",
       "stable_properties": [
         "callers",
         "schema"
@@ -1787,11 +2018,11 @@
     },
     {
       "path": "schemas/external_kms_config.schema.json",
-      "schema_id": "external_kms_config/v1",
       "required": [
         "schema",
         "endpoint_url"
       ],
+      "schema_id": "external_kms_config/v1",
       "stable_properties": [
         "admin_auth_token_env",
         "auth_token_env",
@@ -1803,11 +2034,11 @@
     },
     {
       "path": "schemas/keyring.schema.json",
-      "schema_id": "keyring/v1",
       "required": [
         "schema",
         "keys"
       ],
+      "schema_id": "keyring/v1",
       "stable_properties": [
         "keys",
         "schema"
@@ -1815,11 +2046,11 @@
     },
     {
       "path": "schemas/vault_kv_backend.schema.json",
-      "schema_id": "vault_kv_backend/v1",
       "required": [
         "schema",
         "secrets"
       ],
+      "schema_id": "vault_kv_backend/v1",
       "stable_properties": [
         "schema",
         "secrets"
@@ -1827,11 +2058,11 @@
     },
     {
       "path": "schemas/key_manifest.schema.json",
-      "schema_id": "key_manifest/v1",
       "required": [
         "schema",
         "keys"
       ],
+      "schema_id": "key_manifest/v1",
       "stable_properties": [
         "keys",
         "schema"
@@ -1839,7 +2070,6 @@
     },
     {
       "path": "schemas/bridge_audit.schema.json",
-      "schema_id": "bridge_audit/v1",
       "required": [
         "schema",
         "ts_unix_ms",
@@ -1849,6 +2079,7 @@
         "reason_code",
         "token_secret_source"
       ],
+      "schema_id": "bridge_audit/v1",
       "stable_properties": [
         "client_csv",
         "client_csv_sha256",
@@ -1895,7 +2126,6 @@
     },
     {
       "path": "schemas/bridge_job_meta.schema.json",
-      "schema_id": "bridge_job_meta/v1",
       "required": [
         "schema",
         "job_id",
@@ -1906,6 +2136,7 @@
         "inputs",
         "counts"
       ],
+      "schema_id": "bridge_job_meta/v1",
       "stable_properties": [
         "schema",
         "job_id",
@@ -1914,12 +2145,14 @@
         "input_sizes",
         "bridge",
         "inputs",
-        "counts"
+        "counts",
+        "bucket_policy",
+        "bucket_policy_sha256",
+        "shard_manifest_sha256"
       ]
     },
     {
       "path": "schemas/pjc_input_commitment.schema.json",
-      "schema_id": "pjc_input_commitment/v1",
       "required": [
         "schema",
         "job_id",
@@ -1932,6 +2165,7 @@
         "dedup_policy",
         "parties"
       ],
+      "schema_id": "pjc_input_commitment/v1",
       "stable_properties": [
         "schema",
         "job_id",
@@ -1942,12 +2176,71 @@
         "normalize_version",
         "normalizer_schema_version",
         "dedup_policy",
+        "bucket_scope",
+        "shard_scope",
         "parties"
       ]
     },
     {
+      "path": "schemas/pjc_protocol_security_evidence_gate.schema.json",
+      "required": [
+        "schema",
+        "generated_at_utc",
+        "status",
+        "repo_side_status",
+        "live_status",
+        "claim_status",
+        "repo_side_checks",
+        "live_checks",
+        "repo_side_boundary",
+        "live_boundary",
+        "claim_boundary",
+        "artifacts"
+      ],
+      "schema_id": "pjc_protocol_security_evidence_gate/v1",
+      "stable_properties": [
+        "artifacts",
+        "claim_boundary",
+        "claim_status",
+        "generated_at_utc",
+        "live_boundary",
+        "live_checks",
+        "live_status",
+        "repo_side_boundary",
+        "repo_side_checks",
+        "repo_side_status",
+        "schema",
+        "status"
+      ]
+    },
+    {
+      "path": "schemas/pjc_protocol_live_evidence_archive.schema.json",
+      "required": [
+        "schema",
+        "generated_at_utc",
+        "status",
+        "job_id",
+        "live_artifact_count",
+        "live_artifacts",
+        "findings",
+        "artifacts",
+        "aggregate_sha256"
+      ],
+      "schema_id": "pjc_protocol_live_evidence_archive/v1",
+      "stable_properties": [
+        "aggregate_sha256",
+        "artifacts",
+        "findings",
+        "generated_at_utc",
+        "job_id",
+        "live_artifact_count",
+        "live_artifacts",
+        "schema",
+        "status"
+      ]
+    },
+    {
       "path": "schemas/key_access_audit.schema.json",
-      "schema_id": "key_access_audit/v1",
       "required": [
         "schema",
         "ts_utc",
@@ -1962,6 +2255,7 @@
         "manifest_sha256",
         "secret_source"
       ],
+      "schema_id": "key_access_audit/v1",
       "stable_properties": [
         "schema",
         "ts_utc",
@@ -1983,7 +2277,6 @@
     },
     {
       "path": "schemas/key_lifecycle_audit.schema.json",
-      "schema_id": "key_lifecycle_audit/v1",
       "required": [
         "schema",
         "ts_utc",
@@ -1999,6 +2292,7 @@
         "keyring_sha256",
         "secret_source"
       ],
+      "schema_id": "key_lifecycle_audit/v1",
       "stable_properties": [
         "schema",
         "ts_utc",
@@ -2018,7 +2312,6 @@
     },
     {
       "path": "schemas/pjc_audit.schema.json",
-      "schema_id": "pjc_audit/v1",
       "required": [
         "schema",
         "ts_utc",
@@ -2041,6 +2334,7 @@
         "reason",
         "exit_code"
       ],
+      "schema_id": "pjc_audit/v1",
       "stable_properties": [
         "schema",
         "ts_utc",
@@ -2054,6 +2348,8 @@
         "client_csv_sha256",
         "input_commitment_file",
         "input_commitment_sha256",
+        "bucket_policy_sha256",
+        "shard_manifest_sha256",
         "server_log",
         "server_log_sha256",
         "client_log",
@@ -2069,7 +2365,6 @@
     },
     {
       "path": "schemas/policy_audit.schema.json",
-      "schema_id": "policy_audit/v1",
       "required": [
         "ts_utc",
         "event",
@@ -2093,6 +2388,7 @@
         "reason_code",
         "auth"
       ],
+      "schema_id": "policy_audit/v1",
       "stable_properties": [
         "ts_utc",
         "event",
@@ -2122,13 +2418,13 @@
         "reason",
         "reason_code",
         "released",
+        "governance",
         "privacy_budget",
         "auth"
       ]
     },
     {
       "path": "schemas/sse_bridge_export_audit.schema.json",
-      "schema_id": "sse_bridge_export_audit/v1",
       "required": [
         "schema",
         "ts_utc",
@@ -2139,6 +2435,7 @@
         "reason_code",
         "candidate_source"
       ],
+      "schema_id": "sse_bridge_export_audit/v1",
       "stable_properties": [
         "schema",
         "ts_utc",
@@ -2177,7 +2474,6 @@
     },
     {
       "path": "schemas/sse_encrypted_record_store.schema.json",
-      "schema_id": "sse_encrypted_record_store/v1",
       "required": [
         "schema",
         "kdf",
@@ -2186,6 +2482,7 @@
         "aead",
         "record_id_field"
       ],
+      "schema_id": "sse_encrypted_record_store/v1",
       "stable_properties": [
         "schema",
         "kdf",
@@ -2197,11 +2494,11 @@
     },
     {
       "path": "schemas/sse_export_policy.schema.json",
-      "schema_id": "sse_export_policy/v1",
       "required": [
         "schema",
         "callers"
       ],
+      "schema_id": "sse_export_policy/v1",
       "stable_properties": [
         "schema",
         "callers"
@@ -2209,7 +2506,6 @@
     },
     {
       "path": "schemas/sse_record_recovery_service_audit.schema.json",
-      "schema_id": "sse_record_recovery_service_audit/v1",
       "required": [
         "schema",
         "ts_utc",
@@ -2226,6 +2522,7 @@
         "reason_code",
         "reason"
       ],
+      "schema_id": "sse_record_recovery_service_audit/v1",
       "stable_properties": [
         "schema",
         "ts_utc",
@@ -2266,13 +2563,13 @@
     },
     {
       "path": "schemas/malformed_input_gate.schema.json",
-      "schema_id": "malformed_input_gate/v1",
       "required": [
         "schema",
         "generated_at_utc",
         "summary",
         "results"
       ],
+      "schema_id": "malformed_input_gate/v1",
       "stable_properties": [
         "generated_at_utc",
         "results",
@@ -2282,13 +2579,13 @@
     },
     {
       "path": "schemas/pre_release_gate.schema.json",
-      "schema_id": "pre_release_gate/v1",
       "required": [
         "schema",
         "generated_at_utc",
         "summary",
         "gates"
       ],
+      "schema_id": "pre_release_gate/v1",
       "stable_properties": [
         "gates",
         "generated_at_utc",
@@ -2298,7 +2595,6 @@
     },
     {
       "path": "schemas/repo_hygiene_scan.schema.json",
-      "schema_id": "repo_hygiene_scan/v1",
       "required": [
         "schema",
         "generated_at_utc",
@@ -2307,6 +2603,7 @@
         "summary",
         "findings"
       ],
+      "schema_id": "repo_hygiene_scan/v1",
       "stable_properties": [
         "findings",
         "generated_at_utc",
@@ -2318,7 +2615,6 @@
     },
     {
       "path": "schemas/dependency_hygiene.schema.json",
-      "schema_id": "dependency_hygiene/v1",
       "required": [
         "schema",
         "generated_at_utc",
@@ -2327,6 +2623,7 @@
         "summary",
         "findings"
       ],
+      "schema_id": "dependency_hygiene/v1",
       "stable_properties": [
         "findings",
         "generated_at_utc",
@@ -2337,8 +2634,53 @@
       ]
     },
     {
+      "path": "schemas/supply_chain_evidence.schema.json",
+      "required": [
+        "schema",
+        "generated_at_utc",
+        "status",
+        "summary",
+        "artifacts",
+        "sbom",
+        "provenance",
+        "advisory_policy",
+        "findings"
+      ],
+      "schema_id": "supply_chain_evidence/v1",
+      "stable_properties": [
+        "advisory_policy",
+        "artifacts",
+        "findings",
+        "generated_at_utc",
+        "provenance",
+        "schema",
+        "sbom",
+        "status",
+        "summary"
+      ]
+    },
+    {
+      "path": "schemas/legacy_sse_production_gate.schema.json",
+      "required": [
+        "schema",
+        "generated_at_utc",
+        "status",
+        "summary",
+        "checks",
+        "findings"
+      ],
+      "schema_id": "legacy_sse_production_gate/v1",
+      "stable_properties": [
+        "schema",
+        "generated_at_utc",
+        "status",
+        "summary",
+        "checks",
+        "findings"
+      ]
+    },
+    {
       "path": "schemas/operator_readiness.schema.json",
-      "schema_id": "operator_readiness/v1",
       "required": [
         "schema",
         "generated_at_utc",
@@ -2346,6 +2688,7 @@
         "checks",
         "env_var_catalog"
       ],
+      "schema_id": "operator_readiness/v1",
       "stable_properties": [
         "checks",
         "env_var_catalog",
@@ -2356,7 +2699,6 @@
     },
     {
       "path": "schemas/postgres_ddl_export.schema.json",
-      "schema_id": "postgres_ddl_export/v1",
       "required": [
         "schema",
         "postgres_ddl_path",
@@ -2372,6 +2714,7 @@
         "total_issues",
         "valid"
       ],
+      "schema_id": "postgres_ddl_export/v1",
       "stable_properties": [
         "column_parity_issues",
         "indexes",
@@ -2390,7 +2733,6 @@
     },
     {
       "path": "schemas/metadata_batch_reconcile.schema.json",
-      "schema_id": "metadata_batch_reconcile/v1",
       "required": [
         "schema",
         "generated_at_utc",
@@ -2400,6 +2742,7 @@
         "issues",
         "repair_actions"
       ],
+      "schema_id": "metadata_batch_reconcile/v1",
       "stable_properties": [
         "db_path",
         "generated_at_utc",
@@ -2412,7 +2755,6 @@
     },
     {
       "path": "schemas/mutation_log_query.schema.json",
-      "schema_id": "mutation_log_query/v1",
       "required": [
         "schema",
         "generated_at_utc",
@@ -2421,6 +2763,7 @@
         "pagination",
         "mutations"
       ],
+      "schema_id": "mutation_log_query/v1",
       "stable_properties": [
         "db_path",
         "filters",
@@ -2432,7 +2775,6 @@
     },
     {
       "path": "schemas/oidc_claim_map.schema.json",
-      "schema_id": "oidc_claim_map/v1",
       "required": [
         "schema",
         "generated_at_utc",
@@ -2450,6 +2792,7 @@
         "errors",
         "valid"
       ],
+      "schema_id": "oidc_claim_map/v1",
       "stable_properties": [
         "algorithm",
         "audience_ok",
@@ -2471,11 +2814,11 @@
     },
     {
       "path": "schemas/vault_http_client_result.schema.json",
-      "schema_id": "vault_http_client_result/v1",
       "required": [
         "schema",
         "generated_at_utc"
       ],
+      "schema_id": "vault_http_client_result/v1",
       "stable_properties": [
         "base_url",
         "error",
@@ -2497,7 +2840,6 @@
     },
     {
       "path": "schemas/issuer_credential_rotation.schema.json",
-      "schema_id": "issuer_credential_rotation/v1",
       "required": [
         "schema",
         "generated_at_utc",
@@ -2507,6 +2849,7 @@
         "key_rotation_count",
         "key_rotations"
       ],
+      "schema_id": "issuer_credential_rotation/v1",
       "stable_properties": [
         "error",
         "generated_at_utc",
@@ -2522,7 +2865,6 @@
     },
     {
       "path": "schemas/key_backend_drift.schema.json",
-      "schema_id": "key_backend_drift/v1",
       "required": [
         "schema",
         "generated_at_utc",
@@ -2533,6 +2875,7 @@
         "findings",
         "repair_actions"
       ],
+      "schema_id": "key_backend_drift/v1",
       "stable_properties": [
         "db_path",
         "findings",
@@ -2546,7 +2889,6 @@
     },
     {
       "path": "schemas/policy_drift.schema.json",
-      "schema_id": "policy_drift/v1",
       "required": [
         "schema",
         "generated_at_utc",
@@ -2556,6 +2898,7 @@
         "findings",
         "repair_actions"
       ],
+      "schema_id": "policy_drift/v1",
       "stable_properties": [
         "db_path",
         "findings",
@@ -2568,7 +2911,6 @@
     },
     {
       "path": "schemas/policy_change_proposal.schema.json",
-      "schema_id": "policy_change_proposal/v1",
       "required": [
         "schema",
         "generated_at_utc",
@@ -2585,6 +2927,7 @@
         "mode",
         "applied"
       ],
+      "schema_id": "policy_change_proposal/v1",
       "stable_properties": [
         "applied",
         "apply_result",
@@ -2607,7 +2950,6 @@
     },
     {
       "path": "schemas/observability_dashboard.schema.json",
-      "schema_id": "observability_dashboard/v1",
       "required": [
         "schema",
         "generated_at_utc",
@@ -2621,6 +2963,7 @@
         "panels",
         "health_summary"
       ],
+      "schema_id": "observability_dashboard/v1",
       "stable_properties": [
         "caller",
         "correlation_id",
@@ -2637,7 +2980,6 @@
     },
     {
       "path": "schemas/observability_alert_report.schema.json",
-      "schema_id": "observability_alert_report/v1",
       "required": [
         "schema",
         "generated_at_utc",
@@ -2650,6 +2992,7 @@
         "overall_status",
         "alerts"
       ],
+      "schema_id": "observability_alert_report/v1",
       "stable_properties": [
         "alert_count",
         "alerts",
@@ -2665,7 +3008,6 @@
     },
     {
       "path": "schemas/query_workflow_status_list.schema.json",
-      "schema_id": "query_workflow_status_list/v1",
       "required": [
         "schema",
         "generated_at_utc",
@@ -2677,6 +3019,7 @@
         "limit",
         "statuses"
       ],
+      "schema_id": "query_workflow_status_list/v1",
       "stable_properties": [
         "filter_job_id",
         "filter_state",
@@ -2691,7 +3034,6 @@
     },
     {
       "path": "schemas/workflow_retry_eligibility.schema.json",
-      "schema_id": "workflow_retry_eligibility/v1",
       "required": [
         "schema",
         "generated_at_utc",
@@ -2709,6 +3051,7 @@
         "reason",
         "triage_steps"
       ],
+      "schema_id": "workflow_retry_eligibility/v1",
       "stable_properties": [
         "caller",
         "correlation_id",
@@ -2729,7 +3072,6 @@
     },
     {
       "path": "schemas/operator_triage_report.schema.json",
-      "schema_id": "operator_triage_report/v1",
       "required": [
         "schema",
         "generated_at_utc",
@@ -2737,6 +3079,7 @@
         "overall_status",
         "sections"
       ],
+      "schema_id": "operator_triage_report/v1",
       "stable_properties": [
         "generated_at_utc",
         "out_base",
@@ -2747,7 +3090,6 @@
     },
     {
       "path": "schemas/identity_proxy_health.schema.json",
-      "schema_id": "identity_proxy_health/v1",
       "required": [
         "schema",
         "status",
@@ -2756,6 +3098,7 @@
         "port",
         "upstreams"
       ],
+      "schema_id": "identity_proxy_health/v1",
       "stable_properties": [
         "bind_host",
         "port",
@@ -2768,7 +3111,6 @@
     },
     {
       "path": "schemas/identity_proxy_auth_smoke.schema.json",
-      "schema_id": "identity_proxy_auth_smoke/v1",
       "required": [
         "schema",
         "generated_at_utc",
@@ -2777,6 +3119,7 @@
         "finding_count",
         "findings"
       ],
+      "schema_id": "identity_proxy_auth_smoke/v1",
       "stable_properties": [
         "checks",
         "finding_count",
@@ -2788,7 +3131,6 @@
     },
     {
       "path": "schemas/openfga_sync_report.schema.json",
-      "schema_id": "openfga_sync_report/v1",
       "required": [
         "schema",
         "generated_at_utc",
@@ -2802,6 +3144,7 @@
         "removed",
         "unchanged"
       ],
+      "schema_id": "openfga_sync_report/v1",
       "stable_properties": [
         "added",
         "generated_at_utc",
@@ -2818,7 +3161,6 @@
     },
     {
       "path": "schemas/openfga_check_result.schema.json",
-      "schema_id": "openfga_check_result/v1",
       "required": [
         "schema",
         "checked_at_utc",
@@ -2828,6 +3170,7 @@
         "object",
         "allowed"
       ],
+      "schema_id": "openfga_check_result/v1",
       "stable_properties": [
         "allowed",
         "checked_at_utc",
@@ -2840,12 +3183,12 @@
     },
     {
       "path": "schemas/openfga_config.schema.json",
-      "schema_id": "openfga_config/v1",
       "required": [
         "schema",
         "endpoint_url",
         "store_id"
       ],
+      "schema_id": "openfga_config/v1",
       "stable_properties": [
         "auth_token",
         "auth_token_env",
@@ -2857,7 +3200,6 @@
     },
     {
       "path": "schemas/kms_reachability_report.schema.json",
-      "schema_id": "kms_reachability_report/v1",
       "required": [
         "schema",
         "generated_at_utc",
@@ -2867,6 +3209,7 @@
         "unreachable_count",
         "checks"
       ],
+      "schema_id": "kms_reachability_report/v1",
       "stable_properties": [
         "checked_count",
         "checks",
@@ -2879,7 +3222,6 @@
     },
     {
       "path": "schemas/service_token_report.schema.json",
-      "schema_id": "service_token_report/v1",
       "required": [
         "schema",
         "generated_at_utc",
@@ -2887,6 +3229,7 @@
         "status",
         "service_id"
       ],
+      "schema_id": "service_token_report/v1",
       "stable_properties": [
         "error",
         "expires_at_utc",
@@ -2904,7 +3247,6 @@
     },
     {
       "path": "schemas/otel_export_report.schema.json",
-      "schema_id": "otel_export_report/v1",
       "required": [
         "schema",
         "generated_at_utc",
@@ -2914,6 +3256,7 @@
         "span_count",
         "spans_path"
       ],
+      "schema_id": "otel_export_report/v1",
       "stable_properties": [
         "caller",
         "correlation_id",
@@ -2932,7 +3275,6 @@
     },
     {
       "path": "schemas/operator_shell_regression_report.schema.json",
-      "schema_id": "operator_shell_regression_report/v1",
       "required": [
         "schema",
         "generated_at_utc",
@@ -2942,6 +3284,7 @@
         "checks_failed",
         "checks"
       ],
+      "schema_id": "operator_shell_regression_report/v1",
       "stable_properties": [
         "checks",
         "checks_failed",
@@ -2958,7 +3301,6 @@
     },
     {
       "path": "schemas/record_recovery_service_metrics.schema.json",
-      "schema_id": "record_recovery_service_metrics/v1",
       "required": [
         "schema",
         "generated_at_utc",
@@ -2972,6 +3314,7 @@
         "op_counts",
         "duration_ms"
       ],
+      "schema_id": "record_recovery_service_metrics/v1",
       "stable_properties": [
         "allow_count",
         "candidate_count_total",
@@ -3001,7 +3344,6 @@
     },
     {
       "path": "schemas/authority_governance_report.schema.json",
-      "schema_id": "authority_governance_report/v1",
       "required": [
         "schema",
         "generated_at_utc",
@@ -3009,6 +3351,7 @@
         "summary",
         "checks"
       ],
+      "schema_id": "authority_governance_report/v1",
       "stable_properties": [
         "checks",
         "generated_at_utc",
@@ -3019,7 +3362,6 @@
     },
     {
       "path": "schemas/control_plane_deepening_report.schema.json",
-      "schema_id": "control_plane_deepening_report/v1",
       "required": [
         "schema",
         "generated_at_utc",
@@ -3028,6 +3370,7 @@
         "summary",
         "actions"
       ],
+      "schema_id": "control_plane_deepening_report/v1",
       "stable_properties": [
         "actions",
         "db_path",
@@ -3038,13 +3381,67 @@
       ]
     },
     {
+      "path": "schemas/control_plane_deployment_evidence_gate.schema.json",
+      "required": [
+        "schema",
+        "generated_at_utc",
+        "status",
+        "repo_side_status",
+        "live_status",
+        "repo_side_checks",
+        "live_checks",
+        "repo_side_boundary",
+        "live_boundary",
+        "artifacts"
+      ],
+      "schema_id": "control_plane_deployment_evidence_gate/v1",
+      "stable_properties": [
+        "artifacts",
+        "generated_at_utc",
+        "live_boundary",
+        "live_checks",
+        "live_status",
+        "repo_side_boundary",
+        "repo_side_checks",
+        "repo_side_status",
+        "schema",
+        "status"
+      ]
+    },
+    {
+      "path": "schemas/control_plane_live_evidence_archive.schema.json",
+      "required": [
+        "schema",
+        "generated_at_utc",
+        "status",
+        "job_id",
+        "live_artifact_count",
+        "live_artifacts",
+        "findings",
+        "artifacts",
+        "aggregate_sha256"
+      ],
+      "schema_id": "control_plane_live_evidence_archive/v1",
+      "stable_properties": [
+        "aggregate_sha256",
+        "artifacts",
+        "findings",
+        "generated_at_utc",
+        "job_id",
+        "live_artifact_count",
+        "live_artifacts",
+        "schema",
+        "status"
+      ]
+    },
+    {
       "path": "schemas/vault_http_client_config.schema.json",
-      "schema_id": "vault_http_client_config/v1",
       "required": [
         "schema",
         "mount",
         "timeout_seconds"
       ],
+      "schema_id": "vault_http_client_config/v1",
       "stable_properties": [
         "approle_role_id_env",
         "approle_secret_id_env",
@@ -3059,7 +3456,6 @@
     },
     {
       "path": "schemas/oidc_client_credentials_report.schema.json",
-      "schema_id": "oidc_client_credentials_report/v1",
       "required": [
         "schema",
         "generated_at_utc",
@@ -3068,6 +3464,7 @@
         "token_endpoint",
         "client_id"
       ],
+      "schema_id": "oidc_client_credentials_report/v1",
       "stable_properties": [
         "access_token_redacted",
         "client_id",
@@ -3083,7 +3480,6 @@
     },
     {
       "path": "schemas/openfga_model_setup_report.schema.json",
-      "schema_id": "openfga_model_setup_report/v1",
       "required": [
         "schema",
         "generated_at_utc",
@@ -3092,6 +3488,7 @@
         "endpoint_url",
         "model_path"
       ],
+      "schema_id": "openfga_model_setup_report/v1",
       "stable_properties": [
         "authorization_model_id",
         "endpoint_url",
@@ -3107,7 +3504,6 @@
     },
     {
       "path": "schemas/mtls_cert_issue_report.schema.json",
-      "schema_id": "mtls_cert_issue_report/v1",
       "required": [
         "schema",
         "generated_at_utc",
@@ -3118,6 +3514,7 @@
         "common_name",
         "ttl_hours"
       ],
+      "schema_id": "mtls_cert_issue_report/v1",
       "stable_properties": [
         "common_name",
         "dns_sans",
@@ -3133,7 +3530,6 @@
     },
     {
       "path": "schemas/cloud_kms_adapter_result.schema.json",
-      "schema_id": "cloud_kms_adapter_result/v1",
       "required": [
         "schema",
         "generated_at_utc",
@@ -3141,6 +3537,7 @@
         "provider",
         "ok"
       ],
+      "schema_id": "cloud_kms_adapter_result/v1",
       "stable_properties": [
         "ciphertext_sha256",
         "generated_at_utc",
@@ -3154,7 +3551,6 @@
     },
     {
       "path": "schemas/k8s_network_policy_report.schema.json",
-      "schema_id": "k8s_network_policy_report/v1",
       "required": [
         "schema",
         "generated_at_utc",
@@ -3165,6 +3561,7 @@
         "pipeline_app",
         "manifests"
       ],
+      "schema_id": "k8s_network_policy_report/v1",
       "stable_properties": [
         "generated_at_utc",
         "manifests",
@@ -3178,7 +3575,6 @@
     },
     {
       "path": "schemas/k8s_recovery_service_topology_report.schema.json",
-      "schema_id": "k8s_recovery_service_topology_report/v1",
       "required": [
         "schema",
         "generated_at_utc",
@@ -3191,6 +3587,7 @@
         "container_port",
         "manifests"
       ],
+      "schema_id": "k8s_recovery_service_topology_report/v1",
       "stable_properties": [
         "container_port",
         "generated_at_utc",
@@ -3206,7 +3603,6 @@
     },
     {
       "path": "schemas/prometheus_alert_rules_report.schema.json",
-      "schema_id": "prometheus_alert_rules_report/v1",
       "required": [
         "schema",
         "generated_at_utc",
@@ -3217,6 +3613,7 @@
         "missing_alerts",
         "errors"
       ],
+      "schema_id": "prometheus_alert_rules_report/v1",
       "stable_properties": [
         "alerts",
         "errors",
@@ -3230,7 +3627,6 @@
     },
     {
       "path": "schemas/recovery_service_failover_test.schema.json",
-      "schema_id": "recovery_service_failover_test/v1",
       "required": [
         "schema",
         "generated_at_utc",
@@ -3243,6 +3639,7 @@
         "audit_integrity",
         "errors"
       ],
+      "schema_id": "recovery_service_failover_test/v1",
       "stable_properties": [
         "audit_integrity",
         "baseline_request",
@@ -3258,7 +3655,6 @@
     },
     {
       "path": "schemas/metadata_db_failover_test.schema.json",
-      "schema_id": "metadata_db_failover_test/v1",
       "required": [
         "schema",
         "generated_at_utc",
@@ -3270,6 +3666,7 @@
         "data_integrity",
         "errors"
       ],
+      "schema_id": "metadata_db_failover_test/v1",
       "stable_properties": [
         "baseline_query",
         "configuration",
@@ -3284,7 +3681,6 @@
     },
     {
       "path": "schemas/postgres_ha_topology_report.schema.json",
-      "schema_id": "postgres_ha_topology_report/v1",
       "required": [
         "schema",
         "generated_at_utc",
@@ -3301,6 +3697,7 @@
         "checks",
         "docker_compose_config"
       ],
+      "schema_id": "postgres_ha_topology_report/v1",
       "stable_properties": [
         "artifacts",
         "checks",
@@ -3320,7 +3717,6 @@
     },
     {
       "path": "schemas/patroni_failover_topology_report.schema.json",
-      "schema_id": "patroni_failover_topology_report/v1",
       "required": [
         "schema",
         "generated_at_utc",
@@ -3337,6 +3733,7 @@
         "checks",
         "docker_compose_config"
       ],
+      "schema_id": "patroni_failover_topology_report/v1",
       "stable_properties": [
         "artifacts",
         "checks",
@@ -3356,7 +3753,6 @@
     },
     {
       "path": "schemas/pgbouncer_topology_report.schema.json",
-      "schema_id": "pgbouncer_topology_report/v1",
       "required": [
         "schema",
         "generated_at_utc",
@@ -3380,6 +3776,7 @@
         "checks",
         "docker_compose_config"
       ],
+      "schema_id": "pgbouncer_topology_report/v1",
       "stable_properties": [
         "app_dsn",
         "artifacts",
@@ -3406,7 +3803,6 @@
     },
     {
       "path": "schemas/pjc_tls_diagnostic.schema.json",
-      "schema_id": "pjc_tls_diagnostic/v1",
       "required": [
         "schema",
         "generated_at_utc",
@@ -3423,6 +3819,7 @@
         "server_log",
         "suggested_action"
       ],
+      "schema_id": "pjc_tls_diagnostic/v1",
       "stable_properties": [
         "category",
         "decision",
@@ -3443,7 +3840,6 @@
     },
     {
       "path": "schemas/release_policy_gate_config.schema.json",
-      "schema_id": "release_policy_gate_config/v1",
       "required": [
         "schema",
         "require_dp",
@@ -3451,6 +3847,7 @@
         "require_privacy_budget",
         "allowed_deny_reason_codes"
       ],
+      "schema_id": "release_policy_gate_config/v1",
       "stable_properties": [
         "allowed_deny_reason_codes",
         "budget_ledger_path",
@@ -3458,16 +3855,21 @@
         "max_dp_epsilon",
         "min_dp_epsilon",
         "min_k",
+        "max_source_attestation_age_hours",
         "require_dp",
+        "require_bound_input_commitment",
+        "require_external_anchor",
         "require_pjc_evidence_merge",
         "require_privacy_budget",
         "require_public_report_redaction",
+        "require_signed_signoff",
+        "require_source_attestation",
+        "strict_source_attestation",
         "schema"
       ]
     },
     {
       "path": "schemas/release_policy_gate.schema.json",
-      "schema_id": "release_policy_gate/v1",
       "required": [
         "schema",
         "generated_at_utc",
@@ -3476,10 +3878,12 @@
         "public_report_path",
         "checks"
       ],
+      "schema_id": "release_policy_gate/v1",
       "stable_properties": [
         "caller",
         "checks",
         "decision",
+        "external_anchor_report_path",
         "findings",
         "generated_at_utc",
         "job_id",
@@ -3491,12 +3895,13 @@
         "public_report_sha256",
         "reason",
         "reason_code",
+        "source_attestation_path",
+        "source_truthfulness_report_path",
         "schema"
       ]
     },
     {
       "path": "schemas/pjc_two_party_negative_cases.schema.json",
-      "schema_id": "pjc_two_party_negative_cases/v1",
       "required": [
         "schema",
         "generated_at_utc",
@@ -3506,6 +3911,7 @@
         "required_cases",
         "cases"
       ],
+      "schema_id": "pjc_two_party_negative_cases/v1",
       "stable_properties": [
         "cases",
         "decision",
@@ -3519,7 +3925,6 @@
     },
     {
       "path": "schemas/pjc_two_party_evidence_merge.schema.json",
-      "schema_id": "pjc_two_party_evidence_merge/v1",
       "required": [
         "schema",
         "generated_at_utc",
@@ -3531,6 +3936,7 @@
         "checks",
         "findings"
       ],
+      "schema_id": "pjc_two_party_evidence_merge/v1",
       "stable_properties": [
         "checks",
         "decision",
@@ -3546,7 +3952,6 @@
     },
     {
       "path": "schemas/pjc_two_party_signed_run_manifest.schema.json",
-      "schema_id": "pjc_two_party_signed_run_manifest/v1",
       "required": [
         "schema",
         "signature_algorithm",
@@ -3557,6 +3962,7 @@
         "public_key_pem",
         "public_key_fingerprint_sha256"
       ],
+      "schema_id": "pjc_two_party_signed_run_manifest/v1",
       "stable_properties": [
         "canonicalization",
         "payload",
@@ -3570,7 +3976,6 @@
     },
     {
       "path": "schemas/pjc_role_status.schema.json",
-      "schema_id": "pjc_role_status/v1",
       "required": [
         "schema",
         "generated_at_utc",
@@ -3578,6 +3983,7 @@
         "role",
         "state"
       ],
+      "schema_id": "pjc_role_status/v1",
       "stable_properties": [
         "cancel_reason",
         "cert_dir",
@@ -3605,7 +4011,6 @@
     },
     {
       "path": "schemas/pjc_role_package.schema.json",
-      "schema_id": "pjc_role_package/v1",
       "required": [
         "schema",
         "generated_at_utc",
@@ -3618,6 +4023,7 @@
         "ports",
         "policy"
       ],
+      "schema_id": "pjc_role_package/v1",
       "stable_properties": [
         "exported_dir",
         "files",
@@ -3638,7 +4044,6 @@
     },
     {
       "path": "schemas/pjc_two_party_preflight.schema.json",
-      "schema_id": "pjc_two_party_preflight/v1",
       "required": [
         "schema",
         "generated_at_utc",
@@ -3649,6 +4054,7 @@
         "checks",
         "findings"
       ],
+      "schema_id": "pjc_two_party_preflight/v1",
       "stable_properties": [
         "checks",
         "decision",
@@ -3668,7 +4074,6 @@
     },
     {
       "path": "schemas/bridge_benchmark.schema.json",
-      "schema_id": "bridge_benchmark/v1",
       "required": [
         "schema",
         "generated_at_utc",
@@ -3681,6 +4086,7 @@
         "iterations",
         "modes"
       ],
+      "schema_id": "bridge_benchmark/v1",
       "stable_properties": [
         "bridge_cwd",
         "fixture_profile",
@@ -3696,7 +4102,6 @@
     },
     {
       "path": "schemas/pjc_benchmark.schema.json",
-      "schema_id": "pjc_benchmark/v1",
       "required": [
         "schema",
         "generated_at_utc",
@@ -3706,6 +4111,7 @@
         "iterations",
         "modes"
       ],
+      "schema_id": "pjc_benchmark/v1",
       "stable_properties": [
         "expected_result",
         "generated_at_utc",
@@ -3718,7 +4124,6 @@
     },
     {
       "path": "schemas/pipeline_slo_benchmark.schema.json",
-      "schema_id": "pipeline_slo_benchmark/v1",
       "required": [
         "schema",
         "generated_at_utc",
@@ -3733,6 +4138,7 @@
         "validation",
         "run"
       ],
+      "schema_id": "pipeline_slo_benchmark/v1",
       "stable_properties": [
         "artifacts",
         "command",
@@ -3750,7 +4156,6 @@
     },
     {
       "path": "schemas/dashboard_jobs_benchmark.schema.json",
-      "schema_id": "dashboard_jobs_benchmark/v1",
       "required": [
         "schema",
         "generated_at_utc",
@@ -3761,6 +4166,7 @@
         "start_requests",
         "dashboard_reads"
       ],
+      "schema_id": "dashboard_jobs_benchmark/v1",
       "stable_properties": [
         "configuration",
         "dashboard_reads",
@@ -3774,7 +4180,6 @@
     },
     {
       "path": "schemas/audit_tamper_resistance.schema.json",
-      "schema_id": "audit_tamper_resistance/v1",
       "required": [
         "schema",
         "generated_at_utc",
@@ -3784,6 +4189,7 @@
         "scenarios",
         "summary"
       ],
+      "schema_id": "audit_tamper_resistance/v1",
       "stable_properties": [
         "audit_chain_path",
         "audit_seal_path",
@@ -3796,7 +4202,6 @@
     },
     {
       "path": "schemas/chaos_test_report.schema.json",
-      "schema_id": "chaos_test_report/v1",
       "required": [
         "schema",
         "generated_at_utc",
@@ -3805,6 +4210,7 @@
         "scenarios",
         "summary"
       ],
+      "schema_id": "chaos_test_report/v1",
       "stable_properties": [
         "duration_ms",
         "generated_at_utc",
@@ -3816,7 +4222,6 @@
     },
     {
       "path": "schemas/http_malformed_input_gate.schema.json",
-      "schema_id": "http_malformed_input_gate/v1",
       "required": [
         "schema",
         "generated_at_utc",
@@ -3826,6 +4231,7 @@
         "summary",
         "scenarios"
       ],
+      "schema_id": "http_malformed_input_gate/v1",
       "stable_properties": [
         "configuration",
         "endpoint",
@@ -3838,7 +4244,6 @@
     },
     {
       "path": "schemas/recovery_mtls_benchmark.schema.json",
-      "schema_id": "recovery_mtls_benchmark/v1",
       "required": [
         "schema",
         "generated_at_utc",
@@ -3846,6 +4251,7 @@
         "summary",
         "transports"
       ],
+      "schema_id": "recovery_mtls_benchmark/v1",
       "stable_properties": [
         "configuration",
         "generated_at_utc",
@@ -3856,7 +4262,6 @@
     },
     {
       "path": "schemas/observability_topology_report.schema.json",
-      "schema_id": "observability_topology_report/v1",
       "required": [
         "schema",
         "generated_at_utc",
@@ -3869,6 +4274,7 @@
         "grafana_dashboards",
         "summary"
       ],
+      "schema_id": "observability_topology_report/v1",
       "stable_properties": [
         "compose_file",
         "generated_at_utc",
@@ -3883,8 +4289,33 @@
       ]
     },
     {
+      "path": "schemas/live_rollout_collection_report.schema.json",
+      "required": [
+        "schema",
+        "generated_at_utc",
+        "module_name",
+        "status",
+        "checks",
+        "required_artifacts",
+        "provided_artifacts",
+        "outputs",
+        "findings"
+      ],
+      "schema_id": "live_rollout_collection_report/v1",
+      "stable_properties": [
+        "checks",
+        "findings",
+        "generated_at_utc",
+        "module_name",
+        "outputs",
+        "provided_artifacts",
+        "required_artifacts",
+        "schema",
+        "status"
+      ]
+    },
+    {
       "path": "schemas/ecommerce_fact_layer_report.schema.json",
-      "schema_id": "ecommerce_fact_layer_report/v1",
       "required": [
         "schema",
         "generated_at_utc",
@@ -3892,6 +4323,7 @@
         "tables",
         "summary"
       ],
+      "schema_id": "ecommerce_fact_layer_report/v1",
       "stable_properties": [
         "generated_at_utc",
         "migration_path",
@@ -3902,7 +4334,6 @@
     },
     {
       "path": "schemas/console_token_storage_check.schema.json",
-      "schema_id": "console_token_storage_check/v1",
       "required": [
         "schema",
         "generated_at_utc",
@@ -3911,6 +4342,7 @@
         "finding_count",
         "findings"
       ],
+      "schema_id": "console_token_storage_check/v1",
       "stable_properties": [
         "fetch_credentials_same_origin",
         "finding_count",
@@ -3923,7 +4355,6 @@
     },
     {
       "path": "schemas/console_browser_session_check.schema.json",
-      "schema_id": "console_browser_session_check/v1",
       "required": [
         "schema",
         "generated_at_utc",
@@ -3932,6 +4363,7 @@
         "finding_count",
         "findings"
       ],
+      "schema_id": "console_browser_session_check/v1",
       "stable_properties": [
         "checks",
         "finding_count",
@@ -3942,8 +4374,31 @@
       ]
     },
     {
+      "path": "schemas/console_release_gate_check.schema.json",
+      "required": [
+        "schema",
+        "generated_at_utc",
+        "status",
+        "summary",
+        "package",
+        "release_workflow",
+        "ci_workflow",
+        "findings"
+      ],
+      "schema_id": "console_release_gate_check/v1",
+      "stable_properties": [
+        "ci_workflow",
+        "findings",
+        "generated_at_utc",
+        "package",
+        "release_workflow",
+        "schema",
+        "status",
+        "summary"
+      ]
+    },
+    {
       "path": "schemas/console_security_headers_check.schema.json",
-      "schema_id": "console_security_headers_check/v1",
       "required": [
         "checks",
         "finding_count",
@@ -3952,6 +4407,7 @@
         "schema",
         "status"
       ],
+      "schema_id": "console_security_headers_check/v1",
       "stable_properties": [
         "checks",
         "finding_count",
@@ -3963,13 +4419,13 @@
     },
     {
       "path": "schemas/console_manifest.schema.json",
-      "schema_id": "console_manifest/v1",
       "required": [
         "schema",
         "generated_at_utc",
         "title",
         "sections"
       ],
+      "schema_id": "console_manifest/v1",
       "stable_properties": [
         "feature_flags",
         "generated_at_utc",
@@ -3980,7 +4436,6 @@
     },
     {
       "path": "schemas/operator_console_manifest_report.schema.json",
-      "schema_id": "operator_console_manifest_report/v1",
       "required": [
         "schema",
         "generated_at_utc",
@@ -3989,6 +4444,7 @@
         "manifest",
         "summary"
       ],
+      "schema_id": "operator_console_manifest_report/v1",
       "stable_properties": [
         "generated_at_utc",
         "manifest",
@@ -3999,8 +4455,27 @@
       ]
     },
     {
+      "path": "schemas/console_business_access_workbench_check.schema.json",
+      "required": [
+        "schema",
+        "generated_at_utc",
+        "status",
+        "checked_files",
+        "finding_count",
+        "findings"
+      ],
+      "schema_id": "console_business_access_workbench_check/v1",
+      "stable_properties": [
+        "schema",
+        "generated_at_utc",
+        "status",
+        "checked_files",
+        "finding_count",
+        "findings"
+      ]
+    },
+    {
       "path": "schemas/operator_request_submission.schema.json",
-      "schema_id": "operator_request_submission/v1",
       "required": [
         "schema",
         "submission_id",
@@ -4019,6 +4494,7 @@
         "authenticated_identity",
         "transitions"
       ],
+      "schema_id": "operator_request_submission/v1",
       "stable_properties": [
         "approved_at_utc",
         "approved_by",
@@ -4049,7 +4525,6 @@
     },
     {
       "path": "schemas/operator_request_submission_list.schema.json",
-      "schema_id": "operator_request_submission_list/v1",
       "required": [
         "schema",
         "status",
@@ -4057,6 +4532,7 @@
         "limit",
         "submissions"
       ],
+      "schema_id": "operator_request_submission_list/v1",
       "stable_properties": [
         "filter_status",
         "limit",
@@ -4069,7 +4545,6 @@
     },
     {
       "path": "schemas/operator_dashboard_public_summary.schema.json",
-      "schema_id": "operator_dashboard_public_summary/v1",
       "required": [
         "schema",
         "generated_at_utc",
@@ -4082,6 +4557,7 @@
         "artifacts",
         "redaction"
       ],
+      "schema_id": "operator_dashboard_public_summary/v1",
       "stable_properties": [
         "artifacts",
         "authenticated_identity",
@@ -4097,7 +4573,6 @@
     },
     {
       "path": "schemas/operator_dashboard_public_summary_smoke.schema.json",
-      "schema_id": "operator_dashboard_public_summary_smoke/v1",
       "required": [
         "schema",
         "status",
@@ -4110,6 +4585,7 @@
         "admin_full_job_status",
         "admin_exact_result_status"
       ],
+      "schema_id": "operator_dashboard_public_summary_smoke/v1",
       "stable_properties": [
         "admin_full_view",
         "normal_schema",
@@ -4125,7 +4601,6 @@
     },
     {
       "path": "schemas/alert_daemon_heartbeat.schema.json",
-      "schema_id": "alert_daemon_heartbeat/v1",
       "required": [
         "schema",
         "iteration",
@@ -4139,6 +4614,7 @@
         "transitions",
         "duration_ms"
       ],
+      "schema_id": "alert_daemon_heartbeat/v1",
       "stable_properties": [
         "alert_count",
         "alert_state_summary",
@@ -4157,7 +4633,6 @@
     },
     {
       "path": "schemas/ecommerce_fact_import_result.schema.json",
-      "schema_id": "ecommerce_fact_import_result/v1",
       "required": [
         "schema",
         "generated_at_utc",
@@ -4173,6 +4648,7 @@
         "table_row_count_after",
         "transaction"
       ],
+      "schema_id": "ecommerce_fact_import_result/v1",
       "stable_properties": [
         "database_backend",
         "decision",
@@ -4192,7 +4668,6 @@
     },
     {
       "path": "schemas/ecommerce_fact_import_smoke.schema.json",
-      "schema_id": "ecommerce_fact_import_smoke/v1",
       "required": [
         "schema",
         "status",
@@ -4204,12 +4679,19 @@
         "duplicate_transaction",
         "final_order_count"
       ],
+      "schema_id": "ecommerce_fact_import_smoke/v1",
       "stable_properties": [
         "allow_decision",
         "allow_transaction",
+        "customer_service_allow_decision",
+        "delivery_legs_allow_decision",
+        "delivery_legs_sensitive_decision",
         "duplicate_decision",
         "duplicate_transaction",
+        "final_delivery_leg_count",
         "final_order_count",
+        "order_attribution_allow_decision",
+        "order_payment_allow_decision",
         "schema",
         "sensitive_decision",
         "sensitive_transaction",
@@ -4217,8 +4699,1044 @@
       ]
     },
     {
+      "path": "schemas/ecommerce_fact_import_job_smoke.schema.json",
+      "required": [
+        "schema",
+        "generated_at_utc",
+        "status",
+        "allow_job_status",
+        "allow_result_decision",
+        "allow_inserted_row_count",
+        "reject_job_status",
+        "reject_result_decision",
+        "reject_reason_code",
+        "orders_row_count_after_allow",
+        "orders_row_count_after_reject"
+      ],
+      "schema_id": "ecommerce_fact_import_job_smoke/v1",
+      "stable_properties": [
+        "schema",
+        "generated_at_utc",
+        "status",
+        "allow_job_status",
+        "allow_result_decision",
+        "allow_inserted_row_count",
+        "reject_job_status",
+        "reject_result_decision",
+        "reject_reason_code",
+        "orders_row_count_after_allow",
+        "orders_row_count_after_reject"
+      ]
+    },
+    {
+      "path": "schemas/query_workflow_identity_scope_smoke.schema.json",
+      "required": [
+        "schema",
+        "status",
+        "dry_run_identity_caller",
+        "caller_spoof_status",
+        "tenant_spoof_status",
+        "dataset_spoof_status",
+        "recovery_allowed_service_id",
+        "recovery_spoof_status",
+        "execute_forbidden_status",
+        "execute_allowed_http_status",
+        "execute_allowed_identity_caller",
+        "status_caller"
+      ],
+      "schema_id": "query_workflow_identity_scope_smoke/v1",
+      "stable_properties": [
+        "caller_spoof_status",
+        "dataset_spoof_status",
+        "dry_run_identity_caller",
+        "execute_allowed_http_status",
+        "execute_allowed_identity_caller",
+        "execute_forbidden_status",
+        "recovery_allowed_service_id",
+        "recovery_spoof_status",
+        "schema",
+        "status",
+        "status_caller",
+        "status_cross_caller_forbidden_status",
+        "tenant_spoof_status"
+      ]
+    },
+    {
+      "path": "schemas/identity_jwks_evidence_gate.schema.json",
+      "required": [
+        "schema",
+        "generated_at_utc",
+        "status",
+        "checks",
+        "repo_side_boundary",
+        "artifacts"
+      ],
+      "schema_id": "identity_jwks_evidence_gate/v1",
+      "stable_properties": [
+        "artifacts",
+        "checks",
+        "generated_at_utc",
+        "repo_side_boundary",
+        "schema",
+        "status"
+      ]
+    },
+    {
+      "path": "schemas/live_identity_authority_evidence_gate.schema.json",
+      "required": [
+        "schema",
+        "generated_at_utc",
+        "status",
+        "repo_side_status",
+        "live_status",
+        "repo_side_checks",
+        "live_checks",
+        "repo_side_boundary",
+        "live_boundary",
+        "artifacts"
+      ],
+      "schema_id": "live_identity_authority_evidence_gate/v1",
+      "stable_properties": [
+        "artifacts",
+        "generated_at_utc",
+        "live_boundary",
+        "live_checks",
+        "live_status",
+        "repo_side_boundary",
+        "repo_side_checks",
+        "repo_side_status",
+        "schema",
+        "status"
+      ]
+    },
+    {
+      "path": "schemas/pjc_binary_capability_gate.schema.json",
+      "required": [
+        "schema",
+        "generated_at_utc",
+        "status",
+        "workspace",
+        "requested_bin_dir",
+        "convenience_bin_dir",
+        "real_bazel_bin_dir",
+        "resolved_bin_dir",
+        "require_streaming",
+        "checks",
+        "findings",
+        "binaries",
+        "sources"
+      ],
+      "schema_id": "pjc_binary_capability_gate/v1",
+      "stable_properties": [
+        "binaries",
+        "checks",
+        "convenience_bin_dir",
+        "findings",
+        "generated_at_utc",
+        "real_bazel_bin_dir",
+        "requested_bin_dir",
+        "require_streaming",
+        "resolved_bin_dir",
+        "schema",
+        "sources",
+        "status",
+        "workspace"
+      ]
+    },
+    {
+      "path": "schemas/pjc_resource_isolation_evidence_gate.schema.json",
+      "required": [
+        "schema",
+        "generated_at_utc",
+        "status",
+        "repo_side_status",
+        "live_status",
+        "repo_side_checks",
+        "live_checks",
+        "repo_side_boundary",
+        "live_boundary",
+        "artifacts"
+      ],
+      "schema_id": "pjc_resource_isolation_evidence_gate/v1",
+      "stable_properties": [
+        "artifacts",
+        "generated_at_utc",
+        "live_boundary",
+        "live_checks",
+        "live_status",
+        "repo_side_boundary",
+        "repo_side_checks",
+        "repo_side_status",
+        "schema",
+        "status"
+      ]
+    },
+    {
+      "path": "schemas/pjc_resource_isolation_live_evidence_archive.schema.json",
+      "required": [
+        "schema",
+        "generated_at_utc",
+        "status",
+        "job_id",
+        "live_artifact_count",
+        "live_artifacts",
+        "findings",
+        "artifacts",
+        "aggregate_sha256"
+      ],
+      "schema_id": "pjc_resource_isolation_live_evidence_archive/v1",
+      "stable_properties": [
+        "aggregate_sha256",
+        "artifacts",
+        "findings",
+        "generated_at_utc",
+        "job_id",
+        "live_artifact_count",
+        "live_artifacts",
+        "schema",
+        "status"
+      ]
+    },
+    {
+      "path": "schemas/s7_k3_evidence_integrity_report.schema.json",
+      "required": [
+        "schema",
+        "generated_at_utc",
+        "status",
+        "inputs",
+        "s7_result",
+        "identity_checks",
+        "k3_assessment",
+        "checks",
+        "errors",
+        "evidence_hashes"
+      ],
+      "schema_id": "s7_k3_evidence_integrity_report/v1",
+      "stable_properties": [
+        "checks",
+        "errors",
+        "evidence_hashes",
+        "generated_at_utc",
+        "identity_checks",
+        "inputs",
+        "k3_assessment",
+        "s7_result",
+        "schema",
+        "status"
+      ]
+    },
+    {
+      "path": "schemas/public_two_host_live_materialization_report.schema.json",
+      "required": [
+        "schema",
+        "generated_at_utc",
+        "status",
+        "job_id",
+        "source_job_dir",
+        "source_session_dir",
+        "out_dir",
+        "parties",
+        "session_materials",
+        "runtime_hints",
+        "contamination_summary",
+        "findings"
+      ],
+      "schema_id": "public_two_host_live_materialization_report/v1",
+      "stable_properties": [
+        "contamination_summary",
+        "findings",
+        "generated_at_utc",
+        "job_id",
+        "out_dir",
+        "parties",
+        "runtime_hints",
+        "schema",
+        "session_materials",
+        "source_job_dir",
+        "source_session_dir",
+        "status"
+      ]
+    },
+    {
+      "path": "schemas/pjc_tls_readiness.schema.json",
+      "required": [
+        "schema",
+        "generated_at_utc",
+        "status",
+        "job_id",
+        "role",
+        "peer_host",
+        "peer_port",
+        "server_hostname",
+        "diagnostic",
+        "ready"
+      ],
+      "schema_id": "pjc_tls_readiness/v1",
+      "stable_properties": [
+        "diagnostic",
+        "generated_at_utc",
+        "job_id",
+        "peer_host",
+        "peer_port",
+        "ready",
+        "role",
+        "schema",
+        "server_hostname",
+        "status"
+      ]
+    },
+    {
+      "path": "schemas/public_two_host_live_evidence_archive.schema.json",
+      "required": [
+        "schema",
+        "generated_at_utc",
+        "status",
+        "job_id",
+        "peer_host",
+        "peer_port",
+        "server_hostname",
+        "bucket_count",
+        "merged_result",
+        "bucket_results",
+        "tls_identity",
+        "cleanroom_materialization_report",
+        "artifacts",
+        "aggregate_sha256"
+      ],
+      "schema_id": "public_two_host_live_evidence_archive/v1",
+      "stable_properties": [
+        "aggregate_sha256",
+        "artifacts",
+        "bucket_count",
+        "bucket_results",
+        "cleanroom_materialization_report",
+        "generated_at_utc",
+        "job_id",
+        "merged_result",
+        "peer_host",
+        "peer_port",
+        "schema",
+        "server_hostname",
+        "status",
+        "tls_identity"
+      ]
+    },
+    {
+      "path": "schemas/public_two_host_production_readiness_gate.schema.json",
+      "required": [
+        "schema",
+        "generated_at_utc",
+        "status",
+        "repo_side_status",
+        "live_status",
+        "repo_side_checks",
+        "live_checks",
+        "verifier_view",
+        "repo_side_boundary",
+        "live_boundary",
+        "artifacts"
+      ],
+      "schema_id": "public_two_host_production_readiness_gate/v1",
+      "stable_properties": [
+        "artifacts",
+        "generated_at_utc",
+        "live_boundary",
+        "live_checks",
+        "live_status",
+        "repo_side_boundary",
+        "repo_side_checks",
+        "repo_side_status",
+        "schema",
+        "status",
+        "verifier_view"
+      ]
+    },
+    {
+      "path": "schemas/spiffe_envoy_identity_gate.schema.json",
+      "required": [
+        "schema",
+        "generated_at_utc",
+        "status",
+        "repo_side_status",
+        "live_status",
+        "repo_side_checks",
+        "live_checks",
+        "repo_side_boundary",
+        "live_boundary",
+        "artifacts"
+      ],
+      "schema_id": "spiffe_envoy_identity_gate/v1",
+      "stable_properties": [
+        "artifacts",
+        "generated_at_utc",
+        "live_boundary",
+        "live_checks",
+        "live_status",
+        "repo_side_boundary",
+        "repo_side_checks",
+        "repo_side_status",
+        "schema",
+        "status"
+      ]
+    },
+    {
+      "path": "schemas/spiffe_envoy_live_evidence_archive.schema.json",
+      "required": [
+        "schema",
+        "generated_at_utc",
+        "status",
+        "job_id",
+        "templates_dir",
+        "live_artifact_count",
+        "live_artifacts",
+        "findings",
+        "artifacts",
+        "aggregate_sha256"
+      ],
+      "schema_id": "spiffe_envoy_live_evidence_archive/v1",
+      "stable_properties": [
+        "aggregate_sha256",
+        "artifacts",
+        "findings",
+        "generated_at_utc",
+        "job_id",
+        "live_artifact_count",
+        "live_artifacts",
+        "schema",
+        "status",
+        "templates_dir"
+      ]
+    },
+    {
+      "path": "schemas/external_anchor_evidence_gate.schema.json",
+      "required": [
+        "schema",
+        "generated_at_utc",
+        "status",
+        "repo_side_status",
+        "live_status",
+        "repo_side_checks",
+        "live_checks",
+        "repo_side_boundary",
+        "live_boundary",
+        "artifacts"
+      ],
+      "schema_id": "external_anchor_evidence_gate/v1",
+      "stable_properties": [
+        "artifacts",
+        "generated_at_utc",
+        "live_boundary",
+        "live_checks",
+        "live_status",
+        "repo_side_boundary",
+        "repo_side_checks",
+        "repo_side_status",
+        "schema",
+        "status"
+      ]
+    },
+    {
+      "path": "schemas/external_anchor_live_evidence_archive.schema.json",
+      "required": [
+        "schema",
+        "generated_at_utc",
+        "status",
+        "job_id",
+        "live_artifact_count",
+        "live_artifacts",
+        "findings",
+        "artifacts",
+        "aggregate_sha256"
+      ],
+      "schema_id": "external_anchor_live_evidence_archive/v1",
+      "stable_properties": [
+        "aggregate_sha256",
+        "artifacts",
+        "findings",
+        "generated_at_utc",
+        "job_id",
+        "live_artifact_count",
+        "live_artifacts",
+        "schema",
+        "status"
+      ]
+    },
+    {
+      "path": "schemas/postgres_ha_evidence_gate.schema.json",
+      "required": [
+        "schema",
+        "generated_at_utc",
+        "status",
+        "repo_side_status",
+        "live_status",
+        "repo_side_checks",
+        "live_checks",
+        "repo_side_boundary",
+        "live_boundary",
+        "artifacts"
+      ],
+      "schema_id": "postgres_ha_evidence_gate/v1",
+      "stable_properties": [
+        "artifacts",
+        "generated_at_utc",
+        "live_boundary",
+        "live_checks",
+        "live_status",
+        "repo_side_boundary",
+        "repo_side_checks",
+        "repo_side_status",
+        "schema",
+        "status"
+      ]
+    },
+    {
+      "path": "schemas/postgres_ha_live_evidence_archive.schema.json",
+      "required": [
+        "schema",
+        "generated_at_utc",
+        "status",
+        "job_id",
+        "live_artifact_count",
+        "live_artifacts",
+        "findings",
+        "artifacts",
+        "aggregate_sha256"
+      ],
+      "schema_id": "postgres_ha_live_evidence_archive/v1",
+      "stable_properties": [
+        "aggregate_sha256",
+        "artifacts",
+        "findings",
+        "generated_at_utc",
+        "job_id",
+        "live_artifact_count",
+        "live_artifacts",
+        "schema",
+        "status"
+      ]
+    },
+    {
+      "path": "schemas/supply_chain_evidence_gate.schema.json",
+      "required": [
+        "schema",
+        "generated_at_utc",
+        "status",
+        "repo_side_status",
+        "live_status",
+        "repo_side_checks",
+        "live_checks",
+        "repo_side_boundary",
+        "live_boundary",
+        "artifacts"
+      ],
+      "schema_id": "supply_chain_evidence_gate/v1",
+      "stable_properties": [
+        "artifacts",
+        "generated_at_utc",
+        "live_boundary",
+        "live_checks",
+        "live_status",
+        "repo_side_boundary",
+        "repo_side_checks",
+        "repo_side_status",
+        "schema",
+        "status"
+      ]
+    },
+    {
+      "path": "schemas/supply_chain_live_evidence_archive.schema.json",
+      "required": [
+        "schema",
+        "generated_at_utc",
+        "status",
+        "job_id",
+        "live_artifact_count",
+        "live_artifacts",
+        "findings",
+        "artifacts",
+        "aggregate_sha256"
+      ],
+      "schema_id": "supply_chain_live_evidence_archive/v1",
+      "stable_properties": [
+        "aggregate_sha256",
+        "artifacts",
+        "findings",
+        "generated_at_utc",
+        "job_id",
+        "live_artifact_count",
+        "live_artifacts",
+        "schema",
+        "status"
+      ]
+    },
+    {
+      "path": "schemas/authority_evidence_gate.schema.json",
+      "required": [
+        "schema",
+        "generated_at_utc",
+        "status",
+        "repo_side_status",
+        "live_status",
+        "repo_side_checks",
+        "live_checks",
+        "repo_side_boundary",
+        "live_boundary",
+        "artifacts"
+      ],
+      "schema_id": "authority_evidence_gate/v1",
+      "stable_properties": [
+        "artifacts",
+        "generated_at_utc",
+        "live_boundary",
+        "live_checks",
+        "live_status",
+        "repo_side_boundary",
+        "repo_side_checks",
+        "repo_side_status",
+        "schema",
+        "status"
+      ]
+    },
+    {
+      "path": "schemas/authority_live_evidence_archive.schema.json",
+      "required": [
+        "schema",
+        "generated_at_utc",
+        "status",
+        "job_id",
+        "live_artifact_count",
+        "live_artifacts",
+        "findings",
+        "artifacts",
+        "aggregate_sha256"
+      ],
+      "schema_id": "authority_live_evidence_archive/v1",
+      "stable_properties": [
+        "aggregate_sha256",
+        "artifacts",
+        "findings",
+        "generated_at_utc",
+        "job_id",
+        "live_artifact_count",
+        "live_artifacts",
+        "schema",
+        "status"
+      ]
+    },
+    {
+      "path": "schemas/observability_evidence_gate.schema.json",
+      "required": [
+        "schema",
+        "generated_at_utc",
+        "status",
+        "repo_side_status",
+        "live_status",
+        "repo_side_checks",
+        "live_checks",
+        "repo_side_boundary",
+        "live_boundary",
+        "artifacts"
+      ],
+      "schema_id": "observability_evidence_gate/v1",
+      "stable_properties": [
+        "artifacts",
+        "generated_at_utc",
+        "live_boundary",
+        "live_checks",
+        "live_status",
+        "repo_side_boundary",
+        "repo_side_checks",
+        "repo_side_status",
+        "schema",
+        "status"
+      ]
+    },
+    {
+      "path": "schemas/observability_live_evidence_archive.schema.json",
+      "required": [
+        "schema",
+        "generated_at_utc",
+        "status",
+        "job_id",
+        "live_artifact_count",
+        "live_artifacts",
+        "findings",
+        "artifacts",
+        "aggregate_sha256"
+      ],
+      "schema_id": "observability_live_evidence_archive/v1",
+      "stable_properties": [
+        "aggregate_sha256",
+        "artifacts",
+        "findings",
+        "generated_at_utc",
+        "job_id",
+        "live_artifact_count",
+        "live_artifacts",
+        "schema",
+        "status"
+      ]
+    },
+    {
+      "path": "schemas/recovery_service_deployment_evidence_gate.schema.json",
+      "required": [
+        "schema",
+        "generated_at_utc",
+        "status",
+        "repo_side_status",
+        "live_status",
+        "repo_side_checks",
+        "live_checks",
+        "repo_side_boundary",
+        "live_boundary",
+        "artifacts"
+      ],
+      "schema_id": "recovery_service_deployment_evidence_gate/v1",
+      "stable_properties": [
+        "artifacts",
+        "generated_at_utc",
+        "live_boundary",
+        "live_checks",
+        "live_status",
+        "repo_side_boundary",
+        "repo_side_checks",
+        "repo_side_status",
+        "schema",
+        "status"
+      ]
+    },
+    {
+      "path": "schemas/recovery_service_live_evidence_archive.schema.json",
+      "required": [
+        "schema",
+        "generated_at_utc",
+        "status",
+        "job_id",
+        "live_artifact_count",
+        "live_artifacts",
+        "findings",
+        "artifacts",
+        "aggregate_sha256"
+      ],
+      "schema_id": "recovery_service_live_evidence_archive/v1",
+      "stable_properties": [
+        "aggregate_sha256",
+        "artifacts",
+        "findings",
+        "generated_at_utc",
+        "job_id",
+        "live_artifact_count",
+        "live_artifacts",
+        "schema",
+        "status"
+      ]
+    },
+    {
+      "path": "schemas/privacy_budget_deployment_evidence_gate.schema.json",
+      "required": [
+        "schema",
+        "generated_at_utc",
+        "status",
+        "repo_side_status",
+        "live_status",
+        "repo_side_checks",
+        "live_checks",
+        "repo_side_boundary",
+        "live_boundary",
+        "artifacts"
+      ],
+      "schema_id": "privacy_budget_deployment_evidence_gate/v1",
+      "stable_properties": [
+        "artifacts",
+        "generated_at_utc",
+        "live_boundary",
+        "live_checks",
+        "live_status",
+        "repo_side_boundary",
+        "repo_side_checks",
+        "repo_side_status",
+        "schema",
+        "status"
+      ]
+    },
+    {
+      "path": "schemas/privacy_budget_live_evidence_archive.schema.json",
+      "required": [
+        "schema",
+        "generated_at_utc",
+        "status",
+        "job_id",
+        "live_artifact_count",
+        "live_artifacts",
+        "findings",
+        "artifacts",
+        "aggregate_sha256"
+      ],
+      "schema_id": "privacy_budget_live_evidence_archive/v1",
+      "stable_properties": [
+        "aggregate_sha256",
+        "artifacts",
+        "findings",
+        "generated_at_utc",
+        "job_id",
+        "live_artifact_count",
+        "live_artifacts",
+        "schema",
+        "status"
+      ]
+    },
+    {
+      "path": "schemas/legacy_sse_query_surface_evidence_gate.schema.json",
+      "required": [
+        "schema",
+        "generated_at_utc",
+        "status",
+        "repo_side_status",
+        "live_status",
+        "repo_side_checks",
+        "live_checks",
+        "repo_side_boundary",
+        "live_boundary",
+        "artifacts"
+      ],
+      "schema_id": "legacy_sse_query_surface_evidence_gate/v1",
+      "stable_properties": [
+        "artifacts",
+        "generated_at_utc",
+        "live_boundary",
+        "live_checks",
+        "live_status",
+        "repo_side_boundary",
+        "repo_side_checks",
+        "repo_side_status",
+        "schema",
+        "status"
+      ]
+    },
+    {
+      "path": "schemas/legacy_sse_live_evidence_archive.schema.json",
+      "required": [
+        "schema",
+        "generated_at_utc",
+        "status",
+        "job_id",
+        "live_artifact_count",
+        "live_artifacts",
+        "findings",
+        "artifacts",
+        "aggregate_sha256"
+      ],
+      "schema_id": "legacy_sse_live_evidence_archive/v1",
+      "stable_properties": [
+        "aggregate_sha256",
+        "artifacts",
+        "findings",
+        "generated_at_utc",
+        "job_id",
+        "live_artifact_count",
+        "live_artifacts",
+        "schema",
+        "status"
+      ]
+    },
+    {
+      "path": "schemas/ecommerce_production_exposure_gate.schema.json",
+      "required": [
+        "schema",
+        "generated_at_utc",
+        "status",
+        "repo_side_evidence",
+        "exposure_matrix",
+        "real_production_remaining",
+        "checks",
+        "findings"
+      ],
+      "schema_id": "ecommerce_production_exposure_gate/v1",
+      "stable_properties": [
+        "checks",
+        "exposure_matrix",
+        "findings",
+        "generated_at_utc",
+        "real_production_remaining",
+        "repo_side_evidence",
+        "schema",
+        "status"
+      ]
+    },
+    {
+      "path": "schemas/ecommerce_deployment_evidence_gate.schema.json",
+      "required": [
+        "schema",
+        "generated_at_utc",
+        "status",
+        "repo_side_status",
+        "live_status",
+        "repo_side_checks",
+        "live_checks",
+        "repo_side_boundary",
+        "live_boundary",
+        "artifacts"
+      ],
+      "schema_id": "ecommerce_deployment_evidence_gate/v1",
+      "stable_properties": [
+        "artifacts",
+        "generated_at_utc",
+        "live_boundary",
+        "live_checks",
+        "live_status",
+        "repo_side_boundary",
+        "repo_side_checks",
+        "repo_side_status",
+        "schema",
+        "status"
+      ]
+    },
+    {
+      "path": "schemas/ecommerce_live_evidence_archive.schema.json",
+      "required": [
+        "schema",
+        "generated_at_utc",
+        "status",
+        "job_id",
+        "live_artifact_count",
+        "live_artifacts",
+        "findings",
+        "artifacts",
+        "aggregate_sha256"
+      ],
+      "schema_id": "ecommerce_live_evidence_archive/v1",
+      "stable_properties": [
+        "aggregate_sha256",
+        "artifacts",
+        "findings",
+        "generated_at_utc",
+        "job_id",
+        "live_artifact_count",
+        "live_artifacts",
+        "schema",
+        "status"
+      ]
+    },
+    {
+      "path": "schemas/ecommerce_live_oidc_abac_report.schema.json",
+      "required": [
+        "schema",
+        "generated_at_utc",
+        "status",
+        "tenant_id",
+        "identity_provider",
+        "authorization_backend",
+        "persona_checks"
+      ],
+      "schema_id": "ecommerce_live_oidc_abac_report/v1",
+      "stable_properties": [
+        "authorization_backend",
+        "findings",
+        "generated_at_utc",
+        "identity_provider",
+        "persona_checks",
+        "schema",
+        "status",
+        "tenant_id"
+      ]
+    },
+    {
+      "path": "schemas/ecommerce_live_fact_import_report.schema.json",
+      "required": [
+        "schema",
+        "generated_at_utc",
+        "status",
+        "import_job",
+        "result",
+        "evidence"
+      ],
+      "schema_id": "ecommerce_live_fact_import_report/v1",
+      "stable_properties": [
+        "evidence",
+        "findings",
+        "generated_at_utc",
+        "import_job",
+        "result",
+        "schema",
+        "status"
+      ]
+    },
+    {
+      "path": "schemas/ecommerce_live_tls_network_policy_report.schema.json",
+      "required": [
+        "schema",
+        "generated_at_utc",
+        "status",
+        "metadata_api",
+        "operator_dashboard",
+        "network_policy"
+      ],
+      "schema_id": "ecommerce_live_tls_network_policy_report/v1",
+      "stable_properties": [
+        "findings",
+        "generated_at_utc",
+        "metadata_api",
+        "network_policy",
+        "operator_dashboard",
+        "schema",
+        "status"
+      ]
+    },
+    {
+      "path": "schemas/ecommerce_live_postgres_anchor_report.schema.json",
+      "required": [
+        "schema",
+        "generated_at_utc",
+        "status",
+        "postgres_restore",
+        "external_anchor"
+      ],
+      "schema_id": "ecommerce_live_postgres_anchor_report/v1",
+      "stable_properties": [
+        "external_anchor",
+        "findings",
+        "generated_at_utc",
+        "postgres_restore",
+        "schema",
+        "status"
+      ]
+    },
+    {
+      "path": "schemas/ecommerce_logistics_live_rollout_report.schema.json",
+      "required": [
+        "schema",
+        "status",
+        "tenant_id",
+        "route_id",
+        "legs"
+      ],
+      "schema_id": "ecommerce_logistics_live_rollout_report/v1",
+      "stable_properties": [
+        "legs",
+        "route_id",
+        "schema",
+        "status",
+        "tenant_id"
+      ]
+    },
+    {
+      "path": "schemas/ecommerce_live_rollout_fixture_bundle.schema.json",
+      "required": [
+        "schema",
+        "generated_at_utc",
+        "status",
+        "artifacts"
+      ],
+      "schema_id": "ecommerce_live_rollout_fixture_bundle/v1",
+      "stable_properties": [
+        "artifacts",
+        "generated_at_utc",
+        "schema",
+        "status"
+      ]
+    },
+    {
       "path": "schemas/business_access_policy.schema.json",
-      "schema_id": "business_access_policy/v1",
       "required": [
         "schema",
         "policy_id",
@@ -4228,6 +5746,7 @@
         "field_classes",
         "protected_fields"
       ],
+      "schema_id": "business_access_policy/v1",
       "stable_properties": [
         "schema",
         "policy_id",
@@ -4240,7 +5759,6 @@
     },
     {
       "path": "schemas/business_access_check_report.schema.json",
-      "schema_id": "business_access_check_report/v1",
       "required": [
         "schema",
         "generated_at_utc",
@@ -4252,6 +5770,7 @@
         "field_decisions",
         "summary"
       ],
+      "schema_id": "business_access_check_report/v1",
       "stable_properties": [
         "schema",
         "generated_at_utc",
@@ -4267,7 +5786,6 @@
     },
     {
       "path": "schemas/business_data_read_preview.schema.json",
-      "schema_id": "business_data_read_preview/v1",
       "required": [
         "schema",
         "entity",
@@ -4282,6 +5800,7 @@
         "count",
         "limit"
       ],
+      "schema_id": "business_data_read_preview/v1",
       "stable_properties": [
         "count",
         "decision",
@@ -4293,13 +5812,13 @@
         "policy_id",
         "policy_version",
         "rows",
+        "relationship_binding",
         "schema",
         "scope"
       ]
     },
     {
       "path": "schemas/business_access_api_smoke.schema.json",
-      "schema_id": "business_access_api_smoke/v1",
       "required": [
         "schema",
         "status",
@@ -4310,30 +5829,57 @@
         "merchant_filter_conflict_status",
         "merchant_tenant_filter_conflict_status",
         "merchant_read_preview_denied_status",
+        "merchant_relationship_spoof_status",
         "support_masked_preview_decision",
+        "support_relationship_binding_status",
+        "support_relationship_spoof_status",
         "sensitive_filter_status",
         "role_spoof_status",
-        "read_preview_role_spoof_status"
+        "read_preview_role_spoof_status",
+        "buyer_self_preview_decision",
+        "buyer_relationship_spoof_status",
+        "courier_relationship_spoof_status",
+        "fraud_relationship_spoof_status",
+        "field_marketer_relationship_spoof_status"
       ],
+      "schema_id": "business_access_api_smoke/v1",
       "stable_properties": [
+        "business_identity_cross_tenant_status",
         "business_identity_count",
+        "business_identity_spoof_status",
+        "buyer_relationship_spoof_status",
+        "buyer_self_preview_decision",
+        "courier_final_address_denied_status",
+        "courier_leg_preview_decision",
+        "courier_relationship_spoof_status",
+        "field_marketer_relationship_spoof_status",
+        "fraud_contact_decision",
+        "fraud_payment_preview_decision",
+        "fraud_relationship_spoof_status",
+        "field_marketer_attribution_preview_decision",
+        "field_marketer_contact_decision",
+        "last_mile_preview_decision",
         "merchant_address_decision",
         "merchant_filter_conflict_status",
         "merchant_public_decision",
         "merchant_read_preview_count",
         "merchant_read_preview_denied_status",
+        "merchant_relationship_spoof_status",
         "merchant_tenant_filter_conflict_status",
         "read_preview_role_spoof_status",
         "role_spoof_status",
         "schema",
         "sensitive_filter_status",
+        "station_final_address_denied_status",
+        "station_leg_preview_decision",
         "status",
+        "support_relationship_binding_status",
+        "support_relationship_spoof_status",
         "support_masked_preview_decision"
       ]
     },
     {
       "path": "schemas/ecommerce_fact_import_validation.schema.json",
-      "schema_id": "ecommerce_fact_import_validation/v1",
       "required": [
         "schema",
         "generated_at_utc",
@@ -4348,6 +5894,7 @@
         "summary",
         "findings"
       ],
+      "schema_id": "ecommerce_fact_import_validation/v1",
       "stable_properties": [
         "checked_columns",
         "decision",
@@ -4365,7 +5912,6 @@
     },
     {
       "path": "schemas/ecommerce_fact_import_validation_smoke.schema.json",
-      "schema_id": "ecommerce_fact_import_validation_smoke/v1",
       "required": [
         "schema",
         "status",
@@ -4374,9 +5920,12 @@
         "negative_value_decision",
         "support_transcript_decision"
       ],
+      "schema_id": "ecommerce_fact_import_validation_smoke/v1",
       "stable_properties": [
         "address_decision",
         "allow_decision",
+        "delivery_leg_allow_decision",
+        "delivery_leg_sensitive_decision",
         "negative_value_decision",
         "schema",
         "status",
@@ -4385,7 +5934,6 @@
     },
     {
       "path": "schemas/console_dashboard_public_summary_check.schema.json",
-      "schema_id": "console_dashboard_public_summary_check/v1",
       "required": [
         "schema",
         "generated_at_utc",
@@ -4394,6 +5942,7 @@
         "finding_count",
         "findings"
       ],
+      "schema_id": "console_dashboard_public_summary_check/v1",
       "stable_properties": [
         "schema",
         "generated_at_utc",
@@ -4404,8 +5953,61 @@
       ]
     },
     {
+      "path": "schemas/console_deployment_evidence_gate.schema.json",
+      "required": [
+        "schema",
+        "generated_at_utc",
+        "status",
+        "repo_side_status",
+        "live_status",
+        "repo_side_checks",
+        "live_checks",
+        "repo_side_boundary",
+        "live_boundary",
+        "artifacts"
+      ],
+      "schema_id": "console_deployment_evidence_gate/v1",
+      "stable_properties": [
+        "artifacts",
+        "generated_at_utc",
+        "live_boundary",
+        "live_checks",
+        "live_status",
+        "repo_side_boundary",
+        "repo_side_checks",
+        "repo_side_status",
+        "schema",
+        "status"
+      ]
+    },
+    {
+      "path": "schemas/console_live_evidence_archive.schema.json",
+      "required": [
+        "schema",
+        "generated_at_utc",
+        "status",
+        "job_id",
+        "live_artifact_count",
+        "live_artifacts",
+        "findings",
+        "artifacts",
+        "aggregate_sha256"
+      ],
+      "schema_id": "console_live_evidence_archive/v1",
+      "stable_properties": [
+        "aggregate_sha256",
+        "artifacts",
+        "findings",
+        "generated_at_utc",
+        "job_id",
+        "live_artifact_count",
+        "live_artifacts",
+        "schema",
+        "status"
+      ]
+    },
+    {
       "path": "schemas/console_audit_public_summary_check.schema.json",
-      "schema_id": "console_audit_public_summary_check/v1",
       "required": [
         "schema",
         "generated_at_utc",
@@ -4414,6 +6016,7 @@
         "finding_count",
         "findings"
       ],
+      "schema_id": "console_audit_public_summary_check/v1",
       "stable_properties": [
         "schema",
         "generated_at_utc",
@@ -4425,7 +6028,6 @@
     },
     {
       "path": "schemas/metadata_api_public_redaction_check.schema.json",
-      "schema_id": "metadata_api_public_redaction_check/v1",
       "required": [
         "schema",
         "status",
@@ -4433,12 +6035,259 @@
         "failed_count",
         "checks"
       ],
+      "schema_id": "metadata_api_public_redaction_check/v1",
       "stable_properties": [
         "schema",
         "status",
         "checked_count",
         "failed_count",
         "checks"
+      ]
+    },
+    {
+      "path": "schemas/production_security_closure_gate.schema.json",
+      "required": [
+        "schema",
+        "generated_at_utc",
+        "status",
+        "repo_side_status",
+        "live_status",
+        "summary",
+        "modules",
+        "repo_side_boundary",
+        "live_boundary",
+        "artifacts"
+      ],
+      "schema_id": "production_security_closure_gate/v1",
+      "stable_properties": [
+        "artifacts",
+        "generated_at_utc",
+        "live_boundary",
+        "live_status",
+        "modules",
+        "repo_side_boundary",
+        "repo_side_status",
+        "schema",
+        "status",
+        "summary"
+      ]
+    },
+    {
+      "path": "schemas/record_recovery_production_gate_check.schema.json",
+      "required": [
+        "schema",
+        "generated_at_utc",
+        "summary",
+        "static_cases",
+        "cases",
+        "claim_boundary"
+      ],
+      "schema_id": "record_recovery_production_gate_check/v1",
+      "stable_properties": [
+        "schema",
+        "generated_at_utc",
+        "summary",
+        "static_cases",
+        "cases",
+        "claim_boundary"
+      ]
+    },
+    {
+      "path": "schemas/source_export_manifest.schema.json",
+      "required": [
+        "schema",
+        "generated_at_utc",
+        "job_id",
+        "caller",
+        "tenant",
+        "dataset",
+        "purpose",
+        "source_system",
+        "source_snapshot_sha256",
+        "bridge_input_sha256",
+        "source_files",
+        "bridge_input_files"
+      ],
+      "schema_id": "source_export_manifest/v1",
+      "stable_properties": [
+        "bridge_input_files",
+        "bridge_input_sha256",
+        "caller",
+        "dataset",
+        "generated_at_utc",
+        "job_id",
+        "purpose",
+        "schema",
+        "source_files",
+        "source_snapshot_sha256",
+        "source_system",
+        "tenant"
+      ]
+    },
+    {
+      "path": "schemas/source_attestation.schema.json",
+      "required": [
+        "schema",
+        "generated_at_utc",
+        "tenant",
+        "dataset",
+        "purpose",
+        "job_id",
+        "caller",
+        "source_system",
+        "source_snapshot_sha256",
+        "bridge_input_sha256",
+        "input_commitment_sha256",
+        "approval_id",
+        "operator_identity",
+        "signoff_status",
+        "attestation_mode",
+        "created_at_utc"
+      ],
+      "schema_id": "source_attestation/v1",
+      "stable_properties": [
+        "approval_id",
+        "attestation_mode",
+        "bridge_input_sha256",
+        "caller",
+        "canonicalization",
+        "created_at_utc",
+        "dataset",
+        "generated_at_utc",
+        "input_commitment_sha256",
+        "job_id",
+        "operator_identity",
+        "operator_signed_at_utc",
+        "payload_sha256",
+        "public_key_fingerprint_sha256",
+        "public_key_pem",
+        "purpose",
+        "reviewer_identity",
+        "reviewer_signed_at_utc",
+        "schema",
+        "sealed_export_manifest_sha256",
+        "signature",
+        "signature_algorithm",
+        "signed_at_utc",
+        "signoff_status",
+        "source_snapshot_sha256",
+        "source_system",
+        "tenant"
+      ]
+    },
+    {
+      "path": "schemas/source_truthfulness_report.schema.json",
+      "required": [
+        "schema",
+        "generated_at_utc",
+        "decision",
+        "reason_code",
+        "strict_mode",
+        "require_signed_signoff",
+        "job_id",
+        "caller",
+        "tenant",
+        "dataset",
+        "purpose",
+        "checks",
+        "findings"
+      ],
+      "schema_id": "source_truthfulness_report/v1",
+      "stable_properties": [
+        "attestation_path",
+        "attestation_sha256",
+        "caller",
+        "checks",
+        "dataset",
+        "decision",
+        "findings",
+        "generated_at_utc",
+        "job_id",
+        "max_age_hours",
+        "purpose",
+        "reason",
+        "reason_code",
+        "require_signed_signoff",
+        "schema",
+        "source_export_manifest_path",
+        "source_export_manifest_sha256",
+        "strict_mode",
+        "summary",
+        "tenant"
+      ]
+    },
+    {
+      "path": "schemas/source_truthfulness_smoke.schema.json",
+      "required": [
+        "schema",
+        "generated_at_utc",
+        "status",
+        "total",
+        "passed",
+        "cases"
+      ],
+      "schema_id": "source_truthfulness_smoke/v1",
+      "stable_properties": [
+        "cases",
+        "generated_at_utc",
+        "passed",
+        "schema",
+        "status",
+        "total"
+      ]
+    },
+    {
+      "path": "schemas/source_attestation_pipeline_smoke.schema.json",
+      "required": [
+        "schema",
+        "generated_at_utc",
+        "status",
+        "out_base",
+        "checks"
+      ],
+      "schema_id": "source_attestation_pipeline_smoke/v1",
+      "stable_properties": [
+        "checks",
+        "generated_at_utc",
+        "out_base",
+        "schema",
+        "status"
+      ]
+    },
+    {
+      "path": "schemas/release_governance_report.schema.json",
+      "required": [
+        "schema",
+        "generated_at_utc",
+        "status",
+        "job_id",
+        "release_decision",
+        "checks",
+        "findings"
+      ],
+      "schema_id": "release_governance_report/v1",
+      "stable_properties": [
+        "checks",
+        "external_anchor_report_path",
+        "external_anchor_report_sha256",
+        "findings",
+        "generated_at_utc",
+        "job_id",
+        "operator_report_path",
+        "operator_report_sha256",
+        "policy_audit_log_path",
+        "public_report_path",
+        "public_report_sha256",
+        "release_decision",
+        "release_policy_gate_path",
+        "release_policy_gate_sha256",
+        "schema",
+        "source_attestation_path",
+        "source_attestation_sha256",
+        "source_truthfulness_report_path",
+        "source_truthfulness_report_sha256",
+        "status",
+        "summary"
       ]
     }
   ]

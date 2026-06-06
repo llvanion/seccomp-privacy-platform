@@ -86,7 +86,14 @@
               "properties": {
                 "min_value": { "type": ["integer", "null"] },
                 "max_value": { "type": ["integer", "null"] },
-                "allow_negative": { "type": "boolean" }
+                "allow_negative": { "type": "boolean" },
+                "allowed_value_columns": {
+                  "type": "array",
+                  "items": { "type": "string", "minLength": 1 },
+                  "uniqueItems": true
+                },
+                "value_unit": { "type": ["string", "null"], "minLength": 1 },
+                "currency": { "type": ["string", "null"], "minLength": 3, "maxLength": 3 }
               },
               "additionalProperties": false
             },
@@ -110,6 +117,37 @@
     },
     "counts": {
       "type": "object"
+    },
+    "bucket_policy": {
+      "type": "object",
+      "properties": {
+        "schema": { "const": "bucket_policy/v1" },
+        "bucket_field": { "type": "string", "minLength": 1 },
+        "allowed_bucket_fields": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 },
+          "uniqueItems": true
+        },
+        "allowed_buckets": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 },
+          "uniqueItems": true
+        },
+        "max_buckets": { "type": "integer", "minimum": 1 },
+        "bucket_label_pattern": { "type": "string", "minLength": 1 },
+        "require_exact_allowed_buckets": { "type": "boolean" },
+        "enforcement": { "type": "string" },
+        "production_mode": { "type": "boolean" }
+      },
+      "additionalProperties": false
+    },
+    "bucket_policy_sha256": {
+      "type": ["string", "null"],
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "shard_manifest_sha256": {
+      "type": ["string", "null"],
+      "pattern": "^[0-9a-f]{64}$"
     }
   }
 }

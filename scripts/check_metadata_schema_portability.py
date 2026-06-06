@@ -49,6 +49,10 @@ EXPECTED_INDEXES = (
     "idx_workflow_submissions_tenant_status",
     "idx_workflow_submissions_caller",
     "idx_workflow_submissions_job_id",
+    "idx_query_workflow_executions_state",
+    "idx_query_workflow_executions_lease",
+    "idx_query_workflow_executions_tenant",
+    "idx_query_workflow_executions_digest",
 )
 
 

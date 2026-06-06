@@ -122,6 +122,9 @@
     "released": {
       "type": ["object", "null"]
     },
+    "governance": {
+      "type": ["object", "null"]
+    },
     "privacy_budget": {
       "type": "object",
       "properties": {

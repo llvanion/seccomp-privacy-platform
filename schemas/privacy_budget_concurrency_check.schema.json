@@ -1,0 +1,38 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "privacy_budget_concurrency_check/v1",
+  "title": "Privacy budget transactional concurrency check",
+  "type": "object",
+  "required": [
+    "schema",
+    "status",
+    "work_dir",
+    "reports",
+    "ledger_records",
+    "store_records",
+    "errors"
+  ],
+  "properties": {
+    "schema": { "const": "privacy_budget_concurrency_check/v1" },
+    "status": { "enum": ["ok", "fail"] },
+    "work_dir": { "type": "string", "minLength": 1 },
+    "reports": { "type": "array", "minItems": 2, "items": { "type": "object" } },
+    "ledger_records": { "type": "integer", "minimum": 0 },
+    "store_records": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["decision", "reason_code", "budget_consumed", "status"],
+        "properties": {
+          "decision": { "type": "string", "minLength": 1 },
+          "reason_code": { "type": "string", "minLength": 1 },
+          "budget_consumed": { "type": "boolean" },
+          "status": { "type": "string", "minLength": 1 }
+        },
+        "additionalProperties": false
+      }
+    },
+    "errors": { "type": "array", "items": { "type": "string", "minLength": 1 } }
+  },
+  "additionalProperties": false
+}

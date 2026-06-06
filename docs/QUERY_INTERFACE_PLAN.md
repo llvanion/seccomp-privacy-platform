@@ -92,6 +92,9 @@ Example:
   "client_value_mode": "raw-int",
   "client_value_min": 0,
   "client_value_max": 1000000,
+  "client_allowed_value_fields": ["amount"],
+  "client_value_unit": "minor_currency_unit",
+  "client_value_currency": "USD",
   "server_filters": ["campaign=demo"],
   "client_filters": ["campaign=demo"],
   "token_scope": "query-demo-scope",
@@ -140,6 +143,13 @@ The HTTP adapter smoke also covers the fail-closed path: a dry-run request with
 `query_workflow_api_error/v1` with `validation_rejected`, proving the API layer
 continues to reuse `submit_query_workflow.py` validation instead of accepting a
 weaker request shape.
+
+Strict production release controls use the same request surface. When
+`production_mode=true` and `release_policy_gate_config` points at a config with
+`require_external_anchor=true` (the strict example does), the request must also
+provide `external_anchor_report` pointing to an uploaded S3 Object Lock/Rekor
+`external_audit_anchor_report/v1`. Missing external anchor evidence is rejected
+by `submit_query_workflow.py` before the pipeline starts.
 
 ## 5. Secret Handling
 
@@ -201,6 +211,13 @@ Optional execute submit:
 POST /v1/query-workflows/execute
 ```
 
+Optional worker-queued execute:
+
+```text
+POST /v1/query-workflows/enqueue
+python3 scripts/run_query_workflow_worker.py --metadata-db-path <db> --once
+```
+
 Notes:
 
 1. both POST endpoints accept the same `query_workflow_request/v1` JSON body as the CLI
@@ -208,6 +225,15 @@ Notes:
 3. `/v1/query-workflows/execute` is disabled by default and only enabled when the server starts with `--allow-execute`
 4. the API returns a wrapper envelope plus the same redacted `query_workflow_submission/v1` manifest used by the CLI
 5. validation failures, including privacy-budget required-mode failures, return `query_workflow_api_error/v1`
+6. when execute or enqueue is enabled, `--workflow-execution-db-path` or
+   `--workflow-execution-db-dsn` writes `query_workflow_executions` lifecycle
+   rows for queue, claim, lease, heartbeat, cancellation, timeout, terminal
+   state, exit code, and sidecar artifact paths; if omitted from direct
+   execute, the API remains compatible with sidecar-only local smoke behavior
+7. `/v1/query-workflows/enqueue` returns `202` after writing a non-terminal
+   `queued` sidecar and DB row. `scripts/run_query_workflow_worker.py` is then
+   responsible for claiming the lease and writing `running`,
+   `completed`/`failed`/`cancelled`/`timed_out` evidence.
 
 The HTTP envelopes are now frozen in:
 
@@ -444,6 +470,8 @@ Target binding rules:
 3. `dataset_id` must either match the requested allowed dataset or be auto-bound when there is only one allowed dataset
 4. `record_recovery_service_id` must either match the requested allowed service or be auto-bound when there is only one allowed service
 5. `job_id` remains caller-supplied, but duplicate-query and replay protections still apply
+
+Repo-side smoke now exercises this for identity-bound query API dry-runs as well: a marketing-analyst identity can dry-run with its allowed `record_recovery_service_id`, while a spoofed recovery service id is rejected with `authz_rejected`.
 
 ### 11.4 Secret And Handoff Rules
 

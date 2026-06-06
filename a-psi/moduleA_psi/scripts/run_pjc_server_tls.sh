@@ -18,6 +18,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 MODULE_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
+source "$SCRIPT_DIR/pjc_binary_helpers.sh"
 
 CERT_DIR="${CERT_DIR:-$MODULE_ROOT/config/tls}"
 TLS_PORT="${TLS_PORT:-10502}"
@@ -141,16 +142,12 @@ else
   echo "[warn] PJC resource preflight skipped; set PJC_RESOURCE_LIMITS to enable it" >&2
 fi
 
-if [[ -n "$PJC_BIN_DIR" ]]; then
-  BIN_DIR="$(resolve_path "$PJC_BIN_DIR")"
-else
+if [[ "$PJC_BUILD" == "1" ]]; then
   cd "$PJC_DIR"
-  if [[ "$PJC_BUILD" == "1" ]]; then
-    echo "[info] building PJC server..."
-    bazel build -c opt //private_join_and_compute:server >/dev/null
-  fi
-  BIN_DIR="$(bazel info bazel-bin)"
+  echo "[info] building PJC server..."
+  bazel build -c opt //private_join_and_compute:server >/dev/null
 fi
+BIN_DIR="$(resolve_pjc_bin_dir_with_gate "$MODULE_ROOT" "$PJC_DIR" "$PJC_BIN_DIR" "$OUT_DIR" "$PJC_GRPC_STREAM_CHUNK_ELEMENTS")"
 SERVER_BIN="$BIN_DIR/private_join_and_compute/server"
 [[ -x "$SERVER_BIN" ]] || { echo "[error] server binary not found: $SERVER_BIN" >&2; exit 1; }
 
@@ -163,20 +160,7 @@ SERVER_ARGS=(
   --port="127.0.0.1:${PJC_LOCAL_PORT}"
 )
 if [[ "$PJC_GRPC_STREAM_CHUNK_ELEMENTS" != "0" ]]; then
-  if "$SERVER_BIN" --help 2>&1 | grep -q -- "--grpc_stream_chunk_elements"; then
-    SERVER_ARGS+=(--grpc_stream_chunk_elements="$PJC_GRPC_STREAM_CHUNK_ELEMENTS")
-  else
-    if [[ "$PJC_PRODUCTION_MODE" == "1" ]]; then
-      echo "[error] PJC_PRODUCTION_MODE=1 requires server binary support for --grpc_stream_chunk_elements" >&2
-      exit 1
-    fi
-    if [[ "$PJC_ALLOW_LEGACY_UNARY" != "1" ]]; then
-      echo "[error] PJC server binary does not support --grpc_stream_chunk_elements; set PJC_ALLOW_LEGACY_UNARY=1 only for local demo unary fallback" >&2
-      exit 1
-    fi
-    echo "[warn] PJC server binary does not support --grpc_stream_chunk_elements; using explicit legacy unary mode" >&2
-    PJC_EFFECTIVE_GRPC_STREAM_CHUNK_ELEMENTS=0
-  fi
+  SERVER_ARGS+=(--grpc_stream_chunk_elements="$PJC_GRPC_STREAM_CHUNK_ELEMENTS")
 fi
 echo "[info] PJC_EFFECTIVE_GRPC_STREAM_CHUNK_ELEMENTS=$PJC_EFFECTIVE_GRPC_STREAM_CHUNK_ELEMENTS"
 echo "[info] starting PJC server on 127.0.0.1:${PJC_LOCAL_PORT}..."

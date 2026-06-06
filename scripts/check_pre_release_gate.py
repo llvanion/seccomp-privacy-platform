@@ -118,10 +118,49 @@ def main() -> int:
                 "dependency_hygiene/v1",
             ),
             (
+                "supply_chain_evidence",
+                [sys.executable, str(SCRIPTS / "check_supply_chain_gate.py"), "--out", str(tmp / "supply_chain.json")],
+                tmp / "supply_chain.json",
+                "supply_chain_evidence/v1",
+            ),
+            (
+                "legacy_sse_production_gate",
+                [
+                    sys.executable,
+                    str(SCRIPTS / "check_legacy_sse_production_gate.py"),
+                    "--out",
+                    str(tmp / "legacy_sse_production_gate.json"),
+                ],
+                tmp / "legacy_sse_production_gate.json",
+                "legacy_sse_production_gate/v1",
+            ),
+            (
+                "query_workflow_durability",
+                [
+                    sys.executable,
+                    str(SCRIPTS / "check_query_workflow_durability.py"),
+                    "--out",
+                    str(tmp / "query_workflow_durability.json"),
+                ],
+                tmp / "query_workflow_durability.json",
+                "query_workflow_durability_check/v1",
+            ),
+            (
                 "schema_backcompat",
                 [sys.executable, str(SCRIPTS / "check_schema_backcompat.py"), "--output", str(tmp / "backcompat.json")],
                 tmp / "backcompat.json",
                 "schema_backcompat_check/v1",
+            ),
+            (
+                "metadata_backup_restore_drill",
+                [
+                    sys.executable,
+                    str(SCRIPTS / "check_metadata_backup_restore_drill.py"),
+                    "--out",
+                    str(tmp / "metadata_backup_restore_drill.json"),
+                ],
+                tmp / "metadata_backup_restore_drill.json",
+                "metadata_backup_restore_drill/v1",
             ),
             (
                 "malformed_input",
@@ -134,6 +173,17 @@ def main() -> int:
                 [sys.executable, str(SCRIPTS / "check_record_recovery_boundary.py"), "--output", str(tmp / "rr_boundary.json")],
                 tmp / "rr_boundary.json",
                 "record_recovery_boundary_check/v1",
+            ),
+            (
+                "record_recovery_production_gate",
+                [
+                    sys.executable,
+                    str(SCRIPTS / "check_record_recovery_production_gate.py"),
+                    "--out",
+                    str(tmp / "rr_production_gate.json"),
+                ],
+                tmp / "rr_production_gate.json",
+                "record_recovery_production_gate_check/v1",
             ),
             (
                 "query_workflow_benchmark",

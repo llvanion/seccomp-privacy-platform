@@ -1,0 +1,66 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "release_governance_report/v1",
+  "title": "Release governance binding report",
+  "type": "object",
+  "required": [
+    "schema",
+    "generated_at_utc",
+    "status",
+    "job_id",
+    "release_decision",
+    "checks",
+    "findings"
+  ],
+  "properties": {
+    "schema": { "const": "release_governance_report/v1" },
+    "generated_at_utc": { "type": "string", "minLength": 1 },
+    "status": { "enum": ["ok", "fail"] },
+    "job_id": { "type": ["string", "null"] },
+    "release_decision": { "type": ["string", "null"] },
+    "source_attestation_path": { "type": ["string", "null"] },
+    "source_attestation_sha256": { "type": ["string", "null"] },
+    "source_truthfulness_report_path": { "type": ["string", "null"] },
+    "source_truthfulness_report_sha256": { "type": ["string", "null"] },
+    "public_report_path": { "type": ["string", "null"] },
+    "public_report_sha256": { "type": ["string", "null"] },
+    "operator_report_path": { "type": ["string", "null"] },
+    "operator_report_sha256": { "type": ["string", "null"] },
+    "policy_audit_log_path": { "type": ["string", "null"] },
+    "release_policy_gate_path": { "type": ["string", "null"] },
+    "release_policy_gate_sha256": { "type": ["string", "null"] },
+    "external_anchor_report_path": { "type": ["string", "null"] },
+    "external_anchor_report_sha256": { "type": ["string", "null"] },
+    "summary": { "type": "object" },
+    "checks": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["name", "status"],
+        "properties": {
+          "name": { "type": "string", "minLength": 1 },
+          "status": { "enum": ["ok", "skip", "fail"] },
+          "expected": {},
+          "actual": {},
+          "message": { "type": ["string", "null"] }
+        },
+        "additionalProperties": false
+      }
+    },
+    "findings": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["kind", "message"],
+        "properties": {
+          "kind": { "type": "string", "minLength": 1 },
+          "message": { "type": "string", "minLength": 1 },
+          "expected": {},
+          "actual": {}
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  "additionalProperties": false
+}

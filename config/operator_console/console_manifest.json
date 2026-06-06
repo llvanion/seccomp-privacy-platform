@@ -76,6 +76,22 @@
       ]
     },
     {
+      "section": "business_access",
+      "title": "Business Access Workbench",
+      "description": "Run business-access/check and business-data/read-preview for merchant, support, courier, last-mile, and fraud personas; verify masked/denied contact and logistics fields before any wider business API claim.",
+      "endpoints": [
+        {"method": "POST", "path": "/v1/business-access/check", "service": "serve_metadata_api", "role": "query_submitter"},
+        {"method": "POST", "path": "/v1/business-data/read-preview", "service": "serve_metadata_api", "role": "query_submitter"},
+        {"method": "GET", "path": "/v1/business-identities", "service": "serve_metadata_api", "role": "compliance_auditor"}
+      ],
+      "roles_allowed": [
+        "commerce_ops_owner",
+        "campaign_analyst",
+        "fraud_analyst",
+        "compliance_auditor"
+      ]
+    },
+    {
       "section": "privacy_budget_approvals",
       "title": "Privacy Budget Approvals",
       "description": "Review near-duplicate privacy-budget approval requests and approve, reject, or expire them with decision evidence.",

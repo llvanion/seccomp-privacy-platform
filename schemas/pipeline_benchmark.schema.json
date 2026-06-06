@@ -48,6 +48,12 @@
         "null"
       ]
     },
+    "external_anchor_report": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
     "expected_result": {
       "type": "object",
       "required": [

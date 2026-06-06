@@ -179,4 +179,5 @@ def resolve_record_recovery_service_config(config: Dict[str, Any]) -> Dict[str, 
         "ready_file": resolve_relative_path(config, str(lifecycle.get("ready_file", ""))) if lifecycle.get("ready_file") else "",
         "log_file": resolve_relative_path(config, str(lifecycle.get("log_file", ""))) if lifecycle.get("log_file") else "",
         "max_rows_per_request": max(0, int(config.get("max_rows_per_request", 0) or 0)),
+        "production_mode": bool(config.get("production_mode", False)),
     }

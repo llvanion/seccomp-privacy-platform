@@ -92,6 +92,9 @@
     },
     "details": {
       "type": ["object", "null"]
+    },
+    "governance": {
+      "type": ["object", "null"]
     }
   }
 }

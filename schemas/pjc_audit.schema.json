@@ -63,6 +63,14 @@
     "input_commitment_sha256": {
       "type": ["string", "null"]
     },
+    "bucket_policy_sha256": {
+      "type": ["string", "null"],
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "shard_manifest_sha256": {
+      "type": ["string", "null"],
+      "pattern": "^[0-9a-f]{64}$"
+    },
     "server_log": {
       "type": ["string", "null"]
     },

@@ -47,51 +47,75 @@ def sha256_file(path: Path) -> str:
     return h.hexdigest()
 
 
+def bridge_prepare_job_cmd(out_dir: Path) -> list[str]:
+    return [
+        "cargo",
+        "run",
+        "--",
+        "prepare-job",
+        "--server-input",
+        str(SERVER_SOURCE),
+        "--server-input-format",
+        "jsonl",
+        "--server-join-key-column",
+        "email",
+        "--server-normalizer",
+        "email",
+        "--client-input",
+        str(CLIENT_SOURCE),
+        "--client-input-format",
+        "jsonl",
+        "--client-join-key-column",
+        "email",
+        "--client-value-column",
+        "amount",
+        "--client-value-mode",
+        "raw-int",
+        "--client-value-max",
+        "1000000",
+        "--client-allowed-value-column",
+        "amount",
+        "--client-value-unit",
+        "minor_currency_unit",
+        "--client-value-currency",
+        "USD",
+        "--client-normalizer",
+        "email",
+        "--out-dir",
+        str(out_dir),
+        "--job-id",
+        "commitment_smoke_job",
+        "--token-scope",
+        "commitment-smoke-scope",
+        "--token-secret-env",
+        "BRIDGE_TOKEN_SECRET",
+        "--audit-log",
+        str(out_dir / "bridge_audit.jsonl"),
+    ]
+
+
 def build_bridge_job(out_dir: Path) -> None:
     env = dict(os.environ)
     env["BRIDGE_TOKEN_SECRET"] = "commitment-smoke-secret"
-    expect_ok(
-        [
-            "cargo",
-            "run",
-            "--",
-            "prepare-job",
-            "--server-input",
-            str(SERVER_SOURCE),
-            "--server-input-format",
-            "jsonl",
-            "--server-join-key-column",
-            "email",
-            "--server-normalizer",
-            "email",
-            "--client-input",
-            str(CLIENT_SOURCE),
-            "--client-input-format",
-            "jsonl",
-            "--client-join-key-column",
-            "email",
-            "--client-value-column",
-            "amount",
-            "--client-value-mode",
-            "raw-int",
-            "--client-value-max",
-            "1000000",
-            "--client-normalizer",
-            "email",
-            "--out-dir",
-            str(out_dir),
-            "--job-id",
-            "commitment_smoke_job",
-            "--token-scope",
-            "commitment-smoke-scope",
-            "--token-secret-env",
-            "BRIDGE_TOKEN_SECRET",
-            "--audit-log",
-            str(out_dir / "bridge_audit.jsonl"),
-        ],
-        cwd=BRIDGE_DIR,
-        env=env,
-    )
+    expect_ok(bridge_prepare_job_cmd(out_dir), cwd=BRIDGE_DIR, env=env)
+
+
+def expect_bridge_fail(out_dir: Path, remove_args: set[str] | None, add_args: list[str], expected: str) -> None:
+    env = dict(os.environ)
+    env["BRIDGE_TOKEN_SECRET"] = "commitment-smoke-secret"
+    remove_args = remove_args or set()
+    base = bridge_prepare_job_cmd(out_dir)
+    cmd: list[str] = []
+    idx = 0
+    while idx < len(base):
+        item = base[idx]
+        if item in remove_args:
+            idx += 2
+            continue
+        cmd.append(item)
+        idx += 1
+    cmd.extend(add_args)
+    expect_fail(cmd, expected, cwd=BRIDGE_DIR, env=env)
 
 
 def preflight_cmd(job_dir: Path, out_file: Path) -> list[str]:
@@ -138,6 +162,31 @@ def main() -> int:
             raise SystemExit("[ERROR] input commitment schema missing")
         if (job_dir / "input_commitments.json").stat().st_size <= 0:
             raise SystemExit("[ERROR] input commitment file is empty")
+
+        expect_bridge_fail(
+            root / "bridge_missing_allowed_value_column",
+            {"--client-allowed-value-column"},
+            ["--production-mode"],
+            "requires --client-allowed-value-column",
+        )
+        expect_bridge_fail(
+            root / "bridge_unlisted_value_column",
+            {"--client-allowed-value-column"},
+            ["--client-allowed-value-column", "other_amount", "--production-mode"],
+            "not listed in value policy allowed_value_columns",
+        )
+        expect_bridge_fail(
+            root / "bridge_missing_value_unit",
+            {"--client-value-unit"},
+            ["--production-mode"],
+            "requires --client-value-unit",
+        )
+        expect_bridge_fail(
+            root / "bridge_missing_value_currency",
+            {"--client-value-currency"},
+            ["--production-mode"],
+            "requires --client-value-currency",
+        )
 
         with (job_dir / "server.csv").open("a", encoding="utf-8") as f:
             f.write("tampered-token\n")
@@ -207,6 +256,23 @@ def main() -> int:
         expect_fail(
             preflight_cmd(job_dir, root / "preflight_over_max_value.json"),
             "value_policy_violation",
+        )
+
+        build_bridge_job(job_dir)
+        commitment_path = job_dir / "input_commitments.json"
+        payload = json.loads(commitment_path.read_text(encoding="utf-8"))
+        payload["parties"]["client"]["value_policy"]["allowed_value_columns"] = ["other_amount"]
+        commitment_path.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
+        job_meta = json.loads((job_dir / "job_meta.json").read_text(encoding="utf-8"))
+        job_meta["inputs"]["input_commitment_sha256"] = sha256_file(commitment_path)
+        (job_dir / "job_meta.json").write_text(json.dumps(job_meta, indent=2) + "\n", encoding="utf-8")
+        expect_fail(
+            ["python3", str(VALIDATE_BRIDGE_JOB), "--job-dir", str(job_dir)],
+            "allowed_value_columns does not include value_column",
+        )
+        expect_fail(
+            preflight_cmd(job_dir, root / "preflight_value_column_not_allowed.json"),
+            "allowed_value_columns does not include value_column",
         )
 
         build_bridge_job(job_dir)

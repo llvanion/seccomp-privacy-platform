@@ -1,0 +1,33 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "ecommerce_fact_import_job_smoke/v1",
+  "title": "Validator-first e-commerce fact import job smoke",
+  "type": "object",
+  "required": [
+    "schema",
+    "generated_at_utc",
+    "status",
+    "allow_job_status",
+    "allow_result_decision",
+    "allow_inserted_row_count",
+    "reject_job_status",
+    "reject_result_decision",
+    "reject_reason_code",
+    "orders_row_count_after_allow",
+    "orders_row_count_after_reject"
+  ],
+  "properties": {
+    "schema": { "const": "ecommerce_fact_import_job_smoke/v1" },
+    "generated_at_utc": { "type": "string" },
+    "status": { "enum": ["ok", "fail"] },
+    "allow_job_status": { "type": ["string", "null"] },
+    "allow_result_decision": { "type": ["string", "null"] },
+    "allow_inserted_row_count": { "type": ["integer", "null"] },
+    "reject_job_status": { "type": ["string", "null"] },
+    "reject_result_decision": { "type": ["string", "null"] },
+    "reject_reason_code": { "type": ["string", "null"] },
+    "orders_row_count_after_allow": { "type": "integer", "minimum": 0 },
+    "orders_row_count_after_reject": { "type": "integer", "minimum": 0 }
+  },
+  "additionalProperties": false
+}

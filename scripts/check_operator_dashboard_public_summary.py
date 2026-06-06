@@ -147,6 +147,42 @@ def seed_identity_metadata(db_path: Path, *, token_config_path: Path) -> None:
         conn.commit()
 
 
+def release_gate_report(*, reason_code: str, check_name: str = "external_anchor") -> dict[str, Any]:
+    return {
+        "schema": "release_policy_gate/v1",
+        "generated_at_utc": "2026-06-02T00:00:00Z",
+        "decision": "deny",
+        "reason_code": reason_code,
+        "reason": reason_code,
+        "public_report_path": "redacted-public-report.json",
+        "public_report_sha256": "a" * 64,
+        "operator_report_path": None,
+        "policy_config_path": "redacted-release-gate-config.json",
+        "pjc_evidence_merge_path": None,
+        "policy_audit_log_path": None,
+        "external_anchor_report_path": None,
+        "job_id": "dashboard-public-smoke",
+        "caller": "normal_demo",
+        "checks": [
+            {
+                "name": check_name,
+                "status": "deny",
+                "expected": "uploaded external immutable anchor",
+                "actual": None,
+                "message": reason_code,
+            }
+        ],
+        "findings": [
+            {
+                "kind": reason_code,
+                "message": reason_code,
+                "expected": "allow",
+                "actual": "deny",
+            }
+        ],
+    }
+
+
 def seed_run(out_base: Path) -> None:
     a_psi = out_base / "a_psi_run"
     qwf = out_base / "query_workflow"
@@ -205,6 +241,10 @@ def seed_run(out_base: Path) -> None:
         + "\n",
         encoding="utf-8",
     )
+    (a_psi / "release_policy_gate.json").write_text(
+        json.dumps(release_gate_report(reason_code="external_anchor_missing"), ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8",
+    )
 
 
 def main() -> int:
@@ -248,6 +288,19 @@ def main() -> int:
             require(normal.get("schema") == "operator_dashboard_public_summary/v1", f"normal caller did not get public summary: {normal}")
             require_no_public_leaks(normal)
             require((normal.get("redaction") or {}).get("exact_results_redacted") is True, f"redaction marker missing: {normal}")
+            require((normal.get("job") or {}).get("state") == "pending_external_anchor", f"public summary did not surface anchor-pending state: {normal}")
+            require(normal.get("overall_status") == "pending_external_anchor", f"public summary overall_status did not reflect release gate: {normal}")
+            require(
+                (normal.get("workflow") or {}).get("recommended_action") == "provide_uploaded_external_anchor_report",
+                f"public summary missing anchor action: {normal}",
+            )
+            public_stage_status = {
+                row.get("name"): row.get("status")
+                for row in ((normal.get("job") or {}).get("stage_statuses") or [])
+                if isinstance(row, dict)
+            }
+            require(public_stage_status.get("release_gate") == "deny", f"public summary missing release_gate deny stage: {normal}")
+            require(public_stage_status.get("external_anchor") == "deny", f"public summary missing external_anchor deny stage: {normal}")
             normal_runs_status, normal_runs = request_json(
                 f"http://127.0.0.1:{port}/v1/runs",
                 token=os.environ["SECCOMP_DASHBOARD_NORMAL_TOKEN"],
@@ -276,18 +329,51 @@ def main() -> int:
             require(admin.get("schema") != "operator_dashboard_public_summary/v1", f"admin got public summary unexpectedly: {admin}")
             require("audit_center" in admin and "job_control" in admin, f"admin dashboard missing operator fields: {admin}")
             require("result" in (admin.get("job_control") or {}), f"admin dashboard missing exact result: {admin}")
+            require((admin.get("job_control") or {}).get("state") == "pending_external_anchor", f"admin dashboard did not surface anchor-pending state: {admin}")
             admin_job_status, admin_job = request_json(
                 f"http://127.0.0.1:{port}/v1/jobs/dashboard-public-smoke",
                 token=os.environ["SECCOMP_DASHBOARD_ADMIN_TOKEN"],
             )
             require(admin_job_status == 200, f"admin should read full job detail: {admin_job_status}: {admin_job}")
             require("out_base" in admin_job and "result" in admin_job, f"admin job detail missing full fields: {admin_job}")
+            require(admin_job.get("state") == "pending_external_anchor", f"admin job detail did not inherit release gate state: {admin_job}")
+            require((admin_job.get("release_gate") or {}).get("reason_code") == "external_anchor_missing", f"admin job missing release gate reason: {admin_job}")
+            admin_runs_status, admin_runs = request_json(
+                f"http://127.0.0.1:{port}/v1/runs",
+                token=os.environ["SECCOMP_DASHBOARD_ADMIN_TOKEN"],
+            )
+            require(admin_runs_status == 200, f"admin should read runs: {admin_runs_status}: {admin_runs}")
+            run_states = {row.get("job_id"): row.get("state") for row in admin_runs.get("statuses") or [] if isinstance(row, dict)}
+            require(run_states.get("dashboard-public-smoke") == "pending_external_anchor", f"recent runs did not inherit release gate state: {admin_runs}")
+            admin_pending_runs_status, admin_pending_runs = request_json(
+                f"http://127.0.0.1:{port}/v1/runs?state=pending_external_anchor",
+                token=os.environ["SECCOMP_DASHBOARD_ADMIN_TOKEN"],
+            )
+            require(admin_pending_runs_status == 200, f"admin should filter pending runs: {admin_pending_runs_status}: {admin_pending_runs}")
+            require(
+                any(row.get("job_id") == "dashboard-public-smoke" for row in admin_pending_runs.get("statuses") or [] if isinstance(row, dict)),
+                f"pending_external_anchor filter did not include gate-blocked run: {admin_pending_runs}",
+            )
+            admin_completed_runs_status, admin_completed_runs = request_json(
+                f"http://127.0.0.1:{port}/v1/runs?state=completed",
+                token=os.environ["SECCOMP_DASHBOARD_ADMIN_TOKEN"],
+            )
+            require(admin_completed_runs_status == 200, f"admin should filter completed runs: {admin_completed_runs_status}: {admin_completed_runs}")
+            require(
+                all(row.get("job_id") != "dashboard-public-smoke" for row in admin_completed_runs.get("statuses") or [] if isinstance(row, dict)),
+                f"completed filter included gate-blocked run: {admin_completed_runs}",
+            )
             admin_result_status, admin_result = request_json(
                 f"http://127.0.0.1:{port}/v1/jobs/dashboard-public-smoke/result",
                 token=os.environ["SECCOMP_DASHBOARD_ADMIN_TOKEN"],
             )
             require(admin_result_status == 200, f"admin should read exact job result: {admin_result_status}: {admin_result}")
             require(admin_result.get("intersection_size") == 2, f"admin exact result missing: {admin_result}")
+            generic_block = dashboard._release_gate_state(
+                release_gate_report(reason_code="dp_required", check_name="dp_enforced"),
+                base_state="completed",
+            )
+            require(generic_block is not None and generic_block.get("state") == "blocked", f"non-anchor deny should be blocked: {generic_block}")
         finally:
             server.shutdown()
             server.server_close()
@@ -304,6 +390,10 @@ def main() -> int:
         "normal_direct_start_status": normal_start_status,
         "admin_full_job_status": admin_job_status,
         "admin_exact_result_status": admin_result_status,
+        "release_gate_public_state": (normal.get("job") or {}).get("state"),
+        "release_gate_admin_state": admin_job.get("state"),
+        "release_gate_pending_filter_status": admin_pending_runs_status,
+        "release_gate_completed_filter_status": admin_completed_runs_status,
     }
     text = json.dumps(report, ensure_ascii=False, indent=2)
     (out_dir / "operator_dashboard_public_summary_smoke.json").write_text(text + "\n", encoding="utf-8")

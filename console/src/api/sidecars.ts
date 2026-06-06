@@ -2,6 +2,8 @@ import { api } from "./client";
 import type {
   AuditChainData,
   AuditQueryApiResponse,
+  BusinessAccessCheckReport,
+  BusinessDataReadPreview,
   CatalogLineageData,
   Json,
   MetadataApiResponse,
@@ -35,6 +37,14 @@ export const metadataApi = {
       return { ...result, entries: result.items };
     }
     return result;
+  },
+  async businessAccessCheck(payload: Record<string, Json>): Promise<BusinessAccessCheckReport> {
+    const result = await api.post<MetadataApiResponse<BusinessAccessCheckReport> | BusinessAccessCheckReport>("metadata", "/v1/business-access/check", payload);
+    return unwrapMetadataApiResult(result);
+  },
+  async businessDataReadPreview(payload: Record<string, Json>): Promise<BusinessDataReadPreview> {
+    const result = await api.post<MetadataApiResponse<BusinessDataReadPreview> | BusinessDataReadPreview>("metadata", "/v1/business-data/read-preview", payload);
+    return unwrapMetadataApiResult(result);
   },
 };
 

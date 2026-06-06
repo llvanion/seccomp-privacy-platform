@@ -49,6 +49,7 @@ def validate_pipeline_surface(pipeline_module: Any) -> None:
         )
     production_limits = REPO_ROOT / "config" / "pjc_resource_limits.example.json"
     release_policy_gate_config = REPO_ROOT / "config" / "release_policy_gate.example.json"
+    external_anchor_report = Path("/tmp/seccomp_pipeline_benchmark_example/external_anchor_report.json")
     for mode in pipeline_module.MODES:
         command = pipeline_module.build_pipeline_command(
             mode=mode,
@@ -82,11 +83,13 @@ def validate_pipeline_surface(pipeline_module: Any) -> None:
                 production_mode=True,
                 pjc_resource_limits=production_limits,
                 release_policy_gate_config=release_policy_gate_config,
+                external_anchor_report=external_anchor_report,
             )
             required_prod_flags = {
                 "--production-mode",
                 "--pjc-resource-limits",
                 "--release-policy-gate-config",
+                "--external-anchor-report",
                 "--privacy-budget-required",
                 "--privacy-budget-config",
                 "--privacy-budget-ledger",
@@ -102,6 +105,8 @@ def validate_pipeline_surface(pipeline_module: Any) -> None:
                 raise SystemExit(f"pipeline production benchmark command missing limits path: {production_command}")
             if str(release_policy_gate_config) not in production_command:
                 raise SystemExit(f"pipeline production benchmark command missing release gate config path: {production_command}")
+            if str(external_anchor_report) not in production_command:
+                raise SystemExit(f"pipeline production benchmark command missing external anchor report path: {production_command}")
     try:
         pipeline_module.build_pipeline_command(
             mode="file_handoff_retained",
@@ -112,6 +117,7 @@ def validate_pipeline_surface(pipeline_module: Any) -> None:
             production_mode=True,
             pjc_resource_limits=production_limits,
             release_policy_gate_config=release_policy_gate_config,
+            external_anchor_report=external_anchor_report,
         )
     except ValueError:
         pass
@@ -228,6 +234,14 @@ def validate_bridge_surface(bridge_module: Any) -> None:
         "email",
         "--client-value-mode",
         "raw-int",
+        "--client-value-max",
+        "1000000",
+        "--client-allowed-value-column",
+        "amount",
+        "--client-value-unit",
+        "minor_currency_unit",
+        "--client-value-currency",
+        "USD",
         "--token-secret-env",
         bridge_module.TOKEN_SECRET_ENV,
         "--audit-log",

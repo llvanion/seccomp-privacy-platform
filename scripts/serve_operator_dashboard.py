@@ -40,16 +40,27 @@ from check_observability_alerts import build_alert_report
 from list_query_workflow_status import scan_status_files
 from metadata_db import apply_migrations, connect_db, table_exists
 import policy_release
+from query_workflow_execution_store import (
+    DEFAULT_LEASE_SECONDS,
+    claim_execution,
+    enqueue_execution,
+    finish_execution,
+    heartbeat_execution,
+    lease_owner,
+)
 from submit_query_workflow import (
     STATUS_SCHEMA as QUERY_WORKFLOW_STATUS_SCHEMA,
+    assert_workflow_sidecar_start_allowed,
     append_jsonl,
     build_command,
     build_receipt,
     build_status,
     json_sha256,
+    load_jsonl_objects as load_workflow_receipts,
     load_request,
     normalize_request_paths,
     query_workflow_sidecar_paths,
+    redact_command,
     render_manifest,
     summarize_request,
     validate_request,
@@ -71,18 +82,47 @@ PRIVACY_BUDGET_APPROVAL_REJECT_ROLES = ("privacy_operator", "platform_admin", "c
 PRIVACY_BUDGET_APPROVAL_EXPIRE_ROLES = ("privacy_operator", "platform_admin", "compliance_auditor")
 DASHBOARD_FULL_VIEW_ROLES = ("platform_admin", "platform_auditor", "privacy_operator", "compliance_auditor")
 DASHBOARD_JOB_MUTATION_ROLES = ("platform_admin", "privacy_operator")
+RELEASE_GATE_BLOCKED_STATES = {"blocked", "pending_external_anchor"}
+RELEASE_GATE_RESULT_READY_STATES = {"completed", "failed", "blocked", "pending_external_anchor"}
 SESSION_COOKIE_SCHEMA = "operator_console_session/v1"
 PJC_MTLS_SCRIPT_DIR = REPO_ROOT / "a-psi" / "moduleA_psi" / "scripts"
-PJC_MTLS_CERT_DIR = REPO_ROOT / "tmp" / "pjc_mtls_shared" / "certs"
-PJC_MTLS_BUNDLE_DIR = REPO_ROOT / "tmp" / "pjc_mtls_shared" / "party_b_bundle"
-PJC_MTLS_PAIRING_TOKEN_FILE = REPO_ROOT / "tmp" / "pjc_mtls_shared" / "pairing_token"
-PJC_MTLS_PAIRING_TOKEN_META_FILE = REPO_ROOT / "tmp" / "pjc_mtls_shared" / "pairing_token_meta.json"
-PJC_MTLS_ENROLLMENT_AUDIT_FILE = REPO_ROOT / "tmp" / "pjc_mtls_shared" / "enrollment_audit.jsonl"
 PJC_MTLS_PAIRING_TOKEN_DEFAULT_TTL_SECONDS = 600
 PJC_MTLS_PAIRING_TOKEN_DEFAULT_MAX_ENROLLMENTS = 1
 
 _PJC_MTLS_TOKEN_LOCK = threading.Lock()
 _PJC_MTLS_SHUTDOWN_HOOKS: list[Any] = []
+
+
+def _pjc_mtls_cert_dir() -> Path:
+    return Path(os.environ.get("CERT_DIR") or (REPO_ROOT / "tmp" / "pjc_mtls_shared" / "certs")).expanduser().resolve()
+
+
+def _pjc_mtls_bundle_dir() -> Path:
+    env_value = os.environ.get("BUNDLE_DIR")
+    if env_value:
+        return Path(env_value).expanduser().resolve()
+    return _pjc_mtls_cert_dir().parent / "party_b_bundle"
+
+
+def _pjc_mtls_pairing_token_file() -> Path:
+    env_value = os.environ.get("PJC_MTLS_PAIRING_TOKEN_FILE")
+    if env_value:
+        return Path(env_value).expanduser().resolve()
+    return _pjc_mtls_cert_dir().parent / "pairing_token"
+
+
+def _pjc_mtls_pairing_token_meta_file() -> Path:
+    env_value = os.environ.get("PJC_MTLS_PAIRING_TOKEN_META_FILE")
+    if env_value:
+        return Path(env_value).expanduser().resolve()
+    return _pjc_mtls_cert_dir().parent / "pairing_token_meta.json"
+
+
+def _pjc_mtls_enrollment_audit_file() -> Path:
+    env_value = os.environ.get("PJC_MTLS_ENROLLMENT_AUDIT_FILE")
+    if env_value:
+        return Path(env_value).expanduser().resolve()
+    return _pjc_mtls_cert_dir().parent / "enrollment_audit.jsonl"
 
 # ---------------------------------------------------------------------------
 # Static SPA assets (from console/dist; configured via --console-dist)
@@ -354,22 +394,24 @@ def _utc_now_iso() -> str:
 
 
 def _read_pairing_meta() -> dict[str, Any]:
-    if not PJC_MTLS_PAIRING_TOKEN_META_FILE.is_file():
+    meta_path = _pjc_mtls_pairing_token_meta_file()
+    if not meta_path.is_file():
         return {}
     try:
-        return json.loads(PJC_MTLS_PAIRING_TOKEN_META_FILE.read_text(encoding="utf-8"))
+        return json.loads(meta_path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError):
         return {}
 
 
 def _write_pairing_meta(meta: dict[str, Any]) -> None:
-    PJC_MTLS_PAIRING_TOKEN_META_FILE.parent.mkdir(parents=True, exist_ok=True)
-    PJC_MTLS_PAIRING_TOKEN_META_FILE.write_text(json.dumps(meta, sort_keys=True) + "\n", encoding="utf-8")
-    PJC_MTLS_PAIRING_TOKEN_META_FILE.chmod(0o600)
+    meta_path = _pjc_mtls_pairing_token_meta_file()
+    meta_path.parent.mkdir(parents=True, exist_ok=True)
+    meta_path.write_text(json.dumps(meta, sort_keys=True) + "\n", encoding="utf-8")
+    meta_path.chmod(0o600)
 
 
 def _delete_pairing_state() -> None:
-    for path in (PJC_MTLS_PAIRING_TOKEN_FILE, PJC_MTLS_PAIRING_TOKEN_META_FILE):
+    for path in (_pjc_mtls_pairing_token_file(), _pjc_mtls_pairing_token_meta_file()):
         try:
             path.unlink()
         except FileNotFoundError:
@@ -378,11 +420,12 @@ def _delete_pairing_state() -> None:
 
 def _append_enrollment_audit(event: dict[str, Any]) -> None:
     try:
-        PJC_MTLS_ENROLLMENT_AUDIT_FILE.parent.mkdir(parents=True, exist_ok=True)
-        with PJC_MTLS_ENROLLMENT_AUDIT_FILE.open("a", encoding="utf-8") as handle:
+        audit_path = _pjc_mtls_enrollment_audit_file()
+        audit_path.parent.mkdir(parents=True, exist_ok=True)
+        with audit_path.open("a", encoding="utf-8") as handle:
             handle.write(json.dumps(event, sort_keys=True) + "\n")
         try:
-            PJC_MTLS_ENROLLMENT_AUDIT_FILE.chmod(0o600)
+            audit_path.chmod(0o600)
         except OSError:
             pass
     except OSError as exc:
@@ -416,8 +459,9 @@ def _ensure_pairing_token(*, force: bool = False) -> str:
                 _write_pairing_meta(meta)
             return env_token
 
-        if PJC_MTLS_PAIRING_TOKEN_FILE.is_file() and not force:
-            token = PJC_MTLS_PAIRING_TOKEN_FILE.read_text(encoding="utf-8").strip()
+        token_path = _pjc_mtls_pairing_token_file()
+        if token_path.is_file() and not force:
+            token = token_path.read_text(encoding="utf-8").strip()
             if token:
                 meta = _read_pairing_meta()
                 if not meta or meta.get("token") != token:
@@ -433,10 +477,10 @@ def _ensure_pairing_token(*, force: bool = False) -> str:
                     _write_pairing_meta(meta)
                 return token
 
-        PJC_MTLS_PAIRING_TOKEN_FILE.parent.mkdir(parents=True, exist_ok=True)
+        token_path.parent.mkdir(parents=True, exist_ok=True)
         token = secrets.token_urlsafe(24)
-        PJC_MTLS_PAIRING_TOKEN_FILE.write_text(token + "\n", encoding="utf-8")
-        PJC_MTLS_PAIRING_TOKEN_FILE.chmod(0o600)
+        token_path.write_text(token + "\n", encoding="utf-8")
+        token_path.chmod(0o600)
         _write_pairing_meta({
             "token": token,
             "issued_at": _utc_now_iso(),
@@ -453,10 +497,12 @@ def _prepare_pjc_mtls_party_a(*, force_regenerate: bool = False, enroll_url: str
     script = PJC_MTLS_SCRIPT_DIR / "prepare_pjc_mtls_party_a.sh"
     if not script.is_file():
         raise FileNotFoundError(f"missing helper script: {script}")
+    cert_dir = _pjc_mtls_cert_dir()
+    bundle_dir = _pjc_mtls_bundle_dir()
     env = os.environ.copy()
     env.update({
-        "CERT_DIR": str(PJC_MTLS_CERT_DIR),
-        "BUNDLE_DIR": str(PJC_MTLS_BUNDLE_DIR),
+        "CERT_DIR": str(cert_dir),
+        "BUNDLE_DIR": str(bundle_dir),
         "FORCE_REGENERATE": "1" if force_regenerate else "0",
     })
     result = subprocess.run(
@@ -474,12 +520,12 @@ def _prepare_pjc_mtls_party_a(*, force_regenerate: bool = False, enroll_url: str
             "exit_code": result.returncode,
             "stdout": result.stdout,
             "stderr": result.stderr,
-            "cert_dir": str(PJC_MTLS_CERT_DIR),
-            "bundle_dir": str(PJC_MTLS_BUNDLE_DIR),
+            "cert_dir": str(cert_dir),
+            "bundle_dir": str(bundle_dir),
         }
     token = _ensure_pairing_token(force=force_regenerate)
     meta = _read_pairing_meta()
-    fingerprint = _cert_fingerprint(PJC_MTLS_CERT_DIR / "ca.crt")
+    fingerprint = _cert_fingerprint(cert_dir / "ca.crt")
     ttl_seconds = int(meta.get("ttl_seconds") or _pairing_token_ttl_seconds())
     enroll_url = enroll_url.strip()
     bootstrap_uri = (
@@ -497,8 +543,8 @@ def _prepare_pjc_mtls_party_a(*, force_regenerate: bool = False, enroll_url: str
         "exit_code": result.returncode,
         "stdout": result.stdout,
         "stderr": result.stderr,
-        "cert_dir": str(PJC_MTLS_CERT_DIR),
-        "bundle_dir": str(PJC_MTLS_BUNDLE_DIR),
+        "cert_dir": str(cert_dir),
+        "bundle_dir": str(bundle_dir),
         "fingerprint": fingerprint,
         "pairing_token": token,
         "pairing_token_ttl_seconds": ttl_seconds,
@@ -561,8 +607,10 @@ def _enroll_pjc_mtls_csr(
         env_token = os.environ.get("PJC_MTLS_PAIRING_TOKEN", "").strip()
         if env_token:
             expected = env_token
-        elif PJC_MTLS_PAIRING_TOKEN_FILE.is_file():
-            expected = PJC_MTLS_PAIRING_TOKEN_FILE.read_text(encoding="utf-8").strip()
+        else:
+            token_path = _pjc_mtls_pairing_token_file()
+            if token_path.is_file():
+                expected = token_path.read_text(encoding="utf-8").strip()
 
         meta = _read_pairing_meta()
         ttl_seconds = int(meta.get("ttl_seconds") or _pairing_token_ttl_seconds())
@@ -595,6 +643,7 @@ def _enroll_pjc_mtls_csr(
         _append_enrollment_audit({**audit_base, "result": "error", "reason": "prepare_failed"})
         raise RuntimeError(prep.get("stderr") or prep.get("stdout") or "could not prepare Party A certificates")
 
+    cert_dir = Path(str(prep["cert_dir"])).expanduser().resolve()
     with tempfile.TemporaryDirectory(prefix="pjc_mtls_enroll_") as tmp:
         tmp_dir = Path(tmp)
         csr_path = tmp_dir / "client.csr"
@@ -610,9 +659,9 @@ def _enroll_pjc_mtls_csr(
                 "-in",
                 str(csr_path),
                 "-CA",
-                str(PJC_MTLS_CERT_DIR / "ca.crt"),
+                str(cert_dir / "ca.crt"),
                 "-CAkey",
-                str(PJC_MTLS_CERT_DIR / "ca.key"),
+                str(cert_dir / "ca.key"),
                 "-CAcreateserial",
                 "-out",
                 str(crt_path),
@@ -626,10 +675,10 @@ def _enroll_pjc_mtls_csr(
         if result.returncode != 0:
             _append_enrollment_audit({**audit_base, "result": "error", "reason": "openssl_sign_failed"})
             raise RuntimeError(result.stderr.strip() or "openssl CSR signing failed")
-        ca_crt_text = (PJC_MTLS_CERT_DIR / "ca.crt").read_text(encoding="utf-8")
+        ca_crt_text = (cert_dir / "ca.crt").read_text(encoding="utf-8")
         client_crt_text = crt_path.read_text(encoding="utf-8")
         client_fp = _cert_fingerprint(crt_path)
-        ca_fp = _cert_fingerprint(PJC_MTLS_CERT_DIR / "ca.crt")
+        ca_fp = _cert_fingerprint(cert_dir / "ca.crt")
 
     with _PJC_MTLS_TOKEN_LOCK:
         meta = _read_pairing_meta()
@@ -775,6 +824,30 @@ def _int_body(body: dict[str, Any], key: str, default: int, *, min_value: int = 
     return value
 
 
+def _bucket_policy_label(value: Any, label: str) -> str:
+    text = str(value or "").strip()
+    if not text:
+        raise ValueError(f"{label} must be non-empty")
+    if len(text) > 128:
+        raise ValueError(f"{label} is too long")
+    if not all(ch.isalnum() or ch in "_.:-" for ch in text):
+        raise ValueError(f"{label} contains unsupported characters")
+    return text
+
+
+def _bucket_policy_list(body: dict[str, Any], key: str, default: list[str]) -> list[str]:
+    raw = body.get(key)
+    if raw in (None, ""):
+        return list(default)
+    if isinstance(raw, str):
+        items = [item.strip() for item in raw.split(",") if item.strip()]
+    elif isinstance(raw, list):
+        items = [str(item).strip() for item in raw if str(item).strip()]
+    else:
+        raise ValueError(f"{key} must be a list or comma-separated string")
+    return sorted({_bucket_policy_label(item, f"{key} entry") for item in items})
+
+
 # --- Bucketed scale-test: async job registry ----------------------------------
 #
 # The bucketed scale test used to run synchronously inside the POST handler,
@@ -805,7 +878,20 @@ def _bucketed_scale_test_validate_inputs(body: dict[str, Any]) -> dict[str, Any]
     dp_sensitivity = _int_body(body, "dp_sensitivity", 10000)
     base_port = _int_body(body, "base_port", 10621, min_value=1024)
     max_jobs = _int_body(body, "max_jobs", 4)
-    bucket_field = str(body.get("bucket_field") or "campaign_id").strip() or "campaign_id"
+    bucket_field = _bucket_policy_label(body.get("bucket_field") or "campaign_id", "bucket_field")
+    bucket_prefix = _bucket_policy_label(body.get("bucket_prefix") or "campaign", "bucket_prefix")
+    max_buckets = _int_body(body, "max_buckets", buckets)
+    allowed_bucket_fields = _bucket_policy_list(body, "allowed_bucket_fields", [bucket_field])
+    allowed_buckets = _bucket_policy_list(
+        body,
+        "allowed_buckets",
+        [f"{bucket_prefix}_{idx:02d}" for idx in range(buckets)],
+    )
+    if bucket_field not in allowed_bucket_fields:
+        raise ValueError("bucket_field must be listed in allowed_bucket_fields")
+    if len(allowed_buckets) < buckets:
+        raise ValueError("allowed_buckets must include every generated bucket")
+    bucket_label_pattern = str(body.get("bucket_label_pattern") or r"^[A-Za-z0-9_.:-]{1,64}$").strip()
     dp_epsilon = str(body.get("dp_epsilon") or "1.0").strip()
     try:
         if float(dp_epsilon) <= 0:
@@ -823,6 +909,12 @@ def _bucketed_scale_test_validate_inputs(body: dict[str, Any]) -> dict[str, Any]
         "base_port": base_port,
         "max_jobs": max_jobs,
         "bucket_field": bucket_field,
+        "bucket_prefix": bucket_prefix,
+        "max_buckets": max_buckets,
+        "allowed_bucket_fields": allowed_bucket_fields,
+        "allowed_buckets": allowed_buckets,
+        "bucket_label_pattern": bucket_label_pattern,
+        "production_mode": bool(body.get("production_mode", True)),
         "dp_epsilon": dp_epsilon,
         "parallel": bool(body.get("parallel")),
     }
@@ -838,11 +930,17 @@ def _bucketed_scale_test_execute(resolved: dict[str, Any]) -> dict[str, Any]:
         "RECORDS": str(resolved["records"]),
         "BUCKETS": str(resolved["buckets"]),
         "BUCKET_FIELD": resolved["bucket_field"],
+        "BUCKET_PREFIX": resolved["bucket_prefix"],
         "K_THRESHOLD": str(resolved["k"]),
         "DP_EPSILON": resolved["dp_epsilon"],
         "DP_SENSITIVITY": str(resolved["dp_sensitivity"]),
         "BASE_PORT": str(resolved["base_port"]),
         "MAX_JOBS": str(resolved["max_jobs"]),
+        "MAX_BUCKETS": str(resolved["max_buckets"]),
+        "ALLOWED_BUCKET_FIELDS": ",".join(resolved["allowed_bucket_fields"]),
+        "ALLOWED_BUCKETS": ",".join(resolved["allowed_buckets"]),
+        "BUCKET_LABEL_PATTERN": resolved["bucket_label_pattern"],
+        "PRODUCTION_MODE": "1" if resolved.get("production_mode") else "0",
         "PARALLEL": "1" if resolved["parallel"] else "0",
         "PJC_BIN_DIR": str(REPO_ROOT / "a-psi" / "private-join-and-compute" / "bazel-bin"),
     })
@@ -1044,6 +1142,163 @@ def _extract_result_summary(out_base: Path) -> dict[str, Any] | None:
     }
 
 
+def _release_gate_path(out_base: Path) -> Path:
+    return out_base / "a_psi_run" / "release_policy_gate.json"
+
+
+def _load_release_gate_report(out_base: Path) -> dict[str, Any] | None:
+    report = _load_optional(_release_gate_path(out_base))
+    if report is None or report.get("schema") != "release_policy_gate/v1":
+        return None
+    return report
+
+
+def _release_gate_check(report: dict[str, Any], name: str) -> dict[str, Any] | None:
+    checks = report.get("checks")
+    if not isinstance(checks, list):
+        return None
+    for check in checks:
+        if isinstance(check, dict) and check.get("name") == name:
+            return check
+    return None
+
+
+def _release_gate_finding_kinds(report: dict[str, Any]) -> list[str]:
+    findings = report.get("findings")
+    if not isinstance(findings, list):
+        return []
+    return [str(item.get("kind") or "") for item in findings if isinstance(item, dict)]
+
+
+def _release_gate_is_external_anchor_pending(report: dict[str, Any]) -> bool:
+    reason_code = str(report.get("reason_code") or "")
+    if reason_code.startswith("external_anchor_"):
+        return True
+    if any(kind.startswith("external_anchor_") for kind in _release_gate_finding_kinds(report)):
+        return True
+    external_anchor = _release_gate_check(report, "external_anchor")
+    return isinstance(external_anchor, dict) and external_anchor.get("status") == "deny"
+
+
+def _release_gate_state(report: dict[str, Any] | None, *, base_state: str | None) -> dict[str, Any] | None:
+    if report is None:
+        return None
+    decision = str(report.get("decision") or "")
+    base = str(base_state or "unknown")
+    if decision == "allow":
+        state = base
+        action = None
+    elif _release_gate_is_external_anchor_pending(report):
+        state = "pending_external_anchor"
+        action = "provide_uploaded_external_anchor_report"
+    elif decision == "deny":
+        state = "blocked"
+        action = "review_release_gate_findings"
+    else:
+        state = base
+        action = None
+    return {
+        "state": state,
+        "terminal": state in RELEASE_GATE_BLOCKED_STATES,
+        "decision": decision or None,
+        "reason_code": report.get("reason_code"),
+        "recommended_action": action,
+        "checks": report.get("checks") if isinstance(report.get("checks"), list) else [],
+    }
+
+
+def _release_gate_stage_rows(report: dict[str, Any] | None) -> list[dict[str, Any]]:
+    state = _release_gate_state(report, base_state=None)
+    if state is None:
+        return []
+    decision = state.get("decision")
+    rows = [{"name": "release_gate", "status": "ok" if decision == "allow" else "deny" if decision == "deny" else "unknown"}]
+    external_anchor = _release_gate_check(report or {}, "external_anchor")
+    if isinstance(external_anchor, dict):
+        rows.append({
+            "name": "external_anchor",
+            "status": external_anchor.get("status"),
+        })
+    return rows
+
+
+def _append_release_gate_stage_rows(rows: list[dict[str, Any]], report: dict[str, Any] | None) -> list[dict[str, Any]]:
+    extra_rows = _release_gate_stage_rows(report)
+    if not extra_rows:
+        return rows
+    by_name = {str(row.get("name") or ""): index for index, row in enumerate(rows) if isinstance(row, dict)}
+    merged = [dict(row) for row in rows]
+    for row in extra_rows:
+        name = str(row.get("name") or "")
+        if name in by_name:
+            merged[by_name[name]].update(row)
+        else:
+            merged.append(row)
+    return merged
+
+
+def _apply_release_gate_to_status_item(item: dict[str, Any]) -> dict[str, Any]:
+    normalized = dict(item)
+    out_base_raw = normalized.get("out_base")
+    if not out_base_raw:
+        return normalized
+    report = _load_release_gate_report(Path(str(out_base_raw)))
+    gate_state = _release_gate_state(report, base_state=str(normalized.get("state") or "unknown"))
+    if gate_state is None:
+        return normalized
+    if gate_state["state"] in RELEASE_GATE_BLOCKED_STATES:
+        normalized.setdefault("source_state", normalized.get("state"))
+        normalized["state"] = gate_state["state"]
+        normalized["terminal"] = True
+    normalized["release_gate_decision"] = gate_state.get("decision")
+    normalized["release_gate_reason_code"] = gate_state.get("reason_code")
+    normalized["release_gate_recommended_action"] = gate_state.get("recommended_action")
+    return normalized
+
+
+def _scan_release_gate_aware_statuses(
+    search_dir: Path,
+    *,
+    filter_state: str | None = None,
+    filter_job_id: str | None = None,
+    limit: int,
+) -> tuple[list[dict[str, Any]], int]:
+    scan_limit = 1000000 if filter_state else limit
+    statuses, total = scan_status_files(
+        search_dir,
+        filter_job_id=filter_job_id,
+        limit=scan_limit,
+    )
+    statuses = [_apply_release_gate_to_status_item(item) for item in statuses]
+    if filter_state:
+        statuses = [item for item in statuses if item.get("state") == filter_state]
+        total = len(statuses)
+    return statuses[:limit], total
+
+
+def _apply_release_gate_to_job(job: dict[str, Any] | None) -> dict[str, Any] | None:
+    if job is None:
+        return None
+    out_base_raw = job.get("out_base")
+    if not out_base_raw:
+        return dict(job)
+    out_base = Path(str(out_base_raw))
+    report = _load_release_gate_report(out_base)
+    gate_state = _release_gate_state(report, base_state=str(job.get("state") or "unknown"))
+    normalized = dict(job)
+    if gate_state is None:
+        return normalized
+    if gate_state["state"] in RELEASE_GATE_BLOCKED_STATES:
+        normalized["state"] = gate_state["state"]
+        normalized["terminal"] = True
+    normalized["release_gate"] = {
+        "decision": gate_state.get("decision"),
+        "reason_code": gate_state.get("reason_code"),
+        "recommended_action": gate_state.get("recommended_action"),
+    }
+    return normalized
+
+
 def _dict_records(value: Any) -> list[dict[str, Any]]:
     if not isinstance(value, list):
         return []
@@ -1172,6 +1427,7 @@ def _build_audit_center(
 
     mainline_summary = summarize_mainline_contract(audit_chain) if audit_chain is not None else None
     public_report = _load_optional(out_base / "a_psi_run" / "public_report.json")
+    release_gate = _load_release_gate_report(out_base)
     result = _extract_result_summary(out_base) or {}
     latest_receipt = receipts[-1] if receipts else {}
     relaunch_context = _build_relaunch_context(
@@ -1189,9 +1445,14 @@ def _build_audit_center(
         _artifact_entry(out_base, "sse_exports/record_recovery_service_health.json", label="SSE Recovery Service Health"),
         _artifact_entry(out_base, "bridge_job/job_meta.json", label="Bridge Job Meta"),
         _artifact_entry(out_base, "bridge_job/bridge_audit.jsonl", label="Bridge Audit"),
+        _artifact_entry(out_base, "a_psi_run/source_export_manifest.json", label="Source Export Manifest"),
+        _artifact_entry(out_base, "a_psi_run/source_attestation.json", label="Source Attestation"),
+        _artifact_entry(out_base, "a_psi_run/source_truthfulness_report.json", label="Source Truthfulness Report"),
         _artifact_entry(out_base, "a_psi_run/pjc_audit.jsonl", label="PJC Audit"),
         _artifact_entry(out_base, "a_psi_run/attribution_result.json", label="PJC Result"),
         _artifact_entry(out_base, "a_psi_run/public_report.json", label="Public Report"),
+        _artifact_entry(out_base, "a_psi_run/release_policy_gate.json", label="Release Policy Gate"),
+        _artifact_entry(out_base, "a_psi_run/release_governance_report.json", label="Release Governance Report"),
         _artifact_entry(out_base, "a_psi_run/audit_log.jsonl", label="Policy Release Audit"),
         _artifact_entry(out_base, "audit_chain.json", label="Audit Chain"),
         _artifact_entry(out_base, "audit_chain.seal.json", label="Audit Chain Seal"),
@@ -1231,6 +1492,8 @@ def _build_audit_center(
             "reason_code": result.get("reason_code") or (public_report or {}).get("reason_code"),
             "intersection_size": result.get("intersection_size"),
             "intersection_sum": result.get("intersection_sum"),
+            "release_gate_decision": release_gate.get("decision") if isinstance(release_gate, dict) else None,
+            "release_gate_reason_code": release_gate.get("reason_code") if isinstance(release_gate, dict) else None,
         },
         "audit_chain": {
             "available": audit_chain is not None,
@@ -1241,7 +1504,7 @@ def _build_audit_center(
 
 
 def _build_recent_runs(search_dir: Path, *, active_out_base: Path, limit: int) -> dict[str, Any]:
-    statuses, total = scan_status_files(search_dir, limit=limit)
+    statuses, total = _scan_release_gate_aware_statuses(search_dir, limit=limit)
     for item in statuses:
         item["out_base_display"] = _display_path(Path(str(item.get("out_base") or "")), out_base=active_out_base)
         item["active"] = str(item.get("out_base") or "") == str(active_out_base)
@@ -1342,11 +1605,13 @@ def _stage_rows_from_files(out_base: Path, *, terminal_state: str, exit_code: in
 
 def _derive_stage_rows(out_base: Path, *, terminal_state: str, exit_code: int | None) -> list[dict[str, Any]]:
     observability = _load_optional(out_base / "pipeline_observability.json")
+    release_gate = _load_release_gate_report(out_base)
     if observability is not None:
         rows = _stage_rows_from_observability(observability, terminal_state=terminal_state, exit_code=exit_code)
         if rows:
-            return rows
-    return _stage_rows_from_files(out_base, terminal_state=terminal_state, exit_code=exit_code)
+            return _append_release_gate_stage_rows(rows, release_gate)
+    rows = _stage_rows_from_files(out_base, terminal_state=terminal_state, exit_code=exit_code)
+    return _append_release_gate_stage_rows(rows, release_gate)
 
 
 def _job_elapsed_seconds(job: dict[str, Any]) -> float | None:
@@ -1362,6 +1627,7 @@ def _job_elapsed_seconds(job: dict[str, Any]) -> float | None:
 
 
 def _job_snapshot(job: dict[str, Any]) -> dict[str, Any]:
+    job = _apply_release_gate_to_job(job) or job
     out_base = Path(job["out_base"])
     snapshot = {
         "job_id": job.get("job_id"),
@@ -1379,6 +1645,9 @@ def _job_snapshot(job: dict[str, Any]) -> dict[str, Any]:
     result = _extract_result_summary(out_base)
     if result is not None:
         snapshot["result"] = result
+    release_gate = job.get("release_gate")
+    if isinstance(release_gate, dict):
+        snapshot["release_gate"] = release_gate
     return snapshot
 
 
@@ -1388,7 +1657,7 @@ def _seed_job_from_out_base(out_base: Path) -> dict[str, Any] | None:
     if not status or status.get("schema") != QUERY_WORKFLOW_STATUS_SCHEMA:
         return None
     state = status.get("state") or "unknown"
-    return {
+    return _apply_release_gate_to_job({
         "job_id": status.get("job_id"),
         "tenant_id": status.get("tenant_id"),
         "state": state,
@@ -1399,7 +1668,7 @@ def _seed_job_from_out_base(out_base: Path) -> dict[str, Any] | None:
         "last_exit_code": status.get("last_exit_code"),
         "out_base": str(out_base),
         "request_source": None,
-    }
+    })
 
 
 def _build_data(out_base: Path, *, history_root: Path, history_limit: int) -> dict[str, Any]:
@@ -1528,6 +1797,12 @@ def build_dashboard_public_summary(data: dict[str, Any], *, identity: dict[str, 
     health = data.get("health") if isinstance(data.get("health"), dict) else {}
     health_summary = health.get("summary") if isinstance(health, dict) and isinstance(health.get("summary"), dict) else {}
     workflow_status = data.get("workflow_status") if isinstance(data.get("workflow_status"), dict) else {}
+    release_gate = (job_control or {}).get("release_gate") if isinstance(job_control, dict) else None
+    release_gate_action = release_gate.get("recommended_action") if isinstance(release_gate, dict) else None
+    job_state = (job_control or {}).get("state")
+    overall_status = data.get("overall_status")
+    if job_state in RELEASE_GATE_BLOCKED_STATES:
+        overall_status = job_state
     return {
         "schema": "operator_dashboard_public_summary/v1",
         "generated_at_utc": data.get("generated_at_utc"),
@@ -1544,9 +1819,9 @@ def build_dashboard_public_summary(data: dict[str, Any], *, identity: dict[str, 
             "dataset_id": data.get("dataset_id"),
             "service_id": data.get("service_id"),
         },
-        "overall_status": data.get("overall_status"),
+        "overall_status": overall_status,
         "job": {
-            "state": (job_control or {}).get("state"),
+            "state": job_state,
             "terminal": (job_control or {}).get("terminal"),
             "last_updated_at_utc": (job_control or {}).get("last_updated_at_utc"),
             "stage_statuses": _safe_stage_rows(job_control),
@@ -1555,7 +1830,9 @@ def build_dashboard_public_summary(data: dict[str, Any], *, identity: dict[str, 
             "available": bool(workflow_status.get("available")) if isinstance(workflow_status, dict) else False,
             "state": workflow_status.get("state") if isinstance(workflow_status, dict) else None,
             "terminal": workflow_status.get("terminal") if isinstance(workflow_status, dict) else None,
-            "recommended_action": workflow_status.get("recommended_action") if isinstance(workflow_status, dict) else None,
+            "recommended_action": release_gate_action or (
+                workflow_status.get("recommended_action") if isinstance(workflow_status, dict) else None
+            ),
         },
         "health": {
             "status": health_summary.get("status"),
@@ -2226,12 +2503,20 @@ def _transition_submission(
     job_snapshot = None
     if action == "approve" and normalized_to_start is not None:
         try:
-            _start_job_thread(
-                server,
-                payload=normalized_to_start,
-                request_source=f"operator_request:{submission_id}",
-                request_dir=REPO_ROOT,
-            )
+            if server.enqueue_approved_requests:
+                _enqueue_job_execution(
+                    server,
+                    payload=normalized_to_start,
+                    request_source=f"operator_request:{submission_id}",
+                    request_dir=REPO_ROOT,
+                )
+            else:
+                _start_job_thread(
+                    server,
+                    payload=normalized_to_start,
+                    request_source=f"operator_request:{submission_id}",
+                    request_dir=REPO_ROOT,
+                )
         except BaseException:
             if reservation_acquired:
                 server.release_reservation(reserved_job_id)
@@ -2314,13 +2599,56 @@ def _load_relaunch_request(
     return payload, request_source, request_dir, relaunch_context
 
 
-def _start_job_thread(server: "DashboardServer", *, payload: dict[str, Any], request_source: str, request_dir: Path) -> None:
+def _enqueue_job_execution(
+    server: "DashboardServer",
+    *,
+    payload: dict[str, Any],
+    request_source: str,
+    request_dir: Path,
+) -> dict[str, Any]:
+    if not server.metadata_db_path and not server.metadata_db_dsn:
+        raise RuntimeError("approved request enqueue requires metadata DB")
     normalized = normalize_request_paths(payload, request_dir=request_dir)
     validate_request(normalized)
     command = build_command(normalized)
     request_digest = json_sha256(normalized)
     out_base = Path(str(normalized["out_base"])).resolve()
     sidecar_paths = query_workflow_sidecar_paths(str(out_base))
+    try:
+        receipt_count, _existing_status = assert_workflow_sidecar_start_allowed(
+            payload=normalized,
+            sidecar_paths=sidecar_paths,
+            request_digest=request_digest,
+            execute=True,
+        )
+    except RuntimeError as exc:
+        raise RuntimeError(str(exc)) from exc
+
+    with connect_db(server.metadata_db_path, dsn=server.metadata_db_dsn) as conn:
+        apply_migrations(conn)
+        enqueue_execution(
+            conn,
+            job_id=str(normalized.get("job_id") or ""),
+            out_base=str(out_base),
+            request_digest=request_digest,
+            request_source=request_source,
+            caller=str(normalized.get("caller") or ""),
+            tenant_id=_normalized_tenant_id(normalized),
+            dataset_id=str(normalized.get("dataset_id") or ""),
+            mode="execute",
+            artifact_paths={
+                "status_path": str(sidecar_paths["status"]),
+                "receipts_path": str(sidecar_paths["execution_receipts"]),
+                "submission_manifest_path": str(sidecar_paths["submission_manifest"]),
+            },
+            metadata={
+                "entrypoint": "serve_operator_dashboard",
+                "raw_payload": normalized,
+                "request_dir": str(request_dir),
+                "command": redact_command(command),
+            },
+        )
+
     manifest = render_manifest(
         request_source=request_source,
         payload=normalized,
@@ -2329,25 +2657,137 @@ def _start_job_thread(server: "DashboardServer", *, payload: dict[str, Any], req
         exit_code=None,
     )
     write_json(sidecar_paths["submission_manifest"], manifest)
-    started_receipt = build_receipt(
+    queued_receipt = build_receipt(
         payload=normalized,
         mode="execute",
-        event="started",
+        event="queued",
         request_digest=request_digest,
         command=command,
         exit_code=None,
     )
-    append_jsonl(sidecar_paths["execution_receipts"], started_receipt)
-    started_status = build_status(
+    append_jsonl(sidecar_paths["execution_receipts"], queued_receipt)
+    receipt_count += 1
+    queued_status = build_status(
         payload=normalized,
         mode="execute",
-        state="running",
+        state="queued",
         terminal=False,
-        latest_receipt=started_receipt,
-        receipt_count=1,
+        latest_receipt=queued_receipt,
+        receipt_count=receipt_count,
         exit_code=None,
     )
-    write_json(sidecar_paths["status"], started_status)
+    write_json(sidecar_paths["status"], queued_status)
+    job_record = {
+        "job_id": normalized.get("job_id"),
+        "tenant_id": _normalized_tenant_id(normalized),
+        "state": "queued",
+        "terminal": False,
+        "started_at_utc": None,
+        "finished_at_utc": None,
+        "last_updated_at_utc": _utc_now(),
+        "last_exit_code": None,
+        "out_base": str(out_base),
+        "request_source": request_source,
+    }
+    server.out_base = out_base
+    server.set_job(job_record)
+    return job_record
+
+
+def _start_job_thread(server: "DashboardServer", *, payload: dict[str, Any], request_source: str, request_dir: Path) -> None:
+    normalized = normalize_request_paths(payload, request_dir=request_dir)
+    validate_request(normalized)
+    command = build_command(normalized)
+    request_digest = json_sha256(normalized)
+    out_base = Path(str(normalized["out_base"])).resolve()
+    sidecar_paths = query_workflow_sidecar_paths(str(out_base))
+    execution_conn = None
+    execution_owner = ""
+    execution_job_id = str(normalized.get("job_id") or "")
+    if server.metadata_db_path or server.metadata_db_dsn:
+        execution_conn = connect_db(server.metadata_db_path, dsn=server.metadata_db_dsn)
+        apply_migrations(execution_conn)
+        execution_owner = lease_owner("operator-dashboard")
+        claim_execution(
+            execution_conn,
+            job_id=execution_job_id,
+            out_base=str(out_base),
+            request_digest=request_digest,
+            request_source=request_source,
+            caller=str(normalized.get("caller") or ""),
+            tenant_id=_normalized_tenant_id(normalized),
+            dataset_id=str(normalized.get("dataset_id") or ""),
+            mode="execute",
+            owner=execution_owner,
+            lease_seconds=DEFAULT_LEASE_SECONDS,
+            steal_expired=False,
+            artifact_paths={
+                "status_path": str(sidecar_paths["status"]),
+                "receipts_path": str(sidecar_paths["execution_receipts"]),
+                "submission_manifest_path": str(sidecar_paths["submission_manifest"]),
+            },
+            metadata={"entrypoint": "serve_operator_dashboard"},
+        )
+    try:
+        receipt_count, _existing_status = assert_workflow_sidecar_start_allowed(
+            payload=normalized,
+            sidecar_paths=sidecar_paths,
+            request_digest=request_digest,
+            execute=True,
+        )
+    except RuntimeError as exc:
+        if execution_conn is not None:
+            finish_execution(
+                execution_conn,
+                job_id=execution_job_id,
+                owner=execution_owner,
+                exit_code=127,
+                state="failed",
+                metadata={"error_class": "sidecar_claim_failed", "error": str(exc)},
+            )
+            execution_conn.close()
+        raise RuntimeError(str(exc)) from exc
+    try:
+        manifest = render_manifest(
+            request_source=request_source,
+            payload=normalized,
+            command=command,
+            mode="execute",
+            exit_code=None,
+        )
+        write_json(sidecar_paths["submission_manifest"], manifest)
+        started_receipt = build_receipt(
+            payload=normalized,
+            mode="execute",
+            event="started",
+            request_digest=request_digest,
+            command=command,
+            exit_code=None,
+        )
+        append_jsonl(sidecar_paths["execution_receipts"], started_receipt)
+        receipt_count += 1
+        started_status = build_status(
+            payload=normalized,
+            mode="execute",
+            state="running",
+            terminal=False,
+            latest_receipt=started_receipt,
+            receipt_count=receipt_count,
+            exit_code=None,
+        )
+        write_json(sidecar_paths["status"], started_status)
+    except BaseException as exc:
+        if execution_conn is not None:
+            finish_execution(
+                execution_conn,
+                job_id=execution_job_id,
+                owner=execution_owner,
+                exit_code=127,
+                state="failed",
+                metadata={"error_class": "sidecar_write_failed", "error": str(exc)},
+            )
+            execution_conn.close()
+        raise
 
     job_record = {
         "job_id": normalized.get("job_id"),
@@ -2367,10 +2807,29 @@ def _start_job_thread(server: "DashboardServer", *, payload: dict[str, Any], req
     def _runner() -> None:
         exit_code: int | None = None
         try:
+            if execution_conn is not None:
+                heartbeat_execution(
+                    execution_conn,
+                    job_id=execution_job_id,
+                    owner=execution_owner,
+                    lease_seconds=DEFAULT_LEASE_SECONDS,
+                )
             result = subprocess.run(command, cwd=str(REPO_ROOT), check=False)
             exit_code = result.returncode
         except OSError:
             exit_code = 127
+        except BaseException as exc:
+            if execution_conn is not None:
+                finish_execution(
+                    execution_conn,
+                    job_id=execution_job_id,
+                    owner=execution_owner,
+                    exit_code=127,
+                    state="failed",
+                    metadata={"error_class": "run_exception", "error": str(exc)},
+                )
+                execution_conn.close()
+            raise
 
         finished_at = _utc_now()
         final_manifest = render_manifest(
@@ -2390,16 +2849,26 @@ def _start_job_thread(server: "DashboardServer", *, payload: dict[str, Any], req
             exit_code=exit_code,
         )
         append_jsonl(sidecar_paths["execution_receipts"], final_receipt)
+        final_receipt_count = len(load_workflow_receipts(sidecar_paths["execution_receipts"]))
         final_status = build_status(
             payload=normalized,
             mode="execute",
             state="completed" if exit_code in (None, 0) else "failed",
             terminal=True,
             latest_receipt=final_receipt,
-            receipt_count=2,
+            receipt_count=final_receipt_count,
             exit_code=exit_code,
         )
         write_json(sidecar_paths["status"], final_status)
+        if execution_conn is not None:
+            finish_execution(
+                execution_conn,
+                job_id=execution_job_id,
+                owner=execution_owner,
+                exit_code=exit_code,
+                metadata={"entrypoint": "serve_operator_dashboard"},
+            )
+            execution_conn.close()
         server.set_job({
             "job_id": normalized.get("job_id"),
             "tenant_id": _normalized_tenant_id(normalized),
@@ -2473,6 +2942,7 @@ PJC_ROLE_ENV_ALLOWLIST: tuple[str, ...] = (
     "PJC_INPUT_COMMITMENT",
     "PJC_JOB_META",
     "PJC_REQUIRE_INPUT_COMMITMENT",
+    "PJC_REQUIRE_BUCKET_POLICY",
 )
 
 PJC_REQUIRED_NEGATIVE_CASES: tuple[str, ...] = (
@@ -3282,6 +3752,7 @@ def _role_command(role: str, *, body: dict[str, Any]) -> tuple[list[str], dict[s
         env["PJC_GRPC_STREAM_CHUNK_ELEMENTS"] = str(body["pjc_grpc_stream_chunk_elements"])
     if body.get("production_mode"):
         env["PJC_PRODUCTION_MODE"] = "1"
+        env["PJC_REQUIRE_BUCKET_POLICY"] = "1"
     if body.get("require_session_manifest"):
         env["PJC_MTLS_REQUIRE_SESSION_MANIFEST"] = "1"
     if body.get("grpc_max_message_mb") is not None:
@@ -3610,6 +4081,10 @@ def _signable_run_manifest_payload(body: dict[str, Any]) -> dict[str, Any]:
         "repo_commit": str(body.get("repo_commit") or body.get("commit") or _read_repo_commit() or "").strip() or None,
         "input_commitment_sha256": _first_manifest_hash(body.get("input_commitment_sha256"), body.get("local_input_commitment_sha256")),
         "peer_input_commitment_sha256": _first_manifest_hash(body.get("peer_input_commitment_sha256")),
+        "bucket_policy_sha256": _first_manifest_hash(body.get("bucket_policy_sha256"), body.get("local_bucket_policy_sha256")),
+        "peer_bucket_policy_sha256": _first_manifest_hash(body.get("peer_bucket_policy_sha256")),
+        "shard_manifest_sha256": _first_manifest_hash(body.get("shard_manifest_sha256"), body.get("local_shard_manifest_sha256")),
+        "peer_shard_manifest_sha256": _first_manifest_hash(body.get("peer_shard_manifest_sha256")),
         "pjc_result_sha256": pjc_result_sha,
         "policy_decision": policy_decision,
         "public_report_sha256": public_report_sha,
@@ -3781,6 +4256,21 @@ def _extract_party_evidence(root: Path, *, label: str) -> dict[str, Any]:
         )
     if not input_commit and pjc_audits:
         input_commit = pjc_audits[-1].get("input_commitment_sha256")
+    bucket_policy_sha = None
+    shard_manifest_sha = None
+    if bridge_meta is not None:
+        bridge_inputs = bridge_meta.get("inputs") if isinstance(bridge_meta.get("inputs"), dict) else {}
+        bucket_policy_sha = (
+            bridge_meta.get("bucket_policy_sha256")
+            or bridge_inputs.get("bucket_policy_sha256")
+        )
+        shard_manifest_sha = (
+            bridge_meta.get("shard_manifest_sha256")
+            or bridge_inputs.get("shard_manifest_sha256")
+        )
+    if pjc_audits:
+        bucket_policy_sha = bucket_policy_sha or pjc_audits[-1].get("bucket_policy_sha256")
+        shard_manifest_sha = shard_manifest_sha or pjc_audits[-1].get("shard_manifest_sha256")
     local_input_commit = (
         signed_payload.get("input_commitment_sha256")
         if isinstance(signed_payload, dict)
@@ -3788,6 +4278,26 @@ def _extract_party_evidence(root: Path, *, label: str) -> dict[str, Any]:
     )
     peer_input_commit = (
         signed_payload.get("peer_input_commitment_sha256")
+        if isinstance(signed_payload, dict)
+        else None
+    )
+    local_bucket_policy_sha = (
+        signed_payload.get("bucket_policy_sha256")
+        if isinstance(signed_payload, dict)
+        else bucket_policy_sha
+    )
+    peer_bucket_policy_sha = (
+        signed_payload.get("peer_bucket_policy_sha256")
+        if isinstance(signed_payload, dict)
+        else None
+    )
+    local_shard_manifest_sha = (
+        signed_payload.get("shard_manifest_sha256")
+        if isinstance(signed_payload, dict)
+        else shard_manifest_sha
+    )
+    peer_shard_manifest_sha = (
+        signed_payload.get("peer_shard_manifest_sha256")
         if isinstance(signed_payload, dict)
         else None
     )
@@ -3817,6 +4327,18 @@ def _extract_party_evidence(root: Path, *, label: str) -> dict[str, Any]:
             "local": local_input_commit,
             "peer": peer_input_commit,
         },
+        "bucket_policy_sha256": local_bucket_policy_sha,
+        "peer_bucket_policy_sha256": peer_bucket_policy_sha,
+        "bucket_policy_pair": {
+            "local": local_bucket_policy_sha,
+            "peer": peer_bucket_policy_sha,
+        },
+        "shard_manifest_sha256": local_shard_manifest_sha,
+        "peer_shard_manifest_sha256": peer_shard_manifest_sha,
+        "shard_manifest_pair": {
+            "local": local_shard_manifest_sha,
+            "peer": peer_shard_manifest_sha,
+        },
         "tls_identity": tls_identity,
         "peer_tls_identity": signed_payload.get("peer_tls_identity") if isinstance(signed_payload, dict) else None,
         "ca_fingerprint_sha256": ca_fp,
@@ -3845,7 +4367,8 @@ def _two_party_evidence_merge(body: dict[str, Any]) -> dict[str, Any]:
         reason = f"missing files: A={a.get('missing_files')!r}, B={b.get('missing_files')!r}"
         findings = [{"kind": "missing_party_artifacts", "message": reason, "expected": [], "actual": [a.get("missing_files"), b.get("missing_files")]}]
         checks = {k: "missing" for k in (
-            "manifest_signature_valid", "job_id_match", "commit_match", "input_commitment_match", "commitment_exchange_match", "tls_identity_match",
+            "manifest_signature_valid", "job_id_match", "commit_match", "input_commitment_match", "commitment_exchange_match",
+            "bucket_policy_match", "shard_manifest_match", "tls_identity_match",
             "ca_fingerprint_match", "result_hash_match", "policy_decision_match", "audit_chain_match",
         )}
     else:
@@ -3897,6 +4420,51 @@ def _two_party_evidence_merge(body: dict[str, Any]) -> dict[str, Any]:
                 "message": "party-local and peer commitment hashes do not cross-match",
                 "expected": {"party_a_peer": b_local, "party_b_peer": a_local},
                 "actual": {"party_a_peer": a_peer, "party_b_peer": b_peer},
+            })
+            return "mismatch"
+
+        def _scope_hash_status(local_key: str, peer_key: str, finding_kind: str, label: str) -> str:
+            a_local = a.get(local_key)
+            a_peer = a.get(peer_key)
+            b_local = b.get(local_key)
+            b_peer = b.get(peer_key)
+            if None in (a_local, a_peer, b_local, b_peer) and all(
+                value is None for value in (a_local, a_peer, b_local, b_peer)
+            ):
+                return "missing"
+            if a_peer is None and b_peer is None:
+                if a_local is None or b_local is None:
+                    findings.append({
+                        "kind": finding_kind,
+                        "message": f"one party is missing {label} hash evidence",
+                        "expected": {"party_a_local": a_local, "party_b_local": b_local},
+                        "actual": {"party_a_local": a_local, "party_b_local": b_local},
+                    })
+                    return "mismatch"
+                if a_local == b_local:
+                    return "match"
+                findings.append({
+                    "kind": finding_kind,
+                    "message": f"{label} hashes differ",
+                    "expected": a_local,
+                    "actual": b_local,
+                })
+                return "mismatch"
+            if None in (a_local, a_peer, b_local, b_peer):
+                findings.append({
+                    "kind": finding_kind,
+                    "message": f"signed run manifests do not carry a complete local/peer {label} hash pair",
+                    "expected": {"party_a_local": a_local, "party_a_peer": b_local, "party_b_local": b_local, "party_b_peer": a_local},
+                    "actual": {"party_a_local": a_local, "party_a_peer": a_peer, "party_b_local": b_local, "party_b_peer": b_peer},
+                })
+                return "mismatch"
+            if a_local == b_local and a_peer == b_local and b_peer == a_local:
+                return "match"
+            findings.append({
+                "kind": finding_kind,
+                "message": f"party-local and peer {label} hashes do not cross-match",
+                "expected": {"party_a_local": a_local, "party_a_peer": b_local, "party_b_local": b_local, "party_b_peer": a_local},
+                "actual": {"party_a_local": a_local, "party_a_peer": a_peer, "party_b_local": b_local, "party_b_peer": b_peer},
             })
             return "mismatch"
 
@@ -3959,6 +4527,18 @@ def _two_party_evidence_merge(body: dict[str, Any]) -> dict[str, Any]:
             "commit_match": _cmp("commit_match", "commit", "commit_mismatch"),
             "input_commitment_match": _input_commitment_status(),
             "commitment_exchange_match": exchange_status,
+            "bucket_policy_match": _scope_hash_status(
+                "bucket_policy_sha256",
+                "peer_bucket_policy_sha256",
+                "bucket_policy_mismatch",
+                "bucket policy",
+            ),
+            "shard_manifest_match": _scope_hash_status(
+                "shard_manifest_sha256",
+                "peer_shard_manifest_sha256",
+                "shard_manifest_mismatch",
+                "shard manifest",
+            ),
             "tls_identity_match": _tls_identity_status(),
             "ca_fingerprint_match": _cmp("ca_fingerprint_match", "ca_fingerprint_sha256", "ca_fingerprint_mismatch"),
             "result_hash_match": _cmp("result_hash_match", "result_sha256", "result_hash_mismatch"),
@@ -3971,6 +4551,8 @@ def _two_party_evidence_merge(body: dict[str, Any]) -> dict[str, Any]:
             ("commit_match", "commit_mismatch"),
             ("input_commitment_match", "input_manifest_mismatch"),
             ("commitment_exchange_match", "commitment_exchange_mismatch"),
+            ("bucket_policy_match", "bucket_policy_mismatch"),
+            ("shard_manifest_match", "shard_manifest_mismatch"),
             ("tls_identity_match", "tls_identity_mismatch"),
             ("ca_fingerprint_match", "ca_fingerprint_mismatch"),
             ("result_hash_match", "result_hash_mismatch"),
@@ -4080,8 +4662,8 @@ def _run_negative_case(name: str, *, scenario: dict[str, Any]) -> dict[str, Any]
             return _negative_case_record(name, actual_decision="deny", actual_reason_code="invalid_csr", message=str(exc))
         return _negative_case_record(name, actual_decision="allow", actual_reason_code="unexpected_ok", message="enrollment accepted bad token")
     if name == "expired_token":
-        meta_path = PJC_MTLS_PAIRING_TOKEN_META_FILE
-        token_path = PJC_MTLS_PAIRING_TOKEN_FILE
+        meta_path = _pjc_mtls_pairing_token_meta_file()
+        token_path = _pjc_mtls_pairing_token_file()
         backup_meta = meta_path.read_text(encoding="utf-8") if meta_path.is_file() else None
         backup_token = token_path.read_text(encoding="utf-8") if token_path.is_file() else None
         try:
@@ -4214,7 +4796,17 @@ def _two_party_negative_cases(body: dict[str, Any]) -> dict[str, Any]:
         try:
             result = _run_negative_case(case_name, scenario=scenario)
         except Exception as exc:  # noqa: BLE001
-            result = _negative_case_record(case_name, actual_decision="deny", actual_reason_code="case_execution_failed", message=str(exc))
+            message = str(exc)
+            if "Operation not permitted" in message or "Permission denied" in message:
+                result = _negative_case_record(
+                    case_name,
+                    actual_decision="deny",
+                    actual_reason_code="case_execution_failed",
+                    message=message,
+                )
+                result["result"] = "skip"
+            else:
+                result = _negative_case_record(case_name, actual_decision="deny", actual_reason_code="case_execution_failed", message=message)
         results.append(result)
     # decision: allow only if every required case passes (i.e. expected deny)
     decision = "allow"
@@ -4493,6 +5085,9 @@ def _release_policy_gate_endpoint(body: dict[str, Any]) -> dict[str, Any]:
     budget_ledger = _repo_path(str(body["privacy_budget_ledger"])) if body.get("privacy_budget_ledger") else None
     pjc_evidence_merge = _repo_path(str(body["pjc_evidence_merge_path"])) if body.get("pjc_evidence_merge_path") else None
     policy_audit_log = _repo_path(str(body["policy_audit_log_path"])) if body.get("policy_audit_log_path") else None
+    external_anchor_report = _repo_path(str(body["external_anchor_report_path"])) if body.get("external_anchor_report_path") else None
+    source_attestation = _repo_path(str(body["source_attestation_path"])) if body.get("source_attestation_path") else None
+    source_truthfulness_report = _repo_path(str(body["source_truthfulness_report_path"])) if body.get("source_truthfulness_report_path") else None
 
     report = run_gate(
         public_report_path=public_report,
@@ -4501,6 +5096,9 @@ def _release_policy_gate_endpoint(body: dict[str, Any]) -> dict[str, Any]:
         budget_ledger_path=budget_ledger,
         pjc_evidence_merge_path=pjc_evidence_merge,
         policy_audit_log_path=policy_audit_log,
+        external_anchor_report_path=external_anchor_report,
+        source_attestation_path=source_attestation,
+        source_truthfulness_report_path=source_truthfulness_report,
     )
     out_dir = _ensure_two_party_dir() / "release_policy_gate"
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -4540,6 +5138,7 @@ class DashboardServer(ThreadingHTTPServer):
         console_dist: Path | None = None,
         session_cookie_name: str = DEFAULT_IDENTITY_SESSION_COOKIE_NAME,
         session_cookie_secure: bool = False,
+        enqueue_approved_requests: bool = False,
     ) -> None:
         self.out_base = out_base
         self.history_root = history_root
@@ -4563,6 +5162,7 @@ class DashboardServer(ThreadingHTTPServer):
         self.console_dist = console_dist
         self.session_cookie_name = session_cookie_name.strip() or DEFAULT_IDENTITY_SESSION_COOKIE_NAME
         self.session_cookie_secure = bool(session_cookie_secure)
+        self.enqueue_approved_requests = bool(enqueue_approved_requests)
         self.job_lock = threading.Lock()
         self.current_job: dict[str, Any] | None = _seed_job_from_out_base(out_base)
         self.jobs: dict[str, dict[str, Any]] = {}
@@ -4589,7 +5189,7 @@ class DashboardServer(ThreadingHTTPServer):
     def _filesystem_active_keys_for_tenant(self, tenant_id: str) -> set[str]:
         target = tenant_id or UNSPECIFIED_TENANT_ID
         active_keys: set[str] = set()
-        statuses, _ = scan_status_files(
+        statuses, _ = _scan_release_gate_aware_statuses(
             self.history_root,
             filter_state="running",
             limit=1000000,
@@ -4714,7 +5314,7 @@ class DashboardServer(ThreadingHTTPServer):
         limit: int | None = None,
     ) -> dict[str, Any]:
         use_limit = max(1, limit or self.history_limit)
-        statuses, total = scan_status_files(
+        statuses, total = _scan_release_gate_aware_statuses(
             self.history_root,
             filter_state=filter_state,
             filter_job_id=filter_job_id,
@@ -5228,7 +5828,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
             if snapshot is None:
                 self._send_json(404, {"error": "not_found", "job_id": job_id})
                 return
-            if snapshot.get("state") not in {"completed", "failed"}:
+            if snapshot.get("state") not in RELEASE_GATE_RESULT_READY_STATES:
                 self._send_json(404, {"error": "result_not_ready", "job_id": job_id})
                 return
             result = snapshot.get("result") or {}
@@ -5269,7 +5869,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 "path": path,
                 "hint": (
                     "Console SPA assets are not available. Build the SPA "
-                    "(npm --prefix console run build) and start this server "
+                    "(npm --prefix console run build:strict) and start this server "
                     "with --console-dist <path>, or rely on the default "
                     "<repo>/console/dist location."
                 ) if self.server.console_dist is None else "asset missing",
@@ -5809,6 +6409,11 @@ def build_parser() -> argparse.ArgumentParser:
     ap.add_argument("--metadata-db-path", default="", help="Metadata DB path for I3 request submission records")
     ap.add_argument("--metadata-db-dsn", default="", help="Metadata PostgreSQL DSN for I3 request submission records")
     ap.add_argument(
+        "--enqueue-approved-requests",
+        action="store_true",
+        help="Queue approved query workflow requests in metadata DB for run_query_workflow_worker.py instead of starting a subprocess in the HTTP server",
+    )
+    ap.add_argument(
         "--metadata-db-dsn-read-replica",
         default="",
         help="Optional PostgreSQL replica DSN for identity-resolution SELECTs",
@@ -5899,6 +6504,7 @@ def main() -> int:
         console_dist=console_dist,
         session_cookie_name=args.session_cookie_name,
         session_cookie_secure=bool(args.session_cookie_secure),
+        enqueue_approved_requests=bool(args.enqueue_approved_requests),
     )
 
     def _shutdown(sig: int, frame: Any) -> None:

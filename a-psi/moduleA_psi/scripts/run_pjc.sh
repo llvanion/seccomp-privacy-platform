@@ -14,6 +14,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 MODULE_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
+source "$SCRIPT_DIR/pjc_binary_helpers.sh"
 
 # ---- Config (override via env vars) ----
 PJC_DIR="${PJC_DIR:-$MODULE_ROOT/private-join-and-compute}"
@@ -129,12 +130,6 @@ echo "[info] SERVER_ADDR=$SERVER_ADDR"
 echo "[info] GRPC_MAX_MESSAGE_MB=$GRPC_MAX_MESSAGE_MB"
 echo "[info] PJC_GRPC_STREAM_CHUNK_ELEMENTS=$PJC_GRPC_STREAM_CHUNK_ELEMENTS"
 
-if [[ -n "$PJC_BIN_DIR" ]]; then
-  cd "$(dirname "$(resolve_path "$PJC_BIN_DIR")")"
-else
-  cd "$PJC_DIR"
-fi
-
 SERVER_LOG="$OUT_DIR/server.log"
 CLIENT_LOG="$OUT_DIR/client.log"
 
@@ -150,20 +145,12 @@ if [[ "$PJC_BUILD" == "1" ]]; then
   bazel build -c opt //private_join_and_compute:server //private_join_and_compute:client >/dev/null
 fi
 
-if [[ -n "$PJC_BIN_DIR" ]]; then
-  BIN_DIR="$(resolve_path "$PJC_BIN_DIR")"
-else
-  BIN_DIR="$(bazel info bazel-bin)"
-fi
+BIN_DIR="$(resolve_pjc_bin_dir_with_gate "$MODULE_ROOT" "$PJC_DIR" "$PJC_BIN_DIR" "$OUT_DIR" "$PJC_GRPC_STREAM_CHUNK_ELEMENTS")"
 SERVER_BIN="$BIN_DIR/private_join_and_compute/server"
 CLIENT_BIN="$BIN_DIR/private_join_and_compute/client"
 
 [[ -x "$SERVER_BIN" ]] || { echo "[error] server binary not found/executable: $SERVER_BIN" >&2; exit 1; }
 [[ -x "$CLIENT_BIN" ]] || { echo "[error] client binary not found/executable: $CLIENT_BIN" >&2; exit 1; }
-
-supports_stream_chunk_flag() {
-  "$1" --help 2>&1 | grep -q -- "--grpc_stream_chunk_elements"
-}
 
 PJC_EFFECTIVE_GRPC_STREAM_CHUNK_ELEMENTS="$PJC_GRPC_STREAM_CHUNK_ELEMENTS"
 SERVER_ARGS=(
@@ -177,21 +164,8 @@ CLIENT_ARGS=(
   --grpc_max_message_mb="$GRPC_MAX_MESSAGE_MB"
 )
 if [[ "$PJC_GRPC_STREAM_CHUNK_ELEMENTS" != "0" ]]; then
-  if supports_stream_chunk_flag "$SERVER_BIN" && supports_stream_chunk_flag "$CLIENT_BIN"; then
-    SERVER_ARGS+=(--grpc_stream_chunk_elements="$PJC_GRPC_STREAM_CHUNK_ELEMENTS")
-    CLIENT_ARGS+=(--grpc_stream_chunk_elements="$PJC_GRPC_STREAM_CHUNK_ELEMENTS")
-  else
-    if [[ "$PJC_PRODUCTION_MODE" == "1" ]]; then
-      echo "[error] PJC_PRODUCTION_MODE=1 requires binaries that support --grpc_stream_chunk_elements" >&2
-      exit 1
-    fi
-    if [[ "$PJC_ALLOW_LEGACY_UNARY" != "1" ]]; then
-      echo "[error] PJC binaries do not support --grpc_stream_chunk_elements; set PJC_ALLOW_LEGACY_UNARY=1 only for local demo unary fallback" >&2
-      exit 1
-    fi
-    echo "[warn] PJC binaries do not support --grpc_stream_chunk_elements; using explicit legacy unary mode" >&2
-    PJC_EFFECTIVE_GRPC_STREAM_CHUNK_ELEMENTS=0
-  fi
+  SERVER_ARGS+=(--grpc_stream_chunk_elements="$PJC_GRPC_STREAM_CHUNK_ELEMENTS")
+  CLIENT_ARGS+=(--grpc_stream_chunk_elements="$PJC_GRPC_STREAM_CHUNK_ELEMENTS")
 fi
 echo "[info] PJC_EFFECTIVE_GRPC_STREAM_CHUNK_ELEMENTS=$PJC_EFFECTIVE_GRPC_STREAM_CHUNK_ELEMENTS"
 

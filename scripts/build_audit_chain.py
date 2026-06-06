@@ -69,6 +69,10 @@ def resolve_paths(args: argparse.Namespace) -> Dict[str, str]:
             "public_report": args.public_report or os.path.join(out_base, "a_psi_run", "public_report.json"),
             "policy_audit": args.policy_audit or os.path.join(out_base, "a_psi_run", "audit_log.jsonl"),
             "release_policy_gate": args.release_policy_gate or os.path.join(out_base, "a_psi_run", "release_policy_gate.json"),
+            "source_export_manifest": args.source_export_manifest or os.path.join(out_base, "a_psi_run", "source_export_manifest.json"),
+            "source_attestation": args.source_attestation or os.path.join(out_base, "a_psi_run", "source_attestation.json"),
+            "source_truthfulness_report": args.source_truthfulness_report or os.path.join(out_base, "a_psi_run", "source_truthfulness_report.json"),
+            "release_governance_report": args.release_governance_report or os.path.join(out_base, "a_psi_run", "release_governance_report.json"),
             "key_access_audit": args.key_access_audit or os.path.join(out_base, "key_access_audit.jsonl"),
             "mainline_contract_check": args.mainline_contract_check or os.path.join(out_base, "mainline_contract_check.json"),
             "out": args.out or os.path.join(out_base, "audit_chain.json"),
@@ -84,6 +88,10 @@ def resolve_paths(args: argparse.Namespace) -> Dict[str, str]:
         "public_report": args.public_report,
         "policy_audit": args.policy_audit,
         "release_policy_gate": args.release_policy_gate,
+        "source_export_manifest": args.source_export_manifest,
+        "source_attestation": args.source_attestation,
+        "source_truthfulness_report": args.source_truthfulness_report,
+        "release_governance_report": args.release_governance_report,
         "key_access_audit": args.key_access_audit,
         "mainline_contract_check": args.mainline_contract_check,
         "out": args.out,
@@ -107,6 +115,10 @@ def build_chain(args: argparse.Namespace) -> Dict[str, Any]:
     pjc_result = load_json_if_exists(paths["pjc_result"])
     public_report = load_json_if_exists(paths["public_report"])
     release_policy_gate = load_json_if_exists(paths["release_policy_gate"])
+    source_export_manifest = load_json_if_exists(paths["source_export_manifest"])
+    source_attestation = load_json_if_exists(paths["source_attestation"])
+    source_truthfulness_report = load_json_if_exists(paths["source_truthfulness_report"])
+    release_governance_report = load_json_if_exists(paths["release_governance_report"])
     mainline_contract_check = load_json_if_exists(paths["mainline_contract_check"])
 
     return {
@@ -125,6 +137,10 @@ def build_chain(args: argparse.Namespace) -> Dict[str, Any]:
             "public_report": os.path.abspath(paths["public_report"]) if paths["public_report"] else None,
             "policy_audit": os.path.abspath(paths["policy_audit"]) if paths["policy_audit"] else None,
             "release_policy_gate": os.path.abspath(paths["release_policy_gate"]) if paths["release_policy_gate"] else None,
+            "source_export_manifest": os.path.abspath(paths["source_export_manifest"]) if paths["source_export_manifest"] else None,
+            "source_attestation": os.path.abspath(paths["source_attestation"]) if paths["source_attestation"] else None,
+            "source_truthfulness_report": os.path.abspath(paths["source_truthfulness_report"]) if paths["source_truthfulness_report"] else None,
+            "release_governance_report": os.path.abspath(paths["release_governance_report"]) if paths["release_governance_report"] else None,
             "key_access_audit": os.path.abspath(paths["key_access_audit"]) if paths["key_access_audit"] else None,
             "mainline_contract_check": os.path.abspath(paths["mainline_contract_check"]) if paths["mainline_contract_check"] else None,
         },
@@ -133,6 +149,10 @@ def build_chain(args: argparse.Namespace) -> Dict[str, Any]:
             "pjc_result_sha256": sha256_file(paths["pjc_result"]),
             "public_report_sha256": sha256_file(paths["public_report"]),
             "release_policy_gate_sha256": sha256_file(paths["release_policy_gate"]),
+            "source_export_manifest_sha256": sha256_file(paths["source_export_manifest"]),
+            "source_attestation_sha256": sha256_file(paths["source_attestation"]),
+            "source_truthfulness_report_sha256": sha256_file(paths["source_truthfulness_report"]),
+            "release_governance_report_sha256": sha256_file(paths["release_governance_report"]),
             "mainline_contract_check_sha256": sha256_file(paths["mainline_contract_check"]),
         },
         "counts": {
@@ -153,6 +173,10 @@ def build_chain(args: argparse.Namespace) -> Dict[str, Any]:
         "public_report": public_report,
         "policy_audit": policy_records,
         "release_policy_gate": release_policy_gate,
+        "source_export_manifest": source_export_manifest,
+        "source_attestation": source_attestation,
+        "source_truthfulness_report": source_truthfulness_report,
+        "release_governance_report": release_governance_report,
         "mainline_contract_check": mainline_contract_check,
     }
 
@@ -171,6 +195,10 @@ def main() -> int:
     ap.add_argument("--public-report", default="")
     ap.add_argument("--policy-audit", default="")
     ap.add_argument("--release-policy-gate", default="")
+    ap.add_argument("--source-export-manifest", default="")
+    ap.add_argument("--source-attestation", default="")
+    ap.add_argument("--source-truthfulness-report", default="")
+    ap.add_argument("--release-governance-report", default="")
     ap.add_argument("--key-access-audit", default="")
     ap.add_argument("--mainline-contract-check", default="")
     args = ap.parse_args()

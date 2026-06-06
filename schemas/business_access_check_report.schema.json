@@ -25,6 +25,14 @@
     "decision": { "enum": ["allow", "mask", "deny"] },
     "reason_code": { "type": "string", "minLength": 1 },
     "reason": { "type": "string" },
+    "relationship_binding": {
+      "type": "object",
+      "properties": {
+        "status": { "type": "string", "minLength": 1 }
+      },
+      "required": ["status"],
+      "additionalProperties": { "type": ["string", "null"] }
+    },
     "field_decisions": {
       "type": "array",
       "items": {

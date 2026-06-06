@@ -68,6 +68,32 @@ BUSINESS_READ_FIELD_MAP: dict[str, dict[str, str]] = {
         "order_fulfillment.status": "status",
         "order_fulfillment.delivery_latency_minutes": "delivery_latency_minutes",
     },
+    "delivery_route_legs": {
+        "delivery_route.leg_id": "leg_id",
+        "delivery_route.route_id": "route_id",
+        "delivery_route.leg_sequence": "leg_sequence",
+        "delivery_route.leg_kind": "leg_kind",
+        "delivery_route.assigned_courier_id": "assigned_courier_id",
+        "delivery_route.assigned_station_id": "assigned_station_id",
+        "delivery_route.assigned_region_id": "assigned_region_id",
+        "delivery_route.origin_node_label": "origin_node_label",
+        "delivery_route.destination_node_label": "destination_node_label",
+        "delivery_route.destination_city": "destination_city",
+        "delivery_route.destination_district": "destination_district",
+        "delivery_route.next_stop_label": "next_stop_label",
+        "delivery_route.next_stop_window": "next_stop_window",
+        "delivery_route.next_stop_geohash_prefix": "next_stop_geohash_prefix",
+        "delivery_route.pickup_station_label": "pickup_station_label",
+        "delivery_route.pickup_station_geohash_prefix": "pickup_station_geohash_prefix",
+        "delivery_route.final_recipient_zone": "final_recipient_zone",
+        "delivery_route.final_address_token": "final_address_token",
+        "delivery_route.final_address_line1": "final_address_line1",
+        "delivery_route.final_address_line2": "final_address_line2",
+        "delivery_route.recipient_phone": "recipient_phone",
+        "delivery_route.status": "status",
+        "delivery_route.started_at_utc": "started_at_utc",
+        "delivery_route.completed_at_utc": "completed_at_utc",
+    },
     "customer_service_interactions": {
         "customer_service_interactions.interaction_type": "interaction_type",
         "customer_service_interactions.channel": "channel",
@@ -83,6 +109,22 @@ BUSINESS_READ_FILTER_COLUMNS: dict[str, set[str]] = {
     "order_attribution": {"tenant_id", "dataset_id", "order_id", "attribution_type", "channel", "campaign_id"},
     "order_payment": {"tenant_id", "dataset_id", "order_id", "payment_method", "provider_id", "is_disputed"},
     "order_fulfillment": {"tenant_id", "dataset_id", "order_id", "carrier_id", "warehouse_id", "status"},
+    "delivery_route_legs": {
+        "tenant_id",
+        "dataset_id",
+        "service_id",
+        "order_id",
+        "route_id",
+        "leg_id",
+        "leg_sequence",
+        "leg_kind",
+        "assigned_courier_id",
+        "assigned_station_id",
+        "assigned_region_id",
+        "destination_city",
+        "destination_district",
+        "status",
+    },
     "customer_service_interactions": {
         "tenant_id",
         "dataset_id",
@@ -313,6 +355,37 @@ def single_param(params: dict[str, list[str]], name: str, default: str = "") -> 
     if not values:
         return default
     return values[0]
+
+
+def _query_business_identity_rows(
+    *,
+    db_path: str,
+    db_dsn: str,
+    db_read_dsn: str,
+    caller: str,
+    tenant_id: str,
+) -> list[dict[str, Any]]:
+    with connect_read_db(db_path, dsn=db_dsn, read_dsn=db_read_dsn) as conn:
+        if not table_exists(conn, "business_identities"):
+            return []
+        rows = conn.execute(
+            """
+            SELECT
+              business_identity_id,
+              tenant_id,
+              dataset_id,
+              identity_kind,
+              caller_id,
+              subject_external_id,
+              display_label,
+              enabled
+            FROM business_identities
+            WHERE caller_id = ? AND tenant_id = ? AND enabled = 1
+            ORDER BY updated_at_utc DESC, id DESC
+            """,
+            (caller, tenant_id),
+        ).fetchall()
+    return [row_to_dict(row) for row in rows if row_to_dict(row) is not None]
 
 
 class _RateLimited(Exception):
@@ -657,23 +730,217 @@ class MetadataApiHandler(BaseHTTPRequestHandler):
         caller = str(identity.get("caller") or "")
         tenant_id = str(identity.get("tenant_id") or "")
         if caller and (self.server.db_path or self.server.db_dsn):
-            try:
-                with connect_read_db(self.server.db_path, dsn=self.server.db_dsn, read_dsn=self.server.db_read_dsn) as conn:
-                    rows = query_entities(
-                        conn,
-                        entity="business-identities",
-                        caller=caller,
-                        tenant_id=tenant_id,
-                        limit=100,
-                        offset=0,
-                    ).get("items") or []
-                    for row in rows:
-                        kind = str(row.get("identity_kind") or "").strip()
-                        if kind:
-                            roles.add(kind)
-            except Exception:
-                pass
+            rows = _query_business_identity_rows(
+                db_path=self.server.db_path,
+                db_dsn=self.server.db_dsn,
+                db_read_dsn=self.server.db_read_dsn,
+                caller=caller,
+                tenant_id=tenant_id,
+            )
+            for row in rows:
+                kind = str(row.get("identity_kind") or "").strip()
+                if kind:
+                    roles.add(kind)
         return roles
+
+    def _business_identity_scope(self, identity: dict[str, Any]) -> dict[str, set[str]]:
+        caller = str(identity.get("caller") or "")
+        tenant_id = str(identity.get("tenant_id") or "")
+        if not caller or not tenant_id:
+            return {}
+        result: dict[str, set[str]] = {}
+        rows = _query_business_identity_rows(
+            db_path=self.server.db_path,
+            db_dsn=self.server.db_dsn,
+            db_read_dsn=self.server.db_read_dsn,
+            caller=caller,
+            tenant_id=tenant_id,
+        )
+        for row in rows:
+            kind = str(row.get("identity_kind") or "").strip()
+            identity_id = str(row.get("business_identity_id") or "").strip()
+            if not kind or not identity_id:
+                continue
+            result.setdefault(kind, set()).add(identity_id)
+        return result
+
+    def _enforce_business_relationship(
+        self,
+        *,
+        identity: dict[str, Any] | None,
+        role: str,
+        entity: str,
+        relationship: str | None,
+        scope: dict[str, str],
+    ) -> dict[str, Any]:
+        if identity is None:
+            raise PermissionError("business access check requires resolved identity")
+        if identity_has_any_role(identity, "platform_admin", "platform_auditor"):
+            return {"status": "bypassed_for_platform_role"}
+
+        tenant_id = str(scope.get("tenant_id") or identity.get("tenant_id") or "").strip()
+        if not tenant_id:
+            raise PermissionError("business access tenant_id is required")
+        if relationship in (None, ""):
+            raise PermissionError("business access relationship is required")
+
+        business_scope = self._business_identity_scope(identity)
+        allowed_identity_ids = set(business_scope.get(role) or [])
+        if not allowed_identity_ids:
+            raise PermissionError(f"authenticated caller has no bound business identities for role {role}")
+
+        if relationship == "assigned_delivery_leg":
+            leg_id = str(scope.get("leg_id") or "").strip()
+            courier_id = str(scope.get("assigned_courier_id") or "").strip()
+            if not leg_id or not courier_id:
+                raise PermissionError("assigned_delivery_leg requires leg_id and assigned_courier_id")
+            if courier_id not in allowed_identity_ids:
+                raise PermissionError("assigned_delivery_leg scope is not bound to the authenticated courier identity")
+            with connect_read_db(self.server.db_path, dsn=self.server.db_dsn, read_dsn=self.server.db_read_dsn) as conn:
+                row = conn.execute(
+                    "SELECT assigned_courier_id FROM delivery_route_legs WHERE tenant_id = ? AND leg_id = ?",
+                    (tenant_id, leg_id),
+                ).fetchone()
+            if row is None or str(row["assigned_courier_id"] or "") != courier_id:
+                raise PermissionError("delivery leg is not assigned to the authenticated courier identity")
+            if scope.get("assigned_courier_id") and str(scope.get("assigned_courier_id") or "") != courier_id:
+                raise PermissionError("assigned_delivery_leg scope does not match the bound courier identity")
+            return {"status": "ok", "bound_identity_id": courier_id, "bound_leg_id": leg_id}
+
+        if relationship == "assigned_station_leg":
+            leg_id = str(scope.get("leg_id") or "").strip()
+            station_id = str(scope.get("assigned_station_id") or "").strip()
+            if not leg_id or not station_id:
+                raise PermissionError("assigned_station_leg requires leg_id and assigned_station_id")
+            if station_id not in allowed_identity_ids:
+                raise PermissionError("assigned_station_leg scope is not bound to the authenticated station identity")
+            with connect_read_db(self.server.db_path, dsn=self.server.db_dsn, read_dsn=self.server.db_read_dsn) as conn:
+                row = conn.execute(
+                    "SELECT assigned_station_id FROM delivery_route_legs WHERE tenant_id = ? AND leg_id = ?",
+                    (tenant_id, leg_id),
+                ).fetchone()
+            if row is None or str(row["assigned_station_id"] or "") != station_id:
+                raise PermissionError("delivery leg is not assigned to the authenticated station identity")
+            if scope.get("assigned_station_id") and str(scope.get("assigned_station_id") or "") != station_id:
+                raise PermissionError("assigned_station_leg scope does not match the bound station identity")
+            return {"status": "ok", "bound_identity_id": station_id, "bound_leg_id": leg_id}
+
+        if relationship == "assigned_last_mile_leg":
+            leg_id = str(scope.get("leg_id") or "").strip()
+            courier_id = str(scope.get("assigned_courier_id") or "").strip()
+            if not leg_id or not courier_id:
+                raise PermissionError("assigned_last_mile_leg requires leg_id and assigned_courier_id")
+            if courier_id not in allowed_identity_ids:
+                raise PermissionError("assigned_last_mile_leg scope is not bound to the authenticated last-mile identity")
+            with connect_read_db(self.server.db_path, dsn=self.server.db_dsn, read_dsn=self.server.db_read_dsn) as conn:
+                row = conn.execute(
+                    "SELECT assigned_courier_id, leg_kind FROM delivery_route_legs WHERE tenant_id = ? AND leg_id = ?",
+                    (tenant_id, leg_id),
+                ).fetchone()
+            if row is None or str(row["assigned_courier_id"] or "") != courier_id or str(row["leg_kind"] or "") != "last_mile":
+                raise PermissionError("delivery leg is not the authenticated last-mile courier's terminal leg")
+            if scope.get("assigned_courier_id") and str(scope.get("assigned_courier_id") or "") != courier_id:
+                raise PermissionError("assigned_last_mile_leg scope does not match the bound courier identity")
+            return {"status": "ok", "bound_identity_id": courier_id, "bound_leg_id": leg_id}
+
+        if relationship == "merchant_of_order":
+            order_id = str(scope.get("order_id") or "").strip()
+            if not order_id:
+                raise PermissionError("merchant_of_order requires order_id")
+            with connect_read_db(self.server.db_path, dsn=self.server.db_dsn, read_dsn=self.server.db_read_dsn) as conn:
+                row = conn.execute(
+                    "SELECT merchant_business_identity_id FROM orders WHERE tenant_id = ? AND order_id = ?",
+                    (tenant_id, order_id),
+                ).fetchone()
+            order_identity_id = "" if row is None else str(row["merchant_business_identity_id"] or "")
+            if not order_identity_id or order_identity_id not in allowed_identity_ids:
+                raise PermissionError("order is not bound to the authenticated merchant identity")
+            requested_identity_id = str(scope.get("merchant_business_identity_id") or "").strip()
+            if requested_identity_id and requested_identity_id != order_identity_id:
+                raise PermissionError("merchant_of_order scope does not match the bound merchant identity")
+            return {"status": "ok", "bound_identity_id": order_identity_id, "bound_order_id": order_id}
+
+        if relationship == "self":
+            order_id = str(scope.get("order_id") or "").strip()
+            buyer_id = str(scope.get("buyer_id") or "").strip()
+            if not order_id or not buyer_id:
+                raise PermissionError("self relationship requires order_id and buyer_id")
+            if buyer_id not in allowed_identity_ids:
+                raise PermissionError("buyer scope is not bound to the authenticated buyer identity")
+            with connect_read_db(self.server.db_path, dsn=self.server.db_dsn, read_dsn=self.server.db_read_dsn) as conn:
+                row = conn.execute(
+                    "SELECT buyer_business_identity_id FROM orders WHERE tenant_id = ? AND order_id = ?",
+                    (tenant_id, order_id),
+                ).fetchone()
+            order_buyer_id = "" if row is None else str(row["buyer_business_identity_id"] or "")
+            if not order_buyer_id or order_buyer_id != buyer_id:
+                raise PermissionError("order is not bound to the authenticated buyer identity")
+            requested_buyer_id = str(scope.get("buyer_id") or "").strip()
+            if requested_buyer_id and requested_buyer_id != order_buyer_id:
+                raise PermissionError("self scope does not match the bound buyer identity")
+            return {"status": "ok", "bound_identity_id": buyer_id, "bound_order_id": order_id}
+
+        if relationship == "assigned_support_case":
+            order_id = str(scope.get("order_id") or "").strip()
+            case_id = str(scope.get("case_id") or "").strip()
+            if not order_id or not case_id:
+                raise PermissionError("assigned_support_case requires order_id and case_id")
+            with connect_read_db(self.server.db_path, dsn=self.server.db_dsn, read_dsn=self.server.db_read_dsn) as conn:
+                rows = conn.execute(
+                    "SELECT agent_id FROM customer_service_interactions WHERE tenant_id = ? AND order_id = ? AND case_id = ?",
+                    (tenant_id, order_id, case_id),
+                ).fetchall()
+            agent_ids = {str(row["agent_id"] or "") for row in rows if str(row["agent_id"] or "")}
+            if not agent_ids or not (agent_ids & allowed_identity_ids):
+                raise PermissionError("support case is not assigned to the authenticated support identity")
+            bound = sorted(agent_ids & allowed_identity_ids)[0]
+            requested_case_id = str(scope.get("case_id") or "").strip()
+            if requested_case_id and requested_case_id != case_id:
+                raise PermissionError("assigned_support_case scope does not match the bound case identity")
+            return {"status": "ok", "bound_identity_id": bound, "bound_order_id": order_id, "bound_case_id": case_id}
+
+        if relationship == "fraud_review_queue":
+            order_id = str(scope.get("order_id") or "").strip()
+            case_id = str(scope.get("case_id") or "").strip()
+            if not order_id or not case_id:
+                raise PermissionError("fraud_review_queue requires order_id and case_id")
+            with connect_read_db(self.server.db_path, dsn=self.server.db_dsn, read_dsn=self.server.db_read_dsn) as conn:
+                row = conn.execute(
+                    "SELECT assigned_fraud_analyst_business_identity_id, fraud_case_id FROM order_payment WHERE tenant_id = ? AND order_id = ?",
+                    (tenant_id, order_id),
+                ).fetchone()
+            analyst_id = "" if row is None else str(row["assigned_fraud_analyst_business_identity_id"] or "")
+            fraud_case_id = "" if row is None else str(row["fraud_case_id"] or "")
+            if not analyst_id or analyst_id not in allowed_identity_ids or fraud_case_id != case_id:
+                raise PermissionError("fraud review scope is not bound to the authenticated fraud identity")
+            requested_case_id = str(scope.get("case_id") or "").strip()
+            if requested_case_id and requested_case_id != fraud_case_id:
+                raise PermissionError("fraud_review_queue scope does not match the bound fraud case")
+            return {"status": "ok", "bound_identity_id": analyst_id, "bound_order_id": order_id, "bound_case_id": case_id}
+
+        if relationship == "campaign_assignee":
+            order_id = str(scope.get("order_id") or "").strip()
+            campaign_id = str(scope.get("campaign_id") or "").strip()
+            if not order_id or not campaign_id:
+                raise PermissionError("campaign_assignee requires order_id and campaign_id")
+            with connect_read_db(self.server.db_path, dsn=self.server.db_dsn, read_dsn=self.server.db_read_dsn) as conn:
+                rows = conn.execute(
+                    "SELECT assigned_marketer_business_identity_id FROM order_attribution WHERE tenant_id = ? AND order_id = ? AND campaign_id = ?",
+                    (tenant_id, order_id, campaign_id),
+                ).fetchall()
+            marketer_ids = {str(row["assigned_marketer_business_identity_id"] or "") for row in rows if str(row["assigned_marketer_business_identity_id"] or "")}
+            if not marketer_ids or not (marketer_ids & allowed_identity_ids):
+                raise PermissionError("campaign scope is not bound to the authenticated marketer identity")
+            bound = sorted(marketer_ids & allowed_identity_ids)[0]
+            requested_campaign_id = str(scope.get("campaign_id") or "").strip()
+            if requested_campaign_id and requested_campaign_id != campaign_id:
+                raise PermissionError("campaign_assignee scope does not match the bound campaign")
+            return {"status": "ok", "bound_identity_id": bound, "bound_order_id": order_id, "bound_campaign_id": campaign_id}
+
+        if relationship == "tenant_auditor":
+            return {"status": "ok", "tenant_id": tenant_id}
+
+        raise PermissionError(f"unsupported business relationship binding: {relationship}")
 
     def _assert_business_role_allowed(self, identity: dict[str, Any] | None, requested_role: str) -> None:
         if identity is None:
@@ -709,15 +976,25 @@ class MetadataApiHandler(BaseHTTPRequestHandler):
                 scope = {**scope, "tenant_id": identity_tenant}
         policy_path = self.server.business_access_policy or str(DEFAULT_BUSINESS_ACCESS_POLICY)
         policy = load_business_policy(policy_path)
-        return build_business_access_report(
+        relationship = str(payload.get("relationship") or "").strip() or None
+        relationship_binding = self._enforce_business_relationship(
+            identity=identity,
+            role=role,
+            entity=entity,
+            relationship=relationship,
+            scope=scope,
+        )
+        report = build_business_access_report(
             policy=policy,
             role=role,
             entity=entity,
             fields=[str(item) for item in fields],
             purpose=str(payload.get("purpose") or "").strip() or None,
             scope=scope,
-            relationship=str(payload.get("relationship") or "").strip() or None,
+            relationship=relationship,
         )
+        report["relationship_binding"] = relationship_binding
+        return report
 
     def _business_data_read_preview(self, payload: dict[str, Any], *, identity: dict[str, Any] | None) -> dict[str, Any]:
         entity = str(payload.get("entity") or "").strip()
@@ -802,6 +1079,7 @@ class MetadataApiHandler(BaseHTTPRequestHandler):
             "filters": effective_filters,
             "fields": requested_fields,
             "field_decisions": field_decisions,
+            "relationship_binding": access_report.get("relationship_binding"),
             "rows": rows,
             "count": len(rows),
             "limit": limit,

@@ -1,0 +1,37 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "source_truthfulness_smoke/v1",
+  "title": "Smoke coverage for source truthfulness and source attestation verifier",
+  "type": "object",
+  "required": [
+    "schema",
+    "generated_at_utc",
+    "status",
+    "total",
+    "passed",
+    "cases"
+  ],
+  "properties": {
+    "schema": { "const": "source_truthfulness_smoke/v1" },
+    "generated_at_utc": { "type": "string", "minLength": 1 },
+    "status": { "enum": ["ok", "fail"] },
+    "total": { "type": "integer", "minimum": 1 },
+    "passed": { "type": "integer", "minimum": 0 },
+    "cases": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["name", "status"],
+        "properties": {
+          "name": { "type": "string", "minLength": 1 },
+          "status": { "enum": ["pass", "fail"] },
+          "decision": { "type": ["string", "null"] },
+          "reason_code": { "type": ["string", "null"] },
+          "detail": {}
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  "additionalProperties": false
+}

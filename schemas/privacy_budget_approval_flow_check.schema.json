@@ -1,0 +1,30 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "privacy_budget_approval_flow_check/v1",
+  "title": "Privacy budget approval flow check",
+  "type": "object",
+  "required": [
+    "schema",
+    "status",
+    "work_dir",
+    "approval_requests",
+    "approval_decisions",
+    "approval_status_counts",
+    "ledger_records",
+    "errors"
+  ],
+  "properties": {
+    "schema": { "const": "privacy_budget_approval_flow_check/v1" },
+    "status": { "enum": ["ok", "fail"] },
+    "work_dir": { "type": "string", "minLength": 1 },
+    "approval_requests": { "type": "integer", "minimum": 0 },
+    "approval_decisions": { "type": "integer", "minimum": 0 },
+    "approval_status_counts": {
+      "type": "object",
+      "additionalProperties": { "type": "integer", "minimum": 0 }
+    },
+    "ledger_records": { "type": "integer", "minimum": 0 },
+    "errors": { "type": "array", "items": { "type": "string", "minLength": 1 } }
+  },
+  "additionalProperties": false
+}

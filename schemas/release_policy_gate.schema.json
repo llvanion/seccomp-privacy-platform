@@ -23,6 +23,9 @@
     "policy_config_path": { "type": ["string", "null"] },
     "pjc_evidence_merge_path": { "type": ["string", "null"] },
     "policy_audit_log_path": { "type": ["string", "null"] },
+    "external_anchor_report_path": { "type": ["string", "null"] },
+    "source_attestation_path": { "type": ["string", "null"] },
+    "source_truthfulness_report_path": { "type": ["string", "null"] },
     "job_id": { "type": ["string", "null"] },
     "caller": { "type": ["string", "null"] },
     "checks": {

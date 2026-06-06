@@ -1,0 +1,58 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "supply_chain_live_evidence_archive/v1",
+  "title": "Supply-chain live evidence archive",
+  "type": "object",
+  "required": [
+    "schema",
+    "generated_at_utc",
+    "status",
+    "job_id",
+    "live_artifact_count",
+    "live_artifacts",
+    "findings",
+    "artifacts",
+    "aggregate_sha256"
+  ],
+  "properties": {
+    "schema": { "const": "supply_chain_live_evidence_archive/v1" },
+    "generated_at_utc": { "type": "string", "minLength": 1 },
+    "status": { "enum": ["ok", "fail"] },
+    "job_id": { "type": "string", "minLength": 1 },
+    "live_artifact_count": { "type": "integer", "minimum": 0 },
+    "live_artifacts": {
+      "type": "object",
+      "required": [
+        "live_repo_side_supply_chain_foundation",
+        "live_github_run_report",
+        "live_release_checksums",
+        "live_provenance_report",
+        "live_advisory_report"
+      ],
+      "properties": {
+        "live_repo_side_supply_chain_foundation": {},
+        "live_github_run_report": {},
+        "live_release_checksums": {},
+        "live_provenance_report": {},
+        "live_advisory_report": {}
+      },
+      "additionalProperties": false
+    },
+    "findings": { "type": "array", "items": { "type": "string", "minLength": 1 } },
+    "artifacts": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["path", "size_bytes", "sha256"],
+        "properties": {
+          "path": { "type": "string", "minLength": 1 },
+          "size_bytes": { "type": "integer", "minimum": 0 },
+          "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" }
+        },
+        "additionalProperties": false
+      }
+    },
+    "aggregate_sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" }
+  },
+  "additionalProperties": false
+}

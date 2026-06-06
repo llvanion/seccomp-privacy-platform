@@ -12,10 +12,23 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
       - uses: dtolnay/rust-toolchain@stable
       - uses: bazelbuild/setup-bazelisk@v3
       - name: Install SSE Python dependencies
-        run: python3 -m pip install -r sse/requirements.txt
+        run: |
+          python3 -m pip install -r sse/requirements.txt
+          python3 -m pip install -r sse/requirements-dev.txt
+      - name: Run SSE Python tests
+        run: python3 -m pytest sse/test
+      - name: Install console dependencies
+        run: npm --prefix console ci --no-audit --no-fund
+      - name: Typecheck console
+        run: npm --prefix console run typecheck
+      - name: Build console
+        run: npm --prefix console run build:strict
       - name: Run CI smoke checks
         env:
           PJC_BUILD: "1"

@@ -11,6 +11,9 @@
   "client_value_mode": "raw-int",
   "client_value_min": 0,
   "client_value_max": 1000000,
+  "client_allowed_value_fields": ["amount"],
+  "client_value_unit": "minor_currency_unit",
+  "client_value_currency": "USD",
   "server_filters": [
     "campaign=demo"
   ],

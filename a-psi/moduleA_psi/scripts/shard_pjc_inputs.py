@@ -6,6 +6,8 @@ import json
 import os
 from typing import Dict, Any, Iterable, List
 
+from bucket_policy import BucketPolicyError, validate_job_meta_bucket_policy, validate_shard_bucket_policy
+
 def ensure_dir(p: str) -> None:
     os.makedirs(p, exist_ok=True)
 
@@ -102,6 +104,11 @@ def main():
         raise SystemExit(f"missing job_meta.json: {job_meta}")
 
     meta = load_json(job_meta)
+    bucket_policy = None
+    try:
+        bucket_policy = validate_job_meta_bucket_policy(meta)
+    except BucketPolicyError as exc:
+        raise SystemExit(f"[ERROR] bucket policy violation: {exc}") from exc
     bucket = meta.get("bucket", {}) or {}
     bucket_field = bucket.get("field")
     outputs = bucket.get("outputs") or []
@@ -119,6 +126,10 @@ def main():
         summary["targets"].append({"bucket": None, "dir": job_dir, "shards": shard_meta["outputs"]})
 
     dump_json(os.path.join(job_dir, "job_shard_meta.json"), summary)
+    try:
+        validate_shard_bucket_policy(summary, bucket_policy)
+    except BucketPolicyError as exc:
+        raise SystemExit(f"[ERROR] shard policy violation: {exc}") from exc
     print(f"OK. Wrote {os.path.join(job_dir, 'job_shard_meta.json')}")
 
 if __name__ == "__main__":

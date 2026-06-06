@@ -463,10 +463,14 @@ def metadata_scope_filters(
         }
     scoped_caller = caller or ""
     scoped_tenant_id = tenant_id or ""
-    if entity in {"callers", "caller-identities", "caller-permissions", "policy-bindings"}:
+    if entity in {"callers", "caller-identities", "caller-permissions", "policy-bindings", "business-identities"}:
         if scoped_caller and scoped_caller != identity["caller"]:
             raise PermissionError("caller-scoped metadata access denied")
         scoped_caller = identity["caller"]
+        identity_tenant = str(identity.get("tenant_id") or "")
+        if scoped_tenant_id and identity_tenant and scoped_tenant_id != identity_tenant:
+            raise PermissionError("caller-scoped metadata access denied")
+        scoped_tenant_id = identity_tenant or scoped_tenant_id
     elif entity in {"policies", "key-refs", "key-versions"}:
         raise PermissionError("requested metadata requires privileged platform role")
     else:

@@ -25,7 +25,11 @@
     "normal_exact_result_status": { "const": 403 },
     "normal_direct_start_status": { "const": 403 },
     "admin_full_job_status": { "const": 200 },
-    "admin_exact_result_status": { "const": 200 }
+    "admin_exact_result_status": { "const": 200 },
+    "release_gate_public_state": { "const": "pending_external_anchor" },
+    "release_gate_admin_state": { "const": "pending_external_anchor" },
+    "release_gate_pending_filter_status": { "const": 200 },
+    "release_gate_completed_filter_status": { "const": 200 }
   },
   "additionalProperties": false
 }

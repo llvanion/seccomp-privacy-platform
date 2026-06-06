@@ -1,0 +1,153 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "public_two_host_live_materialization_report/v1",
+  "title": "Public two-host live materialization report",
+  "type": "object",
+  "required": [
+    "schema",
+    "generated_at_utc",
+    "status",
+    "job_id",
+    "source_job_dir",
+    "source_session_dir",
+    "out_dir",
+    "parties",
+    "session_materials",
+    "runtime_hints",
+    "contamination_summary",
+    "findings"
+  ],
+  "properties": {
+    "schema": { "const": "public_two_host_live_materialization_report/v1" },
+    "generated_at_utc": { "type": "string", "minLength": 1 },
+    "status": { "enum": ["ok", "fail"] },
+    "job_id": { "type": "string", "minLength": 1 },
+    "source_job_dir": { "type": "string", "minLength": 1 },
+    "source_session_dir": { "type": "string", "minLength": 1 },
+    "out_dir": { "type": "string", "minLength": 1 },
+    "parties": {
+      "type": "object",
+      "required": ["party_a", "party_b"],
+      "properties": {
+        "party_a": { "$ref": "#/$defs/party" },
+        "party_b": { "$ref": "#/$defs/party" }
+      },
+      "additionalProperties": false
+    },
+    "session_materials": {
+      "type": "object",
+      "required": [
+        "source_session_dir",
+        "cert_dir",
+        "party_b_bundle_dir",
+        "kept_files",
+        "stripped_source_files"
+      ],
+      "properties": {
+        "source_session_dir": { "type": "string", "minLength": 1 },
+        "cert_dir": { "type": "string", "minLength": 1 },
+        "party_b_bundle_dir": { "type": "string", "minLength": 1 },
+        "kept_files": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "$ref": "#/$defs/file_record" }
+        },
+        "stripped_source_files": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 }
+        }
+      },
+      "additionalProperties": false
+    },
+    "runtime_hints": {
+      "type": "object",
+      "required": [
+        "tls_port_base",
+        "pjc_local_port_base",
+        "local_proxy_port_base",
+        "tls_port_mode",
+        "pjc_local_port_mode",
+        "local_proxy_port_mode"
+      ],
+      "properties": {
+        "tls_port_base": { "type": ["integer", "null"] },
+        "pjc_local_port_base": { "type": ["integer", "null"] },
+        "local_proxy_port_base": { "type": ["integer", "null"] },
+        "tls_port_mode": { "type": "string", "minLength": 1 },
+        "pjc_local_port_mode": { "type": "string", "minLength": 1 },
+        "local_proxy_port_mode": { "type": "string", "minLength": 1 }
+      },
+      "additionalProperties": false
+    },
+    "contamination_summary": {
+      "type": "object",
+      "required": [
+        "source_output_file_count",
+        "source_output_examples",
+        "staged_output_file_count",
+        "staged_output_examples"
+      ],
+      "properties": {
+        "source_output_file_count": { "type": "integer", "minimum": 0 },
+        "source_output_examples": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 }
+        },
+        "staged_output_file_count": { "type": "integer", "minimum": 0 },
+        "staged_output_examples": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 }
+        }
+      },
+      "additionalProperties": false
+    },
+    "findings": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 }
+    }
+  },
+  "$defs": {
+    "file_record": {
+      "type": "object",
+      "required": ["relative_path", "size_bytes", "sha256"],
+      "properties": {
+        "relative_path": { "type": "string", "minLength": 1 },
+        "size_bytes": { "type": "integer", "minimum": 0 },
+        "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" }
+      },
+      "additionalProperties": false
+    },
+    "party": {
+      "type": "object",
+      "required": [
+        "role",
+        "source_dir",
+        "staged_dir",
+        "kept_files",
+        "stripped_source_files",
+        "expected_runtime_outputs"
+      ],
+      "properties": {
+        "role": { "enum": ["server", "client"] },
+        "source_dir": { "type": "string", "minLength": 1 },
+        "staged_dir": { "type": "string", "minLength": 1 },
+        "kept_files": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "$ref": "#/$defs/file_record" }
+        },
+        "stripped_source_files": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 }
+        },
+        "expected_runtime_outputs": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "type": "string", "minLength": 1 }
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false
+}

@@ -879,6 +879,9 @@ cargo flamegraph --bin bridge -- prepare-job \
   --client-value-column amount \
   --client-value-mode raw-int \
   --client-value-max 1000000 \
+  --client-allowed-value-column amount \
+  --client-value-unit minor_currency_unit \
+  --client-value-currency USD \
   --client-normalizer email \
   --job-id bench-job \
   --token-scope bench-job \

@@ -297,6 +297,63 @@ export type MetadataEntityResponse = {
   permission_summary?: Record<string, Json>;
 };
 
+export type BusinessAccessFieldDecision = {
+  field: string;
+  field_class: string | null;
+  decision: "allow" | "mask" | "deny";
+  masking: string | null;
+  reason_code: string;
+};
+
+export type BusinessRelationshipBinding = {
+  status: string;
+  [key: string]: Json;
+};
+
+export type BusinessAccessCheckReport = {
+  schema: "business_access_check_report/v1";
+  generated_at_utc: string;
+  policy_id: string;
+  policy_version: string;
+  request: {
+    role: string;
+    entity: string;
+    fields: string[];
+    purpose: string | null;
+    scope: Record<string, string>;
+    relationship: string | null;
+  };
+  decision: "allow" | "mask" | "deny";
+  reason_code: string;
+  reason?: string;
+  relationship_binding?: BusinessRelationshipBinding;
+  field_decisions: BusinessAccessFieldDecision[];
+  summary: {
+    allowed_count: number;
+    masked_count: number;
+    denied_count: number;
+    unknown_field_count: number;
+  };
+};
+
+export type BusinessReadPreviewRow = Record<string, Json>;
+
+export type BusinessDataReadPreview = {
+  schema: "business_data_read_preview/v1";
+  entity: string;
+  decision: "allow" | "mask";
+  policy_id: string;
+  policy_version: string;
+  scope: Record<string, string>;
+  filters: Record<string, string>;
+  fields: string[];
+  field_decisions: Array<BusinessAccessFieldDecision & { decision: "allow" | "mask" }>;
+  relationship_binding?: BusinessRelationshipBinding;
+  rows: BusinessReadPreviewRow[];
+  count: number;
+  limit: number;
+};
+
 // ---------- Audit query sidecar ----------
 
 export type PublicReport = {

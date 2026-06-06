@@ -35,7 +35,7 @@
     "out_base": { "type": "string", "minLength": 1 },
     "state": {
       "type": "string",
-      "enum": ["accepted", "running", "completed", "failed", "rejected"]
+      "enum": ["accepted", "queued", "running", "completed", "failed", "rejected", "cancel_requested", "cancelled", "timed_out"]
     },
     "terminal": { "type": "boolean" },
     "last_updated_at_utc": { "type": "string", "minLength": 1 },

@@ -27,7 +27,7 @@ Status terms:
 | Business-role access | Platform caller scope exists; business field-level policy now has repo-side check/read-preview enforcement plus validator-first fact import. | Integrate the field-level policy into every future live read API/external ETL and add real ABAC/OpenFGA decisions if production claims require them. |
 | Privacy-budget approvals | Transactional SQLite store plus authenticated operator HTTP list/approve/reject/expire API and repo-side browser-console queue controls are implemented. | Add deployed browser evidence and live PostgreSQL/HA evidence. |
 | Real e-commerce data | Narrow order-centric fact layer supports privacy joins and has a repo-side validator-first transactional JSONL importer. | Add customer profile/consent, address/logistics route, support case, product, inventory, and deployed external ETL wiring if the product claim includes those domains. |
-| Production security | Repo-side gates are strong for a prototype. | Live KMS/IAM, public mTLS, external audit anchor, HA backup/restore, observability, and supply-chain evidence. |
+| Production security | Repo-side gates are strong for a prototype; metadata backup/restore now has a SHA-bound local drill; final release can require uploaded external-anchor evidence. | Live KMS/IAM, public mTLS, live S3/Rekor anchor execution, live PostgreSQL/HA failover/restore, observability, and external supply-chain evidence. |
 
 ## 2. P0 Tasks
 
@@ -51,11 +51,21 @@ Already done:
    `pjc_result_sha256` before public release.
 8. `client_value_mode=raw-int` now has committed value policy and summary
    checks: bridge records source/output summaries, production raw-int requires
-   `--client-value-max`, `validate_bridge_job.py` and `preflight_pjc_job.py`
-   reject negative or above-bound client values before PJC launch.
+   `--client-value-max`, an allowed value field, value unit, and currency for
+   minor currency units; `validate_bridge_job.py` and `preflight_pjc_job.py`
+   reject negative, above-bound, or semantically unallowlisted client values
+   before PJC launch.
 9. PJC preflight can bind `input_commitments.json` to `job_meta.json`; the local
    smoke denies token-scope, normalizer, and normalizer-schema-version drift
    before PJC launch.
+10. `release_policy_gate/v1` can require `require_external_anchor=true`; strict
+    production config now denies released reports unless an uploaded S3
+    Object Lock/Rekor `external_audit_anchor_report/v1` is supplied. Local/planned
+    anchor reports remain negative cases.
+11. Operator dashboard visible state is release-gate-aware: external-anchor
+    denials surface as `pending_external_anchor`, other gate denials surface as
+    `blocked`, and run-history filtering applies that overlay before returning
+    state lists.
 
 Missing:
 
@@ -63,7 +73,9 @@ Missing:
    the local repo smoke.
 2. Live two-host evidence for value policy denial in the operational PJC role
    package path.
-3. Explicit proof/claim choice:
+3. Live S3 Object Lock/Rekor upload evidence passed through the final release
+   gate.
+4. Explicit proof/claim choice:
    - document semi-honest only, or
    - add malicious-secure protocol/proof component.
 
@@ -182,29 +194,32 @@ Remaining:
 
 ### TODO-P0-03 SSE Production Entry Decision
 
-Current status: `partial`.
+Current status: `repo-side retired`.
 
 Already done:
 
 1. Network pickle removed from legacy WebSocket frames.
 2. Default bind host is `127.0.0.1`.
 3. Wide bind requires explicit demo override.
+4. `SSE_PRODUCTION_MODE=1` now retires the legacy WebSocket for production: it
+   refuses startup on loopback and also refuses the demo wide-bind override.
+5. `sse/Dockerfile` sets `SSE_PRODUCTION_MODE=1`, so the historical container
+   command fails closed instead of becoming an accidental production listener.
+6. `scripts/check_legacy_sse_production_gate.py` is schema-backed and wired into
+   CI/contracts/pre-release gates.
 
 Missing:
 
-1. A production decision: retire legacy SSE WebSocket or harden it.
-2. If hardened:
-   - bearer/JWT/service identity
-   - TLS/mTLS
-   - per-caller policy binding
-   - request limits
-   - audit logs with no raw query leakage
-3. Contract smoke proving unauthenticated search is denied.
+1. Live deployment evidence that no production host routes traffic to this
+   legacy WebSocket.
+2. Production docs/runbooks must continue to name query workflow / bridge
+   pipeline APIs as the production query surface.
 
 Acceptance:
 
-1. Rebuttal can say the legacy SSE UI is not a production attack surface, or it
-   can prove production authentication and transport controls.
+1. Rebuttal can say the legacy SSE WebSocket is not a production attack surface:
+   repo-side gates retire it under production mode, and live deployment evidence
+   must show it is not exposed.
 
 ### TODO-P0-04 Privacy Budget Live Close-Loop
 
@@ -315,23 +330,146 @@ Missing:
 
 ### TODO-P1-05 Workflow Durability
 
-Current status: `partial`.
+Current status: `repo-side sidecar + DB lifecycle + local DB-backed worker complete; live deployed worker evidence partial`.
+
+Already done:
+
+1. `submit_query_workflow.py` now refuses to overwrite an existing workflow
+   sidecar. A dry-run `accepted` sidecar may be claimed by `execute` only when
+   the request digest, job ID, and out_base match.
+2. Existing `running`, `completed`, `failed`, or `rejected` sidecars require a
+   new out_base/job ID or the approved relaunch path.
+3. `serve_operator_dashboard.py` uses the same guard before starting an async
+   job from an approved request or relaunch.
+4. `scripts/check_query_workflow_durability.py` emits
+   `query_workflow_durability_check/v1` and covers duplicate dry-run denial,
+   execute-from-accepted receipt preservation, duplicate execute denial,
+   stale-running visibility, schema-validated retry/status evidence, active
+   duplicate DB claim denial, terminal replay denial, and expired-lease steal
+   semantics.
+5. `query_workflow_executions` metadata rows record execution claim, lease
+   owner, lease expiry, heartbeat, terminal state, exit code, and sidecar
+   artifact paths.
+6. CLI execute, query workflow API execute, and approved operator-dashboard
+   launches can all write the same DB lifecycle rows.
+7. `submit_query_workflow.py --enqueue`, `POST /v1/query-workflows/enqueue`,
+   and `serve_operator_dashboard.py --enqueue-approved-requests` can queue an
+   approved execution instead of running it inside an HTTP request thread.
+8. `scripts/run_query_workflow_worker.py` owns DB leases, emits heartbeats,
+   writes sidecar receipts/status, honors cancellation requests, enforces
+   timeout termination, and can steal expired leases for restart recovery.
+9. `scripts/cancel_query_workflow_execution.py` gives operators an explicit DB
+   cancellation entrypoint and writes matching sidecar status/receipt evidence
+   for queued cancellations.
+10. `scripts/check_query_workflow_durability.py` now covers enqueue-to-worker
+    completion, queued cancellation, running cancellation, timeout termination,
+    and expired-lease worker restart in addition to duplicate/terminal replay
+    checks.
 
 Missing:
 
-1. Durable job state outside local subprocess/status files.
-2. Retry/resume semantics for non-file-backed inline runs.
-3. Crash recovery evidence.
+1. Live deployed worker supervision on the target hosts, not only repo-side
+   local worker evidence.
+2. Multi-worker concurrency and retry policy evidence under real PostgreSQL/HA.
+3. Production restart/cancel/timeout drills with operator logs from the target
+   deployment.
 
-### TODO-P1-06 Supply Chain And Full Test Gate
+### TODO-P1-05B Record Recovery Production HTTP Gate
 
-Current status: `partial`.
+Current status: `repo-side production gate complete; live deployment evidence partial`.
+
+Already done:
+
+1. Direct HTTP service, standalone launcher, and managed start/systemd render
+   now enforce the same production-mode runtime policy.
+2. Production HTTP recovery requires request authentication, authz policy, and
+   either signed requests or mTLS client certificates.
+3. Non-loopback HTTP listeners require mTLS client certificates.
+4. Identity-token auth requires a metadata DB path and still needs signed
+   requests or mTLS.
+5. `RECORD_RECOVERY_PRODUCTION_MODE=1`, config `production_mode: true`, and CLI
+   `--production-mode` all trigger fail-closed checks.
+6. `scripts/check_record_recovery_production_gate.py` emits
+   `record_recovery_production_gate_check/v1` with negative cases for missing
+   auth, missing authz, identity without metadata DB, identity without HMAC/mTLS,
+   public listener without mTLS, and positive render cases for loopback signed
+   requests and public mTLS.
 
 Missing:
 
-1. Python test dependencies and `pytest` gate.
-2. Console lockfile plus `npm ci`, typecheck, and build gate.
-3. SBOM/provenance/advisory checks.
+1. Live service-user/systemd sandbox evidence from a deployed unit.
+2. Host firewall or Kubernetes NetworkPolicy evidence.
+3. Public-network mTLS request evidence against a deployed recovery service.
+
+Acceptance:
+
+1. Rebuttal can say repo entrypoints cannot launch an unauthenticated production
+   HTTP recovery endpoint. Full production claims still require the live network
+   and sandbox evidence above.
+
+### TODO-P1-06 Metadata DB Backup / Restore / HA Evidence
+
+Current status: `repo-side backup/restore integrity complete; live HA operator-side`.
+
+Already done:
+
+1. `restore_metadata_db.py --backup-report` binds restore to
+   `metadata_db_backup_report/v1.backup.sha256` or to
+   `--expect-backup-sha256`.
+2. Restore refuses to proceed when the current backup file SHA-256 differs from
+   the expected backup report hash.
+3. `metadata_db_restore_report/v1.backup` records actual SHA-256, expected
+   SHA-256, match result, and source report path.
+4. `scripts/check_metadata_backup_restore_drill.py` emits
+   `metadata_backup_restore_drill/v1` and proves local SQLite backup
+   verification, SHA-bound restore, restored `jobs`/`audit_events` probe rows,
+   schema portability, and tampered-backup denial.
+5. The drill is wired into JSON contracts, CI smoke, pre-release gate, and schema
+   backcompat.
+
+Missing:
+
+1. Live PostgreSQL primary/replica or Patroni failover evidence on target hosts.
+2. pgBouncer transaction-pooling and long-write bypass evidence.
+3. External immutable or cloud backup storage evidence, including restore from
+   that target into a fresh database.
+4. Metadata API/query workflow smoke against the restored production-style DB.
+
+Acceptance:
+
+1. Local restore cannot accept a tampered backup file when a backup report hash is
+   supplied.
+2. A restored DB must retain critical probe rows and have no pending metadata
+   migrations.
+3. Full production wording remains blocked until live HA/failover/restore drills
+   are recorded outside this repo.
+
+### TODO-P1-07 Supply Chain And Full Test Gate
+
+Current status: `repo-side`.
+
+Missing:
+
+1. Live GitHub Actions evidence for the Python pytest and console `npm ci` /
+   typecheck / strict-build path.
+2. External signed provenance/attestation for release artifacts.
+3. Online or pinned-offline advisory enforcement for Python/npm/Rust
+   dependencies.
+
+Repo-side evidence now present:
+
+1. `sse/requirements-dev.txt` declares `pytest`, and CI runs
+   `python3 -m pytest sse/test`.
+2. `console/package-lock.json` is committed.
+3. Release workflow uses `npm ci`, blocking `npm run typecheck`, and
+   `npm run build:strict`.
+4. CI smoke workflow runs console `npm ci`, typecheck, and strict build.
+5. `scripts/check_console_release_gate.py` emits
+   `console_release_gate_check/v1` and rejects lockfile/workflow regressions.
+6. `scripts/check_supply_chain_gate.py` emits `supply_chain_evidence/v1` with
+   artifact hashes, Python/npm/Cargo component inventory, local provenance
+   materials, and explicit operator-side status for external advisory/provenance
+   evidence.
 
 ## 4. P2 Product Completeness
 
@@ -357,7 +495,8 @@ If those are not implemented, product wording must stay narrow:
 1. Complete `TODO-P0-02` repo-side business field-level access policy.
 2. Bind PJC result hash and input commitments into the release gate.
 3. Add privacy-budget approval HTTP endpoints.
-4. Harden or retire the legacy SSE WebSocket production claim.
+4. Collect live deployment evidence that the repo-side retired legacy SSE
+   WebSocket is not exposed as a production query surface.
 5. Decide whether high-sensitivity deployments need padding, delayed release,
    or automatic merge-to-other beyond report-layer bucket redaction. Dashboard
    API, metadata API job/entity reads, console home/jobs/audit/observability/

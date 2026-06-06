@@ -1,0 +1,31 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "ecommerce_live_rollout_fixture_bundle/v1",
+  "title": "E-commerce live rollout fixture bundle",
+  "type": "object",
+  "required": ["schema", "generated_at_utc", "status", "artifacts"],
+  "properties": {
+    "schema": { "const": "ecommerce_live_rollout_fixture_bundle/v1" },
+    "generated_at_utc": { "type": "string", "minLength": 1 },
+    "status": { "enum": ["ok", "fail"] },
+    "artifacts": {
+      "type": "object",
+      "required": [
+        "live_oidc_abac_report",
+        "live_fact_import_report",
+        "live_tls_network_policy_report",
+        "live_postgres_anchor_report",
+        "live_logistics_rollout_report"
+      ],
+      "properties": {
+        "live_oidc_abac_report": { "type": "string", "minLength": 1 },
+        "live_fact_import_report": { "type": "string", "minLength": 1 },
+        "live_tls_network_policy_report": { "type": "string", "minLength": 1 },
+        "live_postgres_anchor_report": { "type": "string", "minLength": 1 },
+        "live_logistics_rollout_report": { "type": "string", "minLength": 1 }
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false
+}

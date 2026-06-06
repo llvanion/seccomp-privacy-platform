@@ -9,6 +9,7 @@ RUN_PJC_SH="${RUN_PJC_SH:-./run_pjc_patched.sh}"
 BASE_PORT="${BASE_PORT:-11001}"
 MAX_JOBS="${MAX_JOBS:-4}"
 STRICT="${STRICT:-0}"
+PJC_REQUIRE_BUCKET_POLICY="${PJC_REQUIRE_BUCKET_POLICY:-0}"
 
 usage() {
   cat <<EOF
@@ -31,6 +32,16 @@ done
 [[ -n "$JOB_DIR" ]] || die "JOB_DIR required"
 JOB_DIR="$(cd "$JOB_DIR" && pwd)"
 [[ -f "$JOB_DIR/job_shard_meta.json" ]] || die "missing $JOB_DIR/job_shard_meta.json"
+[[ -f "$JOB_DIR/job_meta.json" ]] || die "missing $JOB_DIR/job_meta.json"
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+VALIDATE_BUCKET_POLICY_PY="$SCRIPT_DIR/bucket_policy.py"
+[[ -f "$VALIDATE_BUCKET_POLICY_PY" ]] || die "missing bucket policy helper: $VALIDATE_BUCKET_POLICY_PY"
+POLICY_CMD=(python3 "$VALIDATE_BUCKET_POLICY_PY" --job-meta "$JOB_DIR/job_meta.json" --shard-meta "$JOB_DIR/job_shard_meta.json")
+if [[ "$PJC_REQUIRE_BUCKET_POLICY" == "1" ]]; then
+  POLICY_CMD+=(--require-policy)
+fi
+"${POLICY_CMD[@]}" >/dev/null
 
 run_one() {
   local subdir="$1"

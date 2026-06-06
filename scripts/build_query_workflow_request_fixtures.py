@@ -5,10 +5,10 @@ import os
 from pathlib import Path
 
 
-def build_payload(*, repo_root: Path, request_dir: Path, keep_handoff_files: bool) -> dict[str, object]:
+def build_payload(*, repo_root: Path, request_dir: Path, tmp_root: Path, keep_handoff_files: bool) -> dict[str, object]:
     token_scope = "contract-query-scope-keep" if keep_handoff_files else "contract-query-scope"
     job_id = "contract-query-workflow-keep" if keep_handoff_files else "contract-query-workflow"
-    out_base = "../query_workflow_out_keep" if keep_handoff_files else "../query_workflow_out"
+    out_base = tmp_root / ("query_workflow_out_keep" if keep_handoff_files else "query_workflow_out")
     handoff_mode = "file" if keep_handoff_files else "fifo"
     payload = {
         "schema": "query_workflow_request/v1",
@@ -23,12 +23,15 @@ def build_payload(*, repo_root: Path, request_dir: Path, keep_handoff_files: boo
         "client_value_mode": "raw-int",
         "client_value_min": 0,
         "client_value_max": 1000000,
+        "client_allowed_value_fields": ["amount"],
+        "client_value_unit": "minor_currency_unit",
+        "client_value_currency": "USD",
         "server_filters": ["campaign=demo"],
         "client_filters": ["campaign=demo"],
         "token_scope": token_scope,
         "token_secret": "query-workflow-secret",
         "job_id": job_id,
-        "out_base": out_base,
+        "out_base": str(out_base),
         "caller": "auto_demo",
         "tenant_id": "demo_tenant",
         "dataset_id": "bridge_demo_dataset",
@@ -45,7 +48,7 @@ def build_payload(*, repo_root: Path, request_dir: Path, keep_handoff_files: boo
     return payload
 
 
-def build_ecommerce_payload(*, repo_root: Path, request_dir: Path) -> dict[str, object]:
+def build_ecommerce_payload(*, repo_root: Path, request_dir: Path, tmp_root: Path) -> dict[str, object]:
     return {
         "schema": "query_workflow_request/v1",
         "query_type": "cross_party_match",
@@ -59,12 +62,15 @@ def build_ecommerce_payload(*, repo_root: Path, request_dir: Path) -> dict[str, 
         "client_value_mode": "raw-int",
         "client_value_min": 0,
         "client_value_max": 1000000,
+        "client_allowed_value_fields": ["amount"],
+        "client_value_unit": "minor_currency_unit",
+        "client_value_currency": "USD",
         "server_filters": ["campaign=retargeting"],
         "client_filters": ["campaign=retargeting"],
         "token_scope": "ecommerce-query-scope",
         "token_secret": "query-workflow-secret",
         "job_id": "ecommerce-query-workflow",
-        "out_base": "../ecommerce_query_workflow_out",
+        "out_base": str(tmp_root / "ecommerce_query_workflow_out"),
         "caller": "marketing_analyst_demo",
         "tenant_id": "commerce_tenant",
         "dataset_id": "orders_analytics",
@@ -77,16 +83,16 @@ def build_ecommerce_payload(*, repo_root: Path, request_dir: Path) -> dict[str, 
     }
 
 
-def build_privacy_budget_payload(*, repo_root: Path, request_dir: Path) -> dict[str, object]:
-    payload = build_payload(repo_root=repo_root, request_dir=request_dir, keep_handoff_files=False)
+def build_privacy_budget_payload(*, repo_root: Path, request_dir: Path, tmp_root: Path) -> dict[str, object]:
+    payload = build_payload(repo_root=repo_root, request_dir=request_dir, tmp_root=tmp_root, keep_handoff_files=False)
     payload.update(
         {
             "job_id": "contract-query-workflow-privacy-budget",
-            "out_base": "../query_workflow_out_privacy_budget",
+            "out_base": str(tmp_root / "query_workflow_out_privacy_budget"),
             "privacy_budget_required": True,
             "privacy_budget_config": os.path.relpath(repo_root / "config/privacy_budget.example.json", request_dir),
-            "privacy_budget_ledger": "../query_workflow_privacy_budget_ledger.jsonl",
-            "privacy_budget_approval_queue": "../query_workflow_privacy_budget_approval_queue.jsonl",
+            "privacy_budget_ledger": str(tmp_root / "query_workflow_privacy_budget_ledger.jsonl"),
+            "privacy_budget_approval_queue": str(tmp_root / "query_workflow_privacy_budget_approval_queue.jsonl"),
             "privacy_budget_purpose": "campaign_measurement",
             "privacy_budget_limit": 3,
             "privacy_budget_cost": 1.0,
@@ -94,8 +100,14 @@ def build_privacy_budget_payload(*, repo_root: Path, request_dir: Path) -> dict[
             "policy_require_dp": True,
             "dp_epsilon": 1.0,
             "dp_sensitivity": 500,
+            "source_system": "ecommerce_fact_import",
+            "source_attestation_mode": "operator",
+            "source_attestation_approval_id": "approval-contract-query-workflow",
+            "source_attestation_operator_identity": "privacy_operator_demo",
+            "source_attestation_signoff_status": "approved",
+            "source_attestation_signing_key_path": os.path.relpath(tmp_root / "source_attestation_signing_key.pem", request_dir),
             "public_report_redact_operator_fields": True,
-            "operator_report_path": "../query_workflow_out_privacy_budget/a_psi_run/operator_report.json",
+            "operator_report_path": str(tmp_root / "query_workflow_out_privacy_budget" / "a_psi_run" / "operator_report.json"),
         }
     )
     return payload
@@ -105,80 +117,114 @@ def build_privacy_budget_invalid_payload(
     *,
     repo_root: Path,
     request_dir: Path,
+    tmp_root: Path,
     missing_field: str,
 ) -> dict[str, object]:
-    payload = build_privacy_budget_payload(repo_root=repo_root, request_dir=request_dir)
+    payload = build_privacy_budget_payload(repo_root=repo_root, request_dir=request_dir, tmp_root=tmp_root)
     payload["job_id"] = f"contract-query-workflow-privacy-budget-missing-{missing_field}"
-    payload["out_base"] = f"../query_workflow_out_privacy_budget_missing_{missing_field}"
+    payload["out_base"] = str(tmp_root / f"query_workflow_out_privacy_budget_missing_{missing_field}")
     payload.pop(missing_field)
     return payload
 
 
-def write_request(path: Path, *, keep_handoff_files: bool) -> None:
+def resolve_tmp_root(*, repo_root: Path, tmp_root_arg: str) -> Path:
+    if not tmp_root_arg:
+        return (repo_root / "tmp").resolve()
+    raw = Path(tmp_root_arg)
+    return raw.resolve() if raw.is_absolute() else (repo_root / raw).resolve()
+
+
+def write_request(path: Path, *, tmp_root: Path, keep_handoff_files: bool) -> None:
     repo_root = Path(__file__).resolve().parent.parent
     payload = build_payload(
         repo_root=repo_root,
         request_dir=path.resolve().parent,
+        tmp_root=tmp_root,
         keep_handoff_files=keep_handoff_files,
     )
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
 
 
-def write_ecommerce_request(path: Path) -> None:
+def write_ecommerce_request(path: Path, *, tmp_root: Path) -> None:
     repo_root = Path(__file__).resolve().parent.parent
-    payload = build_ecommerce_payload(repo_root=repo_root, request_dir=path.resolve().parent)
+    payload = build_ecommerce_payload(repo_root=repo_root, request_dir=path.resolve().parent, tmp_root=tmp_root)
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
 
 
-def write_privacy_budget_request(path: Path) -> None:
+def write_privacy_budget_request(path: Path, *, tmp_root: Path) -> None:
     repo_root = Path(__file__).resolve().parent.parent
-    payload = build_privacy_budget_payload(repo_root=repo_root, request_dir=path.resolve().parent)
+    payload = build_privacy_budget_payload(repo_root=repo_root, request_dir=path.resolve().parent, tmp_root=tmp_root)
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
 
 
-def write_privacy_budget_invalid_request(path: Path, *, missing_field: str) -> None:
+def write_privacy_budget_invalid_request(path: Path, *, tmp_root: Path, missing_field: str) -> None:
     repo_root = Path(__file__).resolve().parent.parent
     payload = build_privacy_budget_invalid_payload(
         repo_root=repo_root,
         request_dir=path.resolve().parent,
+        tmp_root=tmp_root,
         missing_field=missing_field,
     )
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
 
 
+def write_api_client_request(path: Path, *, tmp_root: Path) -> None:
+    repo_root = Path(__file__).resolve().parent.parent
+    payload = build_payload(
+        repo_root=repo_root,
+        request_dir=path.resolve().parent,
+        tmp_root=tmp_root,
+        keep_handoff_files=False,
+    )
+    payload["job_id"] = "contract-query-workflow-api-client"
+    payload["out_base"] = str(tmp_root / "query_workflow_api_client_out")
+    payload["token_scope"] = "contract-query-scope-api-client"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+
+
 def build_parser() -> argparse.ArgumentParser:
     ap = argparse.ArgumentParser(description="Build query workflow request fixtures for contract smoke.")
+    ap.add_argument("--tmp-root", default="", help="Optional tmp root used for out_base and auxiliary artifact paths")
     ap.add_argument("--default-out", required=True)
     ap.add_argument("--keep-out", required=True)
     ap.add_argument("--ecommerce-out", default="")
     ap.add_argument("--privacy-budget-out", default="")
     ap.add_argument("--privacy-budget-missing-config-out", default="")
     ap.add_argument("--privacy-budget-missing-ledger-out", default="")
+    ap.add_argument("--api-client-out", default="")
     return ap
 
 
 def main() -> int:
     args = build_parser().parse_args()
-    write_request(Path(args.default_out), keep_handoff_files=False)
-    write_request(Path(args.keep_out), keep_handoff_files=True)
+    repo_root = Path(__file__).resolve().parent.parent
+    tmp_root = resolve_tmp_root(repo_root=repo_root, tmp_root_arg=args.tmp_root)
+    tmp_root.mkdir(parents=True, exist_ok=True)
+    write_request(Path(args.default_out), tmp_root=tmp_root, keep_handoff_files=False)
+    write_request(Path(args.keep_out), tmp_root=tmp_root, keep_handoff_files=True)
     if args.ecommerce_out:
-        write_ecommerce_request(Path(args.ecommerce_out))
+        write_ecommerce_request(Path(args.ecommerce_out), tmp_root=tmp_root)
     if args.privacy_budget_out:
-        write_privacy_budget_request(Path(args.privacy_budget_out))
+        write_privacy_budget_request(Path(args.privacy_budget_out), tmp_root=tmp_root)
     if args.privacy_budget_missing_config_out:
         write_privacy_budget_invalid_request(
             Path(args.privacy_budget_missing_config_out),
+            tmp_root=tmp_root,
             missing_field="privacy_budget_config",
         )
     if args.privacy_budget_missing_ledger_out:
         write_privacy_budget_invalid_request(
             Path(args.privacy_budget_missing_ledger_out),
+            tmp_root=tmp_root,
             missing_field="privacy_budget_ledger",
         )
+    if args.api_client_out:
+        write_api_client_request(Path(args.api_client_out), tmp_root=tmp_root)
     return 0
 
 

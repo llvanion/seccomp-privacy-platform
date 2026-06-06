@@ -65,6 +65,8 @@ _HOP_BY_HOP = frozenset({
     "te", "trailers", "transfer-encoding", "upgrade",
 })
 
+_DIRECT_HTTP_OPENER = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+
 
 def _utc_now() -> str:
     return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
@@ -246,7 +248,7 @@ class IdentityProxyHandler(BaseHTTPRequestHandler):
             target = f"{target}?{query_string}"
         req = urllib.request.Request(target, data=body or None, method=method, headers=fwd_headers)
         try:
-            with urllib.request.urlopen(req, timeout=30) as resp:
+            with _DIRECT_HTTP_OPENER.open(req, timeout=30) as resp:
                 status = resp.status
                 resp_body = resp.read()
                 self.send_response(status)

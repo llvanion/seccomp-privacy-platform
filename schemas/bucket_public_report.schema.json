@@ -58,6 +58,28 @@
       },
       "additionalProperties": false
     },
+    "bucket_policy": {
+      "type": ["object", "null"],
+      "required": [
+        "bucket_field",
+        "max_buckets",
+        "bucket_policy_sha256",
+        "allowed_bucket_count",
+        "allowed_bucket_labels_redacted",
+        "require_exact_allowed_buckets",
+        "enforcement"
+      ],
+      "properties": {
+        "bucket_field": { "type": ["string", "null"] },
+        "max_buckets": { "type": ["integer", "null"], "minimum": 1 },
+        "bucket_policy_sha256": { "type": ["string", "null"], "pattern": "^[0-9a-f]{64}$" },
+        "allowed_bucket_count": { "type": "integer", "minimum": 0 },
+        "allowed_bucket_labels_redacted": { "const": true },
+        "require_exact_allowed_buckets": { "type": "boolean" },
+        "enforcement": { "type": "string" }
+      },
+      "additionalProperties": false
+    },
     "buckets": {
       "type": "array",
       "items": {

@@ -23,6 +23,12 @@
     "sensitive_transaction": { "const": "rejected_before_insert" },
     "duplicate_decision": { "const": "deny" },
     "duplicate_transaction": { "const": "rolled_back" },
+    "delivery_legs_allow_decision": { "const": "allow" },
+    "delivery_legs_sensitive_decision": { "const": "deny" },
+    "order_attribution_allow_decision": { "const": "allow" },
+    "order_payment_allow_decision": { "const": "allow" },
+    "customer_service_allow_decision": { "const": "allow" },
+    "final_delivery_leg_count": { "type": "integer", "minimum": 0 },
     "final_order_count": { "type": "integer", "minimum": 0 }
   },
   "additionalProperties": false

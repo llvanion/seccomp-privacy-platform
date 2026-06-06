@@ -10,6 +10,10 @@ from services.record_recovery.config import (
     merged_record_recovery_service_scope_value,
     merged_record_recovery_service_value,
 )
+from services.record_recovery.production import (
+    enforce_record_recovery_production_gate,
+    production_mode_enabled,
+)
 
 
 REPO_ROOT, _SSE_ROOT = ensure_repo_paths()
@@ -74,6 +78,7 @@ def _resolved_runtime(args: argparse.Namespace) -> dict:
     audit_log = merged_record_recovery_service_value(args.audit_log, config.get("audit_log", ""))
     pid_file = merged_record_recovery_service_value(args.pid_file, config.get("pid_file", ""))
     ready_file = merged_record_recovery_service_value(args.ready_file, config.get("ready_file", ""))
+    production_mode = production_mode_enabled(args.production_mode, config.get("production_mode", False))
     tls_config = dict(config.get("tls") if isinstance(config.get("tls"), dict) else {})
     if getattr(args, "tls_cert_file", "") or getattr(args, "tls_key_file", ""):
         tls_config.update(
@@ -112,6 +117,7 @@ def _resolved_runtime(args: argparse.Namespace) -> dict:
         "pid_file": pid_file,
         "ready_file": ready_file,
         "tls": tls_config,
+        "production_mode": production_mode,
         "max_rows_per_request": int(
             merged_record_recovery_service_value(
                 getattr(args, "max_rows_per_request", 0),
@@ -124,6 +130,8 @@ def _resolved_runtime(args: argparse.Namespace) -> dict:
 
 def _serve(args: argparse.Namespace) -> int:
     runtime = _resolved_runtime(args)
+    if runtime["production_mode"]:
+        enforce_record_recovery_production_gate(runtime)
     if runtime["transport"] == "http":
         if not runtime["bind_host"] or runtime["port"] in (None, ""):
             raise SystemExit("[ERROR] HTTP record recovery service requires bind_host and port")
@@ -172,6 +180,8 @@ def _serve(args: argparse.Namespace) -> int:
                 argv.append("--tls-require-client-cert")
         if runtime.get("max_rows_per_request", 0) > 0:
             argv.extend(["--max-rows-per-request", str(runtime["max_rows_per_request"])])
+        if runtime["production_mode"]:
+            argv.append("--production-mode")
         return _dispatch(http_service_main, argv)
 
     if not runtime["socket_path"]:
@@ -243,6 +253,7 @@ def build_parser() -> argparse.ArgumentParser:
     serve.add_argument("--tls-key-file", default="")
     serve.add_argument("--tls-ca-cert", default="")
     serve.add_argument("--tls-require-client-cert", action="store_true")
+    serve.add_argument("--production-mode", action="store_true", default=False)
     serve.add_argument("--max-rows-per-request", type=int, default=None,
                        help="Hard cap on rows returned per recovery request (0 = unlimited)")
 

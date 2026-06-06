@@ -1,0 +1,114 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "s7_k3_evidence_integrity_report/v1",
+  "title": "S7/K3 evidence integrity report",
+  "type": "object",
+  "required": [
+    "schema",
+    "generated_at_utc",
+    "status",
+    "inputs",
+    "s7_result",
+    "identity_checks",
+    "k3_assessment",
+    "checks",
+    "errors",
+    "evidence_hashes"
+  ],
+  "properties": {
+    "schema": { "const": "s7_k3_evidence_integrity_report/v1" },
+    "generated_at_utc": { "type": "string", "minLength": 1 },
+    "status": { "enum": ["pass", "fail"] },
+    "inputs": {
+      "type": "object",
+      "required": ["s7_dir", "k3_dir"],
+      "properties": {
+        "s7_dir": { "type": "string", "minLength": 1 },
+        "k3_dir": { "type": "string", "minLength": 1 }
+      },
+      "additionalProperties": false
+    },
+    "s7_result": {
+      "type": "object",
+      "required": ["server_addr", "tls", "intersection_size", "intersection_sum"],
+      "properties": {
+        "server_addr": { "type": ["string", "null"] },
+        "tls": { "type": ["boolean", "null"] },
+        "intersection_size": { "type": ["integer", "null"] },
+        "intersection_sum": { "type": ["integer", "null"] }
+      },
+      "additionalProperties": false
+    },
+    "identity_checks": {
+      "type": "object",
+      "required": [
+        "server_decision",
+        "server_fingerprint_sha256",
+        "client_decision",
+        "client_fingerprint_sha256"
+      ],
+      "properties": {
+        "server_decision": { "type": ["string", "null"] },
+        "server_fingerprint_sha256": { "type": ["string", "null"] },
+        "client_decision": { "type": ["string", "null"] },
+        "client_fingerprint_sha256": { "type": ["string", "null"] }
+      },
+      "additionalProperties": false
+    },
+    "k3_assessment": {
+      "type": "object",
+      "required": [
+        "critical_findings",
+        "high_findings",
+        "no_client_certificate_tls_handshake"
+      ],
+      "properties": {
+        "critical_findings": { "type": ["integer", "null"] },
+        "high_findings": { "type": ["integer", "null"] },
+        "no_client_certificate_tls_handshake": { "type": ["string", "null"] }
+      },
+      "additionalProperties": false
+    },
+    "checks": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["name", "status"],
+        "properties": {
+          "name": { "type": "string", "minLength": 1 },
+          "status": { "enum": ["pass", "fail"] },
+          "path": { "type": "string", "minLength": 1 },
+          "actual": {},
+          "expected": {},
+          "expected_contains": { "type": "string", "minLength": 1 }
+        },
+        "additionalProperties": false
+      }
+    },
+    "errors": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["path", "error"],
+        "properties": {
+          "path": { "type": "string", "minLength": 1 },
+          "error": { "type": "string", "minLength": 1 }
+        },
+        "additionalProperties": false
+      }
+    },
+    "evidence_hashes": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["path", "sha256"],
+        "properties": {
+          "path": { "type": "string", "minLength": 1 },
+          "sha256": { "type": "string", "minLength": 1 }
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  "additionalProperties": false
+}

@@ -53,6 +53,18 @@
         "release_policy_gate_sha256": {
           "type": ["string", "null"]
         },
+        "source_export_manifest_sha256": {
+          "type": ["string", "null"]
+        },
+        "source_attestation_sha256": {
+          "type": ["string", "null"]
+        },
+        "source_truthfulness_report_sha256": {
+          "type": ["string", "null"]
+        },
+        "release_governance_report_sha256": {
+          "type": ["string", "null"]
+        },
         "mainline_contract_check_sha256": {
           "type": ["string", "null"]
         }
@@ -123,6 +135,18 @@
       "type": "array"
     },
     "release_policy_gate": {
+      "type": ["object", "null"]
+    },
+    "source_export_manifest": {
+      "type": ["object", "null"]
+    },
+    "source_attestation": {
+      "type": ["object", "null"]
+    },
+    "source_truthfulness_report": {
+      "type": ["object", "null"]
+    },
+    "release_governance_report": {
       "type": ["object", "null"]
     },
     "mainline_contract_check": {

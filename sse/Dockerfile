@@ -5,6 +5,7 @@ EXPOSE 8001
 
 COPY . /usr/src/app
 WORKDIR /usr/src/app
+ENV SSE_PRODUCTION_MODE=1
 
 RUN apk add build-base
 RUN apk add libffi-dev
