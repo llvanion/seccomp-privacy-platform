@@ -6,18 +6,19 @@ import type { Json, PrivacyBudgetApproval, PrivacyBudgetApprovalList, PrivacyBud
 import { DataTable, type Column } from "@/components/data-table";
 import { Modal } from "@/components/modal";
 import { useApiMutation, useApiQuery } from "@/hooks/useApi";
-import { Button, Card, CardHeader, EmptyState, ErrorBanner, Field, Input, JsonBlock, PageHeader, Select, Skeleton, StatusPill, Textarea, inferStatusKind } from "@/components/ui";
+import { useStoredState } from "@/hooks/useStoredState";
+import { Button, Card, CardHeader, EmptyState, ErrorBanner, Field, Input, JsonDetails, KeyValueGrid, PageHeader, Select, Skeleton, StatusPill, Textarea, inferStatusKind } from "@/components/ui";
 import { formatRelativeTime, formatTimestamp, shortHash, truncate } from "@/lib/format";
 
 const STATUS_FILTERS = ["all", "pending_approval", "approved", "rejected", "expired", "consumed"] as const;
 type ApprovalAction = "approve" | "reject" | "expire";
 
 export function PrivacyBudgetApprovalsRoute() {
-  const [status, setStatus] = useState<string>("pending_approval");
-  const [tenant, setTenant] = useState("");
-  const [caller, setCaller] = useState("");
-  const [search, setSearch] = useState("");
-  const [selected, setSelected] = useState<PrivacyBudgetApproval | null>(null);
+  const [status, setStatus] = useStoredState<string>("console.privacy_budget.status", "pending_approval");
+  const [tenant, setTenant] = useStoredState("console.privacy_budget.tenant", "");
+  const [caller, setCaller] = useStoredState("console.privacy_budget.caller", "");
+  const [search, setSearch] = useStoredState("console.privacy_budget.search", "");
+  const [selected, setSelected] = useStoredState<PrivacyBudgetApproval | null>("console.privacy_budget.selected", null);
   const [action, setAction] = useState<ApprovalAction | null>(null);
   const [reason, setReason] = useState("");
   const [expiresAt, setExpiresAt] = useState("");
@@ -116,7 +117,15 @@ export function PrivacyBudgetApprovalsRoute() {
         <StatusTile kind="muted" icon={<TimerOff className="w-4 h-4" />} label="已过期" count={counts.expired} />
       </section>
 
-      {query.error && <ErrorBanner title="加载失败" message={query.error.message} retry={() => query.refetch()} />}
+      {query.error && (
+        <ErrorBanner
+          title="加载失败"
+          message={query.error.message === "privacy_budget_approval_unavailable"
+            ? "隐私预算审批 API 当前不可用。请确认主面板已用最新答辩 demo 重启，或直接访问 18194 端口那套审批面板。"
+            : query.error.message}
+          retry={() => query.refetch()}
+        />
+      )}
 
       <Card>
         <CardHeader title="过滤" actions={<Filter className="w-4 h-4 text-ink-dim" />} />
@@ -162,34 +171,49 @@ export function PrivacyBudgetApprovalsRoute() {
           <CardHeader title="请求详情" actions={selected && <StatusPill kind={inferStatusKind(selected.status)}>{selected.status}</StatusPill>} />
           {selected ? (
             <div className="space-y-4">
-              <dl className="grid grid-cols-[110px_minmax(0,1fr)] gap-y-2 text-2xs">
-                <Row label="Request">
-                  <span className="font-mono">{selected.request_id}</span>
-                </Row>
-                <Row label="Caller">
-                  <span className="font-mono">{selected.caller ?? "—"}</span>
-                </Row>
-                <Row label="Scope">
-                  {selected.tenant_id ?? "?"} · {selected.dataset_id ?? "?"} · {selected.purpose ?? "?"}
-                </Row>
-                <Row label="Job">
-                  <span className="font-mono">{selected.job_id ?? "—"}</span>
-                </Row>
-                <Row label="Created">{formatTimestamp(selected.created_at_utc ?? selected.requested_at_utc)}</Row>
-                <Row label="Reason">{selected.reason_code ?? "—"}</Row>
-                <Row label="Relation">{selected.matched_prior_relation ?? "—"}</Row>
-                <Row label="Decided">
-                  {selected.decided_at_utc ? `${formatTimestamp(selected.decided_at_utc)} by ${selected.decided_by ?? "?"}` : "—"}
-                </Row>
-              </dl>
+              <KeyValueGrid
+                columns={2}
+                items={[
+                  { label: "request_id", value: selected.request_id },
+                  { label: "status", value: selected.status },
+                  { label: "caller", value: selected.caller ?? "—" },
+                  { label: "job_id", value: selected.job_id ?? "—" },
+                  { label: "tenant", value: selected.tenant_id ?? "—" },
+                  { label: "dataset", value: selected.dataset_id ?? "—" },
+                  { label: "purpose", value: selected.purpose ?? "—" },
+                  { label: "created_at", value: formatTimestamp(selected.created_at_utc ?? selected.requested_at_utc) },
+                ]}
+              />
+              <Card className="p-3">
+                <CardHeader title="审查结论" className="mb-2 pb-2" />
+                <KeyValueGrid
+                  columns={2}
+                  items={[
+                    { label: "reason_code", value: selected.reason_code ?? "—" },
+                    { label: "relation", value: selected.matched_prior_relation ?? "—" },
+                    { label: "abuse_signal", value: selected.abuse_signal ?? "—" },
+                    { label: "fingerprint", value: shortHash(selected.query_fingerprint ?? "—", 10, 6) },
+                  ]}
+                />
+              </Card>
               <div>
                 <div className="field-label mb-1.5">Budget</div>
-                <JsonBlock data={selected.budget ?? {}} maxHeight="160px" />
+                <KeyValueGrid
+                  columns={2}
+                  items={[
+                    { label: "limit", value: String((selected.budget as Record<string, unknown> | undefined)?.limit ?? "—") },
+                    { label: "cost", value: String((selected.budget as Record<string, unknown> | undefined)?.cost ?? "—") },
+                    { label: "used_before", value: String((selected.budget as Record<string, unknown> | undefined)?.used_before ?? "—") },
+                    { label: "used_after", value: String((selected.budget as Record<string, unknown> | undefined)?.used_after ?? "—") },
+                  ]}
+                />
+                <JsonDetails title="查看完整 budget JSON" data={selected.budget ?? {}} maxHeight="160px" />
               </div>
               <div>
                 <div className="field-label mb-1.5">Latest decision</div>
-                <JsonBlock data={selected.latest_decision ?? {}} maxHeight="220px" />
+                <JsonDetails title="查看最近一次决策 JSON" data={selected.latest_decision ?? {}} maxHeight="220px" defaultOpen />
               </div>
+              <JsonDetails title="查看完整审批请求 JSON" data={selected} maxHeight="260px" />
             </div>
           ) : (
             <EmptyState icon={<Eye className="w-5 h-5" />} title="选择一条审批请求" description="详情会显示 scope、fingerprint、budget 与最近一次决策。" />
@@ -231,7 +255,7 @@ export function PrivacyBudgetApprovalsRoute() {
           <Field label="Expires at UTC" hint="approve 可选；expire 留空时服务端会使用当前时间">
             <Input value={expiresAt} onChange={(event) => setExpiresAt(event.target.value)} placeholder="2026-12-31T00:00:00Z" />
           </Field>
-          {selected && <JsonBlock data={selected} maxHeight="260px" />}
+          {selected && <JsonDetails title="查看完整审批请求 JSON" data={selected} maxHeight="260px" />}
         </div>
       </Modal>
     </div>
@@ -332,15 +356,6 @@ function StatusTile({ kind, icon, label, count }: { kind: "warn" | "ok" | "err" 
       </div>
       <StatusPill kind={kind}>{kind}</StatusPill>
     </Card>
-  );
-}
-
-function Row({ label, children }: { label: string; children: ReactNode }) {
-  return (
-    <>
-      <dt className="text-ink-muted">{label}</dt>
-      <dd className="text-ink min-w-0 break-words">{children}</dd>
-    </>
   );
 }
 

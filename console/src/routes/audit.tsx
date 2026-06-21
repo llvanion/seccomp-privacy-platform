@@ -4,7 +4,7 @@ import { Download, FileLock2, RefreshCw, ShieldCheck } from "lucide-react";
 
 import { auditApi } from "@/api/sidecars";
 import { useApiQuery } from "@/hooks/useApi";
-import { Button, Card, CardHeader, EmptyState, ErrorBanner, Field, Input, JsonBlock, PageHeader, Skeleton, StatusPill, inferStatusKind } from "@/components/ui";
+import { Button, Card, CardHeader, EmptyState, ErrorBanner, Field, Input, JsonDetails, KeyValueGrid, PageHeader, Skeleton, StatusPill, inferStatusKind } from "@/components/ui";
 import { RouteTabs } from "@/components/tabs";
 import { formatNumber, formatTimestamp, shortHash } from "@/lib/format";
 import type { AuditChainData, CatalogLineageData, ObservabilityData, ObservabilityFeed, PublicReport } from "@/api/types";
@@ -97,7 +97,16 @@ function PublicReportTab() {
               <Stat label="intersection_sum" value={formatNumber(q.data?.intersection_sum as number | undefined)} />
               <Stat label="generated_at" value={formatTimestamp(q.data?.generated_at_utc) ?? "—"} />
             </div>
-            <JsonBlock data={q.data ?? {}} maxHeight="420px" />
+            <KeyValueGrid
+              columns={2}
+              items={[
+                { label: "job_id", value: String(q.data?.job_id ?? "—") },
+                { label: "reason_code", value: String((q.data as Record<string, unknown> | undefined)?.reason_code ?? "—") },
+                { label: "value_sum", value: String((q.data as Record<string, unknown> | undefined)?.value_sum ?? "—") },
+                { label: "aov", value: String((q.data as Record<string, unknown> | undefined)?.aov ?? "—") },
+              ]}
+            />
+            <JsonDetails title="查看原始 public_report JSON" data={q.data ?? {}} maxHeight="420px" />
           </>
         )}
       </Card>
@@ -160,7 +169,17 @@ function AuditChainTab() {
         ) : isAuditChainPublicSummary(chainData) ? (
           <AuditChainPublicSummaryPanel data={chainData} />
         ) : (
-          <JsonBlock data={chainData ?? {}} maxHeight="480px" />
+          <>
+            <KeyValueGrid
+              columns={3}
+              items={[
+                { label: "job_id", value: String((chainData as Record<string, unknown> | undefined)?.job_id ?? "—") },
+                { label: "generated_at", value: formatTimestamp((chainData as Record<string, string | null | undefined> | undefined)?.generated_at_utc) },
+                { label: "counts", value: formatNumber(Number((chainData as Record<string, unknown> | undefined)?.counts ? Object.keys((chainData as Record<string, unknown>).counts as object).length : 0)) },
+              ]}
+            />
+            <JsonDetails title="查看原始 audit_chain JSON" data={chainData ?? {}} maxHeight="480px" />
+          </>
         )}
       </Card>
     </div>
@@ -201,7 +220,7 @@ function ObservabilityTab() {
               <Stat label="handoff_cleanup" value={formatNumber(observabilityData?.derived_handoff_cleanup?.length)} />
               <Stat label="service_audit_consistency" value={formatNumber(observabilityData?.derived_service_audit_consistency?.length)} />
             </div>
-            <JsonBlock data={observabilityData ?? {}} maxHeight="380px" />
+            <JsonDetails title="查看原始 observability JSON" data={observabilityData ?? {}} maxHeight="380px" />
           </div>
         )}
       </Card>
@@ -247,7 +266,7 @@ function LineageTab() {
               <Stat label="datasets" value={formatNumber(q.data?.summary?.dataset_count ?? q.data?.datasets?.length)} />
               <Stat label="lineage_edges" value={formatNumber(q.data?.summary?.lineage_edge_count ?? q.data?.lineage_edges?.length)} />
             </div>
-            <JsonBlock data={q.data ?? {}} maxHeight="380px" />
+            <JsonDetails title="查看原始 catalog_lineage JSON" data={q.data ?? {}} maxHeight="380px" />
           </div>
         )}
       </Card>

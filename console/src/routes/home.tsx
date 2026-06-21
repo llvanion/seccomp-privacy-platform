@@ -5,9 +5,9 @@ import { Activity, AlertTriangle, FileLock2, GanttChartSquare, KeyRound, Network
 import { operatorApi } from "@/api/operator";
 import { healthApi } from "@/api/sidecars";
 import { useApiQuery } from "@/hooks/useApi";
-import { Button, Card, CardHeader, EmptyState, ErrorBanner, JsonBlock, PageHeader, Skeleton, StatTile, StatusPill, TagList, inferStatusKind } from "@/components/ui";
+import { Button, Card, CardHeader, EmptyState, ErrorBanner, JsonDetails, KeyValueGrid, PageHeader, Skeleton, StatTile, StatusPill, TagList, inferStatusKind } from "@/components/ui";
 import { DataTable, type Column } from "@/components/data-table";
-import type { OperatorDashboardData, OperatorDashboardPublicSummary, OperatorJob, PlatformHealth } from "@/api/types";
+import type { OperatorAlert, OperatorDashboardData, OperatorDashboardPublicSummary, OperatorJob, PlatformHealth } from "@/api/types";
 import { isOperatorDashboardPublicSummary } from "@/api/types";
 import { formatDuration, formatNumber, formatRelativeTime, shortHash, truncate } from "@/lib/format";
 
@@ -24,10 +24,12 @@ export function HomeRoute() {
   const data = dashboardQ.data;
   const publicSummary = isOperatorDashboardPublicSummary(data) ? data : null;
   const fullDashboard = data && !isOperatorDashboardPublicSummary(data) ? data : null;
-  const recentJobs: OperatorJob[] = fullDashboard?.recent_runs ?? fullDashboard?.jobs ?? [];
-  const alerts = fullDashboard?.alerts ?? [];
+  const recentJobs: OperatorJob[] = Array.isArray(fullDashboard?.recent_runs) ? fullDashboard.recent_runs : fullDashboard?.jobs ?? [];
+  const alerts: OperatorAlert[] = Array.isArray(fullDashboard?.alerts) ? fullDashboard.alerts : [];
   const activeJobCount = publicSummary ? countPublicActiveJob(publicSummary) : countJobsByState(recentJobs, ["running", "preparing", "queued"]);
   const tenantLabel = publicSummary?.scope.tenant_id ?? publicSummary?.authenticated_identity?.tenant_id ?? fullDashboard?.tenant_id ?? "default";
+  const currentJob = fullDashboard?.jobs?.[0] ?? recentJobs[0] ?? null;
+  const currentResult = currentJob?.result_summary ?? null;
 
   return (
     <div className="space-y-6">
@@ -83,6 +85,30 @@ export function HomeRoute() {
 
       {publicSummary && <DashboardPublicSummaryNotice summary={publicSummary} />}
 
+      {!publicSummary && currentJob && (
+        <Card>
+          <CardHeader
+            title="当前演示结果"
+            description="把最近一次运行的关键结果直接放在首页，答辩时不必先切很多页面。"
+            actions={currentJob.job_id ? <Link to={`/jobs/${encodeURIComponent(currentJob.job_id)}`}><Button variant="ghost" size="sm">详情 →</Button></Link> : undefined}
+          />
+          <KeyValueGrid
+            columns={4}
+            items={[
+              { label: "job_id", value: currentJob.job_id ? shortHash(currentJob.job_id, 12, 6) : "—" },
+              { label: "status", value: currentJob.status ?? currentJob.terminal_state ?? "—" },
+              { label: "intersection_size", value: String((currentResult as Record<string, unknown> | null)?.intersection_size ?? "—") },
+              { label: "intersection_sum", value: String((currentResult as Record<string, unknown> | null)?.intersection_sum ?? "—") },
+              { label: "released", value: String((currentResult as Record<string, unknown> | null)?.released ?? "—") },
+              { label: "reason_code", value: String((currentResult as Record<string, unknown> | null)?.reason_code ?? "—") },
+              { label: "tenant", value: currentJob.tenant_id ?? "—" },
+              { label: "caller", value: currentJob.caller ?? "—" },
+            ]}
+          />
+          {currentResult && <JsonDetails title="查看最近一次运行原始结果 JSON" data={currentResult} maxHeight="260px" />}
+        </Card>
+      )}
+
       <section className="grid grid-cols-1 lg:grid-cols-3 gap-4">
         <Card className="lg:col-span-2">
           <CardHeader
@@ -130,11 +156,11 @@ export function HomeRoute() {
             <EmptyState title="无告警" description="所有 alert rules 当前都处于 resolved。" />
           ) : (
             <ul className="divide-y divide-line-subtle">
-              {alerts.slice(0, 6).map((a) => (
-                <li key={a.id} className="py-2 flex items-start gap-3">
+              {alerts.slice(0, 6).map((a, idx) => (
+                <li key={a.id ?? a.alert_id ?? a.title ?? String(idx)} className="py-2 flex items-start gap-3">
                   <StatusPill kind={a.state === "firing" ? "err" : "ok"}>{a.state}</StatusPill>
                   <div className="flex-1 min-w-0">
-                    <div className="text-sm text-ink truncate">{a.title}</div>
+                    <div className="text-sm text-ink truncate">{a.title ?? a.name ?? a.alert_id ?? "alert"}</div>
                     {a.summary && <div className="text-2xs text-ink-muted truncate">{a.summary}</div>}
                   </div>
                   <span className="text-2xs text-ink-muted shrink-0">
@@ -153,7 +179,7 @@ export function HomeRoute() {
           ) : publicSummary ? (
             <DashboardPublicSummaryPanel summary={publicSummary} />
           ) : fullDashboard?.audit_center ? (
-            <JsonBlock data={fullDashboard.audit_center} maxHeight="240px" />
+            <JsonDetails title="查看 contract 摘要 JSON" data={fullDashboard.audit_center} maxHeight="240px" defaultOpen />
           ) : (
             <EmptyState title="无 contract 摘要" description="还没有完成的运行，或当前 history root 里没有 audit_chain.json。" />
           )}

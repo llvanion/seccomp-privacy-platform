@@ -2,7 +2,7 @@ import { Navigate, Route, Routes, useLocation } from "react-router-dom";
 
 import { metadataApi, auditApi } from "@/api/sidecars";
 import { useApiQuery } from "@/hooks/useApi";
-import { Card, CardHeader, EmptyState, ErrorBanner, JsonBlock, PageHeader, Skeleton } from "@/components/ui";
+import { Card, CardHeader, EmptyState, ErrorBanner, JsonDetails, PageHeader, Skeleton } from "@/components/ui";
 import { DataTable, type Column } from "@/components/data-table";
 import { RouteTabs } from "@/components/tabs";
 import { useState, type ReactNode } from "react";
@@ -149,7 +149,7 @@ function LineageTab() {
               <Stat label="datasets" value={q.data?.summary?.dataset_count ?? q.data?.datasets?.length ?? 0} />
               <Stat label="lineage_edges" value={q.data?.summary?.lineage_edge_count ?? q.data?.lineage_edges?.length ?? 0} />
             </div>
-            <JsonBlock data={q.data ?? {}} maxHeight="380px" />
+            <JsonDetails title="查看原始 catalog_lineage JSON" data={q.data ?? {}} maxHeight="380px" />
           </>
         )}
       </Card>

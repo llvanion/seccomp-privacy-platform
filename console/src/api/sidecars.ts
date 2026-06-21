@@ -96,8 +96,26 @@ export const healthApi = {
   health(): Promise<Record<string, Json>> {
     return api.get("health", "/healthz");
   },
-  platformHealth(query?: { out_base?: string; metadata_db?: string }): Promise<PlatformHealth> {
-    return api.get("health", "/v1/platform-health", { query });
+  async platformHealth(query?: { out_base?: string; metadata_db?: string }): Promise<PlatformHealth> {
+    const payload = await api.get<PlatformHealth>("health", "/v1/platform-health", { query });
+    if (Array.isArray(payload.components)) {
+      return payload;
+    }
+    if (Array.isArray(payload.checks)) {
+      return {
+        ...payload,
+        components: payload.checks.map((check) => ({
+          component: check.component,
+          status: check.status === "error" ? "err" : check.status,
+          summary: typeof check.error === "string" && check.error ? check.error : check.name,
+          details: check.details,
+        })),
+      };
+    }
+    return {
+      ...payload,
+      components: [],
+    };
   },
 };
 

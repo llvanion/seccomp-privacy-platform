@@ -4,7 +4,7 @@ import { ArrowLeft, CheckCircle2, XCircle, RefreshCw } from "lucide-react";
 
 import { operatorApi } from "@/api/operator";
 import { useApiMutation, useApiQuery } from "@/hooks/useApi";
-import { Button, Card, CardHeader, ErrorBanner, Field, Input, JsonBlock, PageHeader, Skeleton, StatusPill, Textarea, inferStatusKind } from "@/components/ui";
+import { Button, Card, CardHeader, ErrorBanner, Field, Input, JsonDetails, PageHeader, Skeleton, StatusPill, Textarea, inferStatusKind } from "@/components/ui";
 import { formatTimestamp, shortHash } from "@/lib/format";
 import type { RequestSubmission } from "@/api/types";
 
@@ -155,7 +155,7 @@ export function RequestDetailRoute() {
 
         <Card>
           <CardHeader title="原始请求 payload" />
-          <JsonBlock data={submission?.request ?? {}} maxHeight="320px" />
+          <JsonDetails title="查看原始请求 JSON" data={submission?.request ?? {}} maxHeight="320px" defaultOpen />
         </Card>
       </section>
     </div>

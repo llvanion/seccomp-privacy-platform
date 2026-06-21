@@ -14,6 +14,7 @@ import {
   ErrorBanner,
   Field,
   Input,
+  KeyValueGrid,
   PageHeader,
   Select,
   Skeleton,
@@ -45,9 +46,10 @@ export function JobsRoute() {
 
   const publicSummary = isOperatorDashboardPublicSummary(dashboardQ.data) ? dashboardQ.data : null;
   const fullDashboard = dashboardQ.data && !isOperatorDashboardPublicSummary(dashboardQ.data) ? dashboardQ.data : null;
-  const jobs: OperatorJob[] = fullDashboard?.jobs ?? fullDashboard?.recent_runs ?? [];
+  const jobs: OperatorJob[] = fullDashboard?.jobs ?? [];
   const publicJob = publicSummary ? publicSummaryToJob(publicSummary) : null;
   const rows: OperatorJob[] = publicJob ? [publicJob] : jobs;
+  const latest = rows[0] ?? null;
 
   const filtered = useMemo(() => {
     const lcSearch = search.trim().toLowerCase();
@@ -84,6 +86,25 @@ export function JobsRoute() {
       />
 
       {dashboardQ.error && <ErrorBanner title="加载失败" message={dashboardQ.error.message} retry={() => dashboardQ.refetch()} />}
+
+      {latest && (
+        <Card>
+          <CardHeader title="最近一次运行摘要" description="先把关键结果放在作业页顶部，答辩时更容易快速讲清楚。" />
+          <KeyValueGrid
+            columns={4}
+            items={[
+              { label: "job_id", value: latest.job_id },
+              { label: "status", value: latest.status ?? latest.terminal_state ?? "—" },
+              { label: "tenant", value: latest.tenant_id ?? "—" },
+              { label: "caller", value: latest.caller ?? "—" },
+              { label: "started", value: formatRelativeTime(latest.started_at_utc) },
+              { label: "finished", value: formatRelativeTime(latest.finished_at_utc) },
+              { label: "duration", value: formatDuration(latest.elapsed_seconds ? latest.elapsed_seconds * 1000 : null) },
+              { label: "exit_code", value: latest.exit_code ?? "—" },
+            ]}
+          />
+        </Card>
+      )}
 
       <Card>
         <CardHeader title="过滤器" description="按状态、租户、关键字快速定位。" actions={<Filter className="w-4 h-4 text-ink-dim" />} />
@@ -175,9 +196,16 @@ function JobsTable({ rows }: { rows: OperatorJob[] }) {
       cell: (r) => r.job_id === "redacted-current-job" ? (
         <span className="font-mono text-2xs text-ink-muted">redacted</span>
       ) : (
-          <Link to={`/jobs/${encodeURIComponent(r.job_id)}`} className="text-brand hover:underline font-mono text-2xs">
-            {shortHash(r.job_id, 12, 6)}
-          </Link>
+          <div className="flex items-center gap-2">
+            <Link to={`/jobs/${encodeURIComponent(r.job_id)}`} className="text-brand hover:underline font-mono text-2xs">
+              {shortHash(r.job_id, 12, 6)}
+            </Link>
+            {r.out_base && (
+              <Link to={`/audit/public-report?out_base=${encodeURIComponent(r.out_base)}`} className="text-2xs text-ink-dim hover:text-brand">
+                报告
+              </Link>
+            )}
+          </div>
         ),
       sortKey: (r) => r.job_id,
     },
@@ -222,6 +250,27 @@ function JobsTable({ rows }: { rows: OperatorJob[] }) {
       header: "结束",
       cell: (r) => formatRelativeTime(r.finished_at_utc),
       sortKey: (r) => r.finished_at_utc ?? "",
+    },
+    {
+      id: "action",
+      header: "查看",
+      cell: (r) =>
+        r.job_id === "redacted-current-job" ? (
+          <span className="text-2xs text-ink-dim">—</span>
+        ) : r.out_base ? (
+          <div className="flex items-center gap-2">
+            <Link to={`/jobs/${encodeURIComponent(r.job_id)}`}>
+              <Button size="sm" variant="secondary">详情</Button>
+            </Link>
+            <Link to={`/audit/public-report?out_base=${encodeURIComponent(r.out_base)}`}>
+              <Button size="sm" variant="ghost">报告</Button>
+            </Link>
+          </div>
+        ) : (
+          <Link to={`/jobs/${encodeURIComponent(r.job_id)}`}>
+            <Button size="sm" variant="secondary">详情</Button>
+          </Link>
+        ),
     },
   ];
   return <DataTable rows={rows} columns={columns} rowKey={(r) => r.job_id} initialSort={{ id: "started", dir: "desc" }} />;

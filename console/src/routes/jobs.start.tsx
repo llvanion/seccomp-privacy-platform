@@ -8,19 +8,33 @@ import { useApiMutation } from "@/hooks/useApi";
 import { Button, Card, CardHeader, Field, Input, JsonBlock, PageHeader, Select, Textarea } from "@/components/ui";
 
 const DEFAULT_PAYLOAD = {
+  schema: "query_workflow_request/v1",
+  query_type: "cross_party_match",
   job_id: `console-${new Date().toISOString().slice(0, 19).replaceAll("-", "").replaceAll(":", "").replace("T", "")}`,
-  caller: "console_operator",
+  out_base: "tmp/defense_demo/runs/adhoc_console_job",
+  caller: "auto_demo",
   tenant_id: "demo_tenant",
-  dataset_id: "demo_dataset",
-  service_id: "demo_service",
-  pipeline: {
-    server_source: "$REPO/sse/examples/bridge_server_records.jsonl",
-    client_source: "$REPO/sse/examples/bridge_client_records.jsonl",
-    server_join_key_field: "email",
-    client_join_key_field: "email",
-    client_value_field: "amount",
-    token_scope: "console-scope",
-  },
+  dataset_id: "bridge_demo_dataset",
+  server_source: "$REPO/sse/examples/bridge_server_records.jsonl",
+  client_source: "$REPO/sse/examples/bridge_client_records.jsonl",
+  server_join_key_field: "email",
+  client_join_key_field: "email",
+  client_value_field: "amount",
+  server_normalizer: "email",
+  client_normalizer: "email",
+  client_value_mode: "raw-int",
+  client_value_min: 0,
+  client_value_max: 1000000,
+  client_allowed_value_fields: ["amount"],
+  client_value_unit: "minor_currency_unit",
+  client_value_currency: "USD",
+  server_filters: ["campaign=demo"],
+  client_filters: ["campaign=demo"],
+  token_scope: "defense-demo-scope",
+  token_secret_env: "BRIDGE_TOKEN_SECRET",
+  sse_export_policy_config: "$REPO/sse/config/export_policy.example.json",
+  deny_duplicate_query: true,
+  cleanup_sse_export_handoff_files_after_bridge: true,
 };
 
 export function JobStartRoute() {
@@ -76,7 +90,7 @@ export function JobStartRoute() {
         <Card className="lg:col-span-2">
           <CardHeader
             title="作业 payload"
-            description="支持完整覆盖 job_id / caller / tenant_id / dataset_id / pipeline 字段。"
+            description="这里直接提交 query_workflow_request/v1；模板已对齐当前后端校验，不再使用旧版 pipeline 嵌套结构。"
           />
           <Field label="JSON payload" hint="$REPO 等占位符由服务端解析" error={parseError ?? undefined}>
             <Textarea

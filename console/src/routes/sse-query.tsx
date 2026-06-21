@@ -3,13 +3,14 @@ import { Search, Database, RefreshCw, FileJson } from "lucide-react";
 
 import { operatorApi } from "@/api/operator";
 import { useApiMutation } from "@/hooks/useApi";
+import { useStoredState } from "@/hooks/useStoredState";
 import {
   Button,
   Card,
   CardHeader,
   Field,
   Input,
-  JsonBlock,
+  JsonDetails,
   PageHeader,
   Select,
   Skeleton,
@@ -32,16 +33,17 @@ const DEFAULT_INLINE = `{
   "Chen": ["1BB2BB2B1010112A", "233278781010212C", "88771ABB101AA02B"]
 }`;
 
-const DEFAULT_PATH = "$REPO/sse/example_db.json";
+const DEFAULT_PATH = "sse/example_db.json";
 
 export function SseQueryRoute() {
-  const [dbMode, setDbMode] = useState<DbMode>("inline");
-  const [dbInline, setDbInline] = useState(DEFAULT_INLINE);
-  const [dbPath, setDbPath] = useState(DEFAULT_PATH);
-  const [keyword, setKeyword] = useState("China");
-  const [outputFormat, setOutputFormat] = useState<OutputFormat>("hex");
-  const [scheme, setScheme] = useState("CJJ14.PiBas");
-  const [serviceName, setServiceName] = useState("");
+  const [dbMode, setDbMode] = useStoredState<DbMode>("console.sse_query.db_mode", "inline");
+  const [dbInline, setDbInline] = useStoredState("console.sse_query.db_inline", DEFAULT_INLINE);
+  const [dbPath, setDbPath] = useStoredState("console.sse_query.db_path", DEFAULT_PATH);
+  const [keyword, setKeyword] = useStoredState("console.sse_query.keyword", "China");
+  const [outputFormat, setOutputFormat] = useStoredState<OutputFormat>("console.sse_query.output_format", "hex");
+  const [scheme, setScheme] = useStoredState("console.sse_query.scheme", "CJJ14.PiBas");
+  const [serviceName, setServiceName] = useStoredState("console.sse_query.service_name", "");
+  const [lastResult, setLastResult] = useStoredState<SseSearchResponse | undefined>("console.sse_query.last_result", undefined);
   const [parseError, setParseError] = useState<string | null>(null);
 
   const mutation = useApiMutation(
@@ -66,10 +68,13 @@ export function SseQueryRoute() {
       }
       return operatorApi.sseSearch(payload);
     },
-    { errorToast: true },
+    {
+      errorToast: true,
+      onSuccess: (data) => setLastResult(data),
+    },
   );
 
-  const data: SseSearchResponse | undefined = mutation.data;
+  const data: SseSearchResponse | undefined = mutation.data ?? lastResult;
   const ok = data?.status === "ok";
 
   const matches = useMemo<Array<{ index: number; value: string }>>(() => {
@@ -122,7 +127,7 @@ export function SseQueryRoute() {
             </Field>
           ) : (
             <Field label="DB 文件路径" hint="服务端可读的绝对路径（$REPO 占位符不解析）">
-              <Input value={dbPath} onChange={(e) => setDbPath(e.target.value)} placeholder="/abs/path/example_db.json" />
+              <Input value={dbPath} onChange={(e) => setDbPath(e.target.value)} placeholder="sse/example_db.json" />
             </Field>
           )}
         </Card>
@@ -196,8 +201,26 @@ export function SseQueryRoute() {
               </Card>
 
               <Card>
-                <CardHeader title="原始响应 JSON" actions={<FileJson className="w-4 h-4 text-ink-dim" />} />
-                <JsonBlock data={data} maxHeight="320px" />
+                <CardHeader title="搜索摘要" actions={<FileJson className="w-4 h-4 text-ink-dim" />} />
+                <div className="grid grid-cols-2 gap-3 text-2xs">
+                  <div className="panel-soft p-3 rounded-lg">
+                    <div className="field-label">keyword</div>
+                    <div className="font-mono text-ink mt-1 break-all">{data.keyword ?? "—"}</div>
+                  </div>
+                  <div className="panel-soft p-3 rounded-lg">
+                    <div className="field-label">service_name</div>
+                    <div className="font-mono text-ink mt-1 break-all">{data.service_name ?? "—"}</div>
+                  </div>
+                  <div className="panel-soft p-3 rounded-lg">
+                    <div className="field-label">scheme</div>
+                    <div className="font-mono text-ink mt-1 break-all">{data.scheme ?? "—"}</div>
+                  </div>
+                  <div className="panel-soft p-3 rounded-lg">
+                    <div className="field-label">db_source</div>
+                    <div className="font-mono text-ink mt-1 break-all">{data.db_source ?? "—"}</div>
+                  </div>
+                </div>
+                <JsonDetails title="查看原始响应 JSON" data={data} maxHeight="320px" />
               </Card>
             </>
           ) : null}

@@ -4,7 +4,8 @@ import { CheckCircle2, ClipboardList, Filter, Plus, RefreshCw, XCircle } from "l
 
 import { operatorApi } from "@/api/operator";
 import { useApiQuery } from "@/hooks/useApi";
-import { Button, Card, CardHeader, EmptyState, ErrorBanner, Field, Input, PageHeader, Select, Skeleton, StatusPill, inferStatusKind } from "@/components/ui";
+import { useStoredState } from "@/hooks/useStoredState";
+import { Button, Card, CardHeader, EmptyState, ErrorBanner, Field, Input, JsonDetails, KeyValueGrid, PageHeader, Select, Skeleton, StatusPill, inferStatusKind } from "@/components/ui";
 import { DataTable, type Column } from "@/components/data-table";
 import { formatRelativeTime, formatTimestamp, shortHash, truncate } from "@/lib/format";
 import type { RequestSubmission } from "@/api/types";
@@ -12,9 +13,10 @@ import type { RequestSubmission } from "@/api/types";
 const STATUS_FILTERS = ["all", "pending_approval", "approved", "rejected"] as const;
 
 export function RequestsRoute() {
-  const [status, setStatus] = useState<string>("all");
-  const [search, setSearch] = useState("");
-  const [tenant, setTenant] = useState("");
+  const [status, setStatus] = useStoredState<string>("console.requests.status", "all");
+  const [search, setSearch] = useStoredState("console.requests.search", "");
+  const [tenant, setTenant] = useStoredState("console.requests.tenant", "");
+  const [selectedId, setSelectedId] = useStoredState<string | null>("console.requests.selected_id", null);
 
   const query = useApiQuery<{ submissions: RequestSubmission[] }>(
     ["requests", { status, tenant }],
@@ -39,6 +41,7 @@ export function RequestsRoute() {
     }),
     [submissions],
   );
+  const selected = filtered.find((item) => item.submission_id === selectedId) ?? submissions.find((item) => item.submission_id === selectedId) ?? filtered[0] ?? null;
 
   return (
     <div className="space-y-5">
@@ -88,22 +91,53 @@ export function RequestsRoute() {
         </div>
       </Card>
 
-      <Card>
-        <CardHeader title={`请求列表（${filtered.length} / ${submissions.length}）`} />
-        {query.isLoading ? (
-          <div className="space-y-2">
-            <Skeleton className="h-9" />
-            <Skeleton className="h-9" />
-            <Skeleton className="h-9" />
-          </div>
-        ) : filtered.length === 0 ? (
-          <EmptyState title="无匹配请求" description="改一下过滤器，或提交一个新请求。" action={
-            <Link to="/requests/submit"><Button variant="primary">提交请求</Button></Link>
-          } />
-        ) : (
-          <RequestsTable rows={filtered} />
-        )}
-      </Card>
+      <section className="grid grid-cols-1 xl:grid-cols-[minmax(0,1fr)_420px] gap-4">
+        <Card>
+          <CardHeader title={`请求列表（${filtered.length} / ${submissions.length}）`} />
+          {query.isLoading ? (
+            <div className="space-y-2">
+              <Skeleton className="h-9" />
+              <Skeleton className="h-9" />
+              <Skeleton className="h-9" />
+            </div>
+          ) : filtered.length === 0 ? (
+            <EmptyState title="无匹配请求" description="改一下过滤器，或提交一个新请求。" action={
+              <Link to="/requests/submit"><Button variant="primary">提交请求</Button></Link>
+            } />
+          ) : (
+            <RequestsTable rows={filtered} selectedId={selected?.submission_id ?? null} onSelect={setSelectedId} />
+          )}
+        </Card>
+
+        <Card>
+          <CardHeader title="请求详情" actions={selected ? <StatusPill kind={inferStatusKind(selected.status)}>{selected.status}</StatusPill> : undefined} />
+          {selected ? (
+            <div className="space-y-4">
+              <KeyValueGrid
+                columns={2}
+                items={[
+                  { label: "submission_id", value: selected.submission_id },
+                  { label: "status", value: selected.status },
+                  { label: "caller", value: selected.caller ?? selected.submitted_by ?? "—" },
+                  { label: "submitted_at", value: formatTimestamp(selected.submitted_at_utc) },
+                  { label: "tenant", value: selected.tenant_id ?? "—" },
+                  { label: "dataset", value: selected.dataset_id ?? "—" },
+                  { label: "service", value: selected.service_id ?? "—" },
+                  { label: "submitted_by", value: selected.submitted_by ?? "—" },
+                ]}
+              />
+              <JsonDetails title="查看 request JSON" data={selected.request ?? {}} maxHeight="260px" />
+              <div className="flex gap-2">
+                <Link to={`/requests/${encodeURIComponent(selected.submission_id)}`}>
+                  <Button variant="primary">进入详情页</Button>
+                </Link>
+              </div>
+            </div>
+          ) : (
+            <EmptyState title="选择一条请求" description="右侧会展示 scope、提交人、原始 request 与跳转入口。" />
+          )}
+        </Card>
+      </section>
     </div>
   );
 }
@@ -121,15 +155,15 @@ function StatusTile({ kind, icon, label, count }: { kind: "warn" | "ok" | "err";
   );
 }
 
-function RequestsTable({ rows }: { rows: RequestSubmission[] }) {
+function RequestsTable({ rows, selectedId, onSelect }: { rows: RequestSubmission[]; selectedId: string | null; onSelect: (id: string) => void }) {
   const columns: Column<RequestSubmission>[] = [
     {
       id: "id",
       header: "Submission",
       cell: (r) => (
-        <Link to={`/requests/${encodeURIComponent(r.submission_id)}`} className="text-brand hover:underline font-mono text-2xs">
+        <button onClick={() => onSelect(r.submission_id)} className="text-brand hover:underline font-mono text-2xs">
           {shortHash(r.submission_id, 12, 4)}
-        </Link>
+        </button>
       ),
       sortKey: (r) => r.submission_id,
     },
@@ -161,6 +195,15 @@ function RequestsTable({ rows }: { rows: RequestSubmission[] }) {
       header: "Age",
       cell: (r) => <span className="text-2xs text-ink-muted">{formatRelativeTime(r.submitted_at_utc)}</span>,
       sortKey: (r) => r.submitted_at_utc,
+    },
+    {
+      id: "view",
+      header: "查看",
+      cell: (r) => (
+        <Button size="sm" variant={selectedId === r.submission_id ? "primary" : "ghost"} onClick={() => onSelect(r.submission_id)}>
+          选择
+        </Button>
+      ),
     },
   ];
   return <DataTable rows={rows} columns={columns} rowKey={(r) => r.submission_id} initialSort={{ id: "submitted", dir: "desc" }} />;

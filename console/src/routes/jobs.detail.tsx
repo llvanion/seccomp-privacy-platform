@@ -4,7 +4,7 @@ import { ArrowLeft, RefreshCw, PlayCircle } from "lucide-react";
 
 import { operatorApi } from "@/api/operator";
 import { useApiMutation, useApiQuery } from "@/hooks/useApi";
-import { Button, Card, CardHeader, EmptyState, ErrorBanner, JsonBlock, PageHeader, Skeleton, StatusPill, TagList, inferStatusKind } from "@/components/ui";
+import { Button, Card, CardHeader, EmptyState, ErrorBanner, JsonBlock, JsonDetails, KeyValueGrid, PageHeader, Skeleton, StatusPill, TagList, inferStatusKind } from "@/components/ui";
 import { formatDuration, formatRelativeTime, formatTimestamp, shortHash } from "@/lib/format";
 import type { OperatorJob, Json } from "@/api/types";
 
@@ -20,6 +20,14 @@ export function JobDetailRoute() {
     enabled: !!decodedId,
     retry: false,
   });
+  const historicalQ = useApiQuery<Record<string, Json>>(
+    ["job-history-fallback", decodedId],
+    () => operatorApi.listRunsRaw({ job_id: decodedId, limit: 1 }),
+    {
+      enabled: !!decodedId && !!jobQ.error,
+      retry: false,
+    },
+  );
 
   const relaunch = useApiMutation(
     (payload: Record<string, Json>) => operatorApi.relaunchJob(decodedId, payload),
@@ -32,6 +40,8 @@ export function JobDetailRoute() {
   );
 
   const job = jobQ.data;
+  const fallbackRow = Array.isArray(historicalQ.data?.statuses) ? historicalQ.data.statuses[0] as Record<string, Json> | undefined : undefined;
+  const fallbackOutBase = typeof fallbackRow?.out_base === "string" ? fallbackRow.out_base : "";
 
   return (
     <div className="space-y-5">
@@ -65,7 +75,42 @@ export function JobDetailRoute() {
         }
       />
 
-      {jobQ.error && <ErrorBanner title="加载失败" message={jobQ.error.message} retry={() => jobQ.refetch()} />}
+      {jobQ.error && (
+        <div className="space-y-3">
+          <ErrorBanner title="加载失败" message={jobQ.error.message} retry={() => jobQ.refetch()} />
+          {fallbackRow && (
+            <Card>
+              <CardHeader title="历史运行摘要" description="这条记录没有 live job snapshot，但仍可从历史状态和审计报告继续展示。" />
+              <KeyValueGrid
+                columns={2}
+                items={[
+                  { label: "job_id", value: String(fallbackRow.job_id ?? decodedId) },
+                  { label: "state", value: String(fallbackRow.state ?? "—") },
+                  { label: "caller", value: String(fallbackRow.caller ?? "—") },
+                  { label: "tenant", value: String(fallbackRow.tenant_id ?? "—") },
+                  { label: "updated_at", value: formatTimestamp(typeof fallbackRow.last_updated_at_utc === "string" ? fallbackRow.last_updated_at_utc : null) },
+                  { label: "out_base", value: typeof fallbackRow.out_base_display === "string" ? fallbackRow.out_base_display : fallbackOutBase || "—" },
+                ]}
+              />
+              <div className="flex flex-wrap gap-2 mt-4">
+                {fallbackOutBase && (
+                  <>
+                    <Link to={`/audit/public-report?out_base=${encodeURIComponent(fallbackOutBase)}`}>
+                      <Button variant="primary">查看公开报告</Button>
+                    </Link>
+                    <Link to={`/audit/chain?out_base=${encodeURIComponent(fallbackOutBase)}`}>
+                      <Button variant="secondary">查看审计链</Button>
+                    </Link>
+                    <Link to={`/audit/observability?out_base=${encodeURIComponent(fallbackOutBase)}`}>
+                      <Button variant="secondary">查看观测事件</Button>
+                    </Link>
+                  </>
+                )}
+              </div>
+            </Card>
+          )}
+        </div>
+      )}
 
       <section className="grid grid-cols-1 lg:grid-cols-3 gap-4">
         <Card>
@@ -144,13 +189,24 @@ export function JobDetailRoute() {
           ) : resultQ.error ? (
             <p className="text-2xs text-ink-muted">结果 JSON 不可用：{resultQ.error.message}</p>
           ) : (
-            <JsonBlock data={resultQ.data ?? job?.result_summary ?? {}} maxHeight="320px" />
+            <>
+              <KeyValueGrid
+                columns={2}
+                items={[
+                  { label: "released", value: String((resultQ.data?.released as string | boolean | undefined) ?? "—") },
+                  { label: "reason_code", value: String((resultQ.data?.reason_code as string | undefined) ?? "—") },
+                  { label: "intersection_size", value: String((resultQ.data?.intersection_size as number | undefined) ?? "—") },
+                  { label: "intersection_sum", value: String((resultQ.data?.intersection_sum as number | undefined) ?? "—") },
+                ]}
+              />
+              <JsonDetails title="查看原始结果 JSON" data={resultQ.data ?? job?.result_summary ?? {}} maxHeight="320px" />
+            </>
           )}
         </Card>
 
         <Card>
           <CardHeader title="原始请求" />
-          {job?.request ? <JsonBlock data={job.request} maxHeight="320px" /> : <EmptyState title="未记录原始请求" />}
+          {job?.request ? <JsonDetails title="查看原始请求 JSON" data={job.request} maxHeight="320px" defaultOpen /> : <EmptyState title="未记录原始请求" />}
         </Card>
       </section>
 
