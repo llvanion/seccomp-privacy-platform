@@ -47,6 +47,8 @@
   将客户端结果 POST 到回调地址
 - [moduleA_psi/docs/pjc_split_deployment_plan.md](/home/llvanion/Desktop/seccomp-privacy-platform/moduleA_psi/docs/pjc_split_deployment_plan.md)
   双机拆分、结果同步、分桶和容器化说明
+- [moduleA_psi/docs/pjc_public_two_host_console_runbook.md](/home/llvanion/Desktop/seccomp-privacy-platform/a-psi/moduleA_psi/docs/pjc_public_two_host_console_runbook.md)
+  公网双机 PJC 的控制台操作手册，包含 mTLS、preflight、结果查看与安全说明
 - [deploy/docker/README.md](/home/llvanion/Desktop/seccomp-privacy-platform/deploy/docker/README.md)
   运行时 Docker 骨架说明
 

@@ -161,6 +161,13 @@ CONSOLE_PERMISSIONS_POLICY = ", ".join(
     ]
 )
 
+SIDECAR_PROXY_PATHS: tuple[tuple[str, str], ...] = (
+    ("/proxy/metadata/", "metadata"),
+    ("/proxy/query/", "query"),
+    ("/proxy/audit/", "audit"),
+    ("/proxy/health/", "health"),
+)
+
 
 def _console_security_headers(*, secure_transport: bool = False) -> dict[str, str]:
     headers = {
@@ -173,6 +180,31 @@ def _console_security_headers(*, secure_transport: bool = False) -> dict[str, st
     if secure_transport:
         headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
     return headers
+
+
+def _normalized_sidecar_base(url: str) -> str:
+    text = str(url or "").strip().rstrip("/")
+    if not text:
+        raise ValueError("sidecar base URL must be non-empty")
+    return text
+
+
+def _route_sidecar_proxy(path: str) -> tuple[str, str] | None:
+    for prefix, sidecar_key in SIDECAR_PROXY_PATHS:
+        if path.startswith(prefix):
+            tail = path[len(prefix):]
+            return sidecar_key, "/" + tail.lstrip("/")
+    return None
+
+
+def _filter_forward_headers(headers: BaseHTTPRequestHandler) -> dict[str, str]:
+    forwarded: dict[str, str] = {}
+    for key, value in headers.items():
+        lowered = key.lower()
+        if lowered in {"host", "content-length", "connection"}:
+            continue
+        forwarded[key] = value
+    return forwarded
 
 
 def _resolve_console_dist(explicit: str) -> Path | None:
@@ -2899,6 +2931,7 @@ PJC_ROLE_STATUS_SCHEMA = "pjc_role_status/v1"
 PJC_TWO_PARTY_SIGNED_RUN_MANIFEST_SCHEMA = "pjc_two_party_signed_run_manifest/v1"
 PJC_TWO_PARTY_EVIDENCE_MERGE_SCHEMA = "pjc_two_party_evidence_merge/v1"
 PJC_TWO_PARTY_NEGATIVE_CASES_SCHEMA = "pjc_two_party_negative_cases/v1"
+PJC_TWO_PARTY_RESULT_SUMMARY_SCHEMA = "pjc_two_party_result_summary/v1"
 
 PJC_TWO_PARTY_EVIDENCE_DIR = REPO_ROOT / "tmp" / "pjc_two_party"
 
@@ -3865,8 +3898,16 @@ def _write_role_evidence(role_key: str, snapshot: dict[str, Any]) -> Path:
     full["schema"] = PJC_ROLE_STATUS_SCHEMA
     full["generated_at_utc"] = _utc_now_iso()
     full.pop("_process", None)
+    full.pop("_log_handle", None)
     evidence_path.write_text(json.dumps(full, ensure_ascii=False, sort_keys=True) + "\n", encoding="utf-8")
     return evidence_path
+
+
+def _public_role_snapshot(snapshot: dict[str, Any]) -> dict[str, Any]:
+    public = dict(snapshot)
+    public.pop("_process", None)
+    public.pop("_log_handle", None)
+    return public
 
 
 def _start_role(role: str, body: dict[str, Any]) -> dict[str, Any]:
@@ -3878,7 +3919,7 @@ def _start_role(role: str, body: dict[str, Any]) -> dict[str, Any]:
     with _PJC_ROLE_REGISTRY_LOCK:
         existing = _PJC_ROLE_REGISTRY.get(role_key)
         if existing is not None and existing.get("state") in ("starting", "running"):
-            return {"status": "error", "error": "role_already_running", "snapshot": {k: v for k, v in existing.items() if k != "_process"}}
+            return {"status": "error", "error": "role_already_running", "snapshot": _public_role_snapshot(existing)}
     command, env = _role_command(role, body=body)
     cmd_digest = _sha256_bytes(("\x00".join(command)).encode("utf-8"))
     env_keys_sorted = sorted(env.keys())
@@ -3933,7 +3974,7 @@ def _start_role(role: str, body: dict[str, Any]) -> dict[str, Any]:
     snapshot["evidence_path"] = str(evidence_path)
     with _PJC_ROLE_REGISTRY_LOCK:
         _PJC_ROLE_REGISTRY[role_key]["evidence_path"] = str(evidence_path)
-    return {"status": "ok", "role_key": role_key, "snapshot": snapshot}
+    return {"status": "ok", "role_key": role_key, "snapshot": _public_role_snapshot(snapshot)}
 
 
 def _cancel_role(role: str, body: dict[str, Any]) -> dict[str, Any]:
@@ -4593,6 +4634,469 @@ def _two_party_evidence_merge(body: dict[str, Any]) -> dict[str, Any]:
     return {"status": "ok", "evidence_path": str(evidence_path), "report": report}
 
 
+def _optional_repo_path(value: Any) -> Path | None:
+    raw = str(value or "").strip()
+    if not raw:
+        return None
+    return _repo_path(raw)
+
+
+def _normalized_manifest_party(value: Any) -> str:
+    party = str(value or "").strip().lower()
+    if party in ("party_a", "server"):
+        return "party_a"
+    if party in ("party_b", "client"):
+        return "party_b"
+    return ""
+
+
+def _unique_paths(*values: Path | None) -> list[Path]:
+    seen: set[str] = set()
+    items: list[Path] = []
+    for value in values:
+        if value is None:
+            continue
+        key = str(value)
+        if key in seen:
+            continue
+        seen.add(key)
+        items.append(value)
+    return items
+
+
+def _resolve_artifact_file(explicit: Path | None, roots: list[Path], *, candidates: tuple[str, ...]) -> Path | None:
+    if explicit is not None and explicit.is_file():
+        return explicit
+    for root in roots:
+        if not root.is_dir():
+            continue
+        for relative_path in candidates:
+            candidate = root / relative_path
+            if candidate.is_file():
+                return candidate
+    return explicit
+
+
+def _find_latest_json_file(
+    root: Path | None,
+    *,
+    schema: str | None = None,
+    job_id: str = "",
+    party: str = "",
+) -> Path | None:
+    if root is None:
+        return None
+    candidates: list[Path] = []
+    if root.is_file():
+        candidates = [root]
+    elif root.is_dir():
+        candidates = sorted(root.glob("*.json"))
+    else:
+        return None
+    matches: list[Path] = []
+    for path in candidates:
+        payload = _maybe_load_json(path)
+        if payload is None:
+            continue
+        if schema and payload.get("schema") != schema:
+            continue
+        if job_id and str(payload.get("job_id") or "") != job_id:
+            continue
+        if party:
+            manifest_payload = payload.get("payload") if isinstance(payload.get("payload"), dict) else payload
+            if _normalized_manifest_party((manifest_payload or {}).get("party")) != party:
+                continue
+        matches.append(path)
+    if not matches:
+        return None
+    return max(matches, key=lambda item: item.stat().st_mtime)
+
+
+def _collect_bucket_result_rows(roots: list[Path]) -> list[dict[str, Any]]:
+    seen: set[str] = set()
+    rows: list[dict[str, Any]] = []
+    for root in roots:
+        if not root.is_dir():
+            continue
+        for bucket_dir in sorted(path for path in root.iterdir() if path.is_dir() and path.name.startswith("bucket_")):
+            result_path = bucket_dir / "attribution_result.json"
+            if not result_path.is_file():
+                continue
+            key = str(result_path)
+            if key in seen:
+                continue
+            seen.add(key)
+            payload = _maybe_load_json(result_path) or {}
+            rows.append({
+                "bucket": bucket_dir.name,
+                "path": str(result_path),
+                "sha256": _sha256_file(result_path),
+                "timestamp": payload.get("timestamp"),
+                "intersection_size": payload.get("intersection_size"),
+                "intersection_sum": payload.get("intersection_sum"),
+                "server_addr": payload.get("server_addr"),
+                "tls": payload.get("tls"),
+                "payload": payload,
+            })
+    rows.sort(key=lambda item: str(item.get("bucket") or ""))
+    return rows
+
+
+def _artifact_record(
+    path: Path | None,
+    *,
+    payload: dict[str, Any] | None = None,
+    summary: dict[str, Any] | None = None,
+    verification: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    available = bool(path is not None and path.is_file())
+    record: dict[str, Any] = {
+        "path": str(path) if path is not None else None,
+        "available": available,
+        "sha256": _sha256_file(path) if available and path is not None else None,
+        "summary": summary,
+        "payload": payload,
+    }
+    if verification is not None:
+        record["verification"] = verification
+    return record
+
+
+def _summarize_attribution_payload(payload: dict[str, Any] | None) -> dict[str, Any] | None:
+    if payload is None:
+        return None
+    return {
+        "job_id": payload.get("job_id"),
+        "timestamp": payload.get("timestamp"),
+        "intersection_size": payload.get("intersection_size"),
+        "intersection_sum": payload.get("intersection_sum"),
+        "server_addr": payload.get("server_addr"),
+        "tls": payload.get("tls"),
+    }
+
+
+def _summarize_public_report_payload(payload: dict[str, Any] | None) -> dict[str, Any] | None:
+    if payload is None:
+        return None
+    return {
+        "job_id": payload.get("job_id"),
+        "released": payload.get("released"),
+        "reason_code": payload.get("reason_code"),
+        "value_sum": payload.get("value_sum"),
+        "aov": payload.get("aov"),
+        "policy_version": payload.get("policy_version"),
+        "k_threshold": payload.get("k_threshold") if payload.get("k_threshold") is not None else payload.get("threshold_k"),
+        "caller": payload.get("caller"),
+    }
+
+
+def _summarize_audit_chain_payload(payload: dict[str, Any] | None) -> dict[str, Any] | None:
+    if payload is None:
+        return None
+    stages = payload.get("stages") if isinstance(payload.get("stages"), list) else []
+    records = payload.get("records") if isinstance(payload.get("records"), list) else []
+    return {
+        "schema": payload.get("schema"),
+        "job_id": payload.get("job_id"),
+        "commit": payload.get("commit") if payload.get("commit") is not None else payload.get("git_commit"),
+        "stage_count": len(stages) if stages else payload.get("complete_stage_count"),
+        "record_count": len(records) if records else payload.get("record_count"),
+        "generated_at_utc": payload.get("generated_at_utc"),
+    }
+
+
+def _summarize_signed_manifest_payload(payload: dict[str, Any] | None, verification: dict[str, Any] | None) -> dict[str, Any] | None:
+    if payload is None and verification is None:
+        return None
+    payload = payload or {}
+    return {
+        "job_id": payload.get("job_id"),
+        "party": payload.get("party"),
+        "peer_party": payload.get("peer_party"),
+        "policy_decision": payload.get("policy_decision"),
+        "input_commitment_sha256": payload.get("input_commitment_sha256"),
+        "peer_input_commitment_sha256": payload.get("peer_input_commitment_sha256"),
+        "pjc_result_sha256": payload.get("pjc_result_sha256"),
+        "public_report_sha256": payload.get("public_report_sha256"),
+        "audit_chain_sha256": payload.get("audit_chain_sha256"),
+        "tls_identity": payload.get("tls_identity"),
+        "peer_tls_identity": payload.get("peer_tls_identity"),
+        "ca_fingerprint_sha256": payload.get("ca_fingerprint_sha256"),
+        "verification_status": (verification or {}).get("status"),
+        "verification_reason_code": (verification or {}).get("reason_code"),
+    }
+
+
+def _summarize_merge_payload(payload: dict[str, Any] | None) -> dict[str, Any] | None:
+    if payload is None:
+        return None
+    checks = payload.get("checks") if isinstance(payload.get("checks"), dict) else {}
+    mismatch_count = sum(1 for value in checks.values() if value == "mismatch")
+    missing_count = sum(1 for value in checks.values() if value == "missing")
+    findings = payload.get("findings") if isinstance(payload.get("findings"), list) else []
+    return {
+        "job_id": payload.get("job_id"),
+        "decision": payload.get("decision"),
+        "reason_code": payload.get("reason_code"),
+        "finding_count": len(findings),
+        "mismatch_count": mismatch_count,
+        "missing_check_count": missing_count,
+    }
+
+
+def _summarize_release_gate_payload(payload: dict[str, Any] | None) -> dict[str, Any] | None:
+    if payload is None:
+        return None
+    checks = payload.get("checks") if isinstance(payload.get("checks"), list) else []
+    denied_checks = sum(1 for item in checks if isinstance(item, dict) and str(item.get("status") or "").lower() == "deny")
+    findings = payload.get("findings") if isinstance(payload.get("findings"), list) else []
+    return {
+        "job_id": payload.get("job_id"),
+        "decision": payload.get("decision"),
+        "reason_code": payload.get("reason_code"),
+        "public_report_sha256": payload.get("public_report_sha256"),
+        "finding_count": len(findings),
+        "denied_check_count": denied_checks,
+    }
+
+
+def _resolve_manifest_artifact(
+    *,
+    explicit_path: Path | None,
+    roots: list[Path],
+    signed_manifest_root: Path | None,
+    job_id: str,
+    party: str,
+) -> dict[str, Any]:
+    manifest_path = explicit_path if explicit_path is not None else None
+    if manifest_path is None or not manifest_path.is_file():
+        for root in roots:
+            manifest, candidate_path = _maybe_load_signed_run_manifest(root)
+            payload = manifest.get("payload") if isinstance(manifest, dict) else None
+            if candidate_path is None or not isinstance(payload, dict):
+                continue
+            if job_id and str(payload.get("job_id") or "") != job_id:
+                continue
+            if _normalized_manifest_party(payload.get("party")) != party:
+                continue
+            manifest_path = candidate_path
+            break
+    if (manifest_path is None or not manifest_path.is_file()) and signed_manifest_root is not None:
+        manifest_path = _find_latest_json_file(
+            signed_manifest_root,
+            schema=PJC_TWO_PARTY_SIGNED_RUN_MANIFEST_SCHEMA,
+            job_id=job_id,
+            party=party,
+        ) or manifest_path
+    manifest = _maybe_load_json(manifest_path) if manifest_path is not None and manifest_path.is_file() else None
+    signed_payload, verification = _verify_two_party_run_manifest(manifest) if manifest is not None else (None, None)
+    payload = signed_payload
+    if payload is None and isinstance(manifest, dict) and isinstance(manifest.get("payload"), dict):
+        payload = manifest.get("payload")
+    return _artifact_record(
+        manifest_path,
+        payload=manifest,
+        summary=_summarize_signed_manifest_payload(payload, verification),
+        verification=verification,
+    )
+
+
+def _build_party_result_summary(
+    *,
+    job_id: str,
+    role_dir: Path | None,
+    party_dir: Path | None,
+    result_path: Path | None,
+    public_report_path: Path | None,
+    audit_chain_path: Path | None,
+    manifest_path: Path | None,
+    signed_manifest_root: Path | None,
+    party: str,
+) -> dict[str, Any]:
+    roots = _unique_paths(role_dir, party_dir)
+    resolved_result_path = _resolve_artifact_file(result_path, roots, candidates=("attribution_result.json", "a_psi_run/attribution_result.json"))
+    resolved_public_report_path = _resolve_artifact_file(public_report_path, roots, candidates=("public_report.json", "a_psi_run/public_report.json"))
+    resolved_audit_chain_path = _resolve_artifact_file(audit_chain_path, roots, candidates=("audit_chain.json",))
+    result_payload = _maybe_load_json(resolved_result_path) if resolved_result_path is not None and resolved_result_path.is_file() else None
+    public_report_payload = _maybe_load_json(resolved_public_report_path) if resolved_public_report_path is not None and resolved_public_report_path.is_file() else None
+    audit_chain_payload = _maybe_load_json(resolved_audit_chain_path) if resolved_audit_chain_path is not None and resolved_audit_chain_path.is_file() else None
+    bucket_rows = _collect_bucket_result_rows(roots)
+    notes: list[str] = []
+    if bucket_rows and (resolved_result_path is None or not resolved_result_path.is_file()):
+        notes.append("No merged attribution_result.json was found; totals are aggregated from bucket_*/attribution_result.json.")
+    return {
+        "role_dir": str(role_dir) if role_dir is not None else None,
+        "result_dir": str(party_dir) if party_dir is not None else None,
+        "bucket_results": bucket_rows,
+        "notes": notes,
+        "artifacts": {
+            "attribution_result": _artifact_record(
+                resolved_result_path,
+                payload=result_payload,
+                summary=_summarize_attribution_payload(result_payload),
+            ),
+            "public_report": _artifact_record(
+                resolved_public_report_path,
+                payload=public_report_payload,
+                summary=_summarize_public_report_payload(public_report_payload),
+            ),
+            "audit_chain": _artifact_record(
+                resolved_audit_chain_path,
+                payload=audit_chain_payload,
+                summary=_summarize_audit_chain_payload(audit_chain_payload),
+            ),
+            "signed_manifest": _resolve_manifest_artifact(
+                explicit_path=manifest_path,
+                roots=roots,
+                signed_manifest_root=signed_manifest_root,
+                job_id=job_id,
+                party=party,
+            ),
+        },
+    }
+
+
+def _two_party_result_summary(body: dict[str, Any]) -> dict[str, Any]:
+    job_id = str(body.get("job_id") or "").strip()
+    if not job_id:
+        raise ValueError("job_id is required")
+    party_a_dir = _optional_repo_path(body.get("party_a_dir"))
+    party_b_dir = _optional_repo_path(body.get("party_b_dir"))
+    party_a_role_dir = _optional_repo_path(body.get("party_a_role_dir"))
+    party_b_role_dir = _optional_repo_path(body.get("party_b_role_dir"))
+    party_a_result_path = _optional_repo_path(body.get("party_a_result_path"))
+    party_b_result_path = _optional_repo_path(body.get("party_b_result_path"))
+    party_a_public_report_path = _optional_repo_path(body.get("party_a_public_report_path"))
+    party_b_public_report_path = _optional_repo_path(body.get("party_b_public_report_path"))
+    party_a_audit_chain_path = _optional_repo_path(body.get("party_a_audit_chain_path"))
+    party_b_audit_chain_path = _optional_repo_path(body.get("party_b_audit_chain_path"))
+    party_a_manifest_path = _optional_repo_path(body.get("party_a_manifest_path"))
+    party_b_manifest_path = _optional_repo_path(body.get("party_b_manifest_path"))
+    signed_manifest_root = _optional_repo_path(body.get("signed_manifest_root"))
+    evidence_merge_path = _optional_repo_path(body.get("evidence_merge_path"))
+    release_gate_path = _optional_repo_path(body.get("release_gate_path"))
+
+    party_a = _build_party_result_summary(
+        job_id=job_id,
+        role_dir=party_a_role_dir,
+        party_dir=party_a_dir,
+        result_path=party_a_result_path,
+        public_report_path=party_a_public_report_path,
+        audit_chain_path=party_a_audit_chain_path,
+        manifest_path=party_a_manifest_path,
+        signed_manifest_root=signed_manifest_root,
+        party="party_a",
+    )
+    party_b = _build_party_result_summary(
+        job_id=job_id,
+        role_dir=party_b_role_dir,
+        party_dir=party_b_dir,
+        result_path=party_b_result_path,
+        public_report_path=party_b_public_report_path,
+        audit_chain_path=party_b_audit_chain_path,
+        manifest_path=party_b_manifest_path,
+        signed_manifest_root=signed_manifest_root,
+        party="party_b",
+    )
+
+    merge_path = evidence_merge_path
+    if merge_path is None or not merge_path.is_file():
+        merge_path = _find_latest_json_file(PJC_TWO_PARTY_EVIDENCE_DIR / "evidence_merge", schema=PJC_TWO_PARTY_EVIDENCE_MERGE_SCHEMA, job_id=job_id) or merge_path
+    merge_payload = _maybe_load_json(merge_path) if merge_path is not None and merge_path.is_file() else None
+    merge_artifact = _artifact_record(merge_path, payload=merge_payload, summary=_summarize_merge_payload(merge_payload))
+
+    release_path = release_gate_path
+    if release_path is None or not release_path.is_file():
+        release_path = _find_latest_json_file(PJC_TWO_PARTY_EVIDENCE_DIR / "release_policy_gate", job_id=job_id) or release_path
+    release_payload = _maybe_load_json(release_path) if release_path is not None and release_path.is_file() else None
+    release_artifact = _artifact_record(release_path, payload=release_payload, summary=_summarize_release_gate_payload(release_payload))
+
+    party_b_bucket_rows = party_b.get("bucket_results") if isinstance(party_b.get("bucket_results"), list) else []
+    party_a_bucket_rows = party_a.get("bucket_results") if isinstance(party_a.get("bucket_results"), list) else []
+    summary_source = "none"
+    bucket_rows = party_b_bucket_rows or party_a_bucket_rows
+    total_size = None
+    total_sum = None
+    if bucket_rows:
+        summary_source = "party_b_buckets" if party_b_bucket_rows else "party_a_buckets"
+        size_values = [row.get("intersection_size") for row in bucket_rows if isinstance(row, dict) and isinstance(row.get("intersection_size"), (int, float))]
+        sum_values = [row.get("intersection_sum") for row in bucket_rows if isinstance(row, dict) and isinstance(row.get("intersection_sum"), (int, float))]
+        total_size = int(sum(size_values)) if size_values else None
+        total_sum = int(sum(sum_values)) if sum_values else None
+    else:
+        for source_name, party_payload in (
+            ("party_b_result", (((party_b.get("artifacts") or {}).get("attribution_result") or {}).get("summary") if isinstance(party_b.get("artifacts"), dict) else None)),
+            ("party_a_result", (((party_a.get("artifacts") or {}).get("attribution_result") or {}).get("summary") if isinstance(party_a.get("artifacts"), dict) else None)),
+        ):
+            if isinstance(party_payload, dict):
+                summary_source = source_name
+                if isinstance(party_payload.get("intersection_size"), (int, float)):
+                    total_size = int(party_payload.get("intersection_size"))
+                if isinstance(party_payload.get("intersection_sum"), (int, float)):
+                    total_sum = int(party_payload.get("intersection_sum"))
+                break
+
+    release_summary = release_artifact.get("summary") if isinstance(release_artifact.get("summary"), dict) else {}
+    merge_summary = merge_artifact.get("summary") if isinstance(merge_artifact.get("summary"), dict) else {}
+    party_b_public_report = (((party_b.get("artifacts") or {}).get("public_report") or {}).get("summary") if isinstance(party_b.get("artifacts"), dict) else None)
+    if not isinstance(party_b_public_report, dict):
+        party_b_public_report = {}
+    notes: list[str] = []
+    notes.extend(item for item in (party_a.get("notes") or []) if isinstance(item, str))
+    notes.extend(item for item in (party_b.get("notes") or []) if isinstance(item, str))
+    if total_size is None and total_sum is None:
+        notes.append("No attribution_result.json payload is currently readable from the provided role_dir / result_dir inputs.")
+
+    artifacts_to_count = []
+    for section in (party_a, party_b):
+        artifacts = section.get("artifacts") if isinstance(section.get("artifacts"), dict) else {}
+        artifacts_to_count.extend(value for value in artifacts.values() if isinstance(value, dict))
+    artifacts_to_count.extend([merge_artifact, release_artifact])
+    available_artifact_count = sum(1 for item in artifacts_to_count if item.get("available") is True)
+    missing_artifact_count = len(artifacts_to_count) - available_artifact_count
+
+    findings = []
+    if merge_artifact.get("available") is not True:
+        findings.append("evidence_merge report is not available yet")
+    if release_artifact.get("available") is not True:
+        findings.append("release_policy_gate report is not available yet")
+    for party_label, section in (("party_a", party_a), ("party_b", party_b)):
+        artifacts = section.get("artifacts") if isinstance(section.get("artifacts"), dict) else {}
+        for artifact_name, artifact in artifacts.items():
+            if isinstance(artifact, dict) and artifact.get("available") is not True:
+                findings.append(f"{party_label}.{artifact_name} is not available")
+
+    return {
+        "schema": PJC_TWO_PARTY_RESULT_SUMMARY_SCHEMA,
+        "generated_at_utc": _utc_now_iso(),
+        "status": "ok",
+        "job_id": job_id,
+        "combined": {
+            "summary_source": summary_source,
+            "bucket_count": len(bucket_rows),
+            "intersection_size_total": total_size,
+            "intersection_sum_total": total_sum,
+            "release_decision": release_summary.get("decision") if isinstance(release_summary, dict) else None,
+            "release_reason_code": release_summary.get("reason_code") if isinstance(release_summary, dict) else None,
+            "merge_decision": merge_summary.get("decision") if isinstance(merge_summary, dict) else None,
+            "merge_reason_code": merge_summary.get("reason_code") if isinstance(merge_summary, dict) else None,
+            "released": (
+                True if (isinstance(release_summary, dict) and release_summary.get("decision") == "allow")
+                else party_b_public_report.get("released")
+            ),
+            "public_reason_code": party_b_public_report.get("reason_code"),
+            "available_artifact_count": available_artifact_count,
+            "missing_artifact_count": missing_artifact_count,
+            "notes": notes,
+        },
+        "party_a": party_a,
+        "party_b": party_b,
+        "evidence_merge": merge_artifact,
+        "release_gate": release_artifact,
+        "findings": findings,
+    }
+
+
 # --- Required negative-case runner --------------------------------------------
 
 
@@ -5136,6 +5640,10 @@ class DashboardServer(ThreadingHTTPServer):
         privacy_budget_approval_decisions: str = "",
         mtls_enrollment_only_mode: bool = False,
         console_dist: Path | None = None,
+        metadata_api_base_url: str = "",
+        query_api_base_url: str = "",
+        audit_api_base_url: str = "",
+        health_api_base_url: str = "",
         session_cookie_name: str = DEFAULT_IDENTITY_SESSION_COOKIE_NAME,
         session_cookie_secure: bool = False,
         enqueue_approved_requests: bool = False,
@@ -5160,6 +5668,12 @@ class DashboardServer(ThreadingHTTPServer):
         )
         self.mtls_enrollment_only_mode = bool(mtls_enrollment_only_mode)
         self.console_dist = console_dist
+        self.sidecar_proxy_bases = {
+            "metadata": _normalized_sidecar_base(metadata_api_base_url) if metadata_api_base_url else "",
+            "query": _normalized_sidecar_base(query_api_base_url) if query_api_base_url else "",
+            "audit": _normalized_sidecar_base(audit_api_base_url) if audit_api_base_url else "",
+            "health": _normalized_sidecar_base(health_api_base_url) if health_api_base_url else "",
+        }
         self.session_cookie_name = session_cookie_name.strip() or DEFAULT_IDENTITY_SESSION_COOKIE_NAME
         self.session_cookie_secure = bool(session_cookie_secure)
         self.enqueue_approved_requests = bool(enqueue_approved_requests)
@@ -5387,6 +5901,63 @@ class DashboardHandler(BaseHTTPRequestHandler):
     ) -> None:
         body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
         self._send(status, "application/json; charset=utf-8", body, extra_headers=extra_headers)
+
+    def _proxy_sidecar_request(self, *, method: str, path: str, query_string: str = "") -> bool:
+        routed = _route_sidecar_proxy(path)
+        if routed is None:
+            return False
+        sidecar_key, upstream_path = routed
+        upstream_base = str(self.server.sidecar_proxy_bases.get(sidecar_key) or "").strip()
+        if not upstream_base:
+            self._send_json(503, {
+                "error": "sidecar_proxy_unconfigured",
+                "message": f"sidecar proxy base URL missing for {sidecar_key}",
+                "sidecar": sidecar_key,
+            })
+            return True
+        target = upstream_base + upstream_path
+        if query_string:
+            target = f"{target}?{query_string}"
+        body = b""
+        if method in {"POST", "PUT", "PATCH"}:
+            content_length = int(self.headers.get("Content-Length", "0") or "0")
+            body = self.rfile.read(content_length) if content_length > 0 else b""
+        headers = _filter_forward_headers(self.headers)
+        req = urllib_request.Request(target, data=body or None, headers=headers, method=method)
+        opener = urllib_request.build_opener(urllib_request.ProxyHandler({}))
+        try:
+            with opener.open(req, timeout=30) as resp:
+                payload = resp.read()
+                self.send_response(resp.status)
+                for key, value in resp.headers.items():
+                    lowered = key.lower()
+                    if lowered in {"transfer-encoding", "connection", "content-length"}:
+                        continue
+                    self.send_header(key, value)
+                self.send_header("Content-Length", str(len(payload)))
+                self.end_headers()
+                self.wfile.write(payload)
+            return True
+        except urllib_request.HTTPError as exc:
+            payload = exc.read()
+            self.send_response(exc.code)
+            for key, value in exc.headers.items():
+                lowered = key.lower()
+                if lowered in {"transfer-encoding", "connection", "content-length"}:
+                    continue
+                self.send_header(key, value)
+            self.send_header("Content-Length", str(len(payload)))
+            self.end_headers()
+            self.wfile.write(payload)
+            return True
+        except OSError as exc:
+            self._send_json(502, {
+                "error": "sidecar_proxy_failed",
+                "message": str(exc),
+                "sidecar": sidecar_key,
+                "target": target,
+            })
+            return True
 
     def _read_json_body(self) -> dict[str, Any]:
         content_length = int(self.headers.get("Content-Length", "0") or "0")
@@ -5670,6 +6241,8 @@ class DashboardHandler(BaseHTTPRequestHandler):
         parsed = urlparse(self.path)
         path = parsed.path
         query = parse_qs(parsed.query, keep_blank_values=False)
+        if self._proxy_sidecar_request(method="GET", path=path, query_string=parsed.query):
+            return
         if self.server.mtls_enrollment_only_mode and path not in ("/healthz",):
             # Dedicated enrollment-only mode: the only thing this server is
             # supposed to expose is POST /v1/pjc-mtls/enroll. Block every
@@ -5878,6 +6451,8 @@ class DashboardHandler(BaseHTTPRequestHandler):
     def do_POST(self) -> None:
         parsed = urlparse(self.path)
         path = parsed.path
+        if self._proxy_sidecar_request(method="POST", path=path, query_string=parsed.query):
+            return
         if self.server.mtls_enrollment_only_mode and path != "/v1/pjc-mtls/enroll":
             self._send_json(404, {
                 "status": "error",
@@ -6200,6 +6775,16 @@ class DashboardHandler(BaseHTTPRequestHandler):
             except ValueError as exc:
                 self._send_json(400, {"status": "error", "error": "invalid_request", "message": str(exc)})
             return
+        if path == "/v1/pjc/two-party/result-summary":
+            if not self._require_roles_if_auth_configured(*DASHBOARD_FULL_VIEW_ROLES):
+                return
+            try:
+                body = self._read_json_body()
+                payload = _two_party_result_summary(body)
+                self._send_json(200, payload)
+            except ValueError as exc:
+                self._send_json(400, {"status": "error", "error": "invalid_request", "message": str(exc)})
+            return
         if path == "/v1/pjc-mtls/negative-cases/run":
             try:
                 body = self._read_json_body()
@@ -6419,6 +7004,10 @@ def build_parser() -> argparse.ArgumentParser:
         help="Optional PostgreSQL replica DSN for identity-resolution SELECTs",
     )
     ap.add_argument("--identity-token-config", default="", help="Optional bearer-token to caller-identity mapping config")
+    ap.add_argument("--metadata-api-base-url", default="", help="Optional same-origin sidecar proxy target for metadata API")
+    ap.add_argument("--query-api-base-url", default="", help="Optional same-origin sidecar proxy target for query workflow API")
+    ap.add_argument("--audit-api-base-url", default="", help="Optional same-origin sidecar proxy target for audit query API")
+    ap.add_argument("--health-api-base-url", default="", help="Optional same-origin sidecar proxy target for platform health API")
     ap.add_argument(
         "--session-cookie-name",
         default=DEFAULT_IDENTITY_SESSION_COOKIE_NAME,
@@ -6502,6 +7091,10 @@ def main() -> int:
         privacy_budget_approval_decisions=args.privacy_budget_approval_decisions,
         mtls_enrollment_only_mode=bool(args.mtls_enrollment_only_mode),
         console_dist=console_dist,
+        metadata_api_base_url=args.metadata_api_base_url,
+        query_api_base_url=args.query_api_base_url,
+        audit_api_base_url=args.audit_api_base_url,
+        health_api_base_url=args.health_api_base_url,
         session_cookie_name=args.session_cookie_name,
         session_cookie_secure=bool(args.session_cookie_secure),
         enqueue_approved_requests=bool(args.enqueue_approved_requests),

@@ -359,6 +359,50 @@ export function JsonBlock({ data, className, maxHeight }: { data: unknown; class
   );
 }
 
+export function JsonDetails({
+  title = "原始 JSON",
+  data,
+  maxHeight = "320px",
+  defaultOpen = false,
+}: {
+  title?: ReactNode;
+  data: unknown;
+  maxHeight?: string;
+  defaultOpen?: boolean;
+}) {
+  return (
+    <details className="panel p-3" open={defaultOpen}>
+      <summary className="cursor-pointer text-2xs text-ink-muted hover:text-ink select-none">
+        {title}
+      </summary>
+      <JsonBlock data={data} className="mt-3" maxHeight={maxHeight} />
+    </details>
+  );
+}
+
+export function KeyValueGrid({
+  items,
+  columns = 2,
+}: {
+  items: Array<{ label: ReactNode; value: ReactNode }>;
+  columns?: 2 | 3 | 4;
+}) {
+  const className =
+    columns === 4 ? "grid-cols-2 sm:grid-cols-4" :
+    columns === 3 ? "grid-cols-2 sm:grid-cols-3" :
+    "grid-cols-2";
+  return (
+    <div className={cx("grid gap-3 text-2xs", className)}>
+      {items.map((item, index) => (
+        <div key={index} className="panel-soft p-3 rounded-lg">
+          <div className="field-label">{item.label}</div>
+          <div className="text-sm font-semibold text-ink mt-1 break-words">{item.value}</div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 // ---------- Tag list ----------
 
 export function TagList({ items, max = 6 }: { items: Array<string | null | undefined>; max?: number }) {

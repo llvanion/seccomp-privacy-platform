@@ -49,7 +49,7 @@ def wait_for_remote_tls(host: str, port: int) -> None:
         report_path = out_dir / f"{host}_{port}.json"
         cmd = [
             "python3",
-            str((Path(script).resolve().parents[2] / "scripts" / "check_pjc_tls_readiness.py")),
+            str((Path(script).resolve().parents[3] / "scripts" / "check_pjc_tls_readiness.py")),
             "--job-id", os.environ.get("JOB_ID", "pjc-bucketed"),
             "--role", "client",
             "--peer-host", host,

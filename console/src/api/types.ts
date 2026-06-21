@@ -30,23 +30,42 @@ export type OperatorJob = {
   request?: Record<string, Json> | null;
 };
 
+export type OperatorAlert = {
+  alert_id?: string;
+  id?: string;
+  name?: string;
+  title?: string;
+  severity?: string;
+  state?: string;
+  firing?: boolean;
+  summary?: string;
+  message?: string;
+  triggered_at_utc?: string;
+  resolved_at_utc?: string;
+};
+
 export type OperatorDashboardFullData = {
   generated_at_utc: string;
   history_root: string;
   out_base?: string;
   hero?: Record<string, Json>;
   health?: Record<string, Json>;
+  job_control?: Record<string, Json> | null;
   jobs?: OperatorJob[];
-  recent_runs?: OperatorJob[];
-  alerts?: Array<{
-    id: string;
-    severity: string;
-    state: string;
-    title: string;
-    summary?: string;
-    triggered_at_utc?: string;
-    resolved_at_utc?: string;
-  }>;
+  recent_runs?: OperatorJob[] | {
+    search_dir?: string;
+    search_dir_display?: string;
+    total_found?: number;
+    returned_count?: number;
+    limit?: number;
+    statuses?: OperatorJob[];
+  };
+  alerts?: OperatorAlert[] | {
+    alert_count?: number;
+    firing_count?: number;
+    overall_status?: string;
+    alerts?: OperatorAlert[];
+  };
   audit_center?: Record<string, Json>;
   pjc_roles?: Record<string, Json>;
   bucketed_scale_test?: { jobs?: Array<Record<string, Json>> };
@@ -544,10 +563,23 @@ export type PlatformHealth = {
   schema?: string;
   out_base?: string;
   generated_at_utc?: string;
-  components: Array<{
+  summary?: {
+    status?: string;
+    ok?: number;
+    warn?: number;
+    error?: number;
+  };
+  components?: Array<{
     component: string;
     status: "ok" | "warn" | "err" | string;
     summary?: string;
+    details?: Record<string, Json>;
+  }>;
+  checks?: Array<{
+    name?: string;
+    component: string;
+    status: "ok" | "warn" | "error" | "err" | string;
+    error?: string;
     details?: Record<string, Json>;
   }>;
   mainline_contract_check?: Record<string, Json>;

@@ -3,6 +3,7 @@ import { Navigate } from "react-router-dom";
 
 import { AppLayout } from "./components/layout";
 import { ErrorBoundary } from "./components/error-boundary";
+import { AuthGate } from "./components/auth-gate";
 
 import { HomeRoute } from "./routes/home";
 import { JobsRoute } from "./routes/jobs";
@@ -14,6 +15,7 @@ import { RequestSubmitRoute } from "./routes/requests.submit";
 import { PrivacyBudgetApprovalsRoute } from "./routes/privacy-budget-approvals";
 import { SseQueryRoute } from "./routes/sse-query";
 import { PjcOnlyRoute } from "./routes/pjc-only";
+import { PjcTwoPartyRoute } from "./routes/pjc-two-party";
 import { AuditRoute } from "./routes/audit";
 import { CatalogRoute } from "./routes/catalog";
 import { BusinessAccessRoute } from "./routes/business-access";
@@ -23,11 +25,21 @@ import { ObservabilityRoute } from "./routes/observability";
 import { ComplianceRoute } from "./routes/compliance";
 import { SecurityRoute } from "./routes/security";
 import { SettingsRoute } from "./routes/settings";
+import { LoginRoute } from "./routes/login";
 
 export const router: RouteObject[] = [
   {
+    path: "/login",
+    element: <LoginRoute />,
+    errorElement: <ErrorBoundary />,
+  },
+  {
     path: "/",
-    element: <AppLayout />,
+    element: (
+      <AuthGate>
+        <AppLayout />
+      </AuthGate>
+    ),
     errorElement: <ErrorBoundary />,
     children: [
       { index: true, element: <Navigate to="/home" replace /> },
@@ -41,6 +53,7 @@ export const router: RouteObject[] = [
       { path: "privacy-budget-approvals", element: <PrivacyBudgetApprovalsRoute /> },
       { path: "sse-query", element: <SseQueryRoute /> },
       { path: "pjc-only", element: <PjcOnlyRoute /> },
+      { path: "pjc-two-party", element: <PjcTwoPartyRoute /> },
       { path: "audit/*", element: <AuditRoute /> },
       { path: "catalog/*", element: <CatalogRoute /> },
       { path: "business-access", element: <BusinessAccessRoute /> },

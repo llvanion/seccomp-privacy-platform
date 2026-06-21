@@ -24,6 +24,8 @@ import {
 } from "lucide-react";
 
 import { cx } from "@/lib/cx";
+import { operatorApi } from "@/api/operator";
+import { useApiQuery } from "@/hooks/useApi";
 
 type NavEntry = {
   to: string;
@@ -43,6 +45,7 @@ const NAV_GROUPS: Array<{ label: string; items: NavEntry[] }> = [
       { to: "/privacy-budget-approvals", label: "预算审批", description: "Privacy budget approvals", icon: CircleDollarSign },
       { to: "/sse-query", label: "SSE 查询", description: "One-shot keyword search", icon: Search },
       { to: "/pjc-only", label: "PJC 求交", description: "Standalone PJC on prepared CSVs", icon: Calculator },
+      { to: "/pjc-two-party", label: "两机 PJC", description: "Public two-host Party A+B workbench", icon: Network },
     ],
   },
   {
@@ -73,13 +76,16 @@ export function AppLayout() {
   const [collapsed, setCollapsed] = useState(false);
   const navigation = useNavigation();
   const isLoading = navigation.state === "loading";
+  const sessionQ = useApiQuery(["operator", "session"], () => operatorApi.sessionStatus(), { retry: 0 });
+  const sessionState = sessionQ.data?.status ?? "unknown";
+  const sessionCaller = sessionQ.data?.authenticated_identity?.caller ?? null;
 
   return (
     <div className={cx("min-h-screen grid", collapsed ? "grid-cols-[64px_1fr]" : "grid-cols-[260px_1fr]")}
     >
       <Sidebar collapsed={collapsed} toggle={() => setCollapsed((c) => !c)} />
       <main className="flex flex-col min-w-0">
-        <Topbar isLoading={isLoading} />
+        <Topbar isLoading={isLoading} sessionState={sessionState} sessionCaller={sessionCaller} />
         <div className="flex-1 p-6 overflow-x-hidden">
           <Outlet />
         </div>
@@ -164,13 +170,31 @@ function Sidebar({ collapsed, toggle }: { collapsed: boolean; toggle: () => void
   );
 }
 
-function Topbar({ isLoading }: { isLoading: boolean }) {
+function Topbar({ isLoading, sessionState, sessionCaller }: { isLoading: boolean; sessionState: string; sessionCaller: string | null }) {
+  const sessionKnownUnauthed = sessionState === "unauthenticated" || sessionState === "rejected" || sessionState === "cleared";
+  const sessionAuthenticated = sessionState === "authenticated";
+  const sessionLabel = sessionAuthenticated
+    ? `session:${sessionCaller ?? "ok"}`
+    : sessionKnownUnauthed
+      ? "未登录，请到设置页一键登录"
+      : "session checking…";
+
   return (
     <div className="sticky top-0 z-10 border-b border-line bg-bg/80 backdrop-blur">
       <div className="flex items-center gap-3 px-6 py-3">
         <Radar className={cx("w-4 h-4", isLoading ? "text-brand animate-pulse" : "text-ink-dim")} />
         <div className="text-2xs text-ink-muted font-mono">
           {isLoading ? "loading…" : "ready"}
+        </div>
+        <div className={cx(
+          "text-2xs px-2 py-1 rounded-md border",
+          sessionAuthenticated
+            ? "bg-accent-ok/10 text-accent-ok border-accent-ok/20"
+            : sessionKnownUnauthed
+              ? "bg-accent-warn/10 text-accent-warn border-accent-warn/20"
+              : "bg-bg-elevated text-ink-muted border-line-subtle",
+        )}>
+          {sessionLabel}
         </div>
         <div className="ml-auto flex items-center gap-3 text-2xs text-ink-muted">
           <TopbarBadge icon={Database} label="metadata" port="18090" />
