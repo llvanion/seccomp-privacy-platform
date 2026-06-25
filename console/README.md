@@ -37,6 +37,39 @@ The dashboard server resolves `--console-dist` (or defaults to
 `<repo>/console/dist`) and serves the SPA at `/` with SPA-fallback routing
 to `index.html` for client-side routes.
 
+## Theme switching
+
+The console now ships with both dark and light themes.
+
+- Use the top-right `白色 / 深色` toggle in the authenticated console header.
+- The login page also exposes a `白色 UI / 深色 UI` toggle before sign-in.
+- The chosen theme is persisted in browser `localStorage` under `console.theme`.
+- `index.html` applies the saved theme before React boot so refreshes do not
+  flash back to dark mode first.
+
+The implementation keeps one Tailwind utility surface and swaps CSS variables
+at the document root, so route-level components do not need duplicate theme
+class trees.
+
+## Demo entrypoint
+
+For the self-contained defense demo, use the dashboard-served SPA rather than
+the Vite dev server:
+
+```bash
+python3 ../scripts/prepare_defense_demo.py --out-dir ../tmp/defense_demo
+bash ../scripts/start_defense_demo.sh "$PWD/../tmp/defense_demo"
+```
+
+Then open:
+
+- `http://127.0.0.1:18094/`
+- Main route: `http://127.0.0.1:18094/home`
+
+If the browser cannot reach `127.0.0.1`, verify the browser and the terminal
+are running on the same machine. The demo scripts bind the dashboard to loopback
+by default.
+
 ## Sidecar API surface
 
 | Sidecar              | Default port | Routes consumed                                                                 |

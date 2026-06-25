@@ -7,6 +7,22 @@
     <meta name="color-scheme" content="dark" />
     <meta name="theme-color" content="#0a0f14" />
     <title>Seccomp Privacy Console</title>
+    <script>
+      (function () {
+        try {
+          var theme = localStorage.getItem("console.theme");
+          var resolved = theme === "light" ? "light" : "dark";
+          document.documentElement.classList.remove("dark", "light");
+          document.documentElement.classList.add(resolved);
+          var scheme = document.querySelector('meta[name="color-scheme"]');
+          if (scheme) scheme.setAttribute("content", resolved);
+          var themeColor = document.querySelector('meta[name="theme-color"]');
+          if (themeColor) themeColor.setAttribute("content", resolved === "light" ? "#f7fafc" : "#0a0f14");
+        } catch (_) {
+          document.documentElement.classList.add("dark");
+        }
+      })();
+    </script>
   </head>
   <body class="bg-bg text-ink antialiased">
     <div id="root"></div>

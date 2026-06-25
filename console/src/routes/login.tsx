@@ -7,10 +7,12 @@ import { operatorApi } from "@/api/operator";
 import { useApiQuery } from "@/hooks/useApi";
 import { Button, Card, CardHeader, Field, Input, PageHeader } from "@/components/ui";
 import { useToast } from "@/components/toast";
+import { useTheme } from "@/components/theme";
 
 const DEFENSE_OPERATOR_TOKEN = "demo-console-operator-token";
 
 export function LoginRoute() {
+  const { theme, toggleTheme } = useTheme();
   const location = useLocation();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
@@ -50,10 +52,15 @@ export function LoginRoute() {
   return (
     <div className="min-h-screen grid place-items-center px-6 py-10">
       <div className="w-full max-w-xl space-y-5">
-        <PageHeader
-          title="Operator Login"
-          description="先建立 HttpOnly session，再进入控制台。答辩 demo 默认 token 已预填。"
-        />
+        <div className="flex items-start justify-between gap-3">
+          <PageHeader
+            title="Operator Login"
+            description="先建立 HttpOnly session，再进入控制台。答辩 demo 默认 token 已预填。"
+          />
+          <Button variant="outline" size="sm" onClick={toggleTheme}>
+            {theme === "dark" ? "白色 UI" : "深色 UI"}
+          </Button>
+        </div>
 
         <Card>
           <CardHeader

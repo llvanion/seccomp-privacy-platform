@@ -3,7 +3,59 @@
 @tailwind utilities;
 
 :root {
+  --color-bg: 10 15 20;
+  --color-bg-subtle: 15 23 34;
+  --color-bg-panel: 18 28 40;
+  --color-bg-elevated: 25 38 54;
+  --color-line: 36 53 72;
+  --color-line-subtle: 28 42 58;
+  --color-line-strong: 47 70 93;
+  --color-ink: 230 237 246;
+  --color-ink-muted: 146 162 182;
+  --color-ink-dim: 93 107 126;
+  --color-brand: 94 200 255;
+  --color-brand-subtle: 31 143 255;
+  --color-brand-deep: 15 95 166;
+  --color-accent-ok: 55 214 122;
+  --color-accent-warn: 242 185 75;
+  --color-accent-err: 255 107 107;
+  --color-accent-info: 94 200 255;
+  --shadow-card: 0 16px 36px rgba(0, 0, 0, 0.18);
+  --shadow-elevated: 0 24px 60px rgba(0, 0, 0, 0.28);
+  --shadow-glow: 0 0 0 1px rgba(94, 200, 255, 0.28), 0 0 24px rgba(94, 200, 255, 0.12);
+  --bg-radial-brand:
+    radial-gradient(circle at top right, rgba(31, 143, 255, 0.12), transparent 34%),
+    radial-gradient(circle at bottom left, rgba(55, 214, 122, 0.08), transparent 26%),
+    linear-gradient(180deg, #0a0f14 0%, #0f1722 100%);
   color-scheme: dark;
+}
+
+html.light {
+  --color-bg: 247 250 252;
+  --color-bg-subtle: 238 244 249;
+  --color-bg-panel: 255 255 255;
+  --color-bg-elevated: 232 239 246;
+  --color-line: 204 217 229;
+  --color-line-subtle: 220 229 237;
+  --color-line-strong: 176 192 208;
+  --color-ink: 18 31 44;
+  --color-ink-muted: 84 104 126;
+  --color-ink-dim: 120 139 159;
+  --color-brand: 11 120 212;
+  --color-brand-subtle: 59 151 255;
+  --color-brand-deep: 8 83 148;
+  --color-accent-ok: 21 140 85;
+  --color-accent-warn: 196 124 25;
+  --color-accent-err: 211 71 88;
+  --color-accent-info: 11 120 212;
+  --shadow-card: 0 12px 32px rgba(15, 23, 42, 0.08);
+  --shadow-elevated: 0 20px 52px rgba(15, 23, 42, 0.14);
+  --shadow-glow: 0 0 0 1px rgba(11, 120, 212, 0.2), 0 0 22px rgba(59, 151, 255, 0.14);
+  --bg-radial-brand:
+    radial-gradient(circle at top right, rgba(59, 151, 255, 0.14), transparent 32%),
+    radial-gradient(circle at bottom left, rgba(21, 140, 85, 0.08), transparent 24%),
+    linear-gradient(180deg, #f9fbfd 0%, #eef4f9 100%);
+  color-scheme: light;
 }
 
 html,
@@ -12,17 +64,27 @@ body,
   height: 100%;
 }
 
+html {
+  background-color: rgb(var(--color-bg));
+}
+
 body {
   font-feature-settings: "cv11", "ss01", "ss03";
   -webkit-font-smoothing: antialiased;
+  color: rgb(var(--color-ink));
+  background-color: rgb(var(--color-bg));
   background-image:
-    radial-gradient(1200px 600px at 100% 0%, rgba(31, 143, 255, 0.06), transparent 60%),
-    radial-gradient(900px 400px at 0% 100%, rgba(55, 214, 122, 0.04), transparent 60%);
+    radial-gradient(1200px 600px at 100% 0%, rgb(var(--color-brand-subtle) / 0.09), transparent 60%),
+    radial-gradient(900px 400px at 0% 100%, rgb(var(--color-accent-ok) / 0.06), transparent 60%);
   background-attachment: fixed;
+  transition:
+    background-color 160ms ease,
+    color 160ms ease,
+    background-image 160ms ease;
 }
 
 ::selection {
-  background: rgba(94, 200, 255, 0.32);
+  background: rgb(var(--color-brand) / 0.24);
 }
 
 @layer base {
@@ -93,9 +155,9 @@ body {
 .shimmer {
   background: linear-gradient(
     to right,
-    rgba(255, 255, 255, 0.04) 8%,
-    rgba(255, 255, 255, 0.08) 18%,
-    rgba(255, 255, 255, 0.04) 33%
+    rgb(var(--color-ink) / 0.04) 8%,
+    rgb(var(--color-ink) / 0.08) 18%,
+    rgb(var(--color-ink) / 0.04) 33%
   );
   background-size: 1600px 100%;
   animation: shimmer 1.6s linear infinite;

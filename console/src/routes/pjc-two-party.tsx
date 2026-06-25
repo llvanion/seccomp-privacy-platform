@@ -28,6 +28,7 @@ const DEFAULT_CLIENT_RESULT_DIR = `${DEFAULT_RUN_ROOT}/cross-vps-008_client`;
 
 type StepResult = Record<string, Json> | string | undefined;
 type JsonRecord = Record<string, Json>;
+type JsonPayload = Record<string, Json>;
 
 export function PjcTwoPartyRoute() {
   const toast = useToast();
@@ -134,11 +135,11 @@ export function PjcTwoPartyRoute() {
   });
 
   const enrollPartyB = useApiMutation(async () => {
-    const data = await operatorApi.mtlsPartyBEnroll({
+    const data = await operatorApi.mtlsPartyBEnroll(compactJson({
       bootstrap_uri: bootstrapUri,
       cert_dir: certDir,
       expected_ca_fingerprint: caFingerprint || undefined,
-    });
+    }));
     setEnrollResult(data);
     if (typeof data.fingerprint === "string" && data.fingerprint) {
       setCaFingerprint(data.fingerprint);
@@ -191,7 +192,7 @@ export function PjcTwoPartyRoute() {
   }, { successToast: "Client preflight 已执行", errorToast: false, onError: (err) => handleTypedError(err, setClientPreflightResult, toast, "Client preflight") });
 
   const exportServerPackage = useApiMutation(async () => {
-    const data = await operatorApi.pjcRolePackageExport({
+    const data = await operatorApi.pjcRolePackageExport(compactJson({
       job_id: jobId,
       role: "server",
       source_dir: serverRoleDir,
@@ -201,7 +202,7 @@ export function PjcTwoPartyRoute() {
       expected_ca_fingerprint_sha256: caFingerprint || undefined,
       dataplane_port: numOr(dataplanePort, 10502),
       operator_notes: `Party A package for ${jobId}`,
-    });
+    }));
     if (typeof data.package_path === "string") setServerPackagePath(data.package_path);
     setServerPackageResult(data);
     return data;
@@ -217,7 +218,7 @@ export function PjcTwoPartyRoute() {
   }, { successToast: "Client 端已导入 Party A package", errorToast: false, onError: (err) => handleTypedError(err, setClientPackageImportResult, toast, "Client import Party A package") });
 
   const exportClientPackage = useApiMutation(async () => {
-    const data = await operatorApi.pjcRolePackageExport({
+    const data = await operatorApi.pjcRolePackageExport(compactJson({
       job_id: jobId,
       role: "client",
       source_dir: clientRoleDir,
@@ -227,7 +228,7 @@ export function PjcTwoPartyRoute() {
       expected_ca_fingerprint_sha256: caFingerprint || undefined,
       dataplane_port: numOr(dataplanePort, 10502),
       operator_notes: `Party B package for ${jobId}`,
-    });
+    }));
     if (typeof data.package_path === "string") setClientPackagePath(data.package_path);
     setClientPackageResult(data);
     return data;
@@ -243,7 +244,7 @@ export function PjcTwoPartyRoute() {
   }, { successToast: "Server 端已导入 Party B package", errorToast: false, onError: (err) => handleTypedError(err, setServerPackageImportResult, toast, "Server import Party B package") });
 
   const startServer = useApiMutation(async () => {
-      const data = await operatorApi.pjcRoleStart("server", {
+      const data = await operatorApi.pjcRoleStart("server", compactJson({
         job_id: jobId,
         cert_dir: certDir,
         role_dir: serverRoleDir,
@@ -259,13 +260,13 @@ export function PjcTwoPartyRoute() {
         allow_legacy_unary: allowLegacyUnary,
         pjc_grpc_stream_chunk_elements: allowLegacyUnary ? 0 : 4096,
         server_csv: serverInputCsv,
-      });
+      }));
     setServerStartResult(data);
     return data;
   }, { successToast: "Party A server 已启动", errorToast: false, onError: (err) => handleTypedError(err, setServerStartResult, toast, "Start server role") });
 
   const startClient = useApiMutation(async () => {
-      const data = await operatorApi.pjcRoleStart("client", {
+      const data = await operatorApi.pjcRoleStart("client", compactJson({
         job_id: jobId,
         server_host: serverHost,
         cert_dir: certDir,
@@ -280,7 +281,7 @@ export function PjcTwoPartyRoute() {
         allow_legacy_unary: allowLegacyUnary,
         pjc_grpc_stream_chunk_elements: allowLegacyUnary ? 0 : 4096,
         client_csv: clientInputCsv,
-      });
+      }));
     setClientStartResult(data);
     return data;
   }, { successToast: "Party B client 已启动", errorToast: false, onError: (err) => handleTypedError(err, setClientStartResult, toast, "Start client role") });
@@ -310,7 +311,7 @@ export function PjcTwoPartyRoute() {
   }, { successToast: "Client role 已取消", errorToast: false, onError: (err) => handleTypedError(err, setClientCancelResult, toast, "Cancel client role") });
 
   const signServerManifest = useApiMutation(async () => {
-    const data = await operatorApi.pjcRunManifestSign({
+    const data = await operatorApi.pjcRunManifestSign(compactJson({
       job_id: jobId,
       party: "party_a",
       peer_party: "party_b",
@@ -327,13 +328,13 @@ export function PjcTwoPartyRoute() {
       ca_fingerprint_sha256: caFingerprint || undefined,
       repo_commit: repoCommit || undefined,
       output_dir: signedManifestRoot,
-    });
+    }));
     setServerManifestSignResult(data);
     return data;
   }, { successToast: "Party A signed manifest 已写出" });
 
   const signClientManifest = useApiMutation(async () => {
-    const data = await operatorApi.pjcRunManifestSign({
+    const data = await operatorApi.pjcRunManifestSign(compactJson({
       job_id: jobId,
       party: "party_b",
       peer_party: "party_a",
@@ -350,7 +351,7 @@ export function PjcTwoPartyRoute() {
       ca_fingerprint_sha256: caFingerprint || undefined,
       repo_commit: repoCommit || undefined,
       output_dir: signedManifestRoot,
-    });
+    }));
     setClientManifestSignResult(data);
     return data;
   }, { successToast: "Party B signed manifest 已写出" });
@@ -368,20 +369,20 @@ export function PjcTwoPartyRoute() {
 
   const runReleaseGate = useApiMutation(async () => {
     const mergePath = extractPath(evidenceMergeResult, "evidence_path");
-    const data = await operatorApi.releasePolicyGate({
+    const data = await operatorApi.releasePolicyGate(compactJson({
       public_report_path: serverPublicReportPath,
       policy_config_path: policyConfigPath,
       operator_report_path: operatorReportPath || undefined,
       privacy_budget_ledger: privacyBudgetLedger || undefined,
       pjc_evidence_merge_path: mergePath || undefined,
       policy_audit_log_path: policyAuditLogPath || undefined,
-    });
+    }));
     setReleaseGateResult(data);
     return data;
   }, { successToast: "Release gate 已执行", errorToast: false, onError: (err) => handleTypedError(err, setReleaseGateResult, toast, "Release policy gate") });
 
   const runTlsDiagnostic = useApiMutation(async () => {
-    const data = await operatorApi.mtlsTlsDiagnostic({
+    const data = await operatorApi.mtlsTlsDiagnostic(compactJson({
       job_id: jobId,
       role: "client",
       peer_host: serverHost,
@@ -389,7 +390,7 @@ export function PjcTwoPartyRoute() {
       cert_dir: certDir,
       server_hostname: serverHostname,
       server_log_path: extractLogPath(serverStatusResult) || extractLogPath(serverStartResult) || undefined,
-    });
+    }));
     setTlsDiagnosticResult(data);
     return data;
   }, { successToast: "TLS diagnostic 已完成" });
@@ -421,7 +422,7 @@ export function PjcTwoPartyRoute() {
   }, { successToast: "Negative cases 已执行", errorToast: false, onError: (err) => handleTypedError(err, setNegativeCasesResult, toast, "Negative cases") });
 
   const refreshPublicResults = useApiMutation(async () => {
-    const data = await operatorApi.pjcTwoPartyResultSummary({
+    const data = await operatorApi.pjcTwoPartyResultSummary(compactJson({
       job_id: jobId,
       party_a_dir: partyADir || undefined,
       party_b_dir: partyBDir || undefined,
@@ -438,7 +439,7 @@ export function PjcTwoPartyRoute() {
       signed_manifest_root: signedManifestRoot || undefined,
       evidence_merge_path: extractPath(evidenceMergeResult, "evidence_path") || undefined,
       release_gate_path: extractPath(releaseGateResult, "evidence_path") || undefined,
-    });
+    }));
     setPublicResultSummary(data);
     return data;
   }, { successToast: "结果汇总已刷新", errorToast: false, onError: (err) => toast.pushError("结果汇总失败", err.message) });
@@ -1098,8 +1099,8 @@ function buildPreflightPayload(args: {
   inputCsvPath: string;
   inputManifestPath: string;
   outputDir: string;
-}): Record<string, Json> {
-  return {
+}): JsonPayload {
+  return compactJson({
     job_id: args.jobId,
     role: args.role,
     peer_host: args.peerHost,
@@ -1116,7 +1117,7 @@ function buildPreflightPayload(args: {
     output_dir: args.outputDir || undefined,
     expected_dataplane_port: args.peerPort,
     require_unique_output: true,
-  };
+  });
 }
 
 function handleTypedError(
@@ -1136,6 +1137,11 @@ function handleTypedError(
 function numOr(value: string, fallback: number): number {
   const n = Number(value);
   return Number.isFinite(n) ? n : fallback;
+}
+
+function compactJson(payload: Record<string, Json | undefined>): JsonPayload {
+  const entries = Object.entries(payload).filter(([, value]) => value !== undefined);
+  return Object.fromEntries(entries) as JsonPayload;
 }
 
 function extractStatus(value: StepResult): string | undefined {

@@ -6,6 +6,7 @@ import { RouterProvider, createBrowserRouter } from "react-router-dom";
 import "./styles/globals.css";
 import { router } from "./router";
 import { ToastProvider } from "./components/toast";
+import { ThemeProvider } from "./components/theme";
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -21,10 +22,12 @@ const browserRouter = createBrowserRouter(router);
 
 ReactDOM.createRoot(document.getElementById("root")!).render(
   <React.StrictMode>
-    <QueryClientProvider client={queryClient}>
-      <ToastProvider>
-        <RouterProvider router={browserRouter} />
-      </ToastProvider>
-    </QueryClientProvider>
+    <ThemeProvider>
+      <QueryClientProvider client={queryClient}>
+        <ToastProvider>
+          <RouterProvider router={browserRouter} />
+        </ToastProvider>
+      </QueryClientProvider>
+    </ThemeProvider>
   </React.StrictMode>,
 );

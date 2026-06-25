@@ -207,6 +207,26 @@ dist/release/
 - **同源（推荐）**：`scripts/serve_operator_dashboard.py --console-dist` 同时伺服 SPA 静态资源（`/`）与 sidecar API（`/v1/*`、`/healthz`、`/metrics`）。SPA 客户端路由通过 history 模式回退到 `index.html`。
 - **跨源开发**：`npm --prefix console run dev` 启动 Vite dev server（默认 5173），通过 `vite.config.ts` 把 `/v1/*` `/healthz` `/metrics` 代理到 `CONSOLE_DEV_PROXY_TARGET`（默认 `http://127.0.0.1:18094`）。
 
+当前 SPA 已内置深色 / 白色双主题：
+
+- 登录页和登录后的顶栏都提供 `白色 / 深色` 切换按钮。
+- 主题选择保存在浏览器 `localStorage` 的 `console.theme`。
+- 首屏 HTML 会在 React 启动前提前应用已保存主题，避免刷新时先闪回深色。
+
+如果要打开仓库自带的答辩 demo 页面，推荐直接使用自包含 demo：
+
+```bash
+python3 scripts/prepare_defense_demo.py --out-dir tmp/defense_demo
+bash scripts/start_defense_demo.sh "$PWD/tmp/defense_demo"
+```
+
+然后打开：
+
+- `http://127.0.0.1:18094/`
+- 主页面入口：`http://127.0.0.1:18094/home`
+
+如果浏览器提示 `unable to connect`，通常表示浏览器与运行命令的终端不在同一个本机环境；因为默认绑定地址是 `127.0.0.1`。
+
 更多前端细节：[console/README.md](console/README.md)。
 
 ---

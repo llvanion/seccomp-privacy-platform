@@ -15,17 +15,21 @@ import {
   HardDrive,
   Home,
   KeyRound,
+  MoonStar,
   Network,
   Radar,
   Search,
   Settings,
   ShieldCheck,
+  SunMedium,
   TerminalSquare,
 } from "lucide-react";
 
 import { cx } from "@/lib/cx";
 import { operatorApi } from "@/api/operator";
 import { useApiQuery } from "@/hooks/useApi";
+import { Button } from "@/components/ui";
+import { useTheme } from "@/components/theme";
 
 type NavEntry = {
   to: string;
@@ -171,6 +175,7 @@ function Sidebar({ collapsed, toggle }: { collapsed: boolean; toggle: () => void
 }
 
 function Topbar({ isLoading, sessionState, sessionCaller }: { isLoading: boolean; sessionState: string; sessionCaller: string | null }) {
+  const { theme, toggleTheme } = useTheme();
   const sessionKnownUnauthed = sessionState === "unauthenticated" || sessionState === "rejected" || sessionState === "cleared";
   const sessionAuthenticated = sessionState === "authenticated";
   const sessionLabel = sessionAuthenticated
@@ -197,6 +202,15 @@ function Topbar({ isLoading, sessionState, sessionCaller }: { isLoading: boolean
           {sessionLabel}
         </div>
         <div className="ml-auto flex items-center gap-3 text-2xs text-ink-muted">
+          <Button
+            variant="outline"
+            size="sm"
+            aria-label="切换主题"
+            leftIcon={theme === "dark" ? <SunMedium className="w-3.5 h-3.5" /> : <MoonStar className="w-3.5 h-3.5" />}
+            onClick={toggleTheme}
+          >
+            {theme === "dark" ? "白色" : "深色"}
+          </Button>
           <TopbarBadge icon={Database} label="metadata" port="18090" />
           <TopbarBadge icon={TerminalSquare} label="query" port="18091" />
           <TopbarBadge icon={FileLock2} label="audit" port="18092" />

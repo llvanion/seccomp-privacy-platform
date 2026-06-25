@@ -1,4 +1,6 @@
 /** @type {import('tailwindcss').Config} */
+const colorVar = (name) => `rgb(var(${name}) / <alpha-value>)`;
+
 export default {
   content: ["./index.html", "./src/**/*.{ts,tsx}"],
   darkMode: "class",
@@ -6,32 +8,31 @@ export default {
     extend: {
       colors: {
         bg: {
-          DEFAULT: "#0a0f14",
-          subtle: "#0f1722",
-          panel: "#121c28",
-          elevated: "#192636",
+          DEFAULT: colorVar("--color-bg"),
+          subtle: colorVar("--color-bg-subtle"),
+          panel: colorVar("--color-bg-panel"),
+          elevated: colorVar("--color-bg-elevated"),
         },
         line: {
-          DEFAULT: "#243548",
-          subtle: "#1c2a3a",
-          strong: "#2f465d",
+          DEFAULT: colorVar("--color-line"),
+          subtle: colorVar("--color-line-subtle"),
+          strong: colorVar("--color-line-strong"),
         },
         ink: {
-          DEFAULT: "#e6edf6",
-          muted: "#92a2b6",
-          dim: "#5d6b7e",
+          DEFAULT: colorVar("--color-ink"),
+          muted: colorVar("--color-ink-muted"),
+          dim: colorVar("--color-ink-dim"),
         },
         brand: {
-          DEFAULT: "#5ec8ff",
-          subtle: "#1f8fff",
-          deep: "#0f5fa6",
-          glow: "rgba(94,200,255,.18)",
+          DEFAULT: colorVar("--color-brand"),
+          subtle: colorVar("--color-brand-subtle"),
+          deep: colorVar("--color-brand-deep"),
         },
         accent: {
-          ok: "#37d67a",
-          warn: "#f2b94b",
-          err: "#ff6b6b",
-          info: "#5ec8ff",
+          ok: colorVar("--color-accent-ok"),
+          warn: colorVar("--color-accent-warn"),
+          err: colorVar("--color-accent-err"),
+          info: colorVar("--color-accent-info"),
         },
       },
       fontFamily: {
@@ -39,9 +40,9 @@ export default {
         mono: ["ui-monospace", "SFMono-Regular", "Menlo", "Consolas", "monospace"],
       },
       boxShadow: {
-        card: "0 16px 36px rgba(0,0,0,.18)",
-        elevated: "0 24px 60px rgba(0,0,0,.28)",
-        glow: "0 0 0 1px rgba(94,200,255,.28), 0 0 24px rgba(94,200,255,.12)",
+        card: "var(--shadow-card)",
+        elevated: "var(--shadow-elevated)",
+        glow: "var(--shadow-glow)",
       },
       borderRadius: {
         card: "18px",
@@ -50,8 +51,7 @@ export default {
         "2xs": ["10px", { lineHeight: "14px" }],
       },
       backgroundImage: {
-        "radial-brand":
-          "radial-gradient(circle at top right, rgba(31,143,255,.12), transparent 34%), radial-gradient(circle at bottom left, rgba(55,214,122,.08), transparent 26%), linear-gradient(180deg, #0a0f14 0%, #0f1722 100%)",
+        "radial-brand": "var(--bg-radial-brand)",
       },
     },
   },
